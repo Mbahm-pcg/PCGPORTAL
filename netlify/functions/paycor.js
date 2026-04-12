@@ -272,6 +272,54 @@ exports.handler = async (event) => {
       return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
     }
 
+    // ── Proxy: employee/location punches (time clock data) ──
+    if (action === 'punches') {
+      const { legalEntityId, employeeId, startDate, endDate } = payload;
+      if (employeeId) {
+        let path = `/employees/${employeeId}/punches`;
+        const params = [];
+        if (startDate) params.push(`startDate=${startDate}`);
+        if (endDate) params.push(`endDate=${endDate}`);
+        if (params.length) path += '?' + params.join('&');
+        const res = await callPaycor(path);
+        return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
+      }
+      if (legalEntityId) {
+        let path = `/legalentities/${legalEntityId}/punches`;
+        const params = [];
+        if (startDate) params.push(`startDate=${startDate}`);
+        if (endDate) params.push(`endDate=${endDate}`);
+        if (params.length) path += '?' + params.join('&');
+        const res = await callPaycor(path);
+        return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
+      }
+      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing employeeId or legalEntityId' }) };
+    }
+
+    // ── Proxy: employee/location schedules ──
+    if (action === 'schedules') {
+      const { legalEntityId, employeeId, startDate, endDate } = payload;
+      if (employeeId) {
+        let path = `/employees/${employeeId}/schedules`;
+        const params = [];
+        if (startDate) params.push(`startDate=${startDate}`);
+        if (endDate) params.push(`endDate=${endDate}`);
+        if (params.length) path += '?' + params.join('&');
+        const res = await callPaycor(path);
+        return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
+      }
+      if (legalEntityId) {
+        let path = `/legalentities/${legalEntityId}/schedules`;
+        const params = [];
+        if (startDate) params.push(`startDate=${startDate}`);
+        if (endDate) params.push(`endDate=${endDate}`);
+        if (params.length) path += '?' + params.join('&');
+        const res = await callPaycor(path);
+        return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
+      }
+      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing employeeId or legalEntityId' }) };
+    }
+
     // ── Proxy: generic API call (for exploration) ──
     if (action === 'raw') {
       const { path, method } = payload;
