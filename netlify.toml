@@ -6,6 +6,10 @@
 [functions.pulse-cron]
   schedule = "0 2 * * *"
 
+# Scheduled Labor aggregation — every 4 hours
+[functions.labor-cron]
+  schedule = "0 */4 * * *"
+
 [[headers]]
   for = "/*"
   [headers.values]
