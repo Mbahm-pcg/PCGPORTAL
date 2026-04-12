@@ -13768,6 +13768,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
   const [storeHistory, setStoreHistory] = useState(null);
   const [hourlySales, setHourlySales] = useState({});
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [empExpanded, setEmpExpanded] = useState(false);
 
   const storeInfo = stores.find(s => s.pc === store.pc) || {};
@@ -13837,6 +13838,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
         setHourlySales(byHour);
       }
 
+      if (!employees.length && !storeHistory) setFetchError(true);
       setLoading(false);
     }
     loadAll();
@@ -13907,7 +13909,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
     const rate = emp.payRate || emp.PayRate || 0;
     const hourlyRate = isSalary ? (rate / 26 / 5 / 8) : rate; // rough hourly equiv for salaried
     const dailyCost = isSalary ? rate / 12 : hoursToday * rate;
-    const otStatus = hoursWeek >= 40 ? 'OT' : hoursWeek >= 35 ? 'Near OT' : null;
+    const otStatus = hoursWeek >= 40 ? 'OT' : hoursWeek >= 35 ? 'Approaching OT' : null;
 
     return {
       id,
@@ -13919,15 +13921,16 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
       hoursToday,
       hoursWeek,
       currentlyOnClock,
+      clockedInAt: currentlyOnClock && todayPairs.length > 0 ? new Date(todayPairs[todayPairs.length - 1].inMs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null,
       dailyCost,
       otStatus,
       todayPairs,
     };
   });
 
-  // Sort: OT first, then Near OT, then by hoursWeek desc
+  // Sort: OT first, then Approaching OT, then by hoursWeek desc
   enrichedEmps.sort((a, b) => {
-    const rank = e => e.otStatus === 'OT' ? 0 : e.otStatus === 'Near OT' ? 1 : 2;
+    const rank = e => e.otStatus === 'OT' ? 0 : e.otStatus === 'Approaching OT' ? 1 : 2;
     const r = rank(a) - rank(b);
     if (r !== 0) return r;
     return b.hoursWeek - a.hoursWeek;
@@ -14026,6 +14029,14 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
         </div>
         {loading && <div style={{ fontSize: '0.75rem', color: th.muted, marginLeft: 'auto' }}>Loading live data…</div>}
       </div>
+
+      {/* Error/retry banner */}
+      {fetchError && !loading && (
+        <div style={{ background: '#ff980020', border: '1px solid #ff9800', borderRadius: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ color: '#ff9800', fontSize: '0.8125rem' }}>Live data unavailable. Showing cached data.</span>
+          <button onClick={() => { setFetchError(false); setLoading(true); }} style={{ ...btn(th, { padding: '0.3rem 0.7rem', fontSize: '0.75rem' }) }}>Retry</button>
+        </div>
+      )}
 
       {/* KPI Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
@@ -14173,11 +14184,11 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
           <div style={{ overflowX: 'auto', marginTop: '0.75rem' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
               <thead>
-                <tr>{['Name', 'Role', 'Status', 'Hrs Today', 'Hrs/Wk', 'Rate', 'Cost Today'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
+                <tr>{['Name', 'Role', 'Status', 'Clocked In', 'Hrs Today', 'Hrs/Wk', 'Rate', 'Cost Today'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {enrichedEmps.length === 0 && (
-                  <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', color: th.muted }}>No employee data loaded</td></tr>
+                  <tr><td colSpan={8} style={{ ...tdS, textAlign: 'center', color: th.muted }}>No employee data loaded</td></tr>
                 )}
                 {enrichedEmps.map(emp => (
                   <tr key={emp.id}>
@@ -14188,11 +14199,12 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
                     <td style={{ ...tdS, color: th.muted }}>{emp.role}</td>
                     <td style={tdS}>
                       {emp.otStatus === 'OT'      && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#f44336', background: '#f4433620', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>OT</span>}
-                      {emp.otStatus === 'Near OT' && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#ff9800', background: '#ff980020', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>Near OT</span>}
+                      {emp.otStatus === 'Approaching OT' && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#ff9800', background: '#ff980020', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>Approaching OT</span>}
                       {emp.isSalary               && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2196f3', background: '#2196f320', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>Salary</span>}
                     </td>
+                    <td style={{ ...tdS, color: th.muted, fontSize: '0.75rem' }}>{emp.clockedInAt || '—'}</td>
                     <td style={tdS}>{emp.hoursToday.toFixed(2)}</td>
-                    <td style={{ ...tdS, color: emp.otStatus === 'OT' ? '#f44336' : emp.otStatus === 'Near OT' ? '#ff9800' : th.text, fontWeight: emp.otStatus ? 600 : 400 }}>{emp.hoursWeek.toFixed(1)}</td>
+                    <td style={{ ...tdS, color: emp.otStatus === 'OT' ? '#f44336' : emp.otStatus === 'Approaching OT' ? '#ff9800' : th.text, fontWeight: emp.otStatus ? 600 : 400 }}>{emp.hoursWeek.toFixed(1)}</td>
                     <td style={tdS}>{emp.isSalary ? '$' + Math.round(emp.rate).toLocaleString() + '/2wk' : '$' + emp.rate.toFixed(2) + '/hr'}</td>
                     <td style={tdS}>{fmtDollars(emp.dailyCost)}</td>
                   </tr>
@@ -14394,7 +14406,7 @@ function AdminLabor({ stores, districts, th, user }) {
               </div>
               <div style={{ fontSize: '1.25rem', fontWeight: 700, color: th.text, marginBottom: '0.25rem' }}>{fmtDollars(t.laborDollars)}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                <span style={{ color: clr, fontWeight: 600 }}>{fmtPct(pct)}</span>
+                <span style={{ color: clr, fontWeight: 600 }}>{t.sales > 0 ? fmtPct(pct) : '—'}</span>
                 <span style={{ color: th.muted }}>{fmtDollars(t.sales)} sales</span>
               </div>
               {timeFilter === 'today' && t.employees !== undefined && (
@@ -15862,7 +15874,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.66
+            v4.67
           </div>
         )}
         {/* Collapse toggle — desktop only */}
