@@ -13760,6 +13760,452 @@ function localDateStr(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
+// ── LaborDrillDown ───────────────────────────────────────────────────────────
+function LaborDrillDown({ store, stores, th, user, onBack }) {
+  const [activeTab, setActiveTab] = useState('hourly');
+  const [punches, setPunches] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [storeHistory, setStoreHistory] = useState(null);
+  const [hourlySales, setHourlySales] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [empExpanded, setEmpExpanded] = useState(false);
+
+  const storeInfo = stores.find(s => s.pc === store.pc) || {};
+  const mgrName = storeInfo.mgr || '—';
+
+  // Date helpers
+  const todayStr = localDateStr(new Date());
+  const weekStartStr = (() => {
+    const d = new Date();
+    const day = d.getDay(); // 0=Sun
+    d.setDate(d.getDate() - day);
+    return localDateStr(d);
+  })();
+
+  useEffect(() => {
+    async function loadAll() {
+      setLoading(true);
+      const legalEntityId = store.paycor || storeInfo.paycor;
+      const api = store.pc === '345986' ? 'p227' : 'p228';
+
+      const [punchRes, empRes, histData, salesRes] = await Promise.allSettled([
+        // 1. Live punches
+        fetch('/.netlify/functions/paycor', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'punches', legalEntityId, startDate: weekStartStr, endDate: todayStr }),
+        }).then(r => r.ok ? r.json() : null),
+
+        // 2. Employee list + pay rates
+        fetch('/.netlify/functions/paycor', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'laborSummary', legalEntityId }),
+        }).then(r => r.ok ? r.json() : null),
+
+        // 3. Store history from Blobs
+        cloudLoad('pcg_labor_store_' + store.pc),
+
+        // 4. Hourly sales from Pulse
+        fetch('/.netlify/functions/pulse', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api, endpoint: 'getGuestChecks', locRef: store.pc, busDt: todayStr,
+            include: 'guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl',
+          }),
+        }).then(r => r.ok ? r.json() : null),
+      ]);
+
+      if (punchRes.status === 'fulfilled' && punchRes.value) {
+        const raw = punchRes.value.punches || punchRes.value || [];
+        setPunches(Array.isArray(raw) ? raw : []);
+      }
+      if (empRes.status === 'fulfilled' && empRes.value) {
+        const raw = empRes.value.employees || empRes.value || [];
+        setEmployees(Array.isArray(raw) ? raw : []);
+      }
+      if (histData) {
+        setStoreHistory(typeof histData === 'string' ? JSON.parse(histData) : histData);
+      }
+      if (salesRes.status === 'fulfilled' && salesRes.value) {
+        // Bucket guest checks by hour
+        const checks = salesRes.value.guestChecks || salesRes.value?.response?.guestChecks || [];
+        const byHour = {};
+        (Array.isArray(checks) ? checks : []).forEach(chk => {
+          if (!chk.opnUTC) return;
+          const hr = new Date(chk.opnUTC).getHours();
+          byHour[hr] = (byHour[hr] || 0) + (chk.chkTtl || chk.subTtl || 0);
+        });
+        setHourlySales(byHour);
+      }
+
+      setLoading(false);
+    }
+    loadAll();
+  }, [store.pc, store.paycor]);
+
+  // ── Punch processing ──────────────────────────────────────────────────────
+  // Build per-employee punch pairs for today and for the full week
+  const nowMs = Date.now();
+
+  // Group punches by employeeId
+  const punchByEmp = {};
+  punches.forEach(p => {
+    const id = p.employeeId || p.EmployeeId;
+    if (!id) return;
+    if (!punchByEmp[id]) punchByEmp[id] = [];
+    punchByEmp[id].push(p);
+  });
+
+  // Sort each employee's punches by time and pair in/out
+  // Returns { hoursToday, hoursWeek, currentlyOnClock, todayPairs }
+  function calcHours(empId) {
+    const empPunches = (punchByEmp[empId] || []).slice().sort((a, b) =>
+      new Date(a.punchTime || a.PunchTime || a.time).getTime() -
+      new Date(b.punchTime || b.PunchTime || b.time).getTime()
+    );
+
+    let hoursWeek = 0, hoursToday = 0;
+    let currentlyOnClock = false;
+    const todayPairs = []; // [{inMs, outMs}]
+
+    // Pair punches: alternating in/out
+    let lastIn = null;
+    empPunches.forEach(p => {
+      const pType = (p.punchType || p.PunchType || '').toLowerCase();
+      const pMs = new Date(p.punchTime || p.PunchTime || p.time).getTime();
+      if (pType === 'in' || pType === 'clockin' || pType === 'start') {
+        lastIn = pMs;
+      } else if ((pType === 'out' || pType === 'clockout' || pType === 'end') && lastIn) {
+        const hrs = (pMs - lastIn) / 3600000;
+        hoursWeek += hrs;
+        const inDate = new Date(lastIn).toDateString();
+        if (inDate === new Date().toDateString()) {
+          hoursToday += hrs;
+          todayPairs.push({ inMs: lastIn, outMs: pMs });
+        }
+        lastIn = null;
+      }
+    });
+    // Still clocked in?
+    if (lastIn !== null) {
+      const hrs = (nowMs - lastIn) / 3600000;
+      hoursWeek += hrs;
+      const inDate = new Date(lastIn).toDateString();
+      if (inDate === new Date().toDateString()) {
+        hoursToday += hrs;
+        todayPairs.push({ inMs: lastIn, outMs: nowMs });
+        currentlyOnClock = true;
+      }
+    }
+    return { hoursToday, hoursWeek, currentlyOnClock, todayPairs };
+  }
+
+  // ── Employee enrichment ───────────────────────────────────────────────────
+  const enrichedEmps = employees.map(emp => {
+    const id = emp.employeeId || emp.EmployeeId || emp.id;
+    const { hoursToday, hoursWeek, currentlyOnClock, todayPairs } = calcHours(id);
+    const isSalary = (emp.payType || emp.PayType || '').toLowerCase().includes('salary');
+    const rate = emp.payRate || emp.PayRate || 0;
+    const hourlyRate = isSalary ? (rate / 26 / 5 / 8) : rate; // rough hourly equiv for salaried
+    const dailyCost = isSalary ? rate / 12 : hoursToday * rate;
+    const otStatus = hoursWeek >= 40 ? 'OT' : hoursWeek >= 35 ? 'Near OT' : null;
+
+    return {
+      id,
+      name: emp.name || emp.Name || emp.displayName || `Emp ${id}`,
+      role: emp.jobTitle || emp.JobTitle || emp.position || '—',
+      isSalary,
+      rate,
+      hourlyRate,
+      hoursToday,
+      hoursWeek,
+      currentlyOnClock,
+      dailyCost,
+      otStatus,
+      todayPairs,
+    };
+  });
+
+  // Sort: OT first, then Near OT, then by hoursWeek desc
+  enrichedEmps.sort((a, b) => {
+    const rank = e => e.otStatus === 'OT' ? 0 : e.otStatus === 'Near OT' ? 1 : 2;
+    const r = rank(a) - rank(b);
+    if (r !== 0) return r;
+    return b.hoursWeek - a.hoursWeek;
+  });
+
+  const otCount = enrichedEmps.filter(e => e.otStatus === 'OT').length;
+  const onClockCount = enrichedEmps.filter(e => e.currentlyOnClock).length;
+
+  // ── Hourly labor cost calculation (5am–10pm = hours 5..22) ───────────────
+  const HOURS = Array.from({ length: 18 }, (_, i) => i + 5); // 5..22
+
+  function laborForHour(hr) {
+    const winStart = new Date(); winStart.setHours(hr, 0, 0, 0);
+    const winEnd   = new Date(); winEnd.setHours(hr + 1, 0, 0, 0);
+    const winStartMs = winStart.getTime(), winEndMs = winEnd.getTime();
+
+    let cost = 0;
+    enrichedEmps.forEach(emp => {
+      if (emp.isSalary) {
+        cost += (emp.rate / 12) / 17; // daily_cost / 17 operating_hours
+        return;
+      }
+      // overlap of each today pair with this hour window
+      emp.todayPairs.forEach(({ inMs, outMs }) => {
+        const overlapStart = Math.max(inMs, winStartMs);
+        const overlapEnd   = Math.min(outMs, winEndMs);
+        if (overlapEnd > overlapStart) {
+          const overlapHrs = (overlapEnd - overlapStart) / 3600000;
+          // Apply OT rate if needed (simplified: if emp.hoursWeek > 40 use 1.5x)
+          const multiplier = emp.hoursWeek > 40 ? 1.5 : 1;
+          cost += overlapHrs * emp.rate * multiplier;
+        }
+      });
+    });
+    return cost;
+  }
+
+  const hourlyLabor = HOURS.map(hr => ({ hr, labor: laborForHour(hr), sales: hourlySales[hr] || 0 }));
+
+  // ── KPI totals (from today's data) ───────────────────────────────────────
+  const totalLaborToday = enrichedEmps.reduce((s, e) => s + e.dailyCost, 0);
+  const totalSalesToday = Object.values(hourlySales).reduce((s, v) => s + v, 0);
+  const laborPctToday = totalSalesToday > 0 ? (totalLaborToday / totalSalesToday) * 100 : 0;
+
+  // Fallback to cached blob data if live data not yet loaded
+  const cachedToday = store.today || {};
+  const dispLaborDollars = totalLaborToday > 0 ? totalLaborToday : (cachedToday.laborDollars || 0);
+  const dispSales        = totalSalesToday > 0  ? totalSalesToday  : (cachedToday.sales || 0);
+  const dispLaborPct     = dispSales > 0 ? (dispLaborDollars / dispSales) * 100 : (cachedToday.laborPct || 0);
+
+  // ── Hourly tab chart ──────────────────────────────────────────────────────
+  const maxBarVal = Math.max(...hourlyLabor.map(h => Math.max(h.labor, h.sales)), 1);
+
+  function HourlyBar({ h }) {
+    const laborH   = (h.labor / maxBarVal) * 100;
+    const salesH   = (h.sales / maxBarVal) * 100;
+    const pct      = h.sales > 0 ? (h.labor / h.sales) * 100 : 0;
+    const clr      = laborColor(pct);
+    const hrLabel  = h.hr === 12 ? '12p' : h.hr > 12 ? (h.hr - 12) + 'p' : h.hr + 'a';
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 80, width: '100%', justifyContent: 'center' }}>
+          <div style={{ width: '40%', height: laborH + '%', background: clr, borderRadius: '2px 2px 0 0', minHeight: h.labor > 0 ? 2 : 0, transition: 'height .3s' }} title={`Labor: ${fmtDollars(h.labor)}`} />
+          <div style={{ width: '40%', height: salesH + '%', background: '#FF671F55', borderRadius: '2px 2px 0 0', minHeight: h.sales > 0 ? 2 : 0, transition: 'height .3s' }} title={`Sales: ${fmtDollars(h.sales)}`} />
+        </div>
+        <div style={{ fontSize: '0.6rem', color: th.muted, marginTop: 2 }}>{hrLabel}</div>
+      </div>
+    );
+  }
+
+  const fmtHr = hr => hr === 12 ? '12:00p' : hr > 12 ? `${hr-12}:00p` : `${hr}:00a`;
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const tabBtn = (t, label) => (
+    <button key={t} onClick={() => setActiveTab(t)} style={{
+      background: activeTab === t ? '#FF671F' : th.card,
+      color: activeTab === t ? '#fff' : th.text,
+      border: 'none', padding: '0.4rem 1rem', cursor: 'pointer',
+      fontSize: '0.8125rem', fontWeight: 600, fontFamily: "'Source Sans 3'",
+    }}>{label}</button>
+  );
+
+  const thS = { fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5, padding: '0.4rem 0.6rem', textAlign: 'left', borderBottom: `1px solid ${th.cardBorder}` };
+  const tdS = { fontSize: '0.8125rem', color: th.text, padding: '0.4rem 0.6rem', borderBottom: `1px solid ${th.cardBorder}22` };
+
+  return (
+    <div style={{ fontFamily: "'Source Sans 3'" }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        <button onClick={onBack} style={{ ...btn(th, { padding: '0.4rem 0.75rem', fontSize: '0.875rem', background: th.card3, color: th.text }) }}>
+          ← Back
+        </button>
+        <div>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: th.text }}>{store.name || storeInfo.name}</div>
+          <div style={{ fontSize: '0.75rem', color: th.muted }}>District {store.district || storeInfo.district} · {mgrName}</div>
+        </div>
+        {loading && <div style={{ fontSize: '0.75rem', color: th.muted, marginLeft: 'auto' }}>Loading live data…</div>}
+      </div>
+
+      {/* KPI Row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        {[
+          { label: 'Labor $',   value: fmtDollars(dispLaborDollars), color: laborColor(dispLaborPct) },
+          { label: 'Labor %',   value: fmtPct(dispLaborPct),         color: laborColor(dispLaborPct) },
+          { label: 'Sales $',   value: fmtDollars(dispSales),        color: '#FF671F' },
+          { label: 'On Clock',  value: String(onClockCount || cachedToday.employeesOnClock || 0), color: '#FF671F' },
+        ].map((k, i) => (
+          <div key={i} style={{ ...card(th), padding: '1rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.6875rem', color: th.muted, textTransform: 'uppercase', fontWeight: 600, letterSpacing: 0.5 }}>{k.label}</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: k.color, marginTop: '0.25rem', fontFamily: "'Source Sans 3'" }}>{k.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tab Toggle */}
+      <div style={{ display: 'flex', borderRadius: '0.5rem', overflow: 'hidden', border: `1px solid ${th.cardBorder}`, marginBottom: '1.25rem', width: 'fit-content' }}>
+        {tabBtn('hourly', 'Hourly')}
+        {tabBtn('daily',  'Daily')}
+        {tabBtn('weekly', 'Weekly')}
+      </div>
+
+      {/* Hourly Tab */}
+      {activeTab === 'hourly' && (
+        <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '0.75rem' }}>
+            Labor vs Sales by Hour
+            <span style={{ marginLeft: '0.75rem', fontSize: '0.7rem', color: th.muted }}>
+              <span style={{ display: 'inline-block', width: 10, height: 10, background: '#4caf50', marginRight: 3, borderRadius: 2 }} />Labor
+              <span style={{ display: 'inline-block', width: 10, height: 10, background: '#FF671F55', marginLeft: 8, marginRight: 3, borderRadius: 2 }} />Sales
+            </span>
+          </div>
+          {/* Bar chart */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, paddingBottom: '0.25rem', overflowX: 'auto' }}>
+            {hourlyLabor.map(h => <HourlyBar key={h.hr} h={h} />)}
+          </div>
+          {/* Table */}
+          <div style={{ overflowX: 'auto', marginTop: '0.75rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+              <thead>
+                <tr>
+                  {['Hour', 'Labor $', 'Sales $', 'Labor %', 'On Clock'].map(h => (
+                    <th key={h} style={thS}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {hourlyLabor.filter(h => h.labor > 0 || h.sales > 0).map(h => {
+                  const pct = h.sales > 0 ? (h.labor / h.sales) * 100 : 0;
+                  const onClock = enrichedEmps.filter(e =>
+                    e.todayPairs.some(({ inMs, outMs }) => {
+                      const wS = new Date(); wS.setHours(h.hr, 0, 0, 0);
+                      const wE = new Date(); wE.setHours(h.hr + 1, 0, 0, 0);
+                      return inMs < wE.getTime() && outMs > wS.getTime();
+                    })
+                  ).length;
+                  return (
+                    <tr key={h.hr}>
+                      <td style={tdS}>{fmtHr(h.hr)}</td>
+                      <td style={tdS}>{fmtDollars(h.labor)}</td>
+                      <td style={tdS}>{fmtDollars(h.sales)}</td>
+                      <td style={{ ...tdS, color: laborColor(pct), fontWeight: 600 }}>{h.sales > 0 ? fmtPct(pct) : '—'}</td>
+                      <td style={tdS}>{onClock || '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Daily Tab */}
+      {activeTab === 'daily' && (
+        <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '0.75rem' }}>Last 7 Days</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+              <thead>
+                <tr>{['Day', 'Labor $', 'Sales $', 'Labor %', 'Hours Worked'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {storeHistory?.daily?.slice(-7).map((d, i) => {
+                  const pct = d.sales > 0 ? (d.laborDollars / d.sales) * 100 : 0;
+                  const dayName = d.date ? new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : `Day ${i+1}`;
+                  return (
+                    <tr key={i}>
+                      <td style={tdS}>{dayName}</td>
+                      <td style={tdS}>{fmtDollars(d.laborDollars)}</td>
+                      <td style={tdS}>{fmtDollars(d.sales)}</td>
+                      <td style={{ ...tdS, color: laborColor(pct), fontWeight: 600 }}>{fmtPct(pct)}</td>
+                      <td style={tdS}>{(d.hoursWorked || 0).toFixed(1)}</td>
+                    </tr>
+                  );
+                }) || (
+                  <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', color: th.muted }}>No daily history available</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Weekly Tab */}
+      {activeTab === 'weekly' && (
+        <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '0.75rem' }}>Weekly Summary</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+              <thead>
+                <tr>{['Week Of', 'Labor $', 'Sales $', 'Labor %', 'Avg Employees'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {storeHistory?.weekly?.slice(-8).map((w, i) => {
+                  const pct = w.sales > 0 ? (w.laborDollars / w.sales) * 100 : 0;
+                  const weekLabel = w.weekOf ? new Date(w.weekOf + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : `Wk ${i+1}`;
+                  return (
+                    <tr key={i}>
+                      <td style={tdS}>{weekLabel}</td>
+                      <td style={tdS}>{fmtDollars(w.laborDollars)}</td>
+                      <td style={tdS}>{fmtDollars(w.sales)}</td>
+                      <td style={{ ...tdS, color: laborColor(pct), fontWeight: 600 }}>{fmtPct(pct)}</td>
+                      <td style={tdS}>{(w.avgEmployees || 0).toFixed(1)}</td>
+                    </tr>
+                  );
+                }) || (
+                  <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', color: th.muted }}>No weekly history available</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Employee Panel */}
+      <div style={{ ...card(th), padding: '1rem' }}>
+        <button onClick={() => setEmpExpanded(x => !x)} style={{ ...btn(th, { background: th.card3, color: th.text, padding: '0.4rem 0.875rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }) }}>
+          <span>Employees ({enrichedEmps.length})</span>
+          {otCount > 0 && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#f44336', background: '#f4433620', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>{otCount} OT</span>}
+          <span style={{ fontSize: '0.75rem', color: th.muted }}>{empExpanded ? '▲' : '▼'}</span>
+        </button>
+
+        {empExpanded && (
+          <div style={{ overflowX: 'auto', marginTop: '0.75rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+              <thead>
+                <tr>{['Name', 'Role', 'Status', 'Hrs Today', 'Hrs/Wk', 'Rate', 'Cost Today'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {enrichedEmps.length === 0 && (
+                  <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', color: th.muted }}>No employee data loaded</td></tr>
+                )}
+                {enrichedEmps.map(emp => (
+                  <tr key={emp.id}>
+                    <td style={tdS}>
+                      {emp.currentlyOnClock && <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#4caf50', marginRight: 5, verticalAlign: 'middle' }} />}
+                      {emp.name}
+                    </td>
+                    <td style={{ ...tdS, color: th.muted }}>{emp.role}</td>
+                    <td style={tdS}>
+                      {emp.otStatus === 'OT'      && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#f44336', background: '#f4433620', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>OT</span>}
+                      {emp.otStatus === 'Near OT' && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#ff9800', background: '#ff980020', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>Near OT</span>}
+                      {emp.isSalary               && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2196f3', background: '#2196f320', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>Salary</span>}
+                    </td>
+                    <td style={tdS}>{emp.hoursToday.toFixed(2)}</td>
+                    <td style={{ ...tdS, color: emp.otStatus === 'OT' ? '#f44336' : emp.otStatus === 'Near OT' ? '#ff9800' : th.text, fontWeight: emp.otStatus ? 600 : 400 }}>{emp.hoursWeek.toFixed(1)}</td>
+                    <td style={tdS}>{emp.isSalary ? '$' + Math.round(emp.rate).toLocaleString() + '/2wk' : '$' + emp.rate.toFixed(2) + '/hr'}</td>
+                    <td style={tdS}>{fmtDollars(emp.dailyCost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Labor Section ────────────────────────────────────────────────────────────
 const LABOR_GREEN = 22.9, LABOR_YELLOW = 25.9;
 function laborColor(pct) { return pct <= LABOR_GREEN ? '#4caf50' : pct <= LABOR_YELLOW ? '#ff9800' : '#f44336'; }
@@ -15416,7 +15862,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.65
+            v4.66
           </div>
         )}
         {/* Collapse toggle — desktop only */}
