@@ -13760,6 +13760,210 @@ function localDateStr(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
+// ── Labor Section ────────────────────────────────────────────────────────────
+const LABOR_GREEN = 22.9, LABOR_YELLOW = 25.9;
+function laborColor(pct) { return pct <= LABOR_GREEN ? '#4caf50' : pct <= LABOR_YELLOW ? '#ff9800' : '#f44336'; }
+function laborLabel(pct) { return pct <= LABOR_GREEN ? 'On Target' : pct <= LABOR_YELLOW ? 'Watch' : 'Over Budget'; }
+function fmtDollars(n) { return '$' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+function fmtPct(n) { return (n || 0).toFixed(1) + '%'; }
+function timeAgo(iso) {
+  if (!iso) return '—';
+  const ms = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(ms / 60000);
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.floor(hrs / 24) + 'd ago';
+}
+
+function AdminLabor({ stores, districts, th, user }) {
+  const [laborData, setLaborData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedStore, setSelectedStore] = useState(null);
+  const [timeFilter, setTimeFilter] = useState('today');
+  const [districtFilter, setDistrictFilter] = useState('all');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const isDM = user?.userType === 'dm';
+
+  // Lock district filter for DMs
+  useEffect(() => {
+    if (isDM && user.district) setDistrictFilter(String(user.district));
+  }, [isDM, user]);
+
+  // Fetch cached labor data from Blobs
+  const fetchLaborData = useCallback(async () => {
+    try {
+      const data = await cloudLoad('pcg_labor_v1');
+      if (data) {
+        setLaborData(typeof data === 'string' ? JSON.parse(data) : data);
+        setError(null);
+      } else {
+        setError('No labor data available yet. The cron job may not have run.');
+      }
+    } catch (e) {
+      setError('Failed to load labor data');
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchLaborData(); }, [fetchLaborData]);
+
+  // Manual refresh — triggers the cron function on-demand
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch('/.netlify/functions/labor-cron', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manual: true }),
+      });
+      if (res.ok) {
+        await fetchLaborData();
+      }
+    } catch {}
+    setRefreshing(false);
+  };
+
+  // If a store is selected, show drill-down
+  if (selectedStore) {
+    return <LaborDrillDown
+      store={selectedStore}
+      stores={stores}
+      th={th}
+      user={user}
+      onBack={() => setSelectedStore(null)}
+    />;
+  }
+
+  if (loading) return <div style={{ padding: '2rem', textAlign: 'center', color: th.muted }}>Loading labor data...</div>;
+
+  // Filter stores by district
+  const storeEntries = laborData?.stores ? Object.entries(laborData.stores) : [];
+  const filtered = districtFilter === 'all'
+    ? storeEntries
+    : storeEntries.filter(([pc, s]) => s && String(s.district) === districtFilter);
+
+  // Sort by labor % descending (worst first)
+  filtered.sort((a, b) => (b[1]?.today?.laborPct || 0) - (a[1]?.today?.laborPct || 0));
+
+  // Compute summary for filtered stores
+  const summary = filtered.reduce((acc, [pc, s]) => {
+    const t = timeFilter === 'today' ? s?.today : s?.wtd;
+    if (!t) return acc;
+    acc.laborDollars += t.laborDollars || 0;
+    acc.sales += t.sales || 0;
+    acc.employees += (t.employees || 0);
+    acc.employeesOnClock += (t.employeesOnClock || 0);
+    acc.overtimeCount += (t.overtimeCount || 0);
+    return acc;
+  }, { laborDollars: 0, sales: 0, employees: 0, employeesOnClock: 0, overtimeCount: 0 });
+  summary.laborPct = summary.sales > 0 ? Math.round((summary.laborDollars / summary.sales) * 1000) / 10 : 0;
+
+  const kpiCards = [
+    { label: 'Total Labor', value: fmtDollars(summary.laborDollars), color: laborColor(summary.laborPct) },
+    { label: 'Avg Labor %', value: fmtPct(summary.laborPct), color: laborColor(summary.laborPct) },
+    { label: 'Total Sales', value: fmtDollars(summary.sales), color: '#FF671F' },
+    { label: 'On Clock', value: String(summary.employeesOnClock || summary.employees), color: '#FF671F' },
+  ];
+
+  return (
+    <div>
+      {error && <div style={{ background: '#ff980020', border: '1px solid #ff9800', borderRadius: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem', color: '#ff9800', fontSize: '0.875rem' }}>
+        {error}
+      </div>}
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+        <h2 style={{ margin: 0, fontFamily: "'Raleway'", fontWeight: 700, color: th.text }}>Labor</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span style={{ fontSize: '0.75rem', color: th.muted }}>Updated {timeAgo(laborData?.lastUpdated)}</span>
+          <button onClick={handleRefresh} disabled={refreshing} style={{ ...btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem', opacity: refreshing ? 0.5 : 1 }) }}>
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        {kpiCards.map((k, i) => (
+          <div key={i} style={{ ...card(th), padding: '1rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.6875rem', color: th.muted, textTransform: 'uppercase', fontWeight: 600, letterSpacing: 0.5 }}>{k.label}</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: k.color, marginTop: '0.25rem', fontFamily: "'Source Sans 3'" }}>{k.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', borderRadius: '0.5rem', overflow: 'hidden', border: `1px solid ${th.cardBorder}` }}>
+          {['today', 'wtd'].map(t => (
+            <button key={t} onClick={() => setTimeFilter(t)} style={{
+              background: timeFilter === t ? '#FF671F' : th.card,
+              color: timeFilter === t ? '#fff' : th.text,
+              border: 'none', padding: '0.4rem 1rem', cursor: 'pointer',
+              fontSize: '0.8125rem', fontWeight: 600, fontFamily: "'Source Sans 3'",
+            }}>
+              {t === 'today' ? 'Today' : 'This Week'}
+            </button>
+          ))}
+        </div>
+        {!isDM && (
+          <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} style={{ ...inp(th, { width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.8125rem' }) }}>
+            <option value="all">All Districts</option>
+            {[1,2,3,4,5,6,7,8].map(d => <option key={d} value={String(d)}>District {d}</option>)}
+          </select>
+        )}
+        {summary.overtimeCount > 0 && (
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#f44336', padding: '0.3rem 0.6rem', background: '#f4433615', borderRadius: '0.4rem' }}>
+            {summary.overtimeCount} OT
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+        {filtered.map(([pc, s]) => {
+          const t = timeFilter === 'today' ? s?.today : s?.wtd;
+          if (!t) return null;
+          const pct = t.laborPct || 0;
+          const clr = laborColor(pct);
+          return (
+            <div key={pc} onClick={() => {
+              const storeObj = stores.find(st => st.pc === pc);
+              setSelectedStore({ ...s, pc, paycor: storeObj?.paycor });
+            }} style={{
+              ...card(th),
+              padding: '1rem',
+              borderLeft: `3px solid ${clr}`,
+              cursor: 'pointer',
+              transition: 'transform .15s, box-shadow .15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 12px #0003'; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text }}>{s.name}</span>
+                <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                  {(t.overtimeCount || 0) > 0 && <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#f44336', background: '#f4433615', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>{t.overtimeCount} OT</span>}
+                  <span style={{ fontSize: '0.6875rem', color: th.muted }}>D{s.district}</span>
+                </div>
+              </div>
+              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: th.text, marginBottom: '0.25rem' }}>{fmtDollars(t.laborDollars)}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                <span style={{ color: clr, fontWeight: 600 }}>{fmtPct(pct)}</span>
+                <span style={{ color: th.muted }}>{fmtDollars(t.sales)} sales</span>
+              </div>
+              {timeFilter === 'today' && t.employees !== undefined && (
+                <div style={{ fontSize: '0.6875rem', color: th.muted, marginTop: '0.35rem' }}>
+                  {t.employeesOnClock || 0} on clock / {t.employees} total
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
@@ -15212,7 +15416,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.64
+            v4.65
           </div>
         )}
         {/* Collapse toggle — desktop only */}
