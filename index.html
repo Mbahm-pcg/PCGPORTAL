@@ -10220,6 +10220,7 @@ const getTabs = (user) => {
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
     { id: "pulse",     label: "Pulse",     icon: (c) => ICONS.pulse(c), green: true },
+    { id: "labor",     label: "Labor",     icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
@@ -10231,6 +10232,7 @@ const getTabs = (user) => {
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
     { id: "pulse",     label: "Pulse",     icon: (c) => ICONS.pulse(c), green: true },
+    { id: "labor",     label: "Labor",     icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
@@ -10240,6 +10242,7 @@ const getTabs = (user) => {
     ...BASE_TABS,
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
+    { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash",         icon: (c) => ICONS.dollar(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
   ];
@@ -15209,7 +15212,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.63
+            v4.64
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -15506,6 +15509,7 @@ function PCGPortal() {
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff) && <AdminPulse stores={stores} districts={districts} th={th} user={user} />}
+          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminLabor stores={stores} districts={districts} th={th} user={user} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} />}
           {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} th={th} showAlert={showAlert} user={user} announcements={announcements} setAnnouncements={setAnnouncements} />}
