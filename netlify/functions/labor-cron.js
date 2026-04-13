@@ -601,7 +601,7 @@ async function processAllStores(busDt, batchSize = 8) {
 
 function getLaborStore() {
   return getStore({
-    name: 'pcg-labor',
+    name: 'pcg-portal',
     consistency: 'strong',
     siteID: process.env.PCG_SITE_ID,
     token:  process.env.PCG_AUTH_TOKEN,
@@ -729,7 +729,7 @@ exports.handler = async (event) => {
     const blobStore = getLaborStore();
 
     // 1) Network summary blob
-    await blobStore.setJSON('pcg_labor_v1', networkBlob);
+    await blobStore.setJSON('pcg_labor_v1', { savedAt: new Date().toISOString(), data: networkBlob });
     console.log('[labor-cron] Wrote pcg_labor_v1');
 
     // 2) Per-store blobs (in batches of 8)
@@ -740,7 +740,8 @@ exports.handler = async (event) => {
         const key = `pcg_labor_store_${r.pc}`;
         let existing = null;
         try {
-          existing = await blobStore.get(key, { type: 'json' });
+          const raw = await blobStore.get(key, { type: 'json' });
+          existing = raw?.data || raw;
         } catch {}
 
         const dailyEntry = {
@@ -761,7 +762,7 @@ exports.handler = async (event) => {
         };
 
         const merged = mergeStoreBlob(existing, dailyEntry, weeklyEntry);
-        await blobStore.setJSON(key, merged);
+        await blobStore.setJSON(key, { savedAt: new Date().toISOString(), data: merged });
       }));
     }
     console.log('[labor-cron] Wrote per-store blobs for', storeResults.length, 'stores');
