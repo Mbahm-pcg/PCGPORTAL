@@ -13932,44 +13932,66 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
   const onClockCount = enrichedEmps.filter(e => e.currentlyOnClock).length;
 
   // ── Hourly labor cost calculation (5am–10pm = hours 5..22) ───────────────
+  // Use timecard records directly (they have in/out punch times and hours)
+  // since timecard employeeIds don't match employee list IDs
   const HOURS = Array.from({ length: 18 }, (_, i) => i + 5); // 5..22
   const currentHour = new Date().getHours();
 
-  function laborForHour(hr) {
-    // Don't show labor for future hours
-    if (hr > currentHour) return 0;
+  // Compute average hourly rate from employee list for cost estimation
+  const hourlyEmps = employees.filter(e => !(e.payType || '').toLowerCase().includes('salary'));
+  const avgHourlyRate = hourlyEmps.length > 0
+    ? hourlyEmps.reduce((s, e) => s + (e.payRate || 0), 0) / hourlyEmps.length
+    : 13; // fallback
 
+  // Salary cost: sum of all salaried employees' daily cost
+  const salaryEmps = employees.filter(e => (e.payType || '').toLowerCase().includes('salary'));
+  const totalSalaryCostPerDay = salaryEmps.reduce((s, e) => s + ((e.payRate || 0) / 12), 0);
+
+  // Total timecard hours today
+  const todayTimecards = punches.filter(tc => {
+    const d = tc.displayDate || tc.inActualPunch || '';
+    return d.startsWith(localDateStr(new Date()));
+  });
+  const totalTcHoursToday = todayTimecards.reduce((s, tc) => s + (tc.hoursAmount || 0), 0);
+
+  function laborForHour(hr) {
+    if (hr > currentHour) return 0;
     const winStart = new Date(); winStart.setHours(hr, 0, 0, 0);
     const winEnd   = new Date(); winEnd.setHours(hr + 1, 0, 0, 0);
     const winStartMs = winStart.getTime(), winEndMs = winEnd.getTime();
 
     let cost = 0;
-    const hoursElapsed = Math.min(currentHour - 5 + 1, 17); // hours passed since 5am, max 17
-    enrichedEmps.forEach(emp => {
-      if (emp.isSalary) {
-        // Spread salary cost only across hours that have passed
-        cost += hoursElapsed > 0 ? (emp.rate / 12) / hoursElapsed : 0;
-        return;
+    let empsInHour = 0;
+    // Calculate hourly labor from actual timecard punch times
+    todayTimecards.forEach(tc => {
+      const inTime = tc.inActualPunch || tc.inRoundedPunch;
+      const outTime = tc.outActualPunch || tc.outRoundedPunch;
+      if (!inTime) return;
+      const inMs = new Date(inTime).getTime();
+      const outMs = outTime ? new Date(outTime).getTime() : nowMs;
+      const overlapStart = Math.max(inMs, winStartMs);
+      const overlapEnd = Math.min(outMs, winEndMs);
+      if (overlapEnd > overlapStart) {
+        const overlapHrs = (overlapEnd - overlapStart) / 3600000;
+        cost += overlapHrs * avgHourlyRate;
+        empsInHour++;
       }
-      // overlap of each today pair with this hour window
-      emp.todayPairs.forEach(({ inMs, outMs }) => {
-        const overlapStart = Math.max(inMs, winStartMs);
-        const overlapEnd   = Math.min(outMs, winEndMs);
-        if (overlapEnd > overlapStart) {
-          const overlapHrs = (overlapEnd - overlapStart) / 3600000;
-          // Apply OT rate if needed (simplified: if emp.hoursWeek > 40 use 1.5x)
-          const multiplier = emp.hoursWeek > 40 ? 1.5 : 1;
-          cost += overlapHrs * emp.rate * multiplier;
-        }
-      });
     });
-    return cost;
+    // Spread salary cost across elapsed hours
+    const hoursElapsed = Math.min(currentHour - 5 + 1, 17);
+    if (hoursElapsed > 0) cost += totalSalaryCostPerDay / hoursElapsed;
+    return { cost, empsInHour };
   }
 
-  const hourlyLabor = HOURS.map(hr => ({ hr, labor: laborForHour(hr), sales: hourlySales[hr] || 0 }));
+  const hourlyLabor = HOURS.map(hr => {
+    const { cost, empsInHour } = laborForHour(hr);
+    return { hr, labor: cost, sales: hourlySales[hr] || 0, empsInHour };
+  });
 
   // ── KPI totals (from today's data) ───────────────────────────────────────
-  const totalLaborToday = enrichedEmps.reduce((s, e) => s + e.dailyCost, 0);
+  const totalLaborToday = (totalTcHoursToday * avgHourlyRate) + totalSalaryCostPerDay + enrichedEmps.reduce((s, e) => s + e.dailyCost, 0) > 0
+    ? (totalTcHoursToday * avgHourlyRate) + totalSalaryCostPerDay
+    : enrichedEmps.reduce((s, e) => s + e.dailyCost, 0);
   const totalSalesToday = Object.values(hourlySales).reduce((s, v) => s + v, 0);
   const laborPctToday = totalSalesToday > 0 ? (totalLaborToday / totalSalesToday) * 100 : 0;
 
@@ -14085,13 +14107,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
               <tbody>
                 {hourlyLabor.filter(h => h.labor > 0 || h.sales > 0).map(h => {
                   const pct = h.sales > 0 ? (h.labor / h.sales) * 100 : 0;
-                  const onClock = enrichedEmps.filter(e =>
-                    e.todayPairs.some(({ inMs, outMs }) => {
-                      const wS = new Date(); wS.setHours(h.hr, 0, 0, 0);
-                      const wE = new Date(); wE.setHours(h.hr + 1, 0, 0, 0);
-                      return inMs < wE.getTime() && outMs > wS.getTime();
-                    })
-                  ).length;
+                  const onClock = h.empsInHour || 0;
                   return (
                     <tr key={h.hr}>
                       <td style={tdS}>{fmtHr(h.hr)}</td>
@@ -15872,7 +15888,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.71
+            v4.72
           </div>
         )}
         {/* Collapse toggle — desktop only */}
