@@ -80,6 +80,8 @@ let tokenCache = {
   refreshToken: process.env.PAYCOR_REFRESH_TOKEN || null,
   expiresAt: 0,
 };
+// Mutex to prevent concurrent token refreshes (race condition fix)
+let refreshPromise = null;
 
 const PAYCOR_API_HOST = 'apis.paycor.com';
 const TOKEN_ENDPOINT  = '/sts/v1/common/token';
@@ -166,22 +168,26 @@ async function getAccessToken() {
     return tokenCache.accessToken;
   }
 
-  if (!tokenCache.refreshToken) {
-    throw new Error('NO_TOKEN: No refresh token available. Run OAuth activation flow first.');
-  }
+  // Mutex: if a refresh is already in progress, wait for it instead of firing another
+  if (refreshPromise) return refreshPromise;
 
-  const formBody = [
-    `grant_type=refresh_token`,
-    `refresh_token=${encodeURIComponent(tokenCache.refreshToken)}`,
-    `client_id=${encodeURIComponent(clientId)}`,
-    `client_secret=${encodeURIComponent(clientSecret)}`,
-  ].join('&');
+  refreshPromise = (async () => {
+    if (!tokenCache.refreshToken) {
+      throw new Error('NO_TOKEN: No refresh token available. Run OAuth activation flow first.');
+    }
 
-  const tokenPath = `${TOKEN_ENDPOINT}?subscription-key=${subscriptionKey}`;
+    const formBody = [
+      `grant_type=refresh_token`,
+      `refresh_token=${encodeURIComponent(tokenCache.refreshToken)}`,
+      `client_id=${encodeURIComponent(clientId)}`,
+      `client_secret=${encodeURIComponent(clientSecret)}`,
+    ].join('&');
 
-  const res = await httpsRequest(PAYCOR_API_HOST, tokenPath, 'POST', {
-    'Content-Type': 'application/x-www-form-urlencoded',
-  }, formBody);
+    const tokenPath = `${TOKEN_ENDPOINT}?subscription-key=${subscriptionKey}`;
+
+    const res = await httpsRequest(PAYCOR_API_HOST, tokenPath, 'POST', {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    }, formBody);
 
   if (res.status === 200 && res.data.access_token) {
     tokenCache = {
@@ -194,6 +200,13 @@ async function getAccessToken() {
   }
 
   throw new Error(`Token refresh failed: ${res.status} ${JSON.stringify(res.data).slice(0, 200)}`);
+  })();
+
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
 }
 
 /** Call the Paycor REST API. Retries once on 401. */

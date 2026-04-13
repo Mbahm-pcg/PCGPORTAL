@@ -13941,16 +13941,22 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
 
   // ── Hourly labor cost calculation (5am–10pm = hours 5..22) ───────────────
   const HOURS = Array.from({ length: 18 }, (_, i) => i + 5); // 5..22
+  const currentHour = new Date().getHours();
 
   function laborForHour(hr) {
+    // Don't show labor for future hours
+    if (hr > currentHour) return 0;
+
     const winStart = new Date(); winStart.setHours(hr, 0, 0, 0);
     const winEnd   = new Date(); winEnd.setHours(hr + 1, 0, 0, 0);
     const winStartMs = winStart.getTime(), winEndMs = winEnd.getTime();
 
     let cost = 0;
+    const hoursElapsed = Math.min(currentHour - 5 + 1, 17); // hours passed since 5am, max 17
     enrichedEmps.forEach(emp => {
       if (emp.isSalary) {
-        cost += (emp.rate / 12) / 17; // daily_cost / 17 operating_hours
+        // Spread salary cost only across hours that have passed
+        cost += hoursElapsed > 0 ? (emp.rate / 12) / hoursElapsed : 0;
         return;
       }
       // overlap of each today pair with this hour window
@@ -15874,7 +15880,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.67
+            v4.68
           </div>
         )}
         {/* Collapse toggle — desktop only */}
