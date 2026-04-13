@@ -13816,7 +13816,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
       ]);
 
       if (punchRes.status === 'fulfilled' && punchRes.value) {
-        const raw = punchRes.value.punches || punchRes.value || [];
+        const raw = punchRes.value.records || punchRes.value.punches || punchRes.value || [];
         setPunches(Array.isArray(raw) ? raw : []);
       }
       if (empRes.status === 'fulfilled' && empRes.value) {
@@ -13840,7 +13840,9 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
         setHourlySales(byHour);
       }
 
-      if (!employees.length && !storeHistory) setFetchError(true);
+      const hasEmpData = empRes.status === 'fulfilled' && empRes.value?.employees?.length > 0;
+      const hasPunchData = punchRes.status === 'fulfilled' && (punchRes.value?.records?.length > 0 || Array.isArray(punchRes.value));
+      if (!hasEmpData && !histData) setFetchError(true);
       setLoading(false);
     }
     loadAll();
@@ -15870,7 +15872,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.70
+            v4.71
           </div>
         )}
         {/* Collapse toggle — desktop only */}
