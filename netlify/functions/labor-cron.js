@@ -429,7 +429,10 @@ async function processStore(store, busDt) {
   let employees = [];
   try {
     employees = await fetchEmployees(legalEntityId);
-    employees = employees.filter(e => e.employeeStatus === 'Active' || e.status === 'Active' || !e.employeeStatus);
+    employees = employees.filter(e => {
+      const status = e.statusData?.status || e.employeeStatus || e.status || '';
+      return status === 'Active';
+    });
   } catch (e) {
     console.warn(`[labor-cron] ${name}: fetchEmployees failed:`, e.message);
   }

@@ -334,43 +334,60 @@ exports.handler = async (event) => {
       const { legalEntityId } = payload;
       if (!legalEntityId) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing legalEntityId' }) };
 
-      // Get employees
-      const empRes = await callPaycor(`/legalentities/${legalEntityId}/employees?include=All`);
-      if (empRes.status !== 200) {
-        return { statusCode: empRes.status, headers, body: JSON.stringify({ error: 'Failed to fetch employees', detail: empRes.data }) };
-      }
-
-      const employees = empRes.data?.records || empRes.data || [];
-
-      // For each employee, get pay rate (batch — limit to first 50 to stay under rate limits)
-      const laborData = [];
-      const batch = employees.slice(0, 50);
-
-      for (const emp of batch) {
-        try {
-          const rateRes = await callPaycor(`/employees/${emp.id}/payrates`);
-          const rates = rateRes.data?.records || rateRes.data || [];
-          const primaryRate = rates[0]; // Most recent/primary rate
-
-          laborData.push({
-            employeeId: emp.id,
-            firstName: emp.firstName,
-            lastName: emp.lastName,
-            status: emp.status,
-            department: emp.department,
-            jobTitle: emp.jobTitle,
-            payRate: primaryRate?.payRate || primaryRate?.rate || null,
-            payType: primaryRate?.payType || primaryRate?.type || null,
-            annualPay: primaryRate?.annualPayRate || null,
-          });
-        } catch (e) {
-          laborData.push({
-            employeeId: emp.id,
-            firstName: emp.firstName,
-            lastName: emp.lastName,
-            error: e.message,
-          });
+      // Get all employees (paginate if needed)
+      let allEmployees = [];
+      let continuationToken = null;
+      do {
+        let path = `/legalentities/${legalEntityId}/employees?include=All`;
+        if (continuationToken) path += `&continuationToken=${continuationToken}`;
+        const empRes = await callPaycor(path);
+        if (empRes.status !== 200) {
+          return { statusCode: empRes.status, headers, body: JSON.stringify({ error: 'Failed to fetch employees', detail: empRes.data }) };
         }
+        const records = empRes.data?.records || empRes.data || [];
+        allEmployees = allEmployees.concat(records);
+        continuationToken = empRes.data?.continuationToken || null;
+      } while (continuationToken);
+
+      // Filter to ACTIVE employees only (statusData.status === 'Active')
+      const activeEmployees = allEmployees.filter(emp => {
+        const status = emp.statusData?.status || emp.status || '';
+        return status === 'Active';
+      });
+
+      // For each active employee, get pay rate (batch in groups of 10)
+      const laborData = [];
+      for (let i = 0; i < activeEmployees.length; i += 10) {
+        const batch = activeEmployees.slice(i, i + 10);
+        const results = await Promise.all(batch.map(async (emp) => {
+          try {
+            const rateRes = await callPaycor(`/employees/${emp.id}/payrates`);
+            const rates = rateRes.data?.records || rateRes.data || [];
+            const primaryRate = rates[0]; // Most recent/primary rate
+
+            return {
+              employeeId: emp.id,
+              firstName: emp.firstName,
+              lastName: emp.lastName,
+              status: emp.statusData?.status || 'Active',
+              department: emp.department,
+              jobTitle: emp.positionData?.jobTitle || emp.jobTitle || '',
+              payRate: primaryRate?.payRate || primaryRate?.rate || null,
+              payType: primaryRate?.payType || primaryRate?.type || null,
+              annualPay: primaryRate?.annualPayRate || null,
+              flsa: emp.statusData?.flsa || null,
+            };
+          } catch (e) {
+            return {
+              employeeId: emp.id,
+              firstName: emp.firstName,
+              lastName: emp.lastName,
+              status: 'Active',
+              error: e.message,
+            };
+          }
+        }));
+        laborData.push(...results);
       }
 
       return {
@@ -378,7 +395,8 @@ exports.handler = async (event) => {
         headers,
         body: JSON.stringify({
           legalEntityId,
-          totalEmployees: employees.length,
+          totalEmployees: allEmployees.length,
+          activeEmployees: activeEmployees.length,
           fetchedRates: laborData.length,
           employees: laborData,
         }),
