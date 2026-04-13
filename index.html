@@ -13831,8 +13831,10 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
         const checks = salesRes.value.guestChecks || salesRes.value?.response?.guestChecks || [];
         const byHour = {};
         (Array.isArray(checks) ? checks : []).forEach(chk => {
-          if (!chk.opnUTC) return;
-          const hr = new Date(chk.opnUTC).getHours();
+          const raw = chk.opnUTC || '';
+          if (!raw) return;
+          const dt = new Date(raw.endsWith('Z') ? raw : raw + 'Z');
+          const hr = dt.getHours();
           byHour[hr] = (byHour[hr] || 0) + (chk.chkTtl || chk.subTtl || 0);
         });
         setHourlySales(byHour);
@@ -15880,7 +15882,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.68
+            v4.69
           </div>
         )}
         {/* Collapse toggle — desktop only */}
