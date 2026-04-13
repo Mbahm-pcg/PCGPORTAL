@@ -13846,60 +13846,48 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
     loadAll();
   }, [store.pc, store.paycor]);
 
-  // ── Punch processing ──────────────────────────────────────────────────────
-  // Build per-employee punch pairs for today and for the full week
+  // ── Timecard processing ─────────────────────────────────────────────────
+  // Paycor timecard records already have inActualPunch, outActualPunch, hoursAmount
   const nowMs = Date.now();
+  const todayDate = new Date().toDateString();
 
-  // Group punches by employeeId
-  const punchByEmp = {};
-  punches.forEach(p => {
-    const id = p.employeeId || p.EmployeeId;
+  // Group timecard records by employeeId
+  const tcByEmp = {};
+  punches.forEach(tc => {
+    const id = tc.employeeId;
     if (!id) return;
-    if (!punchByEmp[id]) punchByEmp[id] = [];
-    punchByEmp[id].push(p);
+    if (!tcByEmp[id]) tcByEmp[id] = [];
+    tcByEmp[id].push(tc);
   });
 
-  // Sort each employee's punches by time and pair in/out
   // Returns { hoursToday, hoursWeek, currentlyOnClock, todayPairs }
   function calcHours(empId) {
-    const empPunches = (punchByEmp[empId] || []).slice().sort((a, b) =>
-      new Date(a.punchTime || a.PunchTime || a.time).getTime() -
-      new Date(b.punchTime || b.PunchTime || b.time).getTime()
-    );
-
+    const records = tcByEmp[empId] || [];
     let hoursWeek = 0, hoursToday = 0;
     let currentlyOnClock = false;
-    const todayPairs = []; // [{inMs, outMs}]
+    const todayPairs = [];
 
-    // Pair punches: alternating in/out
-    let lastIn = null;
-    empPunches.forEach(p => {
-      const pType = (p.punchType || p.PunchType || '').toLowerCase();
-      const pMs = new Date(p.punchTime || p.PunchTime || p.time).getTime();
-      if (pType === 'in' || pType === 'clockin' || pType === 'start') {
-        lastIn = pMs;
-      } else if ((pType === 'out' || pType === 'clockout' || pType === 'end') && lastIn) {
-        const hrs = (pMs - lastIn) / 3600000;
-        hoursWeek += hrs;
-        const inDate = new Date(lastIn).toDateString();
-        if (inDate === new Date().toDateString()) {
+    records.forEach(tc => {
+      const inTime = tc.inActualPunch || tc.inRoundedPunch;
+      const outTime = tc.outActualPunch || tc.outRoundedPunch;
+      const hrs = tc.hoursAmount || 0;
+      hoursWeek += hrs;
+
+      if (inTime) {
+        const inMs = new Date(inTime).getTime();
+        const inDate = new Date(inTime).toDateString();
+        if (inDate === todayDate) {
           hoursToday += hrs;
-          todayPairs.push({ inMs: lastIn, outMs: pMs });
+          if (outTime) {
+            todayPairs.push({ inMs, outMs: new Date(outTime).getTime() });
+          } else {
+            // No out punch = still clocked in
+            todayPairs.push({ inMs, outMs: nowMs });
+            currentlyOnClock = true;
+          }
         }
-        lastIn = null;
       }
     });
-    // Still clocked in?
-    if (lastIn !== null) {
-      const hrs = (nowMs - lastIn) / 3600000;
-      hoursWeek += hrs;
-      const inDate = new Date(lastIn).toDateString();
-      if (inDate === new Date().toDateString()) {
-        hoursToday += hrs;
-        todayPairs.push({ inMs: lastIn, outMs: nowMs });
-        currentlyOnClock = true;
-      }
-    }
     return { hoursToday, hoursWeek, currentlyOnClock, todayPairs };
   }
 
@@ -15882,7 +15870,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.69
+            v4.70
           </div>
         )}
         {/* Collapse toggle — desktop only */}

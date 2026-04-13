@@ -337,7 +337,7 @@ async function fetchPrimaryPayRate(employeeId) {
 async function fetchPunches(legalEntityId, startDate, endDate) {
   try {
     const res = await callPaycor(
-      `/legalentities/${legalEntityId}/punches?startDate=${startDate}&endDate=${endDate}`
+      `/legalentities/${legalEntityId}/timecard?startDate=${startDate}&endDate=${endDate}`
     );
     if (res.status !== 200) return [];
     return res.data?.records || res.data || [];
@@ -347,31 +347,25 @@ async function fetchPunches(legalEntityId, startDate, endDate) {
 // ── Labor calculation helpers ─────────────────────────────────────────────────
 
 /**
- * Compute hours worked from punch pairs.
- * Punches come in as { punchIn, punchOut, employeeId, ... }
- * punchIn/punchOut may be ISO strings.
+ * Compute hours worked from timecard records.
+ * Records: { employeeId, inActualPunch, outActualPunch, hoursAmount, ... }
  */
 function computeHoursFromPunches(punches) {
   // Group by employeeId
   const byEmp = {};
   for (const p of punches) {
-    const id = p.employeeId || p.EmployeeId;
+    const id = p.employeeId;
     if (!id) continue;
     if (!byEmp[id]) byEmp[id] = [];
     byEmp[id].push(p);
   }
   const result = {};
-  for (const [empId, empPunches] of Object.entries(byEmp)) {
-    let totalMs = 0;
-    for (const p of empPunches) {
-      const inTime  = p.punchIn  || p.clockIn  || p.timeIn  || null;
-      const outTime = p.punchOut || p.clockOut || p.timeOut || null;
-      if (inTime && outTime) {
-        const diff = new Date(outTime) - new Date(inTime);
-        if (diff > 0) totalMs += diff;
-      }
+  for (const [empId, empRecords] of Object.entries(byEmp)) {
+    let totalHrs = 0;
+    for (const tc of empRecords) {
+      totalHrs += tc.hoursAmount || 0;
     }
-    result[empId] = totalMs / 3600000; // hours
+    result[empId] = totalHrs;
   }
   return result;
 }
