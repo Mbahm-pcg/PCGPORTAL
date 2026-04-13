@@ -13849,7 +13849,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
   }, [store.pc, store.paycor]);
 
   // ── Timecard processing ─────────────────────────────────────────────────
-  // Paycor timecard records already have inActualPunch, outActualPunch, hoursAmount
+  // Paycor /punches records have punchIn, punchOut, hourAmount (legacy: inActualPunch, outActualPunch, hoursAmount)
   const nowMs = Date.now();
   const todayDate = new Date().toDateString();
 
@@ -13870,9 +13870,9 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
     const todayPairs = [];
 
     records.forEach(tc => {
-      const inTime = tc.inActualPunch || tc.inRoundedPunch;
-      const outTime = tc.outActualPunch || tc.outRoundedPunch;
-      const hrs = tc.hoursAmount || 0;
+      const inTime = tc.punchIn || tc.inActualPunch;
+      const outTime = tc.punchOut || tc.outActualPunch;
+      const hrs = tc.hourAmount || tc.hoursAmount || 0;
       hoursWeek += hrs;
 
       if (inTime) {
@@ -13949,10 +13949,10 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
 
   // Total timecard hours today
   const todayTimecards = punches.filter(tc => {
-    const d = tc.displayDate || tc.inActualPunch || '';
+    const d = tc.displayDate || tc.punchIn || tc.inActualPunch || '';
     return d.startsWith(localDateStr(new Date()));
   });
-  const totalTcHoursToday = todayTimecards.reduce((s, tc) => s + (tc.hoursAmount || 0), 0);
+  const totalTcHoursToday = todayTimecards.reduce((s, tc) => s + (tc.hourAmount || tc.hoursAmount || 0), 0);
 
   function laborForHour(hr) {
     if (hr > currentHour) return 0;
@@ -13964,8 +13964,8 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
     let empsInHour = 0;
     // Calculate hourly labor from actual timecard punch times
     todayTimecards.forEach(tc => {
-      const inTime = tc.inActualPunch || tc.inRoundedPunch;
-      const outTime = tc.outActualPunch || tc.outRoundedPunch;
+      const inTime = tc.punchIn || tc.inActualPunch;
+      const outTime = tc.punchOut || tc.outActualPunch;
       if (!inTime) return;
       const inMs = new Date(inTime).getTime();
       const outMs = outTime ? new Date(outTime).getTime() : nowMs;
@@ -15888,7 +15888,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.73
+            v4.74
           </div>
         )}
         {/* Collapse toggle — desktop only */}

@@ -337,7 +337,7 @@ async function fetchPrimaryPayRate(employeeId) {
 async function fetchPunches(legalEntityId, startDate, endDate) {
   try {
     const res = await callPaycor(
-      `/legalentities/${legalEntityId}/timecard?startDate=${startDate}&endDate=${endDate}`
+      `/legalentities/${legalEntityId}/punches?startDate=${startDate}&endDate=${endDate}`
     );
     if (res.status !== 200) return [];
     return res.data?.records || res.data || [];
@@ -347,8 +347,9 @@ async function fetchPunches(legalEntityId, startDate, endDate) {
 // ── Labor calculation helpers ─────────────────────────────────────────────────
 
 /**
- * Compute hours worked from timecard records.
- * Records: { employeeId, inActualPunch, outActualPunch, hoursAmount, ... }
+ * Compute hours worked from punch records.
+ * Records: { employeeId, punchIn, punchOut, hourAmount, estimatedGrossPay, ... }
+ * Also handles legacy timecard fields: inActualPunch, outActualPunch, hoursAmount
  */
 function computeHoursFromPunches(punches) {
   // Group by employeeId
@@ -363,7 +364,17 @@ function computeHoursFromPunches(punches) {
   for (const [empId, empRecords] of Object.entries(byEmp)) {
     let totalHrs = 0;
     for (const tc of empRecords) {
-      totalHrs += tc.hoursAmount || 0;
+      // Prefer /punches field names; fall back to legacy /timecard field names
+      if (tc.hourAmount != null) {
+        totalHrs += tc.hourAmount;
+      } else if (tc.hoursAmount != null) {
+        totalHrs += tc.hoursAmount;
+      } else {
+        // Compute from punch timestamps if no pre-computed hours field
+        const inMs = new Date(tc.punchIn || tc.inActualPunch || 0).getTime();
+        const outMs = new Date(tc.punchOut || tc.outActualPunch || 0).getTime();
+        if (inMs && outMs && outMs > inMs) totalHrs += (outMs - inMs) / 3600000;
+      }
     }
     result[empId] = totalHrs;
   }

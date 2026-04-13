@@ -276,7 +276,7 @@ exports.handler = async (event) => {
     if (action === 'punches') {
       const { legalEntityId, employeeId, startDate, endDate } = payload;
       if (employeeId) {
-        let path = `/employees/${employeeId}/timecard`;
+        let path = `/employees/${employeeId}/punches`;
         const params = [];
         if (startDate) params.push(`startDate=${startDate}`);
         if (endDate) params.push(`endDate=${endDate}`);
@@ -285,7 +285,7 @@ exports.handler = async (event) => {
         return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
       }
       if (legalEntityId) {
-        let path = `/legalentities/${legalEntityId}/timecard`;
+        let path = `/legalentities/${legalEntityId}/punches`;
         const params = [];
         if (startDate) params.push(`startDate=${startDate}`);
         if (endDate) params.push(`endDate=${endDate}`);
