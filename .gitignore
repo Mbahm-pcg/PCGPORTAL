@@ -3,3 +3,5 @@
 .playwright-mcp/
 .superpowers/
 node_modules/
+.netlify/
+.firecrawl/

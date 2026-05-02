@@ -305,40 +305,51 @@ async function sendPushToAll(store, title, body) {
 
   let sent = 0, failed = 0;
   const expired = [];
+  const deliveryLog = []; // track who received what
 
   const promises = [];
   for (const [userId, userSubs] of Object.entries(subs)) {
     if (!userSubs || !Array.isArray(userSubs)) continue;
-    for (const sub of userSubs) {
-      promises.push(
-        webpush.sendNotification(sub, pushPayload)
-          .then(() => { sent++; })
-          .catch((err) => {
-            if (err.statusCode === 410 || err.statusCode === 404) {
-              expired.push({ userId, endpoint: sub.endpoint });
-            } else {
-              failed++;
-              console.warn('Push error:', userId, err.statusCode, err.message);
-            }
-          })
-      );
-    }
+    // Send to only the MOST RECENT subscription per user (avoid duplicates)
+    const latestSub = userSubs[userSubs.length - 1];
+    promises.push(
+      webpush.sendNotification(latestSub, pushPayload)
+        .then(() => { sent++; deliveryLog.push({ userId, status: 'sent', type: 'push' }); })
+        .catch((err) => {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            expired.push({ userId, endpoint: latestSub.endpoint });
+            deliveryLog.push({ userId, status: 'expired', type: 'push' });
+          } else {
+            failed++;
+            deliveryLog.push({ userId, status: 'failed', type: 'push', error: err.message });
+            console.warn('Push error:', userId, err.statusCode, err.message);
+          }
+        })
+    );
   }
 
   await Promise.all(promises);
 
-  // Clean up expired
-  if (expired.length > 0) {
-    for (const { userId, endpoint } of expired) {
-      if (subs[userId]) {
-        subs[userId] = subs[userId].filter(s => s.endpoint !== endpoint);
-        if (subs[userId].length === 0) delete subs[userId];
-      }
+  // Clean up expired + deduplicate stale subscriptions
+  let needsSave = expired.length > 0;
+  for (const { userId, endpoint } of expired) {
+    if (subs[userId]) {
+      subs[userId] = subs[userId].filter(s => s.endpoint !== endpoint);
+      if (subs[userId].length === 0) delete subs[userId];
     }
+  }
+  // Also deduplicate: keep only the 2 most recent subscriptions per user
+  for (const [userId, userSubs] of Object.entries(subs)) {
+    if (userSubs && userSubs.length > 2) {
+      subs[userId] = userSubs.slice(-2);
+      needsSave = true;
+    }
+  }
+  if (needsSave) {
     await store.setJSON(SUBS_KEY, { savedAt: new Date().toISOString(), data: subs });
   }
 
-  return { sent, failed, expired: expired.length };
+  return { sent, failed, expired: expired.length, deliveryLog };
 }
 
 // ── Email ─────────────────────────────────────────────────────────────────────
@@ -415,6 +426,19 @@ exports.handler = async (event) => {
       token: process.env.PCG_AUTH_TOKEN,
     });
 
+    // Dedup: check if we already sent notifications for today's business date
+    let lastRun = null;
+    try {
+      const lr = await store.get('pcg_pulse_notify_last_run', { type: 'json' });
+      lastRun = lr?.data || lr;
+    } catch {}
+    const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const todayStr = `${nowET.getFullYear()}-${String(nowET.getMonth()+1).padStart(2,'0')}-${String(nowET.getDate()).padStart(2,'0')}`;
+    if (!isManual && lastRun?.busDt === todayStr) {
+      console.log(`Pulse notify already ran for ${todayStr}, skipping (last ran ${lastRun.ranAt})`);
+      return;
+    }
+
     // Load config (email recipients, enabled state)
     const config = await loadConfig(store);
     if (config.enabled === false && !isManual) {
@@ -487,13 +511,34 @@ exports.handler = async (event) => {
       storesReporting: storesOk,
       daily: { netSales: daily.netSales, guests: daily.guests },
       wtd:   { netSales: wtd.netSales, guests: wtd.guests, days: weekDates.length },
-      push: pushResult,
+      push: { sent: pushResult.sent, failed: pushResult.failed, expired: pushResult.expired },
+      email: { to: emailTo },
     };
+
+    // Save delivery log for the notification history viewer
+    const logEntry = {
+      ts: new Date().toISOString(),
+      busDt,
+      type: 'pulse_daily',
+      isManual,
+      push: pushResult.deliveryLog || [],
+      email: emailTo.map(e => ({ to: e, status: 'sent', type: 'email' })),
+      summary: { netSales: daily.netSales, guests: daily.guests },
+    };
+    try {
+      const logKey = 'pcg_notify_log';
+      const existingLog = await store.get(logKey, { type: 'json' }).catch(() => null);
+      const entries = Array.isArray(existingLog?.data) ? existingLog.data : [];
+      entries.unshift(logEntry);
+      // Keep last 30 entries
+      if (entries.length > 30) entries.length = 30;
+      await store.setJSON(logKey, { savedAt: new Date().toISOString(), data: entries });
+    } catch {}
 
     // Save last run info (wrapped in { savedAt, data } to match storage.js format)
     await store.setJSON('pcg_pulse_notify_last_run', {
       savedAt: new Date().toISOString(),
-      data: { ranAt: new Date().toISOString(), ...result },
+      data: { ranAt: new Date().toISOString(), busDt, ...result },
     });
 
     console.log('Pulse notify complete:', JSON.stringify(result));

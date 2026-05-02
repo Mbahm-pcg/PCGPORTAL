@@ -37,9 +37,14 @@
   @keyframes loginFadeInUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
   @keyframes loginGradientFlow{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
   .login-enter{animation:loginFadeInUp .7s cubic-bezier(.25,.46,.45,.94) both;}
-  .login-input-wrap:focus-within label{transform:translateY(-22px) scale(.82);color:#FF671F;letter-spacing:1.2px;}
-  .login-input-wrap input:not(:placeholder-shown)+label{transform:translateY(-22px) scale(.82);letter-spacing:1.2px;}
+  .login-input-wrap:focus-within label{transform:translateY(-40px) scale(.72);color:#FF671F;letter-spacing:1.2px;opacity:1;}
+  .login-input-wrap input:not(:placeholder-shown)+label{transform:translateY(-40px) scale(.72);letter-spacing:1.2px;opacity:0.7;}
+  .login-input-wrap input:-webkit-autofill+label{transform:translateY(-40px) scale(.72);letter-spacing:1.2px;opacity:0.7;}
   .login-shake{animation:loginShake .5s cubic-bezier(.36,.07,.19,.97) both;}
+  @keyframes loginExitZoom{0%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.08)}}
+  .login-exit{animation:loginExitZoom .65s cubic-bezier(.4,0,.2,1) both;}
+  @keyframes dashEnter{0%{opacity:0;transform:scale(.97)}100%{opacity:1;transform:scale(1)}}
+  .dash-enter{animation:dashEnter .5s cubic-bezier(.25,.46,.45,.94) both;}
   @media (prefers-reduced-motion: reduce){*{animation-duration:0.01ms !important;animation-iteration-count:1 !important;transition-duration:0.01ms !important;}}
   .theme-toggle-btn:hover{transform:scale(1.05);}
   .theme-toggle-btn{transition:all .2s ease;}
@@ -175,6 +180,7 @@ const ICONS = {
   briefcase: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"2",y:"7",width:"20",height:"14",rx:"2",ry:"2"})}{React.createElement("path",{d:"M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"})}</>} />,
   dollar: (c) => <Icon color={c} d={<>{React.createElement("line",{x1:"12",y1:"1",x2:"12",y2:"23"})}{React.createElement("path",{d:"M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"})}</>} />,
   mail: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"})}{React.createElement("polyline",{points:"22,6 12,13 2,6"})}</>} />,
+  kb: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M4 19.5A2.5 2.5 0 0 1 6.5 17H20"})}{React.createElement("path",{d:"M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"})}{React.createElement("line",{x1:"8",y1:"7",x2:"16",y2:"7"})}{React.createElement("line",{x1:"8",y1:"11",x2:"14",y2:"11"})}</>} />,
 };
 
 const CAT_ICONS_SVG = {
@@ -565,6 +571,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
   const [logoAnim, setLogoAnim] = useState(false);
   const [shake, setShake] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [exiting, setExiting] = useState(false);
   const [focusField, setFocusField] = useState(null);
   const [now, setNow] = useState(new Date());
   const [mounted, setMounted] = useState(false);
@@ -620,7 +627,12 @@ function Login({ onLogin, dark, toggleDark, users }) {
     const found = users.find(u => u.username === form.u && u.password === form.p && u.active !== false);
     if (found) {
       setLoading(true);
-      setTimeout(() => onLogin(found), 420);
+      // Brief spinner, then trigger exit animation, then hand off to dashboard
+      setTimeout(() => {
+        setLoading(false);
+        setExiting(true);
+        setTimeout(() => onLogin(found), 700);
+      }, 400);
     } else {
       setErr("Invalid credentials. Try again.");
       setShake(true);
@@ -688,7 +700,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
   const uopLetterSpacing = tinyScreen ? -3 : narrow ? -4 : -6;
 
   return (
-    <div style={{
+    <div className={exiting ? "login-exit" : ""} style={{
       minHeight: "100vh", position: "relative", overflow: "hidden",
       background: palette.bg,
       color: palette.text,
@@ -763,17 +775,17 @@ function Login({ onLogin, dark, toggleDark, users }) {
             display: "inline-flex", alignItems: "center", gap: "0.6rem",
             marginBottom: narrow ? "1.25rem" : "2rem",
             padding: "0.4rem 0.85rem",
-            background: "rgba(255, 103, 31, 0.15)",
+            background: "rgba(76, 175, 80, 0.15)",
             border: "1px solid rgba(255, 103, 31, 0.4)",
             borderRadius: "999px",
             backdropFilter: "blur(10px)",
             WebkitBackdropFilter: "blur(10px)",
           }}>
             <div style={{ position: "relative", width: 8, height: 8 }}>
-              <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#FF671F", boxShadow: "0 0 12px #FF671F" }} />
-              <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#FF671F", animation: "loginPulseRing 2s ease-out infinite" }} />
+              <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#4caf50", boxShadow: "0 0 12px #4caf50" }} />
+              <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#4caf50", animation: "loginPulseRing 2s ease-out infinite" }} />
             </div>
-            <span style={{ fontSize: "0.68rem", fontWeight: 800, color: "#FF671F", textTransform: "uppercase", letterSpacing: 1.5 }}>System Online</span>
+            <span style={{ fontSize: "0.68rem", fontWeight: 800, color: "#4caf50", textTransform: "uppercase", letterSpacing: 1.5 }}>System Online</span>
           </div>
 
           {/* ─── Logo + UOP mark ─── */}
@@ -803,7 +815,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
             />
 
             {/* UOP wordmark with cool gradient + subtle etching */}
-            <div style={{ position: "relative", lineHeight: 1, padding: "0.1em 0.2em" }}>
+            <div style={{ position: "relative", lineHeight: 1, padding: "0.1em 0.5em 0.1em 0.2em", overflow: "visible" }}>
               {/* The big UOP letters — orange gradient with drop-shadow glow.
                   Padding on the parent + lineHeight:1 prevent ascender/descender
                   clipping and give the glow room to breathe. */}
@@ -819,6 +831,8 @@ function Login({ onLogin, dark, toggleDark, users }) {
                 lineHeight: 1,
                 textShadow: "none",
                 paddingBottom: "0.05em",
+                paddingRight: "0.15em",
+                overflow: "visible",
               }}>
                 UOP
               </div>
@@ -6231,11 +6245,17 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
 
       let wtdSales = 0;
       let daysLoaded = 0;
+      const weeklyByDay = [0, 0, 0, 0, 0, 0, 0]; // this week's per-day sales (index = day-of-week, 0=Sun)
       if (isWeek) {
         // Already have all 7 days — sum per-store net sales from allResults
         for (const sr of allResults) {
           for (const day of sr.perDay) {
-            if (day.ops?.revenueCenters) wtdSales += sumRVCLocal(day.ops.revenueCenters).netSales;
+            if (day.ops?.revenueCenters) {
+              const ns = sumRVCLocal(day.ops.revenueCenters).netSales;
+              wtdSales += ns;
+              const dIdx = new Date(day.date + 'T12:00:00').getDay();
+              weeklyByDay[dIdx] += ns;
+            }
           }
         }
         daysLoaded = datesToFetch.length;
@@ -6249,8 +6269,17 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         }
         const fetchOps = (s, date) => fetchEndpoint('getOperationsDailyTotals', { api: apiFor(s.pc), locRef: s.pc, busDt: date, include: 'locRef,busDt,revenueCenters' });
         const pastResults = await Promise.all(wtdDates.flatMap(date => distStores.map(s => fetchOps(s, date))));
-        for (const r of pastResults) {
-          if (r?.revenueCenters) wtdSales += sumRVCLocal(r.revenueCenters).netSales;
+        const storesPerDay = distStores.length || 1;
+        for (let di = 0; di < wtdDates.length; di++) {
+          let daySum = 0;
+          for (let si = 0; si < storesPerDay; si++) {
+            const r = pastResults[di * storesPerDay + si];
+            if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
+          }
+          wtdSales += daySum;
+          // Record in weekly day array
+          const dIdx = new Date(wtdDates[di] + 'T12:00:00').getDay();
+          weeklyByDay[dIdx] = daySum;
         }
         daysLoaded = wtdDates.length;
       }
@@ -6269,18 +6298,37 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
       let lyDaySales = 0;
       const dayOfWeek = dt.getDay();
       const storesCount = distStores.length || 1;
+      const lyByDay = [0, 0, 0, 0, 0, 0, 0];
       for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
         let daySum = 0;
         for (let si = 0; si < storesCount; si++) {
           const r = lyResults[dayIdx * storesCount + si];
           if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
         }
+        lyByDay[dayIdx] = daySum;
         lyWeekSales += daySum;
         if (dayIdx === dayOfWeek) lyDaySales = daySum;
       }
+      // Previous week's daily for this-vs-LW compare
+      const prevSun = new Date(sun); prevSun.setDate(sun.getDate() - 7);
+      const prevWeekDates = [];
+      for (let i = 0; i < 7; i++) {
+        const dd = new Date(prevSun); dd.setDate(prevSun.getDate() + i);
+        prevWeekDates.push(localDateStr(dd));
+      }
+      const prevResults = await Promise.all(prevWeekDates.flatMap(date => distStores.map(s => fetchOps(s, date))));
+      const prevByDay = [0, 0, 0, 0, 0, 0, 0];
+      for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
+        let daySum = 0;
+        for (let si = 0; si < storesCount; si++) {
+          const r = prevResults[dayIdx * storesCount + si];
+          if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
+        }
+        prevByDay[dayIdx] = daySum;
+      }
       const weekForecast = lyWeekSales * 1.02;
       const dayForecast = lyDaySales * 1.02;
-      setWeekTotals({ wtdSales, weekForecast, dayForecast, lyWeekSales, lyDaySales, daysLoaded });
+      setWeekTotals({ wtdSales, weekForecast, dayForecast, lyWeekSales, lyDaySales, daysLoaded, weeklyByDay, lyByDay, prevByDay });
     })();
   }, [distNum, localDate, busDt, viewMode]);
 
@@ -6503,6 +6551,94 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
             <span>{'Forecast: ' + fmtUSD(weekTotals.dayForecast)}</span>
           </div>
         </div>
+        );
+      })()}
+
+      {/* Sales by Day — this week vs last week comparison */}
+      {weekTotals?.weeklyByDay && weekTotals?.prevByDay && (weekTotals.weeklyByDay.some(v => v > 0) || weekTotals.prevByDay.some(v => v > 0)) && (() => {
+        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const thisWeek = [...weekTotals.weeklyByDay];
+        // Inject current day's live sales for today
+        const todayDOW = new Date(localDate + 'T12:00:00').getDay();
+        if (viewMode === 'day' && d.netSales > 0) thisWeek[todayDOW] = d.netSales;
+        const lastWeek = weekTotals.prevByDay;
+        const maxVal = Math.max(...thisWeek, ...lastWeek, 1);
+        const chartMax = Math.ceil(maxVal / 1000) * 1000;
+        const H = 180;
+        const barW = 36, gap = 14, groupW = barW * 2 + 6;
+        const totalW = 7 * groupW + 6 * gap;
+        const fmtK = v => v >= 1000 ? '$' + (v/1000).toFixed(1) + 'k' : '$' + Math.round(v);
+        const gridLines = [chartMax / 4, chartMax / 2, (chartMax * 3) / 4, chartMax];
+        const thisWeekTotal = thisWeek.reduce((a, b) => a + b, 0);
+        const lastWeekTotal = lastWeek.reduce((a, b) => a + b, 0);
+        const weekDelta = lastWeekTotal > 0 ? ((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100 : 0;
+        const deltaColor = weekDelta >= 0 ? '#69db7c' : '#ff6b6b';
+        return (
+          <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1.5rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.25rem', gap:'0.5rem', flexWrap:'wrap' }}>
+              <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1.15rem', color:th.text }}>Sales by Day — This Week vs Last Week</div>
+              <div style={{ display:'flex', gap:'1.25rem', fontSize:'0.75rem', color:th.muted, alignItems:'center' }}>
+                <span>This Week: <strong style={{ color:G }}>{fmtUSD(thisWeekTotal)}</strong></span>
+                <span>Last Week: <strong style={{ color:th.muted }}>{fmtUSD(lastWeekTotal)}</strong></span>
+                {lastWeekTotal > 0 && <span style={{ color: deltaColor, fontWeight:700 }}>{weekDelta >= 0 ? '+' : ''}{weekDelta.toFixed(1)}%</span>}
+              </div>
+            </div>
+            <div style={{ overflowX:'auto' }}>
+              <svg viewBox={`-50 -24 ${totalW + 64} ${H + 60}`} style={{ width:'100%', minWidth: totalW + 64, height: H + 60, display:'block', overflow:'visible' }}>
+                <defs>
+                  <linearGradient id={`sbd${distNum}a`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={G} stopOpacity="1" />
+                    <stop offset="100%" stopColor={G} stopOpacity="0.35" />
+                  </linearGradient>
+                  <linearGradient id={`sbd${distNum}b`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#868e96" stopOpacity="0.9" />
+                    <stop offset="100%" stopColor="#868e96" stopOpacity="0.25" />
+                  </linearGradient>
+                </defs>
+                {gridLines.map(v => {
+                  const y = H - (v / chartMax) * H;
+                  return (
+                    <g key={v}>
+                      <line x1={0} y1={y} x2={totalW} y2={y} stroke={th.cardBorder} strokeDasharray="2,4" strokeWidth={1} />
+                      <text x={-8} y={y + 4} textAnchor="end" fontSize="10" fill={th.muted}>{fmtK(v)}</text>
+                    </g>
+                  );
+                })}
+                {dayLabels.map((lbl, i) => {
+                  const gx = i * (groupW + gap);
+                  const tVal = thisWeek[i], lVal = lastWeek[i];
+                  const tH = (tVal / chartMax) * H, lH = (lVal / chartMax) * H;
+                  const delta = lVal > 0 ? ((tVal - lVal) / lVal) * 100 : (tVal > 0 ? 100 : 0);
+                  const dCol = delta >= 0 ? '#69db7c' : '#ff6b6b';
+                  return (
+                    <g key={i}>
+                      <rect x={gx} y={H - lH} width={barW} height={lH} fill={`url(#sbd${distNum}b)`} rx={2}>
+                        <title>{lbl} Last Week: {fmtUSD(lVal)}</title>
+                      </rect>
+                      <rect x={gx + barW + 6} y={H - tH} width={barW} height={tH} fill={`url(#sbd${distNum}a)`} rx={2}>
+                        <title>{lbl} This Week: {fmtUSD(tVal)}</title>
+                      </rect>
+                      {tVal > 0 && <text x={gx + barW + 6 + barW/2} y={H - tH - 6} textAnchor="middle" fontSize="9" fontWeight="700" fill={G}>{fmtK(tVal)}</text>}
+                      <text x={gx + groupW/2} y={H + 18} textAnchor="middle" fontSize="12" fontWeight="700" fill={th.text}>{lbl}</text>
+                      {lVal > 0 && (
+                        <text x={gx + groupW/2} y={H + 34} textAnchor="middle" fontSize="10" fontWeight="700" fill={dCol}>{delta >= 0 ? '+' : ''}{delta.toFixed(0)}%</text>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+            <div style={{ display:'flex', gap:'1.5rem', justifyContent:'center', marginTop:'0.75rem', fontSize:'0.7rem', color:th.muted }}>
+              <div style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
+                <div style={{ width:12, height:12, background:'#868e96', borderRadius:2 }} />
+                <span>Last Week</span>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
+                <div style={{ width:12, height:12, background:G, borderRadius:2 }} />
+                <span>This Week</span>
+              </div>
+            </div>
+          </div>
         );
       })()}
 
@@ -8501,6 +8637,32 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     }
   };
 
+  const shareReport = async (reportId) => {
+    setPdfLoading(true);
+    try {
+      const reportData = dailyReports.find(r => r.id === reportId);
+      if (!reportData) throw new Error('Report not found');
+      const doc = await buildNativePdf(reportData);
+      const filename = `Daily_Report_${reportData.date || reportId}_${(project.nickname || project.pc || 'PCG').replace(/[^a-z0-9]+/gi, '_')}.pdf`;
+      const pdfBlob = doc.output('blob');
+      const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+        await navigator.share({
+          title: 'Daily Construction Report - ' + (reportData.date || 'Report'),
+          text: 'PCG Daily Report: ' + (project.nickname || project.pc || ''),
+          files: [pdfFile],
+        });
+      } else {
+        doc.save(filename);
+        showAlert && showAlert("success", "PDF downloaded. Open your messaging app to share it.");
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') showAlert && showAlert("error", "Share failed: " + err.message);
+    }
+    setPdfLoading(false);
+  };
+
   const openEmailModal = (r) => {
     setEmailTo("");
     setEmailSubject(`Daily Construction Report - ${r.date ? new Date(r.date + "T12:00:00").toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "Report"} - ${project.nickname || project.pc || ""}`);
@@ -8601,6 +8763,9 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
           </button>}
           <button onClick={() => generatePdf(r.id)} disabled={pdfLoading} style={btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#2563eb", color: "#fff" })}>
             {pdfLoading ? "Generating..." : "Export PDF"}
+          </button>
+          <button onClick={() => shareReport(r.id)} disabled={pdfLoading} style={btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#22c55e", color: "#fff" })}>
+            Share
           </button>
           <button onClick={() => openEmailModal(r)} style={btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#8b5cf6", color: "#fff" })}>
             Email Report
@@ -9658,8 +9823,25 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
 
 
 // ── Admin: Settings ───────────────────────────────────────────────────────
-function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, th, showAlert, user, announcements, setAnnouncements }) {
+function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements }) {
   const [newEmail, setNewEmail] = useState("");
+  const [notifyLog, setNotifyLog] = useState(null);
+  const [logLoading, setLogLoading] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
+  const [pushSubs, setPushSubs] = useState(null);
+
+  const loadNotifyLog = async () => {
+    setLogLoading(true);
+    try {
+      const [logData, subsData] = await Promise.all([
+        cloudLoad('pcg_notify_log'),
+        cloudLoad('pcg_push_subscriptions_v1'),
+      ]);
+      setNotifyLog(Array.isArray(logData) ? logData : []);
+      setPushSubs(subsData || {});
+    } catch {}
+    setLogLoading(false);
+  };
 
   const addEmail = () => {
     const email = newEmail.trim().toLowerCase();
@@ -10072,6 +10254,93 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, th, showAler
           </>
         );
       })()}
+
+      {/* Notification Log */}
+      <NotificationLogSection th={th} notifyLog={notifyLog} pushSubs={pushSubs} logLoading={logLoading} logOpen={logOpen} setLogOpen={setLogOpen} loadNotifyLog={loadNotifyLog} users={users || []} />
+    </div>
+  );
+}
+
+// ── Notification Log Section (rendered inside AdminSettings) ──────────────
+function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, setLogOpen, loadNotifyLog, users }) {
+  const O = '#FF671F';
+  // Map user IDs to names
+  const userName = (id) => {
+    const u = (users || []).find(u => String(u.id) === String(id));
+    return u ? u.name : `User #${id}`;
+  };
+
+  return (
+    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: logOpen ? '1rem' : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '1.125rem' }}>📋</span>
+          <span style={{ fontWeight: 700, fontSize: '1rem', color: th.text }}>Notification Log</span>
+        </div>
+        <button onClick={() => { setLogOpen(o => !o); if (!notifyLog) loadNotifyLog(); }}
+          style={{ ...btn(th, { padding: '0.35rem 0.75rem', fontSize: '0.75rem' }) }}>
+          {logOpen ? 'Hide' : 'View Log'}
+        </button>
+      </div>
+
+      {logOpen && logLoading && <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0' }}>Loading...</div>}
+
+      {logOpen && !logLoading && pushSubs && (
+        <div style={{ marginBottom: '1rem', padding: '0.75rem', background: th.card2, borderRadius: '0.5rem' }}>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>Push Subscriptions</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {Object.entries(pushSubs).map(([uid, subs]) => (
+              <span key={uid} style={{ fontSize: '0.75rem', color: th.text, background: th.card3, padding: '0.25rem 0.6rem', borderRadius: '0.3rem', border: `1px solid ${th.cardBorder}` }}>
+                {userName(uid)} <span style={{ color: th.muted }}>({Array.isArray(subs) ? subs.length : 0} device{Array.isArray(subs) && subs.length !== 1 ? 's' : ''})</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {logOpen && !logLoading && notifyLog && notifyLog.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+            <thead>
+              <tr>
+                {['Time', 'Date', 'Type', 'Sales', 'Push', 'Email', 'Manual'].map(h =>
+                  <th key={h} style={{ padding: '0.5rem 0.6rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>{h}</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {notifyLog.map((entry, i) => {
+                const dt = entry.ts ? new Date(entry.ts) : null;
+                const pushSent = (entry.push || []).filter(p => p.status === 'sent').length;
+                const pushFailed = (entry.push || []).filter(p => p.status !== 'sent').length;
+                const emailList = (entry.email || []).map(e => e.to).join(', ');
+                return (
+                  <tr key={i} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                    <td style={{ padding: '0.4rem 0.6rem', color: th.text }}>{dt ? dt.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}</td>
+                    <td style={{ padding: '0.4rem 0.6rem', color: th.muted }}>{entry.busDt || '—'}</td>
+                    <td style={{ padding: '0.4rem 0.6rem' }}>
+                      <span style={{ fontSize: '0.65rem', fontWeight: 700, color: O, background: O + '18', padding: '0.1rem 0.4rem', borderRadius: '0.2rem' }}>{entry.type || 'pulse'}</span>
+                    </td>
+                    <td style={{ padding: '0.4rem 0.6rem', color: th.text, fontWeight: 600 }}>{entry.summary?.netSales ? '$' + Math.round(entry.summary.netSales).toLocaleString() : '—'}</td>
+                    <td style={{ padding: '0.4rem 0.6rem' }}>
+                      <span style={{ color: '#4caf50', fontWeight: 600 }}>{pushSent}</span>
+                      {pushFailed > 0 && <span style={{ color: '#f44336', marginLeft: 4 }}>({pushFailed} failed)</span>}
+                    </td>
+                    <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>{emailList || '—'}</td>
+                    <td style={{ padding: '0.4rem 0.6rem' }}>
+                      {entry.isManual ? <span style={{ fontSize: '0.6rem', color: '#ff9800', fontWeight: 700 }}>MANUAL</span> : <span style={{ fontSize: '0.6rem', color: th.muted }}>auto</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {logOpen && !logLoading && (!notifyLog || notifyLog.length === 0) && (
+        <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0', textAlign: 'center' }}>No notification history yet. Run a manual pulse notification to start logging.</div>
+      )}
     </div>
   );
 }
@@ -10210,6 +10479,7 @@ const BASE_TABS = [
   { id: "todos",    label: "To-Do",     icon: (c) => ICONS.todos(c) },
   { id: "chat",     label: "Chat",      icon: (c) => ICONS.chat(c) },
   { id: "announcements", label: "Announcements", icon: (c) => ICONS.announcements(c) },
+  { id: "kb", label: "Knowledge Base", icon: (c) => ICONS.kb(c) },
 ];
 const getTabs = (user) => {
   if (!user) return BASE_TABS;
@@ -11926,6 +12196,16 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, an
           );
         })}
       </div>
+
+      {/* ─── Today's Brief from Orion ─────────────────────────────────── */}
+      {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
+        <TodayBrief user={user} th={th} />
+      )}
+
+      {/* ─── Business Cases from Orion ─────────────────────────────────── */}
+      {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
+        <BusinessCasesCard user={user} th={th} />
+      )}
 
       {/* ─── Quick Actions ────────────────────────────────────────────────
           Icon-first mini cards with a subtle hover lift. Generous tap
@@ -13767,6 +14047,8 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
   const [employees, setEmployees] = useState([]);
   const [storeHistory, setStoreHistory] = useState(null);
   const [hourlySales, setHourlySales] = useState({});
+  const [scheduleShifts, setScheduleShifts] = useState([]);
+  const [livePunches, setLivePunches] = useState({}); // employeeId -> [{punchDateTime, punchStatusType}]
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [empExpanded, setEmpExpanded] = useState(false);
@@ -13779,7 +14061,8 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
   const weekStartStr = (() => {
     const d = new Date();
     const day = d.getDay(); // 0=Sun
-    d.setDate(d.getDate() - day);
+    const diff = day === 0 ? -6 : 1 - day; // roll back to Monday (matches cron)
+    d.setDate(d.getDate() + diff);
     return localDateStr(d);
   })();
 
@@ -13789,8 +14072,12 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
       const legalEntityId = store.paycor || storeInfo.paycor;
       const api = store.pc === '345986' ? 'p227' : 'p228';
 
-      const [punchRes, empRes, histData, salesRes] = await Promise.allSettled([
-        // 1. Live punches
+      // Tomorrow for schedule range
+      const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1);
+      const tmrwStr = localDateStr(tmrw);
+
+      const [punchRes, empRes, histData, salesRes, schedRes] = await Promise.allSettled([
+        // 1. Completed punches (week range)
         fetch('/.netlify/functions/paycor', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'punches', legalEntityId, startDate: weekStartStr, endDate: todayStr }),
@@ -13813,21 +14100,28 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
             include: 'guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl',
           }),
         }).then(r => r.ok ? r.json() : null),
+
+        // 5. Today's scheduling shifts
+        fetch('/.netlify/functions/paycor', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'schedulingShifts', legalEntityId, startDate: todayStr, endDate: tmrwStr }),
+        }).then(r => r.ok ? r.json() : null),
       ]);
 
       if (punchRes.status === 'fulfilled' && punchRes.value) {
         const raw = punchRes.value.records || punchRes.value.punches || punchRes.value || [];
         setPunches(Array.isArray(raw) ? raw : []);
       }
+      let empList = [];
       if (empRes.status === 'fulfilled' && empRes.value) {
         const raw = empRes.value.employees || empRes.value || [];
-        setEmployees(Array.isArray(raw) ? raw : []);
+        empList = Array.isArray(raw) ? raw : [];
+        setEmployees(empList);
       }
       if (histData) {
         setStoreHistory(typeof histData === 'string' ? JSON.parse(histData) : histData);
       }
       if (salesRes.status === 'fulfilled' && salesRes.value) {
-        // Bucket guest checks by hour
         const checks = salesRes.value.guestChecks || salesRes.value?.response?.guestChecks || [];
         const byHour = {};
         (Array.isArray(checks) ? checks : []).forEach(chk => {
@@ -13839,9 +14133,40 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
         });
         setHourlySales(byHour);
       }
+      // Parse scheduling shifts (filter to today only)
+      let shifts = [];
+      if (schedRes.status === 'fulfilled' && schedRes.value) {
+        const raw = schedRes.value.records || schedRes.value || [];
+        shifts = (Array.isArray(raw) ? raw : []).filter(s => (s.startDateTime || '').slice(0, 10) === todayStr);
+        setScheduleShifts(shifts);
+      }
 
-      const hasEmpData = empRes.status === 'fulfilled' && empRes.value?.employees?.length > 0;
-      const hasPunchData = punchRes.status === 'fulfilled' && (punchRes.value?.records?.length > 0 || Array.isArray(punchRes.value));
+      // Fetch live employeePunches for each employee who has a shift today
+      const shiftEmpIds = [...new Set(shifts.map(s => s.employeeId))];
+      if (shiftEmpIds.length > 0) {
+        const punchMap = {};
+        // Batch in groups of 5 to avoid rate limits
+        for (let i = 0; i < shiftEmpIds.length; i += 5) {
+          const batch = shiftEmpIds.slice(i, i + 5);
+          const results = await Promise.allSettled(
+            batch.map(eid =>
+              fetch('/.netlify/functions/paycor', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'employeePunches', employeeId: eid, startDate: todayStr, endDate: todayStr }),
+              }).then(r => r.ok ? r.json() : null)
+            )
+          );
+          results.forEach((r, idx) => {
+            if (r.status === 'fulfilled' && r.value) {
+              const recs = r.value.records || [];
+              if (recs.length > 0) punchMap[batch[idx]] = recs;
+            }
+          });
+        }
+        setLivePunches(punchMap);
+      }
+
+      const hasEmpData = empList.length > 0;
       if (!hasEmpData && !histData) setFetchError(true);
       setLoading(false);
     }
@@ -13893,19 +14218,77 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
     return { hoursToday, hoursWeek, currentlyOnClock, todayPairs };
   }
 
+  // ── Build schedule lookup by employee name (scheduling uses different IDs) ──
+  const schedByName = {};
+  const nowTime = new Date();
+  scheduleShifts.forEach(s => {
+    const name = (s.employeeName || '').toLowerCase().trim();
+    if (!schedByName[name]) schedByName[name] = [];
+    schedByName[name].push(s);
+  });
+
+  // ── Live punch status: odd punch count = clocked in ──
+  function getLiveStatus(empId, empName) {
+    // Check livePunches by employee ID first
+    const punches = livePunches[empId];
+    if (punches && punches.length > 0) {
+      const isClockedIn = punches.length % 2 === 1; // odd = in, even = out
+      const lastPunch = punches[punches.length - 1];
+      return { isClockedIn, lastPunchTime: lastPunch.punchDateTime, punchCount: punches.length };
+    }
+    // Also try matching by schedule employeeId (may differ from employee list ID)
+    const nameKey = (empName || '').toLowerCase().trim();
+    const shifts = schedByName[nameKey] || [];
+    for (const shift of shifts) {
+      const sid = shift.employeeId;
+      if (sid && livePunches[sid]) {
+        const sp = livePunches[sid];
+        const isClockedIn = sp.length % 2 === 1;
+        return { isClockedIn, lastPunchTime: sp[sp.length - 1].punchDateTime, punchCount: sp.length };
+      }
+    }
+    return { isClockedIn: false, lastPunchTime: null, punchCount: 0 };
+  }
+
   // ── Employee enrichment ───────────────────────────────────────────────────
   const enrichedEmps = employees.map(emp => {
     const id = emp.employeeId || emp.EmployeeId || emp.id;
-    const { hoursToday, hoursWeek, currentlyOnClock, todayPairs } = calcHours(id);
+    const empName = emp.name || emp.Name || emp.displayName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || `Emp ${id}`;
+    const { hoursToday, hoursWeek, currentlyOnClock: tcOnClock, todayPairs } = calcHours(id);
     const isSalary = (emp.payType || emp.PayType || '').toLowerCase().includes('salary');
     const rate = emp.payRate || emp.PayRate || 0;
-    const hourlyRate = isSalary ? (rate / 26 / 5 / 8) : rate; // rough hourly equiv for salaried
+    const hourlyRate = isSalary ? (rate / 26 / 5 / 8) : rate;
     const dailyCost = isSalary ? rate / 12 : hoursToday * rate;
     const otStatus = hoursWeek >= 40 ? 'OT' : hoursWeek >= 35 ? 'Approaching OT' : null;
 
+    // Schedule info
+    const nameKey = empName.toLowerCase().trim();
+    const empShifts = schedByName[nameKey] || [];
+    const todayShift = empShifts[0]; // primary shift for today
+    const isScheduledNow = empShifts.some(s => {
+      const st = new Date(s.startDateTime);
+      const en = new Date(s.endDateTime);
+      return nowTime >= st && nowTime <= en;
+    });
+
+    // Live punch status (from employeePunches endpoint)
+    const live = getLiveStatus(id, empName);
+    const currentlyOnClock = live.isClockedIn || tcOnClock;
+    const clockedInAt = live.isClockedIn && live.lastPunchTime
+      ? new Date(live.lastPunchTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      : tcOnClock && todayPairs.length > 0
+        ? new Date(todayPairs[todayPairs.length - 1].inMs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        : null;
+
+    // Status: Clocked In > Scheduled > Off
+    let liveStatus = 'Off';
+    if (currentlyOnClock) liveStatus = 'Clocked In';
+    else if (isScheduledNow) liveStatus = 'Scheduled';
+    else if (todayShift) liveStatus = 'Shift Today';
+
     return {
       id,
-      name: emp.name || emp.Name || emp.displayName || `Emp ${id}`,
+      name: empName,
       role: emp.jobTitle || emp.JobTitle || emp.position || '—',
       isSalary,
       rate,
@@ -13913,17 +14296,21 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
       hoursToday,
       hoursWeek,
       currentlyOnClock,
-      clockedInAt: currentlyOnClock && todayPairs.length > 0 ? new Date(todayPairs[todayPairs.length - 1].inMs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null,
+      clockedInAt,
       dailyCost,
       otStatus,
       todayPairs,
+      liveStatus,
+      scheduledStart: todayShift ? new Date(todayShift.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null,
+      scheduledEnd: todayShift ? new Date(todayShift.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null,
+      schedulingJob: todayShift?.schedulingJobName || null,
     };
   });
 
-  // Sort: OT first, then Approaching OT, then by hoursWeek desc
+  // Sort: Clocked In first, then Scheduled, then OT, then by hoursWeek desc
   enrichedEmps.sort((a, b) => {
-    const rank = e => e.otStatus === 'OT' ? 0 : e.otStatus === 'Approaching OT' ? 1 : 2;
-    const r = rank(a) - rank(b);
+    const statusRank = e => e.liveStatus === 'Clocked In' ? 0 : e.liveStatus === 'Scheduled' ? 1 : e.otStatus === 'OT' ? 2 : e.otStatus === 'Approaching OT' ? 3 : 4;
+    const r = statusRank(a) - statusRank(b);
     if (r !== 0) return r;
     return b.hoursWeek - a.hoursWeek;
   });
@@ -13947,30 +14334,73 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
   const salaryEmps = employees.filter(e => (e.payType || '').toLowerCase().includes('salary'));
   const totalSalaryCostPerDay = salaryEmps.reduce((s, e) => s + ((e.payRate || 0) / 12), 0);
 
-  // Total timecard hours today
+  // Total timecard hours today — combine old punches + live punch data
+  const todayStr_ = localDateStr(new Date());
   const todayTimecards = punches.filter(tc => {
     const d = tc.displayDate || tc.punchIn || tc.inActualPunch || '';
-    return d.startsWith(localDateStr(new Date()));
+    return d.startsWith(todayStr_);
   });
   const totalTcHoursToday = todayTimecards.reduce((s, tc) => s + (tc.hourAmount || tc.hoursAmount || 0), 0);
 
+  // Build unified punch pairs for hourly chart — DEDUPED
+  // Priority: employeePunches (live, per employee) > old punches (completed shifts only)
+  // Fallback: schedule shifts if no punch data at all
+  const allPunchPairs = [];
+  const liveEmpIds = new Set(Object.keys(livePunches).filter(k => livePunches[k]?.length > 0));
+
+  // 1. From live employeePunches first (richer, per-employee events)
+  Object.entries(livePunches).forEach(([empId, punchEvents]) => {
+    if (!punchEvents || punchEvents.length === 0) return;
+    for (let i = 0; i < punchEvents.length; i += 2) {
+      const inEvt = punchEvents[i];
+      const outEvt = punchEvents[i + 1];
+      const inMs = new Date(inEvt.punchDateTime).getTime();
+      const outMs = outEvt ? new Date(outEvt.punchDateTime).getTime() : nowMs;
+      if (new Date(inMs).toDateString() === new Date().toDateString()) {
+        allPunchPairs.push({ inMs, outMs });
+      }
+    }
+  });
+
+  // 2. From old punches — ONLY for employees not covered by employeePunches
+  //    (old punches endpoint returns a different employeeId GUID, so match by time windows
+  //     against existing pairs; skip if the same in-time already exists)
+  const existingInTimes = new Set(allPunchPairs.map(p => p.inMs));
+  todayTimecards.forEach(tc => {
+    const inTime = tc.punchIn || tc.inActualPunch;
+    const outTime = tc.punchOut || tc.outActualPunch;
+    if (!inTime) return;
+    const inMs = new Date(inTime).getTime();
+    // Skip if an identical punch-in already exists (within 60 sec tolerance)
+    const dupe = allPunchPairs.some(p => Math.abs(p.inMs - inMs) < 60000);
+    if (dupe) return;
+    const outMs = outTime ? new Date(outTime).getTime() : nowMs;
+    allPunchPairs.push({ inMs, outMs });
+  });
+
+  // From schedule shifts (for employees with no punch data yet — shows expected labor)
+  if (allPunchPairs.length === 0 && scheduleShifts.length > 0) {
+    scheduleShifts.forEach(s => {
+      const start = new Date(s.startDateTime);
+      const end = new Date(s.endDateTime);
+      // Only past/current shifts
+      if (start.getTime() < nowMs) {
+        allPunchPairs.push({ inMs: start.getTime(), outMs: Math.min(end.getTime(), nowMs) });
+      }
+    });
+  }
+
   function laborForHour(hr) {
-    if (hr > currentHour) return 0;
+    if (hr > currentHour) return { cost: 0, empsInHour: 0 };
     const winStart = new Date(); winStart.setHours(hr, 0, 0, 0);
     const winEnd   = new Date(); winEnd.setHours(hr + 1, 0, 0, 0);
     const winStartMs = winStart.getTime(), winEndMs = winEnd.getTime();
 
     let cost = 0;
     let empsInHour = 0;
-    // Calculate hourly labor from actual timecard punch times
-    todayTimecards.forEach(tc => {
-      const inTime = tc.punchIn || tc.inActualPunch;
-      const outTime = tc.punchOut || tc.outActualPunch;
-      if (!inTime) return;
-      const inMs = new Date(inTime).getTime();
-      const outMs = outTime ? new Date(outTime).getTime() : nowMs;
-      const overlapStart = Math.max(inMs, winStartMs);
-      const overlapEnd = Math.min(outMs, winEndMs);
+    allPunchPairs.forEach(pair => {
+      const overlapStart = Math.max(pair.inMs, winStartMs);
+      const overlapEnd = Math.min(pair.outMs, winEndMs);
       if (overlapEnd > overlapStart) {
         const overlapHrs = (overlapEnd - overlapStart) / 3600000;
         cost += overlapHrs * avgHourlyRate;
@@ -14012,7 +14442,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
     const hrLabel  = h.hr === 12 ? '12p' : h.hr > 12 ? (h.hr - 12) + 'p' : h.hr + 'a';
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 80, width: '100%', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 110, width: '100%', justifyContent: 'center' }}>
           <div style={{ width: '40%', height: laborH + '%', background: clr, borderRadius: '2px 2px 0 0', minHeight: h.labor > 0 ? 2 : 0, transition: 'height .3s' }} title={`Labor: ${fmtDollars(h.labor)}`} />
           <div style={{ width: '40%', height: salesH + '%', background: '#FF671F55', borderRadius: '2px 2px 0 0', minHeight: h.sales > 0 ? 2 : 0, transition: 'height .3s' }} title={`Sales: ${fmtDollars(h.sales)}`} />
         </div>
@@ -14064,7 +14494,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
           { label: 'Labor $',   value: fmtDollars(dispLaborDollars), color: laborColor(dispLaborPct) },
           { label: 'Labor %',   value: fmtPct(dispLaborPct),         color: laborColor(dispLaborPct) },
           { label: 'Sales $',   value: fmtDollars(dispSales),        color: '#FF671F' },
-          { label: 'On Clock',  value: String(onClockCount || cachedToday.employeesOnClock || 0), color: '#FF671F' },
+          { label: 'Clocked In',  value: String(onClockCount || 0), color: '#4caf50' },
         ].map((k, i) => (
           <div key={i} style={{ ...card(th), padding: '1rem', textAlign: 'center' }}>
             <div style={{ fontSize: '0.6875rem', color: th.muted, textTransform: 'uppercase', fontWeight: 600, letterSpacing: 0.5 }}>{k.label}</div>
@@ -14099,7 +14529,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
               <thead>
                 <tr>
-                  {['Hour', 'Labor $', 'Sales $', 'Labor %', 'On Clock'].map(h => (
+                  {['Hour', 'Labor $', 'Sales $', 'Labor %', 'Working'].map(h => (
                     <th key={h} style={thS}>{h}</th>
                   ))}
                 </tr>
@@ -14190,6 +14620,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
       <div style={{ ...card(th), padding: '1rem' }}>
         <button onClick={() => setEmpExpanded(x => !x)} style={{ ...btn(th, { background: th.card3, color: th.text, padding: '0.4rem 0.875rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }) }}>
           <span>Employees ({enrichedEmps.length})</span>
+          {onClockCount > 0 && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#4caf50', background: '#4caf5020', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>{onClockCount} In</span>}
           {otCount > 0 && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#f44336', background: '#f4433620', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>{otCount} OT</span>}
           <span style={{ fontSize: '0.75rem', color: th.muted }}>{empExpanded ? '▲' : '▼'}</span>
         </button>
@@ -14198,13 +14629,15 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
           <div style={{ overflowX: 'auto', marginTop: '0.75rem' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
               <thead>
-                <tr>{['Name', 'Role', 'Status', 'Clocked In', 'Hrs Today', 'Hrs/Wk', 'Rate', 'Cost Today'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
+                <tr>{['Name', 'Role', 'Status', 'Schedule', 'Hrs Today', 'Hrs/Wk', 'Rate', 'Cost Today'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {enrichedEmps.length === 0 && (
                   <tr><td colSpan={8} style={{ ...tdS, textAlign: 'center', color: th.muted }}>No employee data loaded</td></tr>
                 )}
-                {enrichedEmps.map(emp => (
+                {enrichedEmps.map(emp => {
+                  const statusColor = emp.liveStatus === 'Clocked In' ? '#4caf50' : emp.liveStatus === 'Scheduled' ? '#2196f3' : emp.liveStatus === 'Shift Today' ? '#ff9800' : th.muted;
+                  return (
                   <tr key={emp.id}>
                     <td style={tdS}>
                       {emp.currentlyOnClock && <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#4caf50', marginRight: 5, verticalAlign: 'middle' }} />}
@@ -14212,17 +14645,21 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
                     </td>
                     <td style={{ ...tdS, color: th.muted }}>{emp.role}</td>
                     <td style={tdS}>
-                      {emp.otStatus === 'OT'      && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#f44336', background: '#f4433620', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>OT</span>}
-                      {emp.otStatus === 'Approaching OT' && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#ff9800', background: '#ff980020', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>Approaching OT</span>}
-                      {emp.isSalary               && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2196f3', background: '#2196f320', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>Salary</span>}
+                      <span style={{ fontSize: '0.65rem', fontWeight: 700, color: statusColor, background: statusColor + '20', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>{emp.liveStatus}</span>
+                      {emp.otStatus === 'OT'      && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#f44336', background: '#f4433620', padding: '0.15rem 0.4rem', borderRadius: '0.3rem', marginLeft: 4 }}>OT</span>}
+                      {emp.otStatus === 'Approaching OT' && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#ff9800', background: '#ff980020', padding: '0.15rem 0.4rem', borderRadius: '0.3rem', marginLeft: 4 }}>~OT</span>}
+                      {emp.isSalary               && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2196f3', background: '#2196f320', padding: '0.15rem 0.4rem', borderRadius: '0.3rem', marginLeft: 4 }}>SAL</span>}
                     </td>
-                    <td style={{ ...tdS, color: th.muted, fontSize: '0.75rem' }}>{emp.clockedInAt || '—'}</td>
+                    <td style={{ ...tdS, fontSize: '0.75rem', color: th.muted }}>
+                      {emp.clockedInAt ? `In ${emp.clockedInAt}` : emp.scheduledStart ? `${emp.scheduledStart} - ${emp.scheduledEnd}` : '—'}
+                    </td>
                     <td style={tdS}>{emp.hoursToday.toFixed(2)}</td>
                     <td style={{ ...tdS, color: emp.otStatus === 'OT' ? '#f44336' : emp.otStatus === 'Approaching OT' ? '#ff9800' : th.text, fontWeight: emp.otStatus ? 600 : 400 }}>{emp.hoursWeek.toFixed(1)}</td>
                     <td style={tdS}>{emp.isSalary ? '$' + Math.round(emp.rate).toLocaleString() + '/2wk' : '$' + emp.rate.toFixed(2) + '/hr'}</td>
                     <td style={tdS}>{fmtDollars(emp.dailyCost)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -14282,17 +14719,24 @@ function AdminLabor({ stores, districts, th, user }) {
 
   useEffect(() => { fetchLaborData(); }, [fetchLaborData]);
 
-  // Manual refresh — triggers the cron function on-demand
+  // Manual refresh — triggers background cron then polls blob for fresh data
   const handleRefresh = async () => {
     setRefreshing(true);
+    const prevUpdated = laborData?.lastUpdated || '';
     try {
-      const res = await fetch('/.netlify/functions/labor-cron', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      // Fire-and-forget: trigger background function (returns 202 immediately)
+      fetch('/.netlify/functions/labor-cron-background', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manual: true }),
-      });
-      if (res.ok) {
-        await fetchLaborData();
+      }).catch(() => {});
+      // Poll blob every 5s for up to 3 minutes until lastUpdated changes
+      for (let i = 0; i < 36; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const fresh = await cloudLoad('pcg_labor_v1');
+        if (fresh?.lastUpdated && fresh.lastUpdated !== prevUpdated) {
+          setLaborData(fresh);
+          break;
+        }
       }
     } catch {}
     setRefreshing(false);
@@ -14328,16 +14772,17 @@ function AdminLabor({ stores, districts, th, user }) {
     acc.sales += t.sales || 0;
     acc.employees += (t.employees || 0);
     acc.employeesOnClock += (t.employeesOnClock || 0);
+    acc.scheduledNow += (t.scheduledNow || 0);
     acc.overtimeCount += (t.overtimeCount || 0);
     return acc;
-  }, { laborDollars: 0, sales: 0, employees: 0, employeesOnClock: 0, overtimeCount: 0 });
+  }, { laborDollars: 0, sales: 0, employees: 0, employeesOnClock: 0, scheduledNow: 0, overtimeCount: 0 });
   summary.laborPct = summary.sales > 0 ? Math.round((summary.laborDollars / summary.sales) * 1000) / 10 : 0;
 
   const kpiCards = [
     { label: 'Total Labor', value: fmtDollars(summary.laborDollars), color: laborColor(summary.laborPct) },
     { label: 'Avg Labor %', value: fmtPct(summary.laborPct), color: laborColor(summary.laborPct) },
     { label: 'Total Sales', value: fmtDollars(summary.sales), color: '#FF671F' },
-    { label: 'On Clock', value: String(summary.employeesOnClock || summary.employees), color: '#FF671F' },
+    { label: 'Scheduled Now', value: String(summary.scheduledNow || summary.employeesOnClock || 0), color: '#FF671F' },
   ];
 
   return (
@@ -14425,7 +14870,7 @@ function AdminLabor({ stores, districts, th, user }) {
               </div>
               {timeFilter === 'today' && t.employees !== undefined && (
                 <div style={{ fontSize: '0.6875rem', color: th.muted, marginTop: '0.35rem' }}>
-                  {t.employeesOnClock || 0} on clock / {t.employees} total
+                  {t.scheduledNow || t.employeesOnClock || 0} scheduled now / {t.scheduledToday || t.employees} today
                 </div>
               )}
             </div>
@@ -14433,6 +14878,800 @@ function AdminLabor({ stores, districts, th, user }) {
         })}
       </div>
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ═══ UOP Analyst Components (Orion) ══════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Render analyst markdown to React elements (lightweight, no library needed) */
+function renderAnalystMarkdown(text, th) {
+  if (!text) return null;
+  const O = '#FF671F';
+  const lines = text.split('\n');
+  const elements = [];
+  let tableRows = [];
+  let tableHeaders = [];
+  let inTable = false;
+
+  const flushTable = () => {
+    if (tableHeaders.length === 0 && tableRows.length === 0) return;
+    elements.push(
+      React.createElement('div', { key: `tbl-${elements.length}`, style: { overflowX: 'auto', margin: '0.75rem 0' } },
+        React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' } },
+          tableHeaders.length > 0 && React.createElement('thead', null,
+            React.createElement('tr', null, tableHeaders.map((h, i) =>
+              React.createElement('th', { key: i, style: { padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.text, fontWeight: 700, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5 } }, h.trim())
+            ))
+          ),
+          React.createElement('tbody', null, tableRows.map((row, ri) =>
+            React.createElement('tr', { key: ri, style: { borderBottom: `1px solid ${th.cardBorder}` } }, row.map((cell, ci) =>
+              React.createElement('td', { key: ci, style: { padding: '0.4rem 0.75rem', color: th.text, fontSize: '0.8rem' } }, inlineFormat(cell.trim(), th))
+            ))
+          ))
+        )
+      )
+    );
+    tableHeaders = [];
+    tableRows = [];
+    inTable = false;
+  };
+
+  // Inline formatting: **bold**, *italic*, `code`, $amounts
+  function inlineFormat(str, th) {
+    if (!str) return str;
+    const parts = [];
+    let remaining = str;
+    let key = 0;
+    const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|(\$[\d,.]+[kKmM]?%?))/g;
+    let lastIdx = 0;
+    let match;
+    while ((match = regex.exec(remaining)) !== null) {
+      if (match.index > lastIdx) parts.push(remaining.slice(lastIdx, match.index));
+      if (match[2]) parts.push(React.createElement('strong', { key: key++, style: { fontWeight: 700, color: th.text } }, match[2]));
+      else if (match[3]) parts.push(React.createElement('em', { key: key++, style: { fontStyle: 'italic', color: th.muted } }, match[3]));
+      else if (match[4]) parts.push(React.createElement('code', { key: key++, style: { background: th.card3, padding: '0.1rem 0.35rem', borderRadius: '0.25rem', fontSize: '0.8em', fontFamily: 'monospace' } }, match[4]));
+      else if (match[5]) parts.push(React.createElement('span', { key: key++, style: { fontWeight: 700, color: O } }, match[5]));
+      lastIdx = match.index + match[0].length;
+    }
+    if (lastIdx < remaining.length) parts.push(remaining.slice(lastIdx));
+    return parts.length > 0 ? parts : str;
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Table row
+    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+      const cells = line.split('|').slice(1, -1);
+      // Skip separator rows (|---|---|)
+      if (cells.every(c => /^[\s:-]+$/.test(c))) { inTable = true; continue; }
+      if (!inTable && tableHeaders.length === 0) { tableHeaders = cells; inTable = true; continue; }
+      tableRows.push(cells);
+      continue;
+    } else if (inTable) {
+      flushTable();
+    }
+
+    // Empty line
+    if (!line.trim()) { elements.push(React.createElement('div', { key: `sp-${i}`, style: { height: '0.5rem' } })); continue; }
+
+    // Headers
+    if (line.startsWith('### ')) { elements.push(React.createElement('div', { key: i, style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.85rem', color: th.text, marginTop: '0.75rem', marginBottom: '0.25rem' } }, inlineFormat(line.slice(4), th))); continue; }
+    if (line.startsWith('## ')) { elements.push(React.createElement('div', { key: i, style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: th.text, marginTop: '0.75rem', marginBottom: '0.25rem' } }, inlineFormat(line.slice(3), th))); continue; }
+    if (line.startsWith('# ')) { elements.push(React.createElement('div', { key: i, style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.05rem', color: th.text, marginTop: '0.75rem', marginBottom: '0.35rem' } }, inlineFormat(line.slice(2), th))); continue; }
+
+    // Bullet points (-, •, *)
+    const bulletMatch = line.match(/^(\s*)([-•*])\s+(.*)/);
+    if (bulletMatch) {
+      const indent = bulletMatch[1].length;
+      elements.push(React.createElement('div', { key: i, style: { display: 'flex', gap: '0.5rem', paddingLeft: indent > 0 ? '1.25rem' : '0.25rem', marginBottom: '0.35rem', lineHeight: 1.6 } },
+        React.createElement('span', { style: { color: O, fontWeight: 700, flexShrink: 0 } }, '•'),
+        React.createElement('span', { style: { color: th.text } }, inlineFormat(bulletMatch[3], th))
+      ));
+      continue;
+    }
+
+    // Numbered list
+    const numMatch = line.match(/^(\d+)\.\s+(.*)/);
+    if (numMatch) {
+      elements.push(React.createElement('div', { key: i, style: { display: 'flex', gap: '0.5rem', paddingLeft: '0.25rem', marginBottom: '0.35rem', lineHeight: 1.6 } },
+        React.createElement('span', { style: { color: O, fontWeight: 700, flexShrink: 0, minWidth: '1.2rem' } }, numMatch[1] + '.'),
+        React.createElement('span', { style: { color: th.text } }, inlineFormat(numMatch[2], th))
+      ));
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) { elements.push(React.createElement('hr', { key: i, style: { border: 'none', borderTop: `1px solid ${th.cardBorder}`, margin: '0.75rem 0' } })); continue; }
+
+    // Regular paragraph
+    elements.push(React.createElement('div', { key: i, style: { color: th.text, lineHeight: 1.7, marginBottom: '0.2rem' } }, inlineFormat(line, th)));
+  }
+
+  if (inTable) flushTable();
+  return React.createElement('div', { style: { fontFamily: "'Source Sans 3'", fontSize: '0.875rem' } }, elements);
+}
+
+/** AskBar — Global Cmd-K omnibar for asking the Analyst */
+function AskBar({ user, th, onNavigate }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [answer, setAnswer] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState(null); // 'up' | 'down'
+  const inputRef = useRef(null);
+
+  // Cmd/Ctrl+K listener
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setOpen(true); }
+      if (e.key === 'Escape') { setOpen(false); setAnswer(null); setQuery(''); setFeedback(null); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
+
+  const ask = async () => {
+    if (!query.trim() || loading) return;
+    setLoading(true); setAnswer(null); setFeedback(null);
+    try {
+      const district = user.userType === 'dm' ? user.district : null;
+      const res = await fetch('/.netlify/functions/analyst', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ask', question: query, userId: user.id, userRole: user.userType, district, forceDeep: query.toLowerCase().includes('deep analysis') }),
+      });
+      const data = await res.json();
+      setAnswer(data);
+    } catch (err) { setAnswer({ answer: 'Sorry, something went wrong. Try again.', error: true }); }
+    setLoading(false);
+  };
+
+  const sendFeedback = async (rating) => {
+    if (!answer?.messageId) return;
+    setFeedback(rating);
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'feedback', userId: user.id, messageId: answer.messageId, rating }),
+    }).catch(() => {});
+  };
+
+  if (!open) return null;
+  const O = '#FF671F';
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '12vh', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={(e) => { if (e.target === e.currentTarget) { setOpen(false); setAnswer(null); setQuery(''); setFeedback(null); } }}>
+      <div style={{ width: '100%', maxWidth: 640, background: th.card, borderRadius: '1rem', border: `1px solid ${th.cardBorder}`, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+        {/* Search bar */}
+        <div style={{ display: 'flex', alignItems: 'center', padding: '1rem 1.25rem', gap: '0.75rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+          <span style={{ fontSize: '1.1rem' }}>🔮</span>
+          <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && ask()}
+            placeholder="Ask Orion anything... (e.g. 'Which stores have high labor today?')"
+            style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: th.text, fontSize: '1rem', fontFamily: "'Source Sans 3'" }}
+          />
+          {loading ? (
+            <span style={{ display: 'inline-block', width: 18, height: 18, border: `2px solid ${O}44`, borderTopColor: O, borderRadius: '50%', animation: 'pulse 0.8s linear infinite' }} />
+          ) : (
+            <button onClick={ask} style={{ background: O, border: 'none', borderRadius: '0.5rem', padding: '0.4rem 0.8rem', color: '#fff', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Ask</button>
+          )}
+          <kbd style={{ fontSize: '0.6rem', color: th.muted, background: th.card3, padding: '0.2rem 0.4rem', borderRadius: '0.25rem', border: `1px solid ${th.cardBorder}` }}>ESC</kbd>
+        </div>
+        {/* Answer area */}
+        {answer && (
+          <div style={{ padding: '1.25rem', maxHeight: '50vh', overflowY: 'auto' }}>
+            {renderAnalystMarkdown(answer.answer, th)}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '0.75rem', borderTop: `1px solid ${th.cardBorder}` }}>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button onClick={() => sendFeedback('up')} style={{ background: feedback === 'up' ? '#4caf5033' : th.card3, border: `1px solid ${feedback === 'up' ? '#4caf50' : th.cardBorder}`, borderRadius: '0.375rem', padding: '0.3rem 0.6rem', cursor: 'pointer', fontSize: '0.8rem' }}>👍</button>
+                <button onClick={() => sendFeedback('down')} style={{ background: feedback === 'down' ? '#f4433633' : th.card3, border: `1px solid ${feedback === 'down' ? '#f44336' : th.cardBorder}`, borderRadius: '0.375rem', padding: '0.3rem 0.6rem', cursor: 'pointer', fontSize: '0.8rem' }}>👎</button>
+              </div>
+              <div style={{ fontSize: '0.65rem', color: th.muted }}>
+                {answer.model?.includes('haiku') ? '⚡ Haiku' : '🧠 Sonnet'} · {answer.latencyMs ? (answer.latencyMs / 1000).toFixed(1) + 's' : ''}
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Hint */}
+        {!answer && !loading && (
+          <div style={{ padding: '1.25rem', textAlign: 'center', color: th.muted, fontSize: '0.75rem' }}>
+            Try: "What's our network labor % today?" · "Which district is underperforming?" · "Deep analysis on District 3"
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** TodayBrief — "Today's Brief from Orion" band at top of dashboard */
+function TodayBrief({ user, th }) {
+  const [brief, setBrief] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const O = '#FF671F';
+
+  const fetchBrief = async (refresh) => {
+    if (refresh) setRefreshing(true); else setLoading(true);
+    try {
+      const district = user.userType === 'dm' ? user.district : null;
+      const res = await fetch('/.netlify/functions/analyst', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: refresh ? 'brief-refresh' : 'brief', userId: user.id, userRole: user.userType, district }),
+      });
+      const data = await res.json();
+      if (data.brief) setBrief(data.brief);
+    } catch {}
+    setLoading(false); setRefreshing(false);
+  };
+
+  useEffect(() => { fetchBrief(false); }, []);
+
+  if (loading) return (
+    <div style={{ background: `linear-gradient(135deg, ${O}12, ${O}06)`, border: `1px solid ${O}33`, borderRadius: '0.75rem', padding: '1.25rem', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: O, fontSize: '0.75rem', fontWeight: 700 }}>
+        <span>🔮</span> Loading Orion's brief...
+      </div>
+    </div>
+  );
+
+  if (!brief) return null;
+
+  return (
+    <div style={{ background: `linear-gradient(135deg, ${O}10, ${O}05)`, border: `1px solid ${O}30`, borderRadius: '0.75rem', padding: collapsed ? '0.75rem 1.25rem' : '1.25rem', marginBottom: '1.25rem', transition: 'padding 0.2s' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setCollapsed(c => !c)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <span style={{ fontSize: '1.1rem' }}>🔮</span>
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.85rem', color: th.text }}>Today's Brief from Orion</span>
+          <span style={{ fontSize: '0.6rem', color: th.muted, fontWeight: 500 }}>{brief.scope} · {timeAgo(brief.generatedAt)}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button onClick={(e) => { e.stopPropagation(); fetchBrief(true); }}
+            disabled={refreshing}
+            style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.2rem 0.5rem', color: O, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', opacity: refreshing ? 0.5 : 1 }}>
+            {refreshing ? '...' : '↻ Refresh'}
+          </button>
+          <span style={{ fontSize: '0.7rem', color: th.muted }}>{collapsed ? '▼' : '▲'}</span>
+        </div>
+      </div>
+      {!collapsed && (
+        <div style={{ marginTop: '0.85rem' }}>
+          {renderAnalystMarkdown(brief.content, th)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** BusinessCasesCard — Dashboard card showing auto-generated business cases */
+function BusinessCasesCard({ user, th, onViewCase }) {
+  const [cases, setCases] = useState([]);
+  const [totalOpp, setTotalOpp] = useState(0);
+  const [byStatus, setByStatus] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(null); // expanded case id
+  const O = '#FF671F';
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const district = user.userType === 'dm' ? user.district : null;
+        const res = await fetch('/.netlify/functions/analyst', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'case-list', userId: user.id, district, limit: 10 }),
+        });
+        const data = await res.json();
+        setCases(data.cases || []);
+        setTotalOpp(data.totalOpportunity || 0);
+        setByStatus(data.byStatus || {});
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
+
+  const updateStatus = async (caseId, status) => {
+    try {
+      await fetch('/.netlify/functions/analyst', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'case-update', caseId, status, userId: user.id }),
+      });
+      setCases(prev => prev.map(c => c.id === caseId ? { ...c, status } : c));
+    } catch {}
+  };
+
+  const statusColors = {
+    'New': '#2196f3', 'In Review': '#ff9800', 'Accepted': '#4caf50',
+    'In Progress': '#9c27b0', 'Done': '#607d8b',
+  };
+
+  if (loading) return null;
+  if (cases.length === 0) return null;
+
+  return (
+    <div style={{ background: th.card, borderRadius: '0.75rem', padding: '1.25rem', border: `1px solid ${th.cardBorder}`, marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '1rem' }}>📋</span>
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.85rem', color: th.text }}>Business Cases</span>
+          <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4caf50', background: '#4caf5020', padding: '0.15rem 0.5rem', borderRadius: '999px' }}>
+            ${Math.round(totalOpp).toLocaleString()} opportunity
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: '0.35rem' }}>
+          {Object.entries(byStatus).map(([s, n]) => (
+            <span key={s} style={{ fontSize: '0.58rem', fontWeight: 700, color: statusColors[s] || th.muted, background: (statusColors[s] || '#888') + '18', padding: '0.15rem 0.4rem', borderRadius: '0.25rem' }}>{n} {s}</span>
+          ))}
+        </div>
+      </div>
+
+      {cases.slice(0, 5).map(c => (
+        <div key={c.id} style={{ padding: '0.65rem 0', borderTop: `1px solid ${th.cardBorder}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer' }}
+            onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.55rem', fontWeight: 700, color: statusColors[c.status] || th.muted, background: (statusColors[c.status] || '#888') + '20', padding: '0.1rem 0.4rem', borderRadius: '0.2rem' }}>{c.status}</span>
+                <span style={{ fontSize: '0.55rem', fontWeight: 700, color: c.severity === 'high' ? '#f44336' : c.severity === 'medium' ? '#ff9800' : '#4caf50', textTransform: 'uppercase' }}>{c.severity}</span>
+              </div>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: th.text, marginTop: '0.25rem' }}>{c.title}</div>
+              <div style={{ fontSize: '0.7rem', color: th.muted }}>{c.summary}</div>
+            </div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#4caf50', whiteSpace: 'nowrap', marginLeft: '1rem' }}>
+              {c.dollarOpportunity > 0 ? `$${Math.round(c.dollarOpportunity).toLocaleString()}` : '—'}
+            </div>
+          </div>
+          {expanded === c.id && (
+            <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: th.card2, borderRadius: '0.5rem', fontSize: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                {['New', 'In Review', 'Accepted', 'In Progress', 'Done'].map(s => (
+                  <button key={s} onClick={() => updateStatus(c.id, s)}
+                    style={{ background: c.status === s ? (statusColors[s] || '#888') : th.card3, border: `1px solid ${c.status === s ? statusColors[s] : th.cardBorder}`, borderRadius: '0.3rem', padding: '0.2rem 0.5rem', fontSize: '0.6rem', fontWeight: 700, color: c.status === s ? '#fff' : th.muted, cursor: 'pointer' }}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+              <div style={{ color: th.muted, lineHeight: 1.6 }}>
+                <strong>Store:</strong> {c.storeName || '—'} · <strong>District:</strong> {c.district || '—'} · <strong>Created:</strong> {timeAgo(c.createdAt)}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Knowledge Base ────────────────────────────────────────────────────────────
+function KnowledgeBase({ th, user, showAlert }) {
+  const KB_CATEGORIES = ["Setup Guide", "SOP", "Training", "Policy", "Reference"];
+  const CAT_COLORS = { "Setup Guide":"#3b82f6", "SOP":"#8b5cf6", "Training":"#22c55e", "Policy":"#ef4444", "Reference":"#f59e0b" };
+  const isAdmin = user && (user.userType === "executive" || user.userType === "it");
+
+  const [articles, setArticles] = useState([]);
+  const [selectedArticle, setSelectedArticle] = useState(null);
+  const [articleContent, setArticleContent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [catFilter, setCatFilter] = useState("All");
+  const [showForm, setShowForm] = useState(false);
+  const [showPdfModal, setShowPdfModal] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ title:"", category:"", description:"", content:"" });
+  const [form, setForm] = useState({ title:"", category:"Setup Guide", description:"", content:"" });
+
+  // Load articles index on mount
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const data = await cloudLoad('pcg_kb_articles');
+      setArticles(Array.isArray(data) ? data : []);
+      setLoading(false);
+    })();
+  }, []);
+
+  // Load individual article content
+  const viewArticle = async (id) => {
+    setLoading(true);
+    const content = await cloudLoad('pcg_kb_article_' + id);
+    setArticleContent(content);
+    setSelectedArticle(id);
+    setLoading(false);
+  };
+
+  // Save new article
+  const saveArticle = async () => {
+    if (!form.title.trim() || !form.content.trim()) { showAlert("error", "Title and content are required."); return; }
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const article = { id, title: form.title.trim(), category: form.category, description: form.description.trim(), createdBy: user.name, createdAt: new Date().toISOString() };
+    const updated = [...articles, article];
+    await cloudSave('pcg_kb_articles', updated);
+    await cloudSave('pcg_kb_article_' + id, form.content);
+    setArticles(updated);
+    setForm({ title:"", category:"Setup Guide", description:"", content:"" });
+    setShowForm(false);
+    showAlert("success", "Article published!");
+  };
+
+  // Delete article
+  const deleteArticle = async (id) => {
+    if (!confirm("Delete this article?")) return;
+    const updated = articles.filter(a => a.id !== id);
+    await cloudSave('pcg_kb_articles', updated);
+    setArticles(updated);
+    if (selectedArticle === id) { setSelectedArticle(null); setArticleContent(null); }
+    showAlert("success", "Article deleted.");
+  };
+
+  // Start editing an article
+  const startEdit = () => {
+    const art = articles.find(a => a.id === selectedArticle);
+    if (!art) return;
+    setEditForm({ title: art.title, category: art.category, description: art.description || '', content: articleContent || '' });
+    setEditing(true);
+  };
+
+  // Save edited article
+  const saveEdit = async () => {
+    if (!editForm.title.trim() || !editForm.content.trim()) { showAlert("error", "Title and content are required."); return; }
+    const art = articles.find(a => a.id === selectedArticle);
+    if (!art) return;
+    const updatedArt = { ...art, title: editForm.title.trim(), category: editForm.category, description: editForm.description.trim(), updatedAt: new Date().toISOString() };
+    const updatedList = articles.map(a => a.id === selectedArticle ? updatedArt : a);
+    await cloudSave('pcg_kb_articles', updatedList);
+    await cloudSave('pcg_kb_article_' + selectedArticle, editForm.content);
+    setArticles(updatedList);
+    setArticleContent(editForm.content);
+    setEditing(false);
+    showAlert("success", "Article updated.");
+  };
+
+  // Share article via native share (mobile) or generate PDF for sharing
+  const shareArticle = async () => {
+    const art = articles.find(a => a.id === selectedArticle);
+    if (!art || !articleContent) return;
+
+    // Build a clean PDF blob for sharing
+    const el = document.createElement('div');
+    el.innerHTML = '<div style="font-family:Source Sans 3,sans-serif;color:#1a1a1a;background:#fff;">' +
+      '<style>.header{display:block!important}.gold-bar{display:block!important}.pcg-kb{color:#1a1a1c!important;background:#f4f4f6!important}.pcg-kb .page{background:#fff!important;box-shadow:none!important}.pcg-kb .header{display:flex!important}.pcg-kb p,.pcg-kb li,.pcg-kb td,.pcg-kb th,.pcg-kb span,.pcg-kb div,.pcg-kb strong,.pcg-kb b{color:inherit!important}</style>' +
+      articleContent +
+      '<div style="margin-top:2rem;padding-top:1rem;border-top:1px solid #ddd;font-size:0.65rem;color:#aaa;text-align:center;">CONFIDENTIAL - People Capital Group Internal Use Only</div></div>';
+
+    const safeName = art.title.replace(/[^a-zA-Z0-9]+/g, '-').replace(/-+$/, '');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const fileName = 'PCG-KB-' + safeName + '-' + dateStr + '.pdf';
+
+    try {
+      // Generate PDF as blob
+      const pdfBlob = await html2pdf().set({
+        margin: 0.5, filename: fileName,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'in', format: 'letter' }
+      }).from(el).outputPdf('blob');
+
+      const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+      // Use Web Share API if available (mobile)
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+        await navigator.share({
+          title: art.title,
+          text: 'PCG Knowledge Base: ' + art.title,
+          files: [pdfFile],
+        });
+      } else {
+        // Fallback: open a download + prompt to share manually
+        const url = URL.createObjectURL(pdfBlob);
+        const a = document.createElement('a');
+        a.href = url; a.download = fileName; a.click();
+        URL.revokeObjectURL(url);
+        showAlert("success", "PDF downloaded. Open your messaging app to share it.");
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') showAlert("error", "Share failed: " + err.message);
+    }
+  };
+
+  // PDF export
+  const exportPdf = () => {
+    const art = articles.find(a => a.id === selectedArticle);
+    if (!art || !articleContent) return;
+    const el = document.createElement('div');
+    // Use the article's own content directly (it has its own header built in)
+    // Force light mode colors and show the embedded header for PDF
+    el.innerHTML = '<div style="font-family:Source Sans 3,sans-serif;color:#1a1a1a;background:#fff;">' +
+      '<style>.header{display:block!important}.gold-bar{display:block!important}.pcg-kb{color:#1a1a1c!important;background:#f4f4f6!important}.pcg-kb .page{background:#fff!important;box-shadow:none!important}.pcg-kb .header{display:flex!important}.pcg-kb p,.pcg-kb li,.pcg-kb td,.pcg-kb th,.pcg-kb span,.pcg-kb div,.pcg-kb strong,.pcg-kb b{color:inherit!important}</style>' +
+      articleContent +
+      '<div style="margin-top:2rem;padding-top:1rem;border-top:1px solid #ddd;font-size:0.65rem;color:#aaa;text-align:center;">CONFIDENTIAL - People Capital Group Internal Use Only</div>' +
+    '</div>';
+    const dateStr = new Date().toISOString().slice(0,10);
+    const safeName = art.title.replace(/[^a-zA-Z0-9]+/g, '-').replace(/-+$/,'');
+    html2pdf().set({ margin: 0.5, filename: 'PCG-KB-' + safeName + '-' + dateStr + '.pdf', image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2 }, jsPDF: { unit:'in', format:'letter' } }).from(el).save();
+    setShowPdfModal(false);
+  };
+
+  const filtered = articles.filter(a => {
+    if (catFilter !== "All" && a.category !== catFilter) return false;
+    if (search && !a.title.toLowerCase().includes(search.toLowerCase()) && !a.description.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  // ── Article detail view ──────────────────────────────────────────────
+  if (selectedArticle) {
+    const art = articles.find(a => a.id === selectedArticle);
+    return React.createElement(React.Fragment, null,
+      // PDF Confidential Modal — rendered via portal to body so it's above everything
+      showPdfModal && ReactDOM.createPortal(
+        React.createElement("div", { style: { position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.6)", zIndex:99999, display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem", backdropFilter:"blur(4px)" }, onClick: () => setShowPdfModal(false) },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: { ...card(th), padding:"2rem", maxWidth:520, width:"100%" } },
+          React.createElement("h3", { style: { fontFamily:"'Raleway'", fontWeight:700, fontSize:"1.1rem", color:th.text, marginBottom:"1rem" } }, "Confidential Document Notice"),
+          React.createElement("p", { style: { color:th.muted, fontSize:"0.85rem", lineHeight:1.6, marginBottom:"1.5rem" } },
+            "CONFIDENTIAL — This document contains proprietary information belonging to People Capital Group. It is intended for internal use only and should not be shared, distributed, or reproduced outside of the organization without explicit written consent from management."
+          ),
+          React.createElement("div", { style: { display:"flex", gap:"0.75rem", justifyContent:"flex-end" } },
+            React.createElement("button", { onClick: () => setShowPdfModal(false), style: { ...btn(th), background:th.card2, color:th.text, border:"1px solid "+th.cardBorder } }, "Cancel"),
+            React.createElement("button", { onClick: exportPdf, style: btn(th) }, "I Accept — Download PDF")
+          )
+        )
+      ), document.body),
+      // Back + actions bar
+      React.createElement("div", { className: "fade-in" },
+      React.createElement("div", { style: { display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"1.25rem", flexWrap:"wrap", gap:"0.75rem" } },
+        React.createElement("button", { onClick: () => { setSelectedArticle(null); setArticleContent(null); }, style: { ...btn(th), background:th.card2, color:th.text, border:"1px solid "+th.cardBorder, fontSize:"0.85rem", padding:"0.5rem 1rem" } }, "\u2190 Back to Knowledge Base"),
+        React.createElement("div", { style: { display:"flex", gap:"0.5rem" } },
+          React.createElement("button", { onClick: () => setShowPdfModal(true), style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem" } }, ICONS.download(W), " Export PDF"),
+          React.createElement("button", { onClick: shareArticle, style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem", background:"#22c55e" } }, "Share"),
+          isAdmin && React.createElement("button", { onClick: startEdit, style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem", background: th.card2, color: th.text, border: "1px solid " + th.cardBorder } }, "Edit"),
+          isAdmin && React.createElement("button", { onClick: () => deleteArticle(selectedArticle), style: { ...btn(th), background:"#ef4444", fontSize:"0.85rem", padding:"0.5rem 1rem" } }, ICONS.trash(W), " Delete")
+        )
+      ),
+      // Edit form (when editing)
+      editing && React.createElement("div", { style: { ...card(th), padding:"2rem", marginBottom:"1rem" } },
+        React.createElement("h3", { style: { fontFamily:"'Raleway'", fontWeight:800, fontSize:"1.1rem", color:th.text, marginBottom:"1rem" } }, "Edit Article"),
+        React.createElement("div", { style: { display:"grid", gap:"0.75rem", marginBottom:"1rem" } },
+          React.createElement("input", { style: inp(th), placeholder:"Title", value: editForm.title, onChange: e => setEditForm(f => ({...f, title: e.target.value})) }),
+          React.createElement("select", { style: inp(th), value: editForm.category, onChange: e => setEditForm(f => ({...f, category: e.target.value})) },
+            KB_CATEGORIES.map(c => React.createElement("option", { key:c, value:c }, c))
+          ),
+          React.createElement("input", { style: inp(th), placeholder:"Description (optional)", value: editForm.description, onChange: e => setEditForm(f => ({...f, description: e.target.value})) }),
+          React.createElement("textarea", { style: { ...inp(th), minHeight:300, fontFamily:"monospace", fontSize:"0.8rem" }, placeholder:"HTML content", value: editForm.content, onChange: e => setEditForm(f => ({...f, content: e.target.value})) })
+        ),
+        React.createElement("div", { style: { display:"flex", gap:"0.75rem", justifyContent:"flex-end" } },
+          React.createElement("button", { onClick: () => setEditing(false), style: { ...btn(th), background:th.card2, color:th.text, border:"1px solid "+th.cardBorder } }, "Cancel"),
+          React.createElement("button", { onClick: saveEdit, style: btn(th) }, "Save Changes")
+        )
+      ),
+      // Article header (hidden when editing)
+      !editing && art && React.createElement("div", { style: { ...card(th), padding:"2rem", marginBottom:"1rem" } },
+        React.createElement("div", { style: { display:"flex", alignItems:"center", gap:"0.75rem", marginBottom:"0.75rem", flexWrap:"wrap" } },
+          React.createElement("span", { style: { background: (CAT_COLORS[art.category]||O)+"22", color: CAT_COLORS[art.category]||O, padding:"0.2rem 0.7rem", borderRadius:999, fontSize:"0.75rem", fontWeight:600 } }, art.category),
+          React.createElement("span", { style: { color:th.muted, fontSize:"0.75rem" } }, "By " + (art.createdBy || 'Unknown') + " · " + new Date(art.createdAt).toLocaleDateString() + (art.updatedAt && art.updatedAt !== art.createdAt ? ' · Updated ' + new Date(art.updatedAt).toLocaleDateString() : ''))
+        ),
+        React.createElement("h2", { style: { fontFamily:"'Raleway'", fontWeight:800, fontSize:"1.4rem", color:th.text, marginBottom:"0.5rem" } }, art.title),
+        art.description && React.createElement("p", { style: { color:th.muted, fontSize:"0.85rem" } }, art.description)
+      ),
+      // Article content — inject dark mode overrides for embedded HTML guides (hidden when editing)
+      editing ? null :
+      loading ? React.createElement("div", { style: { textAlign:"center", padding:"3rem", color:th.muted } }, "Loading article...") :
+      React.createElement("div", { style: { ...card(th), padding:"2rem", overflow:"hidden" } },
+        React.createElement("div", { style: { color:th.text, fontSize:"0.92rem", lineHeight:1.7, fontFamily:"'Source Sans 3'" }, dangerouslySetInnerHTML: { __html:
+          `<style>
+            /*
+             * UNIVERSAL KB DARK MODE — applies to ANY article structure.
+             * Uses wildcard selectors so new articles never need custom overrides.
+             */
+
+            /* 1. Force ALL text inside KB content to theme color */
+            .kb-content-wrap,
+            .kb-content-wrap * {
+              color: ${th.text} !important;
+            }
+
+            /* 2. Force ALL backgrounds to transparent (strip white/light bgs) */
+            .kb-content-wrap > *,
+            .kb-content-wrap [class] {
+              background-color: transparent !important;
+            }
+
+            /* 3. Exceptions: elements that SHOULD keep their dark backgrounds */
+            .kb-content-wrap .header,
+            .kb-content-wrap .footer,
+            .kb-content-wrap .creds,
+            .kb-content-wrap .cta,
+            .kb-content-wrap .reminder {
+              background: #0b0b0c !important;
+            }
+            .kb-content-wrap .header *,
+            .kb-content-wrap .footer *,
+            .kb-content-wrap .creds *,
+            .kb-content-wrap .cta *,
+            .kb-content-wrap .reminder * {
+              color: #fff !important;
+            }
+
+            /* 4. Sections/cards get theme card background */
+            .kb-content-wrap .page,
+            .kb-content-wrap .step,
+            .kb-content-wrap .card,
+            .kb-content-wrap .section,
+            .kb-content-wrap .meta,
+            .kb-content-wrap .intro,
+            .kb-content-wrap .troubleshooting,
+            .kb-content-wrap .info-card,
+            .kb-content-wrap .step-card,
+            .kb-content-wrap .download-section,
+            .kb-content-wrap .store-card {
+              background: ${th.card2} !important;
+              border-color: ${th.cardBorder} !important;
+            }
+
+            /* 5. Tips/warnings/callouts get subtle bg */
+            .kb-content-wrap .tip,
+            .kb-content-wrap .warn,
+            .kb-content-wrap .note,
+            .kb-content-wrap .callout,
+            .kb-content-wrap .step-tip {
+              background: ${th.card3} !important;
+            }
+
+            /* 6. Code/mono blocks */
+            .kb-content-wrap code,
+            .kb-content-wrap .mono,
+            .kb-content-wrap .pill,
+            .kb-content-wrap .value {
+              background: ${th.card3} !important;
+              border-color: ${th.cardBorder} !important;
+            }
+
+            /* 7. Gold/accent text */
+            .kb-content-wrap .eyebrow,
+            .kb-content-wrap .gold,
+            .kb-content-wrap .step-num,
+            .kb-content-wrap .creds .label,
+            .kb-content-wrap .footer strong,
+            .kb-content-wrap .cta strong,
+            .kb-content-wrap .reminder strong,
+            .kb-content-wrap .reminder-title {
+              color: #d7b25a !important;
+            }
+
+            /* 8. Brand orange text */
+            .kb-content-wrap .brand,
+            .kb-content-wrap .accent,
+            .kb-content-wrap a {
+              color: #FF671F !important;
+            }
+
+            /* 9. Muted text */
+            .kb-content-wrap .subtitle,
+            .kb-content-wrap .lead,
+            .kb-content-wrap .label,
+            .kb-content-wrap .store-url,
+            .kb-content-wrap .qr-caption,
+            .kb-content-wrap .footer .ts {
+              color: ${th.muted} !important;
+            }
+
+            /* 10. Borders */
+            .kb-content-wrap table,
+            .kb-content-wrap th,
+            .kb-content-wrap td,
+            .kb-content-wrap hr {
+              border-color: ${th.cardBorder} !important;
+            }
+            .kb-content-wrap th {
+              background: ${th.card3} !important;
+            }
+
+            /* 11. Images on white bg (QR codes, logos) stay white */
+            .kb-content-wrap .qr-wrap,
+            .kb-content-wrap img[src^="data:image"] {
+              background: #fff !important;
+              border-radius: 4px;
+            }
+
+            /* 12. Step numbers keep dark bg */
+            .kb-content-wrap .step-num {
+              background: #0b0b0c !important;
+              border-color: #d7b25a !important;
+            }
+
+            /* 13. Hide duplicate header (portal shows its own) */
+            .kb-content-wrap .header { display: none !important; }
+            .kb-content-wrap .gold-bar { display: none !important; }
+            .kb-content-wrap .store-url { color: #d7b25a !important; }
+            .kb-content-wrap .scan-instruction { color: #d7b25a !important; }
+            .kb-content-wrap .download-subtitle { color: ${th.muted} !important; }
+            .kb-content-wrap .store-card-platform { color: ${th.text} !important; }
+            .kb-content-wrap .store-card-title { color: #d7b25a !important; }
+            .kb-content-wrap a { color: #d7b25a !important; }
+            .kb-content-wrap .step-eyebrow { color: #d7b25a !important; }
+            .kb-content-wrap .steps-header-eyebrow { color: #d7b25a !important; }
+            .kb-content-wrap .reminder-body { color: #fff !important; }
+            .kb-content-wrap .reminder-body strong { color: #d7b25a !important; }
+            .kb-content-wrap .reminder-title { color: #d7b25a !important; }
+          </style>
+          <div class="kb-content-wrap">` + ((articleContent || "<p>No content available.</p>")
+            // Strip inline color/background from style="" attributes
+            .replace(/style="([^"]*)"/g, (match, styles) => {
+              const cleaned = styles
+                .replace(/\bcolor\s*:\s*[^;]+;?/gi, '')
+                .replace(/\bbackground-color\s*:\s*[^;]+;?/gi, '')
+                .replace(/\bbackground\s*:\s*(?!.*(?:url|gradient|image))[^;]+;?/gi, '')
+                .trim();
+              return cleaned ? 'style="' + cleaned + '"' : '';
+            })
+            // Strip ALL color and background declarations from article <style> blocks
+            // so our theme CSS overrides take full control
+            .replace(/<style>([\s\S]*?)<\/style>/gi, (match, css) => {
+              const cleaned = css
+                .replace(/\bcolor\s*:[^;]+;?/g, '')
+                .replace(/\bbackground-color\s*:[^;]+;?/g, '')
+                .replace(/\bbackground\s*:[^;]+;?/g, '')
+                .replace(/\bbox-shadow\s*:[^;]+;?/g, '');
+              return '<style>' + cleaned + '</style>';
+            })) + `</div>`
+        } })
+      )
+      ) // close fade-in div
+    ); // close Fragment
+  }
+
+  // ── Main list view ───────────────────────────────────────────────────
+  return React.createElement("div", { className: "fade-in" },
+    // Search & filter bar
+    React.createElement("div", { style: { display:"flex", gap:"0.75rem", marginBottom:"1.25rem", flexWrap:"wrap", alignItems:"center" } },
+      React.createElement("div", { style: { flex:1, minWidth:200, position:"relative" } },
+        React.createElement("input", { style: { ...inp(th), paddingLeft:"2.4rem", fontSize:"0.85rem" }, placeholder:"Search articles...", value:search, onChange: e => setSearch(e.target.value) }),
+        React.createElement("span", { style: { position:"absolute", left:"0.75rem", top:"50%", transform:"translateY(-50%)", opacity:0.4 } }, ICONS.search(th.muted))
+      ),
+      React.createElement("select", { style: { ...inp(th), width:"auto", minWidth:140, fontSize:"0.85rem" }, value:catFilter, onChange: e => setCatFilter(e.target.value) },
+        React.createElement("option", { value:"All" }, "All Categories"),
+        KB_CATEGORIES.map(c => React.createElement("option", { key:c, value:c }, c))
+      ),
+      isAdmin && React.createElement("button", { onClick: () => setShowForm(!showForm), style: { ...btn(th), fontSize:"0.85rem", padding:"0.55rem 1.2rem" } }, ICONS.plus(W), " Add Article")
+    ),
+
+    // Add article form (admin only)
+    showForm && React.createElement("div", { style: { ...card(th), padding:"1.5rem", marginBottom:"1.25rem" } },
+      React.createElement("h3", { style: { fontFamily:"'Raleway'", fontWeight:700, fontSize:"1rem", color:th.text, marginBottom:"1rem" } }, "New Article"),
+      React.createElement("div", { style: { display:"flex", flexDirection:"column", gap:"0.75rem" } },
+        React.createElement("input", { style: { ...inp(th), fontSize:"0.85rem" }, placeholder:"Article title", value:form.title, onChange: e => setForm(f => ({ ...f, title: e.target.value })) }),
+        React.createElement("select", { style: { ...inp(th), fontSize:"0.85rem" }, value:form.category, onChange: e => setForm(f => ({ ...f, category: e.target.value })) },
+          KB_CATEGORIES.map(c => React.createElement("option", { key:c, value:c }, c))
+        ),
+        React.createElement("input", { style: { ...inp(th), fontSize:"0.85rem" }, placeholder:"Short description", value:form.description, onChange: e => setForm(f => ({ ...f, description: e.target.value })) }),
+        React.createElement("textarea", { style: { ...inp(th), fontSize:"0.85rem", minHeight:200, fontFamily:"monospace" }, placeholder:"Article content (HTML)", value:form.content, onChange: e => setForm(f => ({ ...f, content: e.target.value })) }),
+        React.createElement("div", { style: { display:"flex", gap:"0.75rem" } },
+          React.createElement("button", { onClick: saveArticle, style: btn(th) }, "Publish Article"),
+          React.createElement("button", { onClick: () => setShowForm(false), style: { ...btn(th), background:th.card2, color:th.text, border:"1px solid "+th.cardBorder } }, "Cancel")
+        )
+      )
+    ),
+
+    // Loading state
+    loading && React.createElement("div", { style: { textAlign:"center", padding:"3rem", color:th.muted } }, "Loading knowledge base..."),
+
+    // Empty state
+    !loading && filtered.length === 0 && React.createElement(EmptyState, { icon: ICONS.kb(th.muted), title: "No Articles Found", description: search || catFilter !== "All" ? "Try adjusting your search or filter." : "The knowledge base is empty. " + (isAdmin ? "Add the first article!" : "Check back soon."), th }),
+
+    // Article cards grid
+    !loading && filtered.length > 0 && React.createElement("div", { style: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))", gap:"1rem" } },
+      filtered.map(a => React.createElement("div", { key: a.id, className: "fade-in", style: { ...card(th), padding:"1.25rem", display:"flex", flexDirection:"column", gap:"0.6rem", cursor:"pointer", transition:"transform .15s, box-shadow .15s" }, onClick: () => viewArticle(a.id), onMouseEnter: e => { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow="0 6px 24px rgba(0,0,0,0.1)"; }, onMouseLeave: e => { e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow=""; } },
+        React.createElement("div", { style: { display:"flex", alignItems:"center", justifyContent:"space-between" } },
+          React.createElement("span", { style: { background: (CAT_COLORS[a.category]||O)+"22", color: CAT_COLORS[a.category]||O, padding:"0.15rem 0.6rem", borderRadius:999, fontSize:"0.7rem", fontWeight:600 } }, a.category),
+          React.createElement("span", { style: { color:th.muted, fontSize:"0.7rem" } }, new Date(a.createdAt).toLocaleDateString())
+        ),
+        React.createElement("h3", { style: { fontFamily:"'Raleway'", fontWeight:700, fontSize:"1rem", color:th.text, margin:0 } }, a.title),
+        a.description && React.createElement("p", { style: { color:th.muted, fontSize:"0.82rem", margin:0, lineHeight:1.5 } }, a.description),
+        React.createElement("div", { style: { display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:"auto", paddingTop:"0.5rem" } },
+          React.createElement("span", { style: { color:th.muted, fontSize:"0.7rem" } }, "By " + (a.createdBy || "Unknown")),
+          React.createElement("span", { style: { color:O, fontSize:"0.8rem", fontWeight:600 } }, "View \u2192")
+        )
+      ))
+    )
   );
 }
 
@@ -15888,7 +17127,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v4.74
+            v5.20
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -15915,7 +17154,12 @@ function PCGPortal() {
   );
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: th.bg, transition: "background .3s" }}>
+    <div className="dash-enter" style={{ display: "flex", minHeight: "100vh", background: th.bg, transition: "background .3s" }}>
+
+      {/* Global Ask Analyst Omnibar (Cmd-K) */}
+      {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
+        <AskBar user={user} th={th} />
+      )}
 
       {/* Desktop sidebar */}
       <div className="desktop-sidebar sidebar-drawer" style={{ width: sidebarCollapsed ? 64 : "clamp(240px, 20vw, 360px)", background: th.sidebar, borderRight: `1px solid ${th.sidebarBorder}`, display: "flex", flexDirection: "column", flexShrink: 0, height: "100vh", overflow: "hidden", transition: "width .25s cubic-bezier(.4,0,.2,1)" }}>
@@ -15978,6 +17222,7 @@ function PCGPortal() {
                 {tab === "cash" && "Deposit tracking and missing-deposit alerts."}
                 {tab === "projects" && "Track construction, remodels, and new store builds."}
                 {tab === "users" && "User accounts and access management."}
+                {tab === "kb" && "Company guides, SOPs, and training materials."}
                 {tab === "settings" && "Portal configuration and preferences."}
               </p>
             </div>
@@ -16188,9 +17433,10 @@ function PCGPortal() {
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminLabor stores={stores} districts={districts} th={th} user={user} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} />}
-          {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} th={th} showAlert={showAlert} user={user} announcements={announcements} setAnnouncements={setAnnouncements} />}
+          {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
+          {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} />}
         </div>
       </div>
 

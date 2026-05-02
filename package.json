@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
     "@netlify/blobs": "^10.7.2",
     "minimalistic-assert": "^1.0.1",
     "sharp": "^0.34.5",

@@ -111,7 +111,7 @@ function httpsRequest(hostname, path, method, headers, body) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(20000, () => { req.destroy(); reject(new Error('Request timeout')); });
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Request timeout')); });
     if (data) req.write(data);
     req.end();
   });
@@ -344,6 +344,30 @@ async function fetchPunches(legalEntityId, startDate, endDate) {
   } catch { return []; }
 }
 
+/**
+ * Fetch scheduling shifts for a legal entity for a date range (Paycor Scheduling system).
+ * Returns array of shift objects with employeeId, employeeName, startDateTime, endDateTime, etc.
+ */
+async function fetchSchedulingShifts(legalEntityId, startDate, endDate) {
+  try {
+    let allShifts = [];
+    let path = `/legalentities/${legalEntityId}/schedulingShifts?startDate=${startDate}&endDate=${endDate}`;
+    while (path) {
+      const res = await callPaycor(path);
+      if (res.status !== 200) break;
+      const records = res.data?.records || [];
+      allShifts = allShifts.concat(records);
+      const nextToken = res.data?.continuationToken;
+      if (nextToken && records.length > 0) {
+        path = `/legalentities/${legalEntityId}/schedulingShifts?startDate=${startDate}&endDate=${endDate}&continuationToken=${encodeURIComponent(nextToken)}`;
+      } else {
+        path = null;
+      }
+    }
+    return allShifts;
+  } catch { return []; }
+}
+
 // ── Labor calculation helpers ─────────────────────────────────────────────────
 
 /**
@@ -428,13 +452,32 @@ function overtimeStatus(weeklyHours) {
 
 // ── Process a single store ────────────────────────────────────────────────────
 
-async function processStore(store, busDt) {
+async function processStore(store, busDt, { skipSchedules = false } = {}) {
   const { pc, paycor: legalEntityId, name, district } = store;
   const weekDates = weekDatesThrough(busDt);
   const weekOfStr  = weekStart(busDt);
 
-  // 1. Fetch POS sales for today
+  // 1. Fetch POS sales for today from live API
   const sales = await fetchPOSSales(pc, busDt);
+
+  // For WTD sales: use stored daily history from blob (avoids extra POS calls per store)
+  // Skip on manual triggers (26s timeout) — scheduled cron (15min) handles full WTD
+  const priorDaySales = {}; // date -> netSales
+  if (!skipSchedules) {
+    let existingBlob = null;
+    try {
+      const blobStore = getLaborStore();
+      const raw = await blobStore.get(`pcg_labor_store_${pc}`, { type: 'json' });
+      existingBlob = raw?.data || raw;
+    } catch {}
+    const priorDates_ = weekDates.filter(d => d < busDt);
+    if (existingBlob?.daily) {
+      for (const d of priorDates_) {
+        const dayEntry = existingBlob.daily.find(e => e.date === d);
+        priorDaySales[d] = dayEntry?.sales || 0;
+      }
+    }
+  }
 
   // 2. Fetch employees
   let employees = [];
@@ -448,22 +491,75 @@ async function processStore(store, busDt) {
     console.warn(`[labor-cron] ${name}: fetchEmployees failed:`, e.message);
   }
 
-  // 3. Fetch pay rates for each employee (throttle to avoid rate limits)
-  const payRateMap = {}; // employeeId -> { payType, payRate, annualPay }
-  for (let i = 0; i < employees.length; i += 5) {
-    const batch = employees.slice(i, i + 5);
-    await Promise.all(batch.map(async (emp) => {
-      const id = emp.id || emp.employeeId;
-      if (!id) return;
-      const rate = await fetchPrimaryPayRate(id);
-      if (rate) {
-        payRateMap[id] = {
-          payType:   rate.payType   || rate.type        || 'Hourly',
-          payRate:   rate.payRate   || rate.rate        || 0,
-          annualPay: rate.annualPayRate || rate.annualPay || 0,
-        };
+  // 2b. Fetch today's scheduling shifts (skip on manual triggers to stay under timeout)
+  let todayShifts = [];
+  if (!skipSchedules) {
+    try {
+      const tomorrow = new Date(new Date(busDt + 'T12:00:00').getTime() + 86400000);
+      const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,'0')}-${String(tomorrow.getDate()).padStart(2,'0')}`;
+      todayShifts = await fetchSchedulingShifts(legalEntityId, busDt, tomorrowStr);
+    } catch (e) {
+      console.warn(`[labor-cron] ${name}: fetchSchedulingShifts failed:`, e.message);
+    }
+  }
+
+  // Count employees scheduled right now (shift overlaps current time)
+  const nowUTC = new Date();
+  const scheduledNow = new Set();
+  const scheduledToday = new Set();
+  for (const shift of todayShifts) {
+    const start = new Date(shift.startDateTime);
+    const end = new Date(shift.endDateTime);
+    // Only count shifts that are actually today (filter out yesterday's that bled into query)
+    const shiftDate = shift.startDateTime.slice(0, 10);
+    if (shiftDate === busDt) {
+      scheduledToday.add(shift.employeeId);
+      if (nowUTC >= start && nowUTC <= end) {
+        scheduledNow.add(shift.employeeId);
       }
-    }));
+    }
+  }
+
+  // 3. Fetch pay rates — use daily cache to avoid hundreds of API calls
+  const payRateMap = {}; // employeeId -> { payType, payRate, annualPay }
+  const payRateCacheKey = `pcg_payrates_${legalEntityId}`;
+  let cachedRates = null;
+  try {
+    const blobStore = getLaborStore();
+    const raw = await blobStore.get(payRateCacheKey, { type: 'json' });
+    const cached = raw?.data || raw;
+    // Use cache if it's from today (pay rates rarely change intraday)
+    if (cached?.date === busDt && cached?.rates) {
+      cachedRates = cached.rates;
+    }
+  } catch {}
+
+  if (cachedRates) {
+    // Reuse cached rates
+    Object.assign(payRateMap, cachedRates);
+    console.log(`[labor-cron] ${name}: Using cached pay rates (${Object.keys(cachedRates).length} employees)`);
+  } else {
+    // Fetch fresh and cache
+    for (let i = 0; i < employees.length; i += 5) {
+      const batch = employees.slice(i, i + 5);
+      await Promise.all(batch.map(async (emp) => {
+        const id = emp.id || emp.employeeId;
+        if (!id) return;
+        const rate = await fetchPrimaryPayRate(id);
+        if (rate) {
+          payRateMap[id] = {
+            payType:   rate.payType   || rate.type        || 'Hourly',
+            payRate:   rate.payRate   || rate.rate        || 0,
+            annualPay: rate.annualPayRate || rate.annualPay || 0,
+          };
+        }
+      }));
+    }
+    // Cache for today
+    try {
+      const blobStore = getLaborStore();
+      await blobStore.setJSON(payRateCacheKey, { savedAt: new Date().toISOString(), data: { date: busDt, rates: payRateMap } });
+    } catch {}
   }
 
   // 4. Fetch punches for the full week
@@ -522,7 +618,7 @@ async function processStore(store, busDt) {
 
     totalLaborDollarsToday += costToday;
     hoursWorkedToday       += hoursToday;
-    if (hoursToday > 0) employeesOnClock++;
+    if (hoursToday > 0) employeesOnClock++; // "worked today" — punches API only returns completed shifts
     if (otStatus === 'ot') otCount++;
 
     employeeDetails.push({
@@ -549,12 +645,10 @@ async function processStore(store, busDt) {
       if (!id) continue;
       const h = dayPunches[id] || 0;
       const pr = payRateMap[id] || { payType: 'Hourly', payRate: 0, annualPay: 0 };
-      // For prior days, priorHours is just the days before that day
-      // Approximation: use total prior minus this day's hours for a rough WTD cost
       const dayPrior = priorDates.filter(pd => pd < d).reduce((sum, pd) => sum + (punchMap[pd]?.[id] || 0), 0);
       wtdLaborDollars += computeDailyCost(pr.payType, pr.payRate, pr.annualPay, h, dayPrior);
     }
-    // WTD sales: would need per-day POS — skip for now (caller can enrich if needed)
+    wtdSales += priorDaySales[d] || 0;
   }
 
   const laborPctToday = sales.netSales > 0 ? (totalLaborDollarsToday / sales.netSales) * 100 : 0;
@@ -573,6 +667,8 @@ async function processStore(store, busDt) {
       hoursWorked:      Math.round(hoursWorkedToday * 100) / 100,
       employees:        employees.length,
       employeesOnClock,
+      scheduledNow:     scheduledNow.size,
+      scheduledToday:   scheduledToday.size,
       overtimeCount:    otCount,
     },
     wtd: {
@@ -586,14 +682,14 @@ async function processStore(store, busDt) {
 
 // ── Batch-process all stores ──────────────────────────────────────────────────
 
-async function processAllStores(busDt, batchSize = 8) {
+async function processAllStores(busDt, batchSize = 8, opts = {}) {
   const results = [];
   for (let i = 0; i < STORES.length; i += batchSize) {
     const batch = STORES.slice(i, i + batchSize);
     const batchResults = await Promise.all(
       batch.map(async (store) => {
         try {
-          return await processStore(store, busDt);
+          return await processStore(store, busDt, opts);
         } catch (e) {
           console.error(`[labor-cron] ${store.name} (${store.pc}) error:`, e.message);
           return {
@@ -612,7 +708,7 @@ async function processAllStores(busDt, batchSize = 8) {
     results.push(...batchResults);
     // Small pause between batches to respect Paycor rate limits
     if (i + batchSize < STORES.length) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 1000));
     }
   }
   return results;
@@ -695,8 +791,8 @@ exports.handler = async (event) => {
     }
     console.log('[labor-cron] business date:', busDt);
 
-    // Process all stores in batches of 8
-    const storeResults = await processAllStores(busDt, 8);
+    // Process all stores in batches of 5 (reduced from 8 to avoid Paycor rate limits)
+    const storeResults = await processAllStores(busDt, 5, { skipSchedules: isManual });
 
     // Build network summary
     const successStores = storeResults.filter(r => !r.error);
@@ -705,6 +801,8 @@ exports.handler = async (event) => {
     const networkLaborPct       = networkSales > 0 ? (networkLaborDollars / networkSales) * 100 : 0;
     const networkTotalEmployees = successStores.reduce((s, r) => s + r.today.employees, 0);
     const networkOnClock        = successStores.reduce((s, r) => s + r.today.employeesOnClock, 0);
+    const networkScheduledNow   = successStores.reduce((s, r) => s + (r.today.scheduledNow || 0), 0);
+    const networkScheduledToday = successStores.reduce((s, r) => s + (r.today.scheduledToday || 0), 0);
     const networkOTCount        = successStores.reduce((s, r) => s + r.today.overtimeCount, 0);
 
     // Build stores map for network blob
@@ -720,6 +818,8 @@ exports.handler = async (event) => {
           laborPct:        r.today.laborPct,
           employees:       r.today.employees,
           employeesOnClock: r.today.employeesOnClock,
+          scheduledNow:    r.today.scheduledNow || 0,
+          scheduledToday:  r.today.scheduledToday || 0,
           hoursWorked:     r.today.hoursWorked,
           overtimeCount:   r.today.overtimeCount,
         },
@@ -741,6 +841,8 @@ exports.handler = async (event) => {
         laborPct:          Math.round(networkLaborPct * 10) / 10,
         totalEmployees:    networkTotalEmployees,
         employeesOnClock:  networkOnClock,
+        scheduledNow:      networkScheduledNow,
+        scheduledToday:    networkScheduledToday,
         overtimeCount:     networkOTCount,
       },
       stores: storesSummary,

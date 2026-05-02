@@ -6,9 +6,13 @@
 [functions.pulse-cron]
   schedule = "0 2 * * *"
 
-# Scheduled Labor aggregation — every 4 hours
+# Scheduled Labor aggregation — 7am, 12pm, 5pm ET (11:00, 16:00, 21:00 UTC)
 [functions.labor-cron]
-  schedule = "0 */4 * * *"
+  schedule = "0 11,16,21 * * *"
+
+# Scheduled Analyst — runs after each labor cron (15 min offset) + morning brief at 6am ET
+[functions.analyst-cron]
+  schedule = "15 10,11,16,21 * * *"
 
 [[headers]]
   for = "/*"

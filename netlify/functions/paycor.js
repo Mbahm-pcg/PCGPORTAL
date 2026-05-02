@@ -296,7 +296,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing employeeId or legalEntityId' }) };
     }
 
-    // ── Proxy: employee/location schedules ──
+    // ── Proxy: employee/location schedules (legacy/Perform Time) ──
     if (action === 'schedules') {
       const { legalEntityId, employeeId, startDate, endDate } = payload;
       if (employeeId) {
@@ -318,6 +318,52 @@ exports.handler = async (event) => {
         return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
       }
       return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing employeeId or legalEntityId' }) };
+    }
+
+    // ── Proxy: Paycor Scheduling shifts (newer system) ──
+    if (action === 'schedulingShifts') {
+      const { legalEntityId, shiftId, startDate, endDate } = payload;
+      if (!legalEntityId) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing legalEntityId' }) };
+      if (shiftId) {
+        const res = await callPaycor(`/legalentities/${legalEntityId}/schedulingShifts/${shiftId}`);
+        return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
+      }
+      let path = `/legalentities/${legalEntityId}/schedulingShifts`;
+      const params = [];
+      if (startDate) params.push(`startDate=${startDate}`);
+      if (endDate) params.push(`endDate=${endDate}`);
+      if (params.length) path += '?' + params.join('&');
+      const res = await callPaycor(path);
+      return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
+    }
+
+    // ── Proxy: employee punches (newer endpoint, may include open punches) ──
+    if (action === 'employeePunches') {
+      const { employeeId, startDate, endDate } = payload;
+      if (!employeeId) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing employeeId' }) };
+      let path = `/employees/${employeeId}/employeePunches`;
+      const params = [];
+      if (startDate) params.push(`startDate=${startDate}`);
+      if (endDate) params.push(`endDate=${endDate}`);
+      if (params.length) path += '?' + params.join('&');
+      const res = await callPaycor(path);
+      return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
+    }
+
+    // ── Proxy: scheduling jobs for a legal entity ──
+    if (action === 'schedulingJobs') {
+      const { legalEntityId } = payload;
+      if (!legalEntityId) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing legalEntityId' }) };
+      const res = await callPaycor(`/legalentities/${legalEntityId}/SchedulingJobs`);
+      return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
+    }
+
+    // ── Proxy: schedule groups for a legal entity ──
+    if (action === 'scheduleGroups') {
+      const { legalEntityId } = payload;
+      if (!legalEntityId) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing legalEntityId' }) };
+      const res = await callPaycor(`/legalentities/${legalEntityId}/schedulegroups`);
+      return { statusCode: res.status, headers, body: JSON.stringify(res.data) };
     }
 
     // ── Proxy: generic API call (for exploration) ──
