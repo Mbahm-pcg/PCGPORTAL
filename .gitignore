@@ -5,3 +5,5 @@
 node_modules/
 .netlify/
 .firecrawl/
+*.pdf
+paycor-search.md
