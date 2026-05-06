@@ -13,6 +13,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -128,6 +129,18 @@
 <script type="text/babel">
 const { useState, useRef, useCallback, useEffect } = React;
 
+const GOOGLE_CLIENT_ID = "450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com";
+const GOOGLE_ALLOWED_DOMAINS = ["peoplecapitalgroup.com", "rgi.com"];
+
+function parseGoogleJwt(token) {
+  const base64Url = token.split(".")[1];
+  const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+  const json = atob(base64).split("").map(char =>
+    "%" + ("00" + char.charCodeAt(0).toString(16)).slice(-2)
+  ).join("");
+  return JSON.parse(decodeURIComponent(json));
+}
+
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   useEffect(() => {
@@ -224,6 +237,7 @@ const USERS_SEED = [
   // ── IT Team ─────────────────────────────────────────────────────────────────
   { id:2,  username:"it.admin",           password:"Hr0#8AtQ!f", name:"IT Admin",               role:"IT Administrator",  initials:"IT", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false },
   { id:3,  username:"hr.admin",           password:"!19uPAs@iV", name:"HR Admin",               role:"HR / IT Staff",     initials:"HR", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false },
+  { id:92, username:"ahmed@peoplecapitalgroup.com", password:"", name:"Ahmed Bhuiyan",          role:"IT Administrator",  initials:"AB", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false, region:"All", email:"ahmed@peoplecapitalgroup.com", phone:"" },
   // ── Office Staff ────────────────────────────────────────────────────────────
   { id:4,  username:"office.staff",       password:"w@!O7Z5vJq", name:"Office Staff",           role:"Office Staff",      initials:"OS", isAdmin:false, userType:"office_staff", district:null, active:true,  darkMode:false },
   // ── District Managers ───────────────────────────────────────────────────────
@@ -515,6 +529,22 @@ function getOverallCompletion(project) {
 }
 const canEditProjects = (u) => u && (u.userType === "executive" || u.userType === "it" || u.userType === "office_staff" || u.userType === "construction");
 const canViewProjects = (u) => u && u.userType !== "manager";
+const normalizePersonName = (v) => (v || "").toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+const isManagersStore = (store, user) => {
+  const managerName = normalizePersonName(store?.mgr);
+  if (!managerName || user?.userType !== "manager") return false;
+  return [user.name, user.username, (user.email || "").split("@")[0]]
+    .map(normalizePersonName)
+    .filter(Boolean)
+    .includes(managerName);
+};
+const isDistrictManagersStore = (store, user) => {
+  if (user?.userType !== "dm") return false;
+  if (user?.district !== undefined && user?.district !== null && user?.district !== "") {
+    return String(store?.district) === String(user.district);
+  }
+  return false;
+};
 
 function ThemeToggle({ dark, toggle, btnRef }) {
   return (
@@ -579,6 +609,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
   const [tinyScreen, setTinyScreen] = useState(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
   const toggleBtnRef = useRef(null);
   const logoRef = useRef(null);
+  const googleBtnRef = useRef(null);
 
   // Track viewport size so the layout reacts to rotation / resize
   useEffect(() => {
@@ -639,6 +670,84 @@ function Login({ onLogin, dark, toggleDark, users }) {
       setTimeout(() => setShake(false), 520);
     }
   };
+
+  const finishLogin = useCallback((found) => {
+    setLoading(true);
+    setErr("");
+    setTimeout(() => {
+      setLoading(false);
+      setExiting(true);
+      setTimeout(() => onLogin(found), 700);
+    }, 400);
+  }, [onLogin]);
+
+  useEffect(() => {
+    if (!googleBtnRef.current) return;
+    if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
+
+    let cancelled = false;
+    let tries = 0;
+
+    const renderGoogleButton = () => {
+      if (cancelled) return;
+      if (!window.google?.accounts?.id) {
+        tries += 1;
+        if (tries < 40) setTimeout(renderGoogleButton, 150);
+        return;
+      }
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response) => {
+          try {
+            if (!response?.credential) throw new Error("Google did not return a credential.");
+            const profile = parseGoogleJwt(response.credential);
+            const email = (profile.email || "").trim().toLowerCase();
+
+            if (!profile.email_verified) {
+              setErr("Google account email is not verified.");
+              return;
+            }
+
+            const allowedGoogleDomain = GOOGLE_ALLOWED_DOMAINS.some(domain => email.endsWith("@" + domain));
+            if (!allowedGoogleDomain) {
+              setErr("Use your People Capital Group or RGI Google account.");
+              return;
+            }
+
+            const found = users.find(u => {
+              const userEmail = (u.email || "").trim().toLowerCase();
+              const username = (u.username || "").trim().toLowerCase();
+              return u.active !== false && (userEmail === email || username === email);
+            });
+
+            if (!found) {
+              setErr("Google login worked, but this email is not active in the portal users list.");
+              return;
+            }
+
+            finishLogin(found);
+          } catch (e) {
+            setErr(e.message || "Google sign-in failed.");
+          }
+        }
+      });
+
+      googleBtnRef.current.innerHTML = "";
+      window.google.accounts.id.renderButton(googleBtnRef.current, {
+        type: "standard",
+        theme: dark ? "filled_black" : "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "rectangular",
+        logo_alignment: "left",
+        width: 320
+      });
+    };
+
+    renderGoogleButton();
+    return () => { cancelled = true; };
+  }, [dark, finishLogin, users]);
 
   const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -1048,6 +1157,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
               onClick={submit}
               disabled={loading}
               style={{
+                display: "flex",
                 width: "100%",
                 padding: "1rem 1rem",
                 minHeight: 48,
@@ -1064,7 +1174,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
                 cursor: loading ? "wait" : "pointer",
                 boxShadow: "0 8px 24px rgba(255, 103, 31, 0.35), 0 0 0 1px rgba(255, 103, 31, 0.5) inset",
                 transition: "all .2s cubic-bezier(.4,0,.2,1)",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem",
+                alignItems: "center", justifyContent: "center", gap: "0.5rem",
                 textTransform: "uppercase",
               }}
               onMouseEnter={e => { if (!loading) { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 12px 32px rgba(255, 103, 31, 0.5), 0 0 0 1px rgba(255, 103, 31, 0.6) inset"; } }}
@@ -1080,6 +1190,41 @@ function Login({ onLogin, dark, toggleDark, users }) {
               )}
             </button>
 
+            {/* Google Workspace sign-in */}
+            <div style={{
+              display: "flex",
+              alignItems: "center", gap: "0.75rem",
+              margin: "1.1rem 0 1rem",
+              color: palette.textGhost,
+              fontSize: "0.68rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+            }}>
+              <div style={{ flex: 1, height: 1, background: palette.glassBorder }} />
+              <span>or</span>
+              <div style={{ flex: 1, height: 1, background: palette.glassBorder }} />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "center", minHeight: 44 }}>
+              {GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE" ? (
+                <div style={{
+                  width: "100%",
+                  padding: "0.75rem 0.85rem",
+                  borderRadius: "0.625rem",
+                  border: `1px dashed ${palette.inputBorder}`,
+                  color: palette.textGhost,
+                  textAlign: "center",
+                  fontSize: "0.74rem",
+                  lineHeight: 1.4,
+                }}>
+                  Add your Google OAuth Client ID in index.html to enable Google sign-in.
+                </div>
+              ) : (
+                <div ref={googleBtnRef} style={{ minHeight: 44 }} />
+              )}
+            </div>
+
             {/* Footer */}
             <div style={{
               marginTop: "1.5rem", paddingTop: "1.25rem",
@@ -1089,7 +1234,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
               textAlign: "center",
               lineHeight: 1.5,
             }}>
-              <span style={{ color: "#FF671F", fontWeight: 700 }}>Need access?</span> Contact IT for credentials
+              <span style={{ color: "#FF671F", fontWeight: 700 }}>Need access?</span> Contact IT to activate your Google account
               <div style={{ marginTop: "0.5rem", fontSize: "0.62rem", opacity: 0.7 }}>
                 © {new Date().getFullYear()} People Capital Group · All rights reserved
               </div>
@@ -2351,6 +2496,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const [form, setForm] = useState({ username:"", password:"", name:"", role:"Manager", initials:"", isAdmin:false, region:"PA", active:true, email:"", phone:"" });
   const [search, setSearch] = useState("");
   const [welcomeSent, setWelcomeSent] = useState(null);
+  const [modalTop, setModalTop] = useState(null);
 
   const nextId = () => Math.max(0, ...users.map(u => u.id)) + 1;
   const initials = (name) => name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0,2);
@@ -2439,7 +2585,15 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
     setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"" });
   };
 
-  const startEdit = (u) => { setEditId(u.id); setForm({ ...u }); setAddMode(true); };
+  const placeModalNear = (e) => {
+    const rect = e?.currentTarget?.getBoundingClientRect?.();
+    if (!rect) { setModalTop(null); return; }
+    const MODAL_H = 520;
+    const ideal = rect.top - MODAL_H / 2; // vertically center modal on the clicked row
+    const top = Math.max(16, Math.min(ideal, window.innerHeight - MODAL_H - 16));
+    setModalTop(top);
+  };
+  const startEdit = (u, e) => { placeModalNear(e); setEditId(u.id); setForm({ ...u }); setAddMode(true); };
   const toggleActive = (id) => setUsers(us => us.map(u => u.id === id ? { ...u, active: !u.active } : u));
   const del = (id) => {
     const target = users.find(u => u.id === id);
@@ -2481,7 +2635,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
         </div>
         <div style={{ flex: 1 }} />
         {canManageUser(currentUser, { userType: "manager" }) && (
-          <button onClick={() => { setAddMode(a => !a); setEditId(null); setForm({ username: "", password: "", name: "", role: "Store Manager", initials: "", isAdmin: false, userType: "manager", region: "PA", active: true, email: "", phone: "" }); }} style={{
+          <button onClick={(e) => { placeModalNear(e); setAddMode(a => !a); setEditId(null); setForm({ username: "", password: "", name: "", role: "Store Manager", initials: "", isAdmin: false, userType: "manager", region: "PA", active: true, email: "", phone: "" }); }} style={{
             padding: "0.7rem 1.25rem",
             fontSize: "0.74rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7,
             fontFamily: "'Source Sans 3'",
@@ -2508,19 +2662,21 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
           onClick={(e) => { if (e.target === e.currentTarget) { setAddMode(false); setEditId(null); } }}
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-            display: "flex", alignItems: "center", justifyContent: "center",
+            display: "flex", alignItems: "flex-start", justifyContent: "center",
             zIndex: 9999, padding: "1rem", backdropFilter: "blur(2px)",
             animation: "fadeIn .15s ease",
+            overflowY: "auto",
           }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
               ...card(th),
+              marginTop: modalTop === null ? "clamp(1rem, 7vh, 4rem)" : modalTop,
               padding: "1.5rem",
               width: "100%",
               maxWidth: 640,
-              maxHeight: "90vh",
+              maxHeight: "calc(100vh - 2rem)",
               overflowY: "auto",
               border: `1px solid ${O}55`,
               borderRadius: "0.875rem",
@@ -2624,7 +2780,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
               <span style={{ fontSize:"0.812rem" }} title={u.darkMode ? "Dark mode on" : "Light mode"}>{u.darkMode ? "🌙" : "☀️"}</span>
             </div>
             <div style={{ display:"flex", gap:"0.375rem", flexWrap:"wrap" }}>
-              {canManageUser(currentUser, u) && <button onClick={() => startEdit(u)} style={{ ...btn(th, { padding:"0.312rem 0.625rem", fontSize:"0.688rem" }) }}>Edit</button>}
+              {canManageUser(currentUser, u) && <button onClick={(e) => startEdit(u, e)} style={{ ...btn(th, { padding:"0.312rem 0.625rem", fontSize:"0.688rem" }) }}>Edit</button>}
               {canManageUser(currentUser, u) && <button onClick={() => toggleActive(u.id)} style={{ ...btn(th, { padding:"0.312rem 0.625rem", fontSize:"0.6875rem", background:th.card3, color:th.muted }) }}>{u.active ? "Disable" : "Enable"}</button>}
               {isFullAdmin(currentUser) && (
                 <button onClick={() => sendPasswordReset(u)}
@@ -2721,8 +2877,8 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
   const isAdmin      = isFullAdmin(user);
   const isOfficeStaff = user?.userType === "office_staff";
   const isDM         = user?.userType === "dm";
+  const isManager    = user?.userType === "manager";
   const canEditLocs  = canEditLocations(user);
-  const userDist = user?.district;
 
   const addLocation = () => {
     if (!newStore.address.trim()) return;
@@ -2737,8 +2893,12 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
     else { setSortCol(col); setSortDir("asc"); }
   };
 
-  // DMs only see their district's stores
-  const baseStores = isDM ? stores.filter(s => s.district === userDist) : stores;
+  // DMs see their district; managers see only stores assigned to them.
+  const baseStores = isManager
+    ? stores.filter(s => isManagersStore(s, user))
+    : isDM
+      ? stores.filter(s => isDistrictManagersStore(s, user))
+      : stores;
 
   const filtered = baseStores.filter(s => {
     const matchState    = filterState    === "All" || s.state            === filterState;
@@ -2812,7 +2972,7 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
         const nxtPct = baseStores.length > 0 ? Math.round((nxtCount / baseStores.length) * 100) : 0;
         const bridgeCount = baseStores.filter(s => s.isBridge).length;
         const bridgePct = nxtCount > 0 ? Math.round((bridgeCount / nxtCount) * 100) : 0;
-        const distCount = Object.keys(districts || {}).length;
+        const districtValue = isDM ? (user?.district || "—") : new Set(baseStores.map(s => String(s.district || "")).filter(Boolean)).size;
         return (
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:"0.75rem", marginBottom:"1.5rem" }}>
             {[
@@ -2820,7 +2980,7 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
               { label:"Open",      value: openCount,          icon:"✅" },
               { label:"Next-Gen",  value: nxtCount,           icon:"⚡", sublabel: `${nxtPct}% of ${baseStores.length}`, accent:"#b197fc" },
               { label:"Bridge",    value: bridgeCount,        icon:"🌉", sublabel: nxtCount > 0 ? `${bridgePct}% of Next-Gen` : "—", accent:"#ffa94d" },
-              { label:"Districts", value: distCount,          icon:"🗺️" },
+              { label: isDM ? "District" : "Districts", value: districtValue, icon:"🗺️" },
             ].map(k => (
               <div key={k.label} style={{ ...card(th), padding:"1.3rem 1.5rem" }}>
                 <div style={{ fontSize:"1.3rem", marginBottom:"0.3rem" }}>{k.icon}</div>
@@ -2852,7 +3012,7 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
           />
         </div>
         {/* State pills */}
-        {!isDM && (
+        {!isDM && !isManager && (
           <div style={{
             display: "inline-flex", gap: "0.2rem",
             background: th.card2, padding: "0.25rem",
@@ -2900,7 +3060,7 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
           })}
         </div>
         {/* District dropdown */}
-        {!isDM && (
+        {!isDM && !isManager && (
           <select
             style={{ ...inp(th), maxWidth: 240, padding: "0.65rem 0.85rem", fontSize: "0.78rem", borderRadius: "0.625rem" }}
             value={filterDistrict}
@@ -10481,6 +10641,7 @@ const BASE_TABS = [
   { id: "announcements", label: "Announcements", icon: (c) => ICONS.announcements(c) },
   { id: "kb", label: "Knowledge Base", icon: (c) => ICONS.kb(c) },
 ];
+const BASE_TAB_IDS = BASE_TABS.map(t => t.id);
 const getTabs = (user) => {
   if (!user) return BASE_TABS;
   const ut = user.userType;
@@ -10516,6 +10677,12 @@ const getTabs = (user) => {
     { id: "cash",      label: "Cash",         icon: (c) => ICONS.dollar(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
   ];
+  // Store managers see only their assigned stores.
+  if (ut === "manager") return [
+    ...BASE_TABS,
+    { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
+    { id: "labor",     label: "My Labor",     icon: (c) => ICONS.dollar(c) },
+  ];
   // Construction & Development → base + locations + projects (no analytics/pulse)
   if (ut === "construction") return [
     ...BASE_TABS,
@@ -10528,7 +10695,6 @@ const getTabs = (user) => {
     { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
     { id: "chat",     label: "Chat",     icon: (c) => ICONS.chat(c) },
   ];
-  // Managers → base only
   return BASE_TABS;
 };
 // helper: can this user fully administer system (add/edit/delete any user)?
@@ -14695,6 +14861,7 @@ function AdminLabor({ stores, districts, th, user }) {
   const [refreshing, setRefreshing] = useState(false);
 
   const isDM = user?.userType === 'dm';
+  const isManager = user?.userType === 'manager';
 
   // Lock district filter for DMs
   useEffect(() => {
@@ -14718,6 +14885,11 @@ function AdminLabor({ stores, districts, th, user }) {
   }, []);
 
   useEffect(() => { fetchLaborData(); }, [fetchLaborData]);
+
+  const managerStorePCs = React.useMemo(() => {
+    if (!isManager) return new Set();
+    return new Set(stores.filter(s => isManagersStore(s, user)).map(s => String(s.pc)));
+  }, [isManager, stores, user]);
 
   // Manual refresh — triggers background cron then polls blob for fresh data
   const handleRefresh = async () => {
@@ -14755,11 +14927,13 @@ function AdminLabor({ stores, districts, th, user }) {
 
   if (loading) return <div style={{ padding: '2rem', textAlign: 'center', color: th.muted }}>Loading labor data...</div>;
 
-  // Filter stores by district
+  // Filter stores by district or assigned manager
   const storeEntries = laborData?.stores ? Object.entries(laborData.stores) : [];
-  const filtered = districtFilter === 'all'
-    ? storeEntries
-    : storeEntries.filter(([pc, s]) => s && String(s.district) === districtFilter);
+  const filtered = isManager
+    ? storeEntries.filter(([pc]) => managerStorePCs.has(String(pc)))
+    : districtFilter === 'all'
+      ? storeEntries
+      : storeEntries.filter(([pc, s]) => s && String(s.district) === districtFilter);
 
   // Sort by labor % descending (worst first)
   filtered.sort((a, b) => (b[1]?.today?.laborPct || 0) - (a[1]?.today?.laborPct || 0));
@@ -14823,7 +14997,7 @@ function AdminLabor({ stores, districts, th, user }) {
             </button>
           ))}
         </div>
-        {!isDM && (
+        {!isDM && !isManager && (
           <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} style={{ ...inp(th, { width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.8125rem' }) }}>
             <option value="all">All Districts</option>
             {[1,2,3,4,5,6,7,8].map(d => <option key={d} value={String(d)}>District {d}</option>)}
@@ -16735,6 +16909,7 @@ function PCGPortal() {
   // Role flags — used in sidebar + content rendering guards
   const isOfficeStaff = user?.userType === "office_staff";
   const isDM          = user?.userType === "dm";
+  const isManager     = user?.userType === "manager";
   const isConstruction = user?.userType === "construction";
 
   // ─── Reusable nav button — same shape for all sections, just different color ───
@@ -17047,7 +17222,7 @@ function PCGPortal() {
         {user?.userType === "dm" && (
           <>
             <SectionHeader label="My District" accent="#74c0fc" collapsed={collapsed} />
-            {getTabs(user).filter(t => !["links", "contacts", "notes", "todos", "chat", "announcements", "dashboard"].includes(t.id)).map(t => (
+            {getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
@@ -17060,11 +17235,28 @@ function PCGPortal() {
           </>
         )}
 
+        {/* Manager section */}
+        {user?.userType === "manager" && (
+          <>
+            <SectionHeader label="My Store" accent="#22c55e" collapsed={collapsed} />
+            {getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
+              <NavButton
+                key={t.id}
+                tabDef={t}
+                accent="#22c55e"
+                isActive={tab === t.id}
+                collapsed={collapsed}
+                onClick={() => { setTab(t.id); onNav && onNav(); }}
+              />
+            ))}
+          </>
+        )}
+
         {/* Construction section */}
         {user?.userType === "construction" && (
           <>
             <SectionHeader label="Construction" accent="#fb923c" collapsed={collapsed} />
-            {getTabs(user).filter(t => !["links", "contacts", "notes", "todos", "chat", "announcements", "dashboard"].includes(t.id)).map(t => (
+            {getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
@@ -17081,7 +17273,7 @@ function PCGPortal() {
         {(isFullAdmin(user) || user?.userType === "office_staff") && (
           <>
             <SectionHeader label={isFullAdmin(user) ? "Admin" : "Operations"} accent={O} collapsed={collapsed} />
-            {getTabs(user).filter(t => !["links", "contacts", "notes", "todos", "announcements", "dashboard"].includes(t.id)).map(t => {
+            {getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => {
               const isGreen = t.green;
               const isCash = t.cash;
               const cashHasMissing = isCash && cashMissingCount > 0;
@@ -17127,7 +17319,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v5.21
+            v5.22
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -17425,12 +17617,12 @@ function PCGPortal() {
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
-          {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isConstruction) && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} />}
+          {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction) && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff) && <AdminPulse stores={stores} districts={districts} th={th} user={user} />}
-          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminLabor stores={stores} districts={districts} th={th} user={user} />}
+          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} />}
           {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} />}
