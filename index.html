@@ -619,6 +619,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
   const toggleBtnRef = useRef(null);
   const logoRef = useRef(null);
   const googleBtnRef = useRef(null);
+  const tokenClientRef = useRef(null);
 
   // Track viewport size so the layout reacts to rotation / resize
   useEffect(() => {
@@ -693,76 +694,40 @@ function Login({ onLogin, dark, toggleDark, users }) {
   }, [onLogin]);
 
   useEffect(() => {
-    if (!googleBtnRef.current) return;
     if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
-
-    let cancelled = false;
     let tries = 0;
-
-    const renderGoogleButton = () => {
-      if (cancelled) return;
-      if (!window.google?.accounts?.id) {
-        tries += 1;
-        if (tries < 40) setTimeout(renderGoogleButton, 150);
+    const init = () => {
+      if (!window.google?.accounts?.oauth2) {
+        if (++tries < 40) setTimeout(init, 150);
         return;
       }
-
-      // Clear any cached Google sign-in state so the button always works after logout
-      try { window.google.accounts.id.disableAutoSelect(); } catch {}
-      try { window.google.accounts.id.cancel(); } catch {}
-
-      window.google.accounts.id.initialize({
+      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
-        callback: (response) => {
+        scope: "email profile openid",
+        callback: async (tokenResponse) => {
           try {
-            if (!response?.credential) throw new Error("Google did not return a credential.");
-            const profile = parseGoogleJwt(response.credential);
+            if (tokenResponse.error) throw new Error(tokenResponse.error);
+            const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+              headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+            });
+            const profile = await res.json();
             const email = (profile.email || "").trim().toLowerCase();
-
-            if (!profile.email_verified) {
-              setErr("Google account email is not verified.");
-              return;
-            }
-
-            const allowedGoogleDomain = GOOGLE_ALLOWED_DOMAINS.some(domain => email.endsWith("@" + domain));
-            if (!allowedGoogleDomain) {
-              setErr("Use your People Capital Group or RGI Google account.");
-              return;
-            }
-
+            if (!profile.email_verified) { setErr("Google account email is not verified."); return; }
+            const allowedGoogleDomain = GOOGLE_ALLOWED_DOMAINS.some(d => email.endsWith("@" + d));
+            if (!allowedGoogleDomain) { setErr("Use your People Capital Group or RGI Google account."); return; }
             const found = users.find(u => {
               const userEmail = (u.email || "").trim().toLowerCase();
               const username = (u.username || "").trim().toLowerCase();
               return u.active !== false && (userEmail === email || username === email);
             });
-
-            if (!found) {
-              setErr("Google login worked, but this email is not active in the portal users list.");
-              return;
-            }
-
+            if (!found) { setErr("Google login worked, but this email is not active in the portal users list."); return; }
             finishLogin(found);
-          } catch (e) {
-            setErr(e.message || "Google sign-in failed.");
-          }
+          } catch (e) { setErr(e.message || "Google sign-in failed."); }
         }
       });
-
-      googleBtnRef.current.innerHTML = "";
-      window.google.accounts.id.renderButton(googleBtnRef.current, {
-        type: "standard",
-        theme: dark ? "filled_black" : "outline",
-        size: "large",
-        text: "continue_with",
-        shape: "pill",
-        logo_alignment: "left",
-        width: 400,
-      });
     };
-
-    renderGoogleButton();
-    return () => { cancelled = true; };
-  }, [dark, finishLogin, users]);
+    init();
+  }, [finishLogin, users]);
 
   const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -1228,19 +1193,16 @@ function Login({ onLogin, dark, toggleDark, users }) {
                   Add your Google OAuth Client ID in index.html to enable Google sign-in.
                 </div>
               ) : (
-                <div className="google-btn-wrap" style={{ position: "relative", width: "100%", borderRadius: "2rem" }}>
-                  {/* Custom visible button */}
-                  <div style={{
+                <div onClick={() => tokenClientRef.current?.requestAccessToken({ prompt: "select_account" })} style={{
                     display: "flex", alignItems: "center", justifyContent: "center",
                     gap: "0.625rem", width: "100%", padding: "0.72rem 1rem",
-                    borderRadius: "2rem",
+                    borderRadius: "2rem", cursor: "pointer",
                     border: `1.5px solid ${dark ? "rgba(255,255,255,0.15)" : "#dadce0"}`,
                     background: dark ? "rgba(255,255,255,0.07)" : "#fff",
                     boxShadow: dark ? "none" : "0 1px 6px rgba(0,0,0,0.06)",
                     fontFamily: "'Source Sans 3'", fontWeight: 600,
                     fontSize: "0.88rem", color: dark ? "#e8eaed" : "#3c4043",
-                    pointerEvents: "none", userSelect: "none", boxSizing: "border-box",
-                    transition: "box-shadow .15s",
+                    userSelect: "none", boxSizing: "border-box", transition: "box-shadow .15s",
                   }}>
                     <svg width="18" height="18" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -1250,12 +1212,6 @@ function Login({ onLogin, dark, toggleDark, users }) {
                     </svg>
                     Sign in with Google
                   </div>
-                  {/* Invisible Google iframe on top — handles the actual auth click */}
-                  <div ref={googleBtnRef} style={{
-                    position: "absolute", inset: 0, opacity: 0,
-                    overflow: "hidden", cursor: "pointer", borderRadius: "2rem",
-                  }} />
-                </div>
               )}
             </div>
 
@@ -10896,7 +10852,21 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const defaultDueDate = () => { const d = new Date(); d.setDate(d.getDate() + 3); return localDateISO(d); };
 
   const [tickets, setTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]"); } catch { return []; } });
-  React.useEffect(() => { try { localStorage.setItem("pcg_tickets_v1", JSON.stringify(tickets)); } catch {} }, [tickets]);
+  const cloudTicketsLoaded = React.useRef(false);
+  React.useEffect(() => {
+    cloudLoad('pcg_tickets_v1').then(data => {
+      cloudTicketsLoaded.current = true;
+      if (Array.isArray(data) && data.length > 0) {
+        setTickets(data);
+        try { localStorage.setItem("pcg_tickets_v1", JSON.stringify(data)); } catch {}
+      }
+    }).catch(() => { cloudTicketsLoaded.current = true; });
+  }, []);
+  React.useEffect(() => {
+    try { localStorage.setItem("pcg_tickets_v1", JSON.stringify(tickets)); } catch {}
+    if (!cloudTicketsLoaded.current) return;
+    cloudSave('pcg_tickets_v1', tickets);
+  }, [tickets]);
 
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [search, setSearch] = React.useState("");
@@ -18093,7 +18063,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v5.62
+            v5.65
           </div>
         )}
         {/* Collapse toggle — desktop only */}
