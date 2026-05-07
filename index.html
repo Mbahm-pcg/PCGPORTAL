@@ -26,8 +26,11 @@
   html{font-size:clamp(13px, 1.1vw, 22px);}
   body{font-family:'Source Sans 3',sans-serif; font-size:1rem;}
   input,textarea,select{font-family:'Source Sans 3',sans-serif;}
-  ::-webkit-scrollbar{width:5px;}
+  ::-webkit-scrollbar{width:5px;height:5px;}
+  ::-webkit-scrollbar-track{background:transparent;}
   ::-webkit-scrollbar-thumb{background:#FF671F44;border-radius:4px;}
+  ::-webkit-scrollbar-thumb:hover{background:#FF671F88;}
+  *{scrollbar-width:thin;scrollbar-color:#FF671F44 transparent;}
   .fade-in{animation:fadeIn .3s ease;}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.92)}}
@@ -2701,35 +2704,39 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
     ? [["executive","Executive Team"],["it","IT Team"],["office_staff","Office Staff"],["dm","District Manager"],["manager","Store Manager"],["vendor","Vendor"],["construction","Construction & Development"]]
     : [["dm","District Manager"],["manager","Store Manager"],["vendor","Vendor"],["construction","Construction & Development"]];
 
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [isMobileUsers, setIsMobileUsers] = useState(() => window.innerWidth < 700);
+  React.useEffect(() => { const fn = () => setIsMobileUsers(window.innerWidth < 700); window.addEventListener("resize", fn); return () => window.removeEventListener("resize", fn); }, []);
+  const ROLE_COLOR = { executive:"#10b981", it:"#3b82f6", office_staff:"#8b5cf6", dm:"#f59e0b", manager:"#9ca3af", vendor:"#06b6d4", construction:"#fb923c" };
+  const ROLE_LABEL = { executive:"Executive", it:"IT Team", office_staff:"Office", dm:"District Mgr", manager:"Manager", vendor:"Vendor", construction:"Construction" };
+  const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
+  const roleLabel = (ut) => ROLE_LABEL[ut] || "Manager";
+
+  const displayUsers = users
+    .filter(u => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || (u.username||"").toLowerCase().includes(search.toLowerCase()))
+    .filter(u => roleFilter === "all" || u.userType === roleFilter)
+    .sort((a,b) => (b.active===false ? 1 : 0) - (a.active===false ? 1 : 0));
+
   return (
     <div className="fade-in">
-      {/* ─── Top bar ───────────────────────────────────────────────── */}
-      <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1.5rem", alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: "1 1 280px", maxWidth: 360 }}>
-          <span style={{ position: "absolute", left: "0.85rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.82rem", color: th.muted, pointerEvents: "none" }}>🔍</span>
-          <input
-            style={{ ...inp(th), padding: "0.7rem 0.85rem 0.7rem 2.4rem", fontSize: "0.85rem", borderRadius: "0.625rem", width: "100%" }}
-            placeholder="Search users..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+      {/* ─── Top bar ─────────────────────────────────────────────── */}
+      <div style={{ display:"flex", gap:"0.6rem", marginBottom:"1.5rem", alignItems:"center", flexWrap:"wrap" }}>
+        <div style={{ position:"relative", flex:"1 1 240px", maxWidth:340 }}>
+          <span style={{ position:"absolute", left:"0.85rem", top:"50%", transform:"translateY(-50%)", fontSize:"0.82rem", color:th.muted, pointerEvents:"none" }}>🔍</span>
+          <input style={{ ...inp(th), padding:"0.65rem 0.85rem 0.65rem 2.4rem", fontSize:"0.85rem", width:"100%" }} placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <div style={{
-          display: "inline-flex", alignItems: "center", gap: "0.45rem",
-          padding: "0.5rem 0.85rem",
-          background: th.card, border: `1px solid ${th.cardBorder}`,
-          borderRadius: 999,
-          fontSize: "0.68rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7,
-        }}>
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: O }} />
+        <select style={{ ...inp(th), width:"auto", fontSize:"0.8rem", padding:"0.65rem 0.75rem" }} value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
+          <option value="all">All Roles</option>
+          {USERTYPE_OPTIONS.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <div style={{ display:"inline-flex", alignItems:"center", gap:"0.45rem", padding:"0.5rem 0.85rem", background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:999, fontSize:"0.68rem", color:th.muted, fontWeight:800, textTransform:"uppercase", letterSpacing:0.7 }}>
+          <span style={{ width:6, height:6, borderRadius:"50%", background:"#22c55e" }} />
           {users.filter(u => u.active !== false).length} Active
         </div>
-        <div style={{ flex: 1 }} />
+        <div style={{ flex:1 }} />
         {canManageUser(currentUser, { userType: "manager" }) && (
-          <button onClick={(e) => { placeModalNear(e); setAddMode(a => !a); setEditId(null); setForm({ username: "", password: "", name: "", role: "Store Manager", initials: "", isAdmin: false, userType: "manager", region: "PA", active: true, email: "", phone: "" }); }} style={{
-            padding: "0.7rem 1.25rem",
-            fontSize: "0.74rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7,
-            fontFamily: "'Source Sans 3'",
+          <button onClick={(e) => { placeModalNear(e); setAddMode(a => !a); setEditId(null); setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, email:"", phone:"" }); }} style={{
+            padding:"0.7rem 1.25rem", fontSize:"0.74rem", fontWeight:800, textTransform:"uppercase", letterSpacing:0.7, fontFamily:"'Source Sans 3'",
             color: "#fff",
             background: `linear-gradient(135deg, ${O} 0%, #ff8040 100%)`,
             border: "none",
@@ -2773,41 +2780,59 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
             }}
             className="fade-in"
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: O, textTransform: "uppercase", letterSpacing: 1 }}>{editId ? "Edit User" : "New User"}</div>
-              <button onClick={() => { setAddMode(false); setEditId(null); }} style={{ background: "none", border: "none", color: th.muted, fontSize: "1.375rem", cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
+            {/* Modal header with avatar preview */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1.25rem" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:"0.75rem" }}>
+                <div style={{ width:42, height:42, borderRadius:"50%", background:`${roleColor(form.userType||"manager")}22`, border:`2px solid ${roleColor(form.userType||"manager")}55`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.9rem", fontWeight:800, color:roleColor(form.userType||"manager") }}>
+                  {form.name ? form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2) : "?"}
+                </div>
+                <div>
+                  <div style={{ fontSize:"0.8125rem", fontWeight:700, color:th.text }}>{editId ? "Edit User" : "New User"}</div>
+                  {form.name && <div style={{ fontSize:"0.7rem", color:th.muted }}>{form.name}</div>}
+                </div>
+              </div>
+              <button onClick={() => { setAddMode(false); setEditId(null); }} style={{ background:"none", border:"none", color:th.muted, fontSize:"1.375rem", cursor:"pointer", lineHeight:1, padding:4 }}>×</button>
             </div>
-            <div className="add-link-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.75rem", marginBottom:"0.75rem" }}>
-              <input style={inp(th)} placeholder="Full Name" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
-              <input style={inp(th)} placeholder="Username" value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} />
-              <div style={{ position:"relative" }}><input style={inp(th)} placeholder="Password" type={showPw?"text":"password"} autoComplete="new-password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} /><button type="button" onClick={()=>setShowPw(s=>!s)} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:th.muted, cursor:"pointer", fontSize:"0.75rem" }}>{showPw?"Hide":"Show"}</button></div>
-              <select style={inp(th)} value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
-                {ROLE_OPTIONS.map(r=><option key={r}>{r}</option>)}
-              </select>
-              <select style={inp(th)} value={form.userType||"manager"} onChange={e=>setForm(f=>({...f,userType:e.target.value}))}>
-                {USERTYPE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
-              </select>
+
+            {/* Account section */}
+            <div style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.5rem" }}>Account</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.625rem", marginBottom:"1rem" }}>
+              <input style={inp(th)} placeholder="Full Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
+              <input style={inp(th)} placeholder="Username *" value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} />
+              <div style={{ position:"relative" }}>
+                <input style={inp(th)} placeholder="Password" type={showPw?"text":"password"} autoComplete="new-password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} />
+                <button type="button" onClick={()=>setShowPw(s=>!s)} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:th.muted, cursor:"pointer", fontSize:"0.72rem" }}>{showPw?"Hide":"Show"}</button>
+              </div>
               <select style={inp(th)} value={form.region} onChange={e=>setForm(f=>({...f,region:e.target.value}))}>
                 <option value="All">All Regions</option>
                 <option value="PA">PA Only</option>
                 <option value="NJ">NJ Only</option>
               </select>
-              <div style={{ display:"flex", alignItems:"center", gap:"0.75rem", padding:"0.625rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
-                <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8125rem", color:th.text }}>
-                  <input type="checkbox" checked={form.isAdmin} onChange={e=>setForm(f=>({...f,isAdmin:e.target.checked}))} style={{ accentColor:O, width:16, height:16 }} />
-                  Admin Access
-                </label>
-              </div>
-              <div style={{ display:"flex", alignItems:"center", gap:"0.75rem", padding:"0.625rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
-                <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8125rem", color:th.text }}>
-                  <input type="checkbox" checked={!!form.darkMode} onChange={e=>setForm(f=>({...f,darkMode:e.target.checked}))} style={{ accentColor:"#888", width:16, height:16 }} />
-                  🌙 Dark Mode
-                </label>
-              </div>
             </div>
-            <div style={{ fontSize:"0.75rem", fontWeight:600, color:th.muted, marginBottom:"0.5rem", textTransform:"uppercase", letterSpacing:0.5 }}>Contact Info</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.75rem", marginBottom:"0.75rem" }}>
-              <input style={inp(th)} type="email" placeholder="📧 Email address" value={form.email||""} onChange={e=>setForm(f=>({...f,email:e.target.value}))} />
+
+            {/* Access section */}
+            <div style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.5rem" }}>Access & Role</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.625rem", marginBottom:"1rem" }}>
+              <select style={inp(th)} value={form.userType||"manager"} onChange={e=>setForm(f=>({...f,userType:e.target.value}))}>
+                {USERTYPE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+              </select>
+              <select style={inp(th)} value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+                {ROLE_OPTIONS.map(r=><option key={r}>{r}</option>)}
+              </select>
+              <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8125rem", color:th.text, padding:"0.625rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
+                <input type="checkbox" checked={form.isAdmin} onChange={e=>setForm(f=>({...f,isAdmin:e.target.checked}))} style={{ accentColor:O, width:16, height:16 }} />
+                Admin Access
+              </label>
+              <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8125rem", color:th.text, padding:"0.625rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
+                <input type="checkbox" checked={!!form.darkMode} onChange={e=>setForm(f=>({...f,darkMode:e.target.checked}))} style={{ accentColor:"#888", width:16, height:16 }} />
+                🌙 Dark Mode
+              </label>
+            </div>
+
+            {/* Contact section */}
+            <div style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.5rem" }}>Contact Info</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.625rem", marginBottom:"0.75rem" }}>
+              <input style={inp(th)} type="email" placeholder="✉ Email address" value={form.email||""} onChange={e=>setForm(f=>({...f,email:e.target.value}))} />
               <input style={inp(th)} placeholder="📱 Phone number" value={form.phone||""} onChange={e=>handlePhoneChange(e.target.value, setForm, "phone")} />
             </div>
             {welcomeSent && (
@@ -2825,72 +2850,73 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
         </div>
       )}
 
-      <div style={{ ...card(th), overflow:"hidden" }}>
-        {/* Table header */}
-        <div style={{ display:"grid", gridTemplateColumns:"1.4fr 1fr 1fr 0.5fr 0.8fr 0.7fr 0.6fr 0.4fr 0.6fr", gap:"0.5rem", padding:"0.75rem 1.25rem", background:th.card2, borderBottom:`1px solid ${th.cardBorder}`, fontSize:"0.6875rem", fontWeight:600, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>
-          <span>Name</span><span>Contact</span><span>Role</span><span>Region</span><span>Last Login</span><span>Admin</span><span>Status</span><span>Mode</span><span>Actions</span>
-        </div>
-        {filtered.length === 0 && <div style={{ padding:40, textAlign:"center", color:th.muted, fontSize:"0.875rem" }}>No users found.</div>}
-        {filtered.map((u, i) => (
-          <div key={u.id} style={{ display:"grid", gridTemplateColumns:"1.4fr 1fr 1fr 0.5fr 0.8fr 0.7fr 0.6fr 0.4fr 0.6fr", gap:"0.5rem", padding:"0.875rem 1.25rem", borderBottom: i < filtered.length-1 ? `1px solid ${th.cardBorder}` : "none", alignItems:"center" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:"0.625rem" }}>
-              <div style={{ width:32, height:32, borderRadius:"50%", background: u.isAdmin ? O : th.card3, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.75rem", fontWeight:700, color: u.isAdmin ? W : th.muted, flexShrink:0 }}>{u.initials}</div>
-              <div>
-                <div style={{ fontSize:"0.8125rem", fontWeight:600, color:th.text }}>{u.name}</div>
-                <div style={{ fontSize:"0.6875rem", color:th.muted }}>@{u.username}</div>
+      {/* ─── User cards grid ──────────────────────────────────────── */}
+      {displayUsers.length === 0 && (
+        <div style={{ ...card(th), padding:"3rem", textAlign:"center", color:th.muted, fontSize:"0.875rem" }}>No users found.</div>
+      )}
+      <div style={{ display:"grid", gridTemplateColumns: isMobileUsers ? "1fr" : "repeat(2,1fr)", gap:"1rem" }}>
+        {displayUsers.map(u => {
+          const rc = roleColor(u.userType);
+          const isInactive = u.active === false;
+          return (
+            <div key={u.id} style={{ ...card(th), padding:0, overflow:"hidden", opacity: isInactive ? 0.6 : 1, border:`1px solid ${th.cardBorder}`, display:"flex", flexDirection:"column" }}>
+              {/* Card header */}
+              <div style={{ background:`${rc}14`, borderBottom:`1px solid ${rc}22`, padding:"1rem 1.25rem", display:"flex", alignItems:"center", gap:"0.875rem" }}>
+                <div style={{ width:46, height:46, borderRadius:"50%", background:`${rc}22`, border:`2px solid ${rc}55`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1rem", fontWeight:800, color:rc, flexShrink:0, letterSpacing:0.5 }}>
+                  {u.initials || (u.name||"?").split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:"0.9rem", fontWeight:700, color:th.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{u.name}</div>
+                  <div style={{ fontSize:"0.72rem", color:th.muted }}>@{u.username}</div>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"0.3rem", flexShrink:0 }}>
+                  <span style={{ fontSize:"0.62rem", fontWeight:700, color:rc, background:`${rc}20`, border:`1px solid ${rc}44`, borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap" }}>{roleLabel(u.userType)}</span>
+                  <span style={{ fontSize:"0.62rem", fontWeight:700, color: isInactive?"#f87171":"#4ade80", background: isInactive?"#f8717118":"#4ade8018", border:`1px solid ${isInactive?"#f8717144":"#4ade8044"}`, borderRadius:999, padding:"0.15rem 0.55rem" }}>{isInactive?"Inactive":"Active"}</span>
+                </div>
+              </div>
+
+              {/* Card body */}
+              <div style={{ padding:"0.875rem 1.25rem", flex:1, display:"flex", flexDirection:"column", gap:"0.45rem" }}>
+                <div style={{ fontSize:"0.72rem", color:th.text, fontWeight:500 }}>{u.role || "—"}</div>
+                {u.email && <div style={{ fontSize:"0.7rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>✉ {u.email}</div>}
+                {u.phone && <div style={{ fontSize:"0.7rem", color:th.muted }}>📱 {u.phone}</div>}
+                <div style={{ fontSize:"0.68rem", color:th.muted, marginTop:"0.25rem", display:"flex", justifyContent:"space-between" }}>
+                  <span>{u.darkMode ? "🌙 Dark" : "☀️ Light"} · {u.region||"PA"}</span>
+                  <span>{u.lastLogin ? new Date(u.lastLogin).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "Never logged in"}</span>
+                </div>
+              </div>
+
+              {/* Card actions */}
+              <div style={{ padding:"0.625rem 1rem", borderTop:`1px solid ${th.cardBorder}`, display:"flex", gap:"0.4rem", flexWrap:"wrap", background:th.card2 }}>
+                {canManageUser(currentUser, u) && (
+                  <button onClick={(e) => startEdit(u, e)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", flex:1 }) }}>Edit</button>
+                )}
+                {canManageUser(currentUser, u) && (
+                  <button onClick={() => toggleActive(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>
+                    {isInactive ? "Enable" : "Disable"}
+                  </button>
+                )}
+                {isFullAdmin(currentUser) && (
+                  <button onClick={() => sendPasswordReset(u)} disabled={!u.email || (emailAction?.userId===u.id && emailAction?.status==="sending")}
+                    title={u.email ? "Reset password" : "No email on file"}
+                    style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#3b82f618", color:"#3b82f6", opacity:u.email?1:0.35 }) }}>
+                    {emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="sending"?"⏳":emailAction.status==="ok"?"✅":"❌") : "🔑"}
+                  </button>
+                )}
+                {isFullAdmin(currentUser) && !u.lastLogin && (
+                  <button onClick={() => resendWelcome(u)} disabled={!u.email || (emailAction?.userId===u.id && emailAction?.status==="sending")}
+                    title={u.email ? "Resend welcome email" : "No email on file"}
+                    style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#10b98118", color:"#10b981", opacity:u.email?1:0.35 }) }}>
+                    {emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"⏳":emailAction.status==="ok"?"✅":"❌") : "📧"}
+                  </button>
+                )}
+                {isFullAdmin(currentUser) && (
+                  <button onClick={() => del(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#ef444418", color:"#ef4444" }) }}>✕</button>
+                )}
               </div>
             </div>
-            <div style={{ minWidth:0 }}>
-              {u.email && <div style={{ fontSize:"0.6875rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }} title={u.email}>📧 {u.email}</div>}
-              {u.phone && <div style={{ fontSize:"0.6875rem", color:th.muted }}>📱 {u.phone}</div>}
-              {!u.email && !u.phone && <div style={{ fontSize:"0.6875rem", color:th.muted, opacity:0.4 }}>—</div>}
-            </div>
-            <div style={{ fontSize:"0.8125rem", color:th.muted }}>{u.role}</div>
-            <div style={{ fontSize:"0.8125rem", color:th.muted }}>{u.region}</div>
-            <div style={{ fontSize:"0.6875rem", color:th.muted }}>
-              {u.lastLogin ? (
-                <div>
-                  <div>{new Date(u.lastLogin).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}</div>
-                  <div style={{ fontSize:"0.625rem", opacity:0.7 }}>{new Date(u.lastLogin).toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit" })}</div>
-                </div>
-              ) : <span style={{ opacity:0.4 }}>Never</span>}
-            </div>
-            <div style={{ textAlign:"center" }}>
-              <span style={{ fontSize:"0.6875rem", padding:"0.188rem 0.5rem", borderRadius:"1.25rem", fontWeight:600,
-              background: u.userType==="executive"?"#0d3d1222":u.userType==="it"?"#1e3a5f22":u.userType==="office_staff"?"#4c1d9522":u.userType==="dm"?"#78350f22":u.userType==="vendor"?"#06b6d422":u.userType==="construction"?"#c2410c22":"#1f293722",
-              color: u.userType==="executive"?"#34d399":u.userType==="it"?"#3b82f6":u.userType==="office_staff"?"#8b5cf6":u.userType==="dm"?"#f59e0b":u.userType==="vendor"?"#06b6d4":u.userType==="construction"?"#fb923c":"#9ca3af" }}>
-              {u.userType==="executive"?"Executive":u.userType==="it"?"IT Team":u.userType==="office_staff"?"Office Staff":u.userType==="dm"?"District Mgr":u.userType==="vendor"?"Vendor":u.userType==="construction"?"Construction":"Manager"}
-            </span>
-            </div>
-            <div style={{ textAlign:"center" }}>
-              <span style={{ fontSize:"0.6875rem", padding:"0.188rem 0.5rem", borderRadius:"1.25rem", background: u.active ? "#69db7c22" : "#ff666622", color: u.active ? "#69db7c" : "#ff6666", fontWeight:600 }}>{u.active ? "Active" : "Inactive"}</span>
-            </div>
-            <div style={{ textAlign:"center" }}>
-              <span style={{ fontSize:"0.812rem" }} title={u.darkMode ? "Dark mode on" : "Light mode"}>{u.darkMode ? "🌙" : "☀️"}</span>
-            </div>
-            <div style={{ display:"flex", gap:"0.375rem", flexWrap:"wrap" }}>
-              {canManageUser(currentUser, u) && <button onClick={(e) => startEdit(u, e)} style={{ ...btn(th, { padding:"0.312rem 0.625rem", fontSize:"0.688rem" }) }}>Edit</button>}
-              {canManageUser(currentUser, u) && <button onClick={() => toggleActive(u.id)} style={{ ...btn(th, { padding:"0.312rem 0.625rem", fontSize:"0.6875rem", background:th.card3, color:th.muted }) }}>{u.active ? "Disable" : "Enable"}</button>}
-              {isFullAdmin(currentUser) && (
-                <button onClick={() => sendPasswordReset(u)}
-                  disabled={!u.email || (emailAction?.userId === u.id && emailAction?.status === "sending")}
-                  title={u.email ? "Send password reset email" : "No email on file — add email first"}
-                  style={{ ...btn(th, { padding:"0.312rem 0.625rem", fontSize:"0.6875rem", background:"#3b82f622", color:"#3b82f6", opacity: u.email ? 1 : 0.4 }) }}>
-                  {emailAction?.userId === u.id && emailAction?.type === "reset" ? (emailAction.status === "sending" ? "⏳" : emailAction.status === "ok" ? "✅" : "❌") : "🔑"}
-                </button>
-              )}
-              {isFullAdmin(currentUser) && !u.lastLogin && (
-                <button onClick={() => resendWelcome(u)}
-                  disabled={!u.email || (emailAction?.userId === u.id && emailAction?.status === "sending")}
-                  title={u.email ? "Resend welcome email" : "No email on file — add email first"}
-                  style={{ ...btn(th, { padding:"0.312rem 0.625rem", fontSize:"0.6875rem", background:"#10b98122", color:"#10b981", opacity: u.email ? 1 : 0.4 }) }}>
-                  {emailAction?.userId === u.id && emailAction?.type === "welcome" ? (emailAction.status === "sending" ? "⏳" : emailAction.status === "ok" ? "✅" : "❌") : "📧"}
-                </button>
-              )}
-              {isFullAdmin(currentUser) && <button onClick={() => del(u.id)} style={{ ...btn(th, { padding:"0.312rem 0.625rem", fontSize:"0.6875rem", background:"#ff444422", color:"#ff6666" }) }}>✕</button>}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -10565,7 +10591,9 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       })()}
 
       {/* Notification Log */}
-      <NotificationLogSection th={th} notifyLog={notifyLog} pushSubs={pushSubs} logLoading={logLoading} logOpen={logOpen} setLogOpen={setLogOpen} loadNotifyLog={loadNotifyLog} users={users || []} />
+      <div style={{ marginTop: "1.5rem" }}>
+        <NotificationLogSection th={th} notifyLog={notifyLog} pushSubs={pushSubs} logLoading={logLoading} logOpen={logOpen} setLogOpen={setLogOpen} loadNotifyLog={loadNotifyLog} users={users || []} />
+      </div>
     </div>
   );
 }
@@ -10786,6 +10814,12 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const isDM      = user?.userType === "dm";
   const isManager = user?.userType === "manager";
   const isOffice  = user?.userType === "office_staff";
+  const [isMobile, setIsMobile] = React.useState(() => window.innerWidth < 700);
+  React.useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 700);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const CATEGORIES = ["Equipment Repair / Maintenance","Exterior Building Maintenance","Plumbing","HVAC","Electrical","Cleaning / Janitorial","Safety / Compliance","IT / Technology","Other"];
   const PRIORITIES = ["High","Medium","Low"];
   const ISSUE_OPTIONS = {
@@ -10849,7 +10883,6 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
 
   const localDateISO = (d) => { const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${day}`; };
   const todayISO = localDateISO(new Date());
-  const defaultDueDate = () => { const d = new Date(); d.setDate(d.getDate() + 3); return localDateISO(d); };
 
   const [tickets, setTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]"); } catch { return []; } });
   const cloudTicketsLoaded = React.useRef(false);
@@ -10877,7 +10910,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const [detailTab, setDetailTab] = React.useState("details");
   const [newComment, setNewComment] = React.useState("");
   const [lightbox, setLightbox] = React.useState(null);
-  const EMPTY_FORM = { title:CATEGORIES[0], storePC: managerStore?.pc || "", category:CATEGORIES[0], priority:"Medium", dueDate: defaultDueDate(), selectedIssues:[], notes:"", ticketOwner: user?.name || "", attachments:[] };
+  const EMPTY_FORM = { title:CATEGORIES[0], storePC: managerStore?.pc || "", category:CATEGORIES[0], priority:"Medium", selectedIssues:[], notes:"", ticketOwner: user?.name || "", attachments:[] };
   const [form, setForm] = React.useState(EMPTY_FORM);
   const fileInputRef = React.useRef(null);
 
@@ -10974,7 +11007,6 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
         <table style="width:100%;border-collapse:collapse;border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;overflow:hidden;">
           ${row("Store", `<strong>${t.storeName}</strong>${t.address ? `<br><span style="color:#9ca3af;font-size:12px;">${t.address}</span>` : ""}`)}
           ${row("PC Number", `<span style="font-family:monospace;background:#f3f4f6;padding:2px 8px;border-radius:4px;font-size:13px;">${t.storePC}</span>`)}
-          ${t.dueDate ? row("Due Date", `<span style="color:#FF671F;font-weight:600;">${fmtDate(t.dueDate)}</span>`) : ""}
           ${row("Owner", t.ticketOwner)}
           ${row("Submitted By", t.createdBy)}
           ${t.description ? row("Details", `<span style="white-space:pre-wrap;line-height:1.6;">${t.description.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>`) : ""}
@@ -11026,11 +11058,32 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
         {lightbox.name && <div style={{ position:"absolute", bottom:20, left:"50%", transform:"translateX(-50%)", color:"rgba(255,255,255,0.6)", fontSize:"0.78rem", background:"rgba(0,0,0,0.5)", padding:"0.3rem 0.75rem", borderRadius:"1rem", whiteSpace:"nowrap", maxWidth:"80vw", overflow:"hidden", textOverflow:"ellipsis" }}>{lightbox.name}</div>}
       </div>
     )}
-    <div style={{ display:"flex", gap:"1.25rem", height:"calc(100vh - 160px)", minHeight:480 }}>
+    <div style={{ display:"flex", flexDirection: isMobile ? "column" : "row", gap:"0.75rem", height: isMobile ? "auto" : "calc(100vh - 160px)", minHeight: isMobile ? 0 : 480 }}>
 
-      {/* Left: status sidebar */}
-      <div style={{ ...card(th), width:230, flexShrink:0, padding:"1.25rem 0", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-        <div style={{ padding:"0 1.25rem 1rem", fontSize:"0.68rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1.2 }}>Service Board</div>
+      {/* Left: status sidebar — collapses to scrollable filter bar on mobile */}
+      {isMobile && !selectedTicket ? (
+        <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", overflowX:"auto", paddingBottom:"0.25rem", flexShrink:0 }}>
+          {[
+            { key:"all", label:"All", count:counts.all, dot:"#aaa" },
+            { key:"open", label:"Open", count:counts.open, dot:"#3b82f6" },
+            { key:"in_progress", label:"In Prog.", count:counts.in_progress, dot:O },
+            { key:"closed", label:"Closed", count:counts.closed, dot:"#6b7280" },
+          ].map(item => (
+            <button key={item.key} onClick={() => setStatusFilter(item.key)} style={{ display:"flex", alignItems:"center", gap:"0.35rem", padding:"0.4rem 0.75rem", borderRadius:"2rem", border:`1px solid ${statusFilter===item.key ? item.dot : th.cardBorder}`, background: statusFilter===item.key ? item.dot+"18" : th.card, cursor:"pointer", fontSize:"0.75rem", fontWeight:600, color: statusFilter===item.key ? item.dot : th.muted, flexShrink:0, transition:"all .15s", whiteSpace:"nowrap" }}>
+              <span style={{ width:6, height:6, borderRadius:"50%", background:item.dot }} />
+              {item.label} <span style={{ fontWeight:800 }}>{item.count}</span>
+            </button>
+          ))}
+          <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "" }); setShowForm(true); }} style={{ ...btn(th, { padding:"0.4rem 0.875rem", fontSize:"0.75rem", flexShrink:0, whiteSpace:"nowrap" }) }}>+ New</button>
+        </div>
+      ) : !isMobile ? (
+      <div style={{ ...card(th), width:230, flexShrink:0, padding:"1.25rem 0", display:"flex", flexDirection:"column", overflow:"hidden", transition:"width .2s" }}>
+        <div style={{ padding:"0 1.25rem 0.25rem", fontSize:"0.68rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1.2 }}>Service Board</div>
+        {avgResolutionDays
+          ? <div style={{ padding:"0 1.25rem 0.75rem", fontSize:"0.62rem", color:th.muted }}>Avg. closed time <strong style={{ color:th.text }}>{avgResolutionDays}</strong></div>
+          : <div style={{ padding:"0 1.25rem 0.75rem", fontSize:"0.62rem", color:th.muted, opacity:0.5 }}>Avg. closed time —</div>
+        }
+
         {[
           { key:"all",         label:"All",         count:counts.all,         dot:"#aaa" },
           { key:"open",        label:"Open",        count:counts.open,        dot:"#3b82f6" },
@@ -11045,18 +11098,15 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
             <span style={{ fontSize:"0.72rem", fontWeight:700, color:item.dot, background:item.dot+"22", padding:"0.15rem 0.55rem", borderRadius:"1rem", minWidth:28, textAlign:"center" }}>{item.count}</span>
           </button>
         ))}
-        <div style={{ margin:"0.75rem 1.25rem 0", padding:"0.75rem", background:th.card2, borderRadius:"0.5rem" }}>
-          <div style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.25rem" }}>Avg Resolution</div>
-          <div style={{ fontSize:"1.25rem", fontWeight:800, color: avgResolutionDays ? O : th.muted, fontFamily:"'Raleway'" }}>{avgResolutionDays || "—"}</div>
-          <div style={{ fontSize:"0.7rem", color:th.muted }}>{avgResolutionDays ? "per closed ticket" : "no closed tickets yet"}</div>
-        </div>
+
         <div style={{ marginTop:"auto", padding:"1.25rem" }}>
-          <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "", dueDate: defaultDueDate() }); setShowForm(true); }} style={{ ...btn(th, { width:"100%", padding:"0.6rem", fontSize:"0.82rem" }) }}>+ New Ticket</button>
+          <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "" }); setShowForm(true); }} style={{ ...btn(th, { width:"100%", padding:"0.6rem", fontSize:"0.82rem" }) }}>+ New Ticket</button>
         </div>
       </div>
+      ) : null}
 
-      {/* Middle: ticket list */}
-      <div style={{ ...card(th), width: selectedTicket ? 320 : undefined, flex: selectedTicket ? "0 0 320px" : 1, display:"flex", flexDirection:"column", overflow:"hidden", minWidth:260 }}>
+      {/* Middle: ticket list — hidden on mobile when ticket selected */}
+      <div style={{ ...card(th), width: selectedTicket ? 320 : undefined, flex: selectedTicket ? "0 0 320px" : 1, display: isMobile && selectedTicket ? "none" : "flex", flexDirection:"column", overflow:"hidden", minWidth:260, transition:"flex .2s, width .2s" }}>
         {/* Search + filter */}
         <div style={{ padding:"0.875rem 1rem", borderBottom:`1px solid ${th.cardBorder}`, display:"flex", gap:"0.5rem", alignItems:"center" }}>
           <div style={{ flex:1, position:"relative" }}>
@@ -11082,21 +11132,25 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
         <div style={{ flex:1, overflowY:"auto" }}>
           {filtered.length === 0 ? (
             <div style={{ padding:"3rem 1rem", textAlign:"center", color:th.muted, fontSize:"0.875rem" }}>No tickets found</div>
-          ) : filtered.map(t => (
+          ) : filtered.map(t => {
+            return (
             <div key={t.id} onClick={()=>{ setSelectedId(t.id); setDetailTab("details"); }} style={{ padding:"0.875rem 1rem", borderBottom:`1px solid ${th.cardBorder}`, cursor:"pointer", background: selectedId===t.id ? O+"12":"transparent", borderLeft: selectedId===t.id ? `3px solid ${O}`:"3px solid transparent", transition:"background .15s" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"0.2rem" }}>
-                <div style={{ fontSize:"0.8rem", fontWeight:700, color:th.text, lineHeight:1.3, flex:1, marginRight:"0.5rem" }}>[{t.number}] {t.title}</div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"0.3rem" }}>
+                <div style={{ flex:1, marginRight:"0.5rem" }}>
+                  <span style={{ fontSize:"0.6rem", fontWeight:700, color:O, background:O+"18", border:`1px solid ${O}44`, borderRadius:"0.4rem", padding:"0.1rem 0.4rem", marginRight:"0.4rem", verticalAlign:"middle", letterSpacing:0.3 }}>{t.number}</span>
+                  <span style={{ fontSize:"0.8rem", fontWeight:700, color:th.text, lineHeight:1.3 }}>{t.title}</span>
+                </div>
                 <span style={{ fontSize:"0.68rem", fontWeight:700, color:priorityColor(t.priority), flexShrink:0 }}>{t.priority}</span>
               </div>
               <div style={{ fontSize:"0.72rem", color:O, fontWeight:600, marginBottom:"0.15rem" }}>PC# {t.storePC} · {t.storeName}</div>
               <div style={{ fontSize:"0.7rem", color:th.muted, marginBottom:"0.3rem" }}>{t.category}</div>
-              {t.dueDate && <div style={{ fontSize:"0.68rem", color:"#ef4444", marginBottom:"0.3rem" }}>Due {fmtDate(t.dueDate)}</div>}
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                 <span style={{ fontSize:"0.68rem", fontWeight:700, color:statusColor(t.status), background:statusBg(t.status), padding:"0.15rem 0.5rem", borderRadius:"0.75rem" }}>{t.status}</span>
                 <span style={{ fontSize:"0.68rem", color:th.muted }}>{t.ticketOwner}</span>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -11105,10 +11159,15 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
         <div style={{ ...card(th), flex:1, display:"flex", flexDirection:"column", overflow:"hidden", minWidth:0 }}>
           {/* Ticket header */}
           <div style={{ padding:"1.25rem 1.5rem 0", borderBottom:`1px solid ${th.cardBorder}` }}>
+            {isMobile && (
+              <button onClick={() => setSelectedId(null)} style={{ background:"none", border:"none", color:O, fontSize:"0.82rem", fontWeight:700, cursor:"pointer", padding:"0 0 0.75rem 0", display:"flex", alignItems:"center", gap:"0.3rem" }}>← Back to tickets</button>
+            )}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"0.625rem" }}>
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:"0.68rem", color:th.muted, marginBottom:"0.25rem" }}>🏢 Service Board</div>
-                <h2 style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"1.05rem", color:th.text, lineHeight:1.3, margin:"0 0 0.375rem" }}>[{selectedTicket.number}] {selectedTicket.title}</h2>
+                <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.375rem" }}>
+                  <span style={{ fontSize:"0.65rem", fontWeight:700, color:O, background:O+"18", border:`1px solid ${O}44`, borderRadius:"0.4rem", padding:"0.15rem 0.5rem", letterSpacing:0.3, flexShrink:0 }}>{selectedTicket.number}</span>
+                  <h2 style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"1.05rem", color:th.text, lineHeight:1.3, margin:0 }}>{selectedTicket.title}</h2>
+                </div>
                 <div style={{ fontSize:"0.78rem", marginBottom:"0.2rem" }}>
                   <span style={{ color:O, fontWeight:700 }}>PC# {selectedTicket.storePC}</span>
                   <span style={{ color:th.muted }}> · {selectedTicket.storeName}</span>
@@ -11116,7 +11175,6 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                 {selectedTicket.address && <div style={{ fontSize:"0.75rem", color:th.muted, marginBottom:"0.3rem" }}>{selectedTicket.address}</div>}
                 <div style={{ display:"flex", alignItems:"center", gap:"0.875rem", flexWrap:"wrap", marginBottom:"0.375rem" }}>
                   <span style={{ fontSize:"0.78rem", fontWeight:600, color:th.text }}>{selectedTicket.category}</span>
-                  {selectedTicket.dueDate && <span style={{ fontSize:"0.75rem", color:"#ef4444", fontWeight:600 }}>Due {fmtDate(selectedTicket.dueDate)}</span>}
                   <span style={{ fontSize:"0.75rem", fontWeight:700, color:priorityColor(selectedTicket.priority), marginLeft:"auto" }}>{selectedTicket.priority}</span>
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", flexWrap:"wrap", paddingBottom:"0.75rem" }}>
@@ -11136,7 +11194,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
               {isAdmin && <button onClick={()=>deleteTicket(selectedTicket.id)} style={{ ...btn(th,{padding:"0.35rem 0.875rem",fontSize:"0.78rem",background:"#ef444422",color:"#ef4444",border:"none"}) }}>🗑 Delete</button>}
             </div>
             {/* Details / Activity tabs */}
-            <div style={{ display:"flex" }}>
+            <div style={{ display:"flex", marginBottom:"-1px" }}>
               {["details","activity"].map(t => (
                 <button key={t} onClick={()=>setDetailTab(t)} style={{ padding:"0.5rem 1.25rem", border:"none", background:"none", cursor:"pointer", fontSize:"0.875rem", fontWeight:600, color: detailTab===t ? O:th.muted, borderBottom: detailTab===t ? `2px solid ${O}`:"2px solid transparent", textTransform:"capitalize", transition:"all .15s" }}>
                   {t.charAt(0).toUpperCase()+t.slice(1)}
@@ -11268,9 +11326,6 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
               <select style={inp(th)} value={form.priority} onChange={e=>setForm(f=>({...f,priority:e.target.value}))}>
                 {PRIORITIES.map(p=><option key={p} value={p}>{p}</option>)}
               </select>
-              <div style={{ position:"relative" }}>
-                <input style={inp(th)} type="date" value={form.dueDate} onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))} />
-              </div>
               <input style={{ ...inp(th), gridColumn:"span 2" }} placeholder="Ticket Owner (name)" value={form.ticketOwner} onChange={e=>setForm(f=>({...f,ticketOwner:e.target.value}))} />
               {/* Issue chip picker */}
               <div style={{ gridColumn:"span 2" }}>
@@ -16141,6 +16196,7 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [articleContent, setArticleContent] = useState(null);
   const [loading, setLoading] = useState(true);
+  const kbContentRef = useRef(null);
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("All");
   const [showForm, setShowForm] = useState(false);
@@ -16148,6 +16204,17 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({ title:"", category:"", description:"", content:"" });
   const [form, setForm] = useState({ title:"", category:"Setup Guide", description:"", content:"" });
+
+  // Re-execute <script> tags inside injected KB article HTML (dangerouslySetInnerHTML skips them)
+  useEffect(() => {
+    if (!kbContentRef.current || !articleContent) return;
+    kbContentRef.current.querySelectorAll('script').forEach(old => {
+      const s = document.createElement('script');
+      Array.from(old.attributes).forEach(a => s.setAttribute(a.name, a.value));
+      s.textContent = old.textContent;
+      old.parentNode.replaceChild(s, old);
+    });
+  }, [articleContent]);
 
   // Load articles index on mount
   useEffect(() => {
@@ -16344,7 +16411,7 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
       editing ? null :
       loading ? React.createElement("div", { style: { textAlign:"center", padding:"3rem", color:th.muted } }, "Loading article...") :
       React.createElement("div", { style: { ...card(th), padding:"2rem", overflow:"hidden" } },
-        React.createElement("div", { style: { color:th.text, fontSize:"0.92rem", lineHeight:1.7, fontFamily:"'Source Sans 3'" }, dangerouslySetInnerHTML: { __html:
+        React.createElement("div", { ref: kbContentRef, style: { color:th.text, fontSize:"0.92rem", lineHeight:1.7, fontFamily:"'Source Sans 3'" }, dangerouslySetInnerHTML: { __html:
           `<style>
             /*
              * UNIVERSAL KB DARK MODE — applies to ANY article structure.
@@ -18063,7 +18130,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v5.65
+            v5.69
           </div>
         )}
         {/* Collapse toggle — desktop only */}
