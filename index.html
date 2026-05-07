@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
@@ -201,6 +201,7 @@ const ICONS = {
   mail: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"})}{React.createElement("polyline",{points:"22,6 12,13 2,6"})}</>} />,
   kb: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M4 19.5A2.5 2.5 0 0 1 6.5 17H20"})}{React.createElement("path",{d:"M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"})}{React.createElement("line",{x1:"8",y1:"7",x2:"16",y2:"7"})}{React.createElement("line",{x1:"8",y1:"11",x2:"14",y2:"11"})}</>} />,
   tickets: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M2 9a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V9z"})}{React.createElement("line",{x1:"9",y1:"4",x2:"9",y2:"20",strokeDasharray:"2 3"})}</>} />,
+
 };
 
 const CAT_ICONS_SVG = {
@@ -705,6 +706,10 @@ function Login({ onLogin, dark, toggleDark, users }) {
         if (tries < 40) setTimeout(renderGoogleButton, 150);
         return;
       }
+
+      // Clear any cached Google sign-in state so the button always works after logout
+      try { window.google.accounts.id.disableAutoSelect(); } catch {}
+      try { window.google.accounts.id.cancel(); } catch {}
 
       window.google.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
@@ -10527,14 +10532,27 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
       {/* Info card */}
       <div style={{ ...card(th), padding: "1.25rem", borderLeft: `3px solid ${O}` }}>
-        <div style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.5rem" }}>How Notifications Work</div>
-        <div style={{ fontSize: "0.8125rem", color: th.muted, lineHeight: 1.6 }}>
-          <div style={{ marginBottom: "0.375rem" }}>📬 <strong>Global list</strong> — everyone above gets notified for every project update</div>
-          <div style={{ marginBottom: "0.375rem" }}>📋 <strong>Per-project list</strong> — additional emails set in each project's "Notify Emails" field</div>
-          <div style={{ marginBottom: "0.375rem" }}>🔔 <strong>Triggers:</strong> New project added, phase changes, checklist updates, deadline warnings</div>
-          <div style={{ marginBottom: "0.375rem" }}>📱 <strong>SMS:</strong> Users with a phone number + SMS enabled get texts (via Twilio)</div>
-          <div style={{ marginBottom: "0.375rem" }}>⚠️ <strong>SMS matching:</strong> Your user's <em>email</em> must match an address in the global/project notify list</div>
-          <div>📧 <strong>Powered by:</strong> Resend (email) + Twilio (SMS) — configure API keys in Netlify env vars</div>
+        <div style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" }}>How Notifications Work</div>
+        <div style={{ fontSize: "0.8125rem", color: th.muted, lineHeight: 1.7 }}>
+
+          <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem", marginTop: "0.25rem" }}>📂 Project Notifications</div>
+          <div style={{ marginBottom: "0.25rem" }}>📬 <strong>Global list</strong> — everyone in the Global Project Notifications list gets notified on every project update</div>
+          <div style={{ marginBottom: "0.25rem" }}>📋 <strong>Per-project list</strong> — additional emails can be added inside each individual project's settings</div>
+          <div style={{ marginBottom: "0.75rem" }}>🔔 <strong>Triggers:</strong> New project added, phase changes, checklist updates, deadline warnings</div>
+
+          <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>🎫 Ticket Notifications</div>
+          <div style={{ marginBottom: "0.25rem" }}>🎫 <strong>Ticket list</strong> — everyone in the Ticket Notifications list is notified when a new service ticket is created</div>
+          <div style={{ marginBottom: "0.25rem" }}>🔔 <strong>In-app bell</strong> — a bell badge appears in the header for every new ticket; clicking it jumps to the Tickets tab</div>
+          <div style={{ marginBottom: "0.75rem" }}>⚡ <strong>Triggers:</strong> New ticket submitted</div>
+
+          <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>📡 Delivery Channels</div>
+          <div style={{ marginBottom: "0.25rem" }}>📧 <strong>Email</strong> — sent via Resend to all matching recipients (unless disabled in user profile)</div>
+          <div style={{ marginBottom: "0.25rem" }}>📱 <strong>SMS</strong> — sent via Twilio to users with a phone number + SMS enabled in their profile</div>
+          <div style={{ marginBottom: "0.25rem" }}>🔔 <strong>Web Push</strong> — browser/device push notification for users with Push enabled in their profile</div>
+          <div style={{ marginBottom: "0.75rem" }}>⚠️ <strong>Matching:</strong> Your user's <em>email</em> must appear in the relevant notify list to receive SMS or Push</div>
+
+          <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>⚙️ Powered By</div>
+          <div>Resend (email) · Twilio (SMS) · Web Push VAPID — configure API keys in Netlify environment variables</div>
         </div>
       </div>
 
@@ -10806,7 +10824,7 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
 }
 
 // ── Tickets ────────────────────────────────────────────────────────────────
-function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails }) {
+function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }) {
   const O = "#FF671F", W = "#fff";
   const isAdmin = user?.userType === "executive" || user?.userType === "it";
   const isDM      = user?.userType === "dm";
@@ -10873,7 +10891,9 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails }
     return stores;
   }, [stores, user, isAdmin, isOffice, isDM, isManager, managerStore]);
 
-  const todayISO = new Date().toISOString().split("T")[0];
+  const localDateISO = (d) => { const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${day}`; };
+  const todayISO = localDateISO(new Date());
+  const defaultDueDate = () => { const d = new Date(); d.setDate(d.getDate() + 3); return localDateISO(d); };
 
   const [tickets, setTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]"); } catch { return []; } });
   React.useEffect(() => { try { localStorage.setItem("pcg_tickets_v1", JSON.stringify(tickets)); } catch {} }, [tickets]);
@@ -10886,7 +10906,8 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails }
   const [filters, setFilters] = React.useState({ priority: "all", category: "all" });
   const [detailTab, setDetailTab] = React.useState("details");
   const [newComment, setNewComment] = React.useState("");
-  const EMPTY_FORM = { title:CATEGORIES[0], storePC: managerStore?.pc || "", category:CATEGORIES[0], priority:"Medium", dueDate: todayISO, selectedIssues:[], notes:"", ticketOwner: user?.name || "", attachments:[] };
+  const [lightbox, setLightbox] = React.useState(null);
+  const EMPTY_FORM = { title:CATEGORIES[0], storePC: managerStore?.pc || "", category:CATEGORIES[0], priority:"Medium", dueDate: defaultDueDate(), selectedIssues:[], notes:"", ticketOwner: user?.name || "", attachments:[] };
   const [form, setForm] = React.useState(EMPTY_FORM);
   const fileInputRef = React.useRef(null);
 
@@ -10919,6 +10940,18 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails }
     closed: visibleTickets.filter(t => t.status === "Closed").length,
   };
 
+  const avgResolutionDays = React.useMemo(() => {
+    const closed = visibleTickets.filter(t => t.status === "Closed" && t.createdAt && t.updatedAt);
+    if (!closed.length) return null;
+    const avgMs = closed.reduce((sum, t) => sum + (new Date(t.updatedAt) - new Date(t.createdAt)), 0) / closed.length;
+    const mins = avgMs / (1000 * 60);
+    const hours = avgMs / (1000 * 60 * 60);
+    const days = avgMs / (1000 * 60 * 60 * 24);
+    if (mins < 60) return `${Math.max(1, Math.round(mins))}m`;
+    if (hours < 24) return `${Math.round(hours)}h`;
+    return `${days.toFixed(1)}d`;
+  }, [visibleTickets]);
+
   const filtered = React.useMemo(() => visibleTickets.filter(t => {
     if (statusFilter === "open" && t.status !== "Open") return false;
     if (statusFilter === "in_progress" && t.status !== "In Progress") return false;
@@ -10940,22 +10973,48 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails }
   const sendTicketNotification = (t) => {
     const emails = (ticketNotifyEmails || []).filter(e => e && e.includes("@"));
     if (!emails.length) return;
-    const pc = { High:"#ef4444", Medium:"#f59e0b", Low:"#22c55e" }[t.priority] || "#aaa";
+    const prioColor = { High:"#ef4444", Medium:"#f59e0b", Low:"#22c55e" }[t.priority] || "#aaa";
+    const prioBg    = { High:"#fef2f2", Medium:"#fffbeb", Low:"#f0fdf4" }[t.priority] || "#f9f9f9";
+    const row = (label, value) => `
+      <tr>
+        <td style="padding:11px 16px;font-size:13px;font-weight:600;color:#666;white-space:nowrap;width:130px;border-bottom:1px solid #f0f0f0;">${label}</td>
+        <td style="padding:11px 16px;font-size:13px;color:#1a1a1a;border-bottom:1px solid #f0f0f0;">${value}</td>
+      </tr>`;
     const html = `
-      <h3 style="margin:0 0 4px;color:#FF671F;">New Service Ticket — ${t.number}</h3>
-      <p style="margin:0 0 16px;color:#666;font-size:14px;">A new ticket has been submitted on the PCG Portal.</p>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;">
-        <tr><td style="padding:8px 12px;background:#f9f9f9;font-weight:600;width:140px;">Ticket #</td><td style="padding:8px 12px;">${t.number}</td></tr>
-        <tr><td style="padding:8px 12px;font-weight:600;">Title</td><td style="padding:8px 12px;">${t.title}</td></tr>
-        <tr><td style="padding:8px 12px;background:#f9f9f9;font-weight:600;">Store</td><td style="padding:8px 12px;">PC# ${t.storePC} — ${t.storeName}${t.address ? '<br><span style="color:#888;font-size:13px;">'+t.address+'</span>' : ''}</td></tr>
-        <tr><td style="padding:8px 12px;font-weight:600;">Category</td><td style="padding:8px 12px;">${t.category}</td></tr>
-        <tr><td style="padding:8px 12px;background:#f9f9f9;font-weight:600;">Priority</td><td style="padding:8px 12px;"><span style="color:${pc};font-weight:700;">${t.priority}</span></td></tr>
-        ${t.dueDate ? `<tr><td style="padding:8px 12px;font-weight:600;">Due Date</td><td style="padding:8px 12px;">${fmtDate(t.dueDate)}</td></tr>` : ""}
-        <tr><td style="padding:8px 12px;background:#f9f9f9;font-weight:600;">Owner</td><td style="padding:8px 12px;">${t.ticketOwner}</td></tr>
-        <tr><td style="padding:8px 12px;font-weight:600;">Created By</td><td style="padding:8px 12px;">${t.createdBy}</td></tr>
-        ${t.description ? `<tr><td style="padding:8px 12px;background:#f9f9f9;font-weight:600;vertical-align:top;">Description</td><td style="padding:8px 12px;">${t.description.replace(/\n/g,"<br>")}</td></tr>` : ""}
-      </table>
-      <p style="margin:20px 0 0;"><a href="https://pcg-ops.netlify.app" style="background:#FF671F;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">View in Portal →</a></p>
+      <div style="font-family:Arial,sans-serif;">
+        <!-- header accent bar -->
+        <div style="background:linear-gradient(135deg,#FF671F,#ff8c4b);border-radius:10px 10px 0 0;padding:20px 24px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="background:rgba(255,255,255,0.2);border-radius:6px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;line-height:1;">🎫</div>
+            <div>
+              <div style="color:rgba(255,255,255,0.75);font-size:11px;letter-spacing:1.2px;text-transform:uppercase;font-weight:600;">New Service Ticket</div>
+              <div style="color:#fff;font-size:20px;font-weight:800;letter-spacing:-0.3px;margin-top:2px;">${t.number} — ${t.title}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- badges row -->
+        <div style="background:#fff;border:1px solid #e8e8e8;border-top:none;padding:14px 24px;display:flex;gap:8px;flex-wrap:wrap;">
+          <span style="display:inline-block;background:${prioBg};color:${prioColor};border:1px solid ${prioColor}33;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:700;">${t.priority} Priority</span>
+          <span style="display:inline-block;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:700;">Open</span>
+          <span style="display:inline-block;background:#f9fafb;color:#6b7280;border:1px solid #e5e7eb;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600;">${t.category}</span>
+        </div>
+
+        <!-- detail table -->
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;overflow:hidden;">
+          ${row("Store", `<strong>${t.storeName}</strong>${t.address ? `<br><span style="color:#9ca3af;font-size:12px;">${t.address}</span>` : ""}`)}
+          ${row("PC Number", `<span style="font-family:monospace;background:#f3f4f6;padding:2px 8px;border-radius:4px;font-size:13px;">${t.storePC}</span>`)}
+          ${t.dueDate ? row("Due Date", `<span style="color:#FF671F;font-weight:600;">${fmtDate(t.dueDate)}</span>`) : ""}
+          ${row("Owner", t.ticketOwner)}
+          ${row("Submitted By", t.createdBy)}
+          ${t.description ? row("Details", `<span style="white-space:pre-wrap;line-height:1.6;">${t.description.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>`) : ""}
+        </table>
+
+        <!-- CTA -->
+        <div style="text-align:center;padding:24px 0 8px;">
+          <a href="https://pcg-ops.netlify.app" style="display:inline-block;background:#FF671F;color:#fff;padding:13px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal →</a>
+        </div>
+      </div>
     `;
     const subject = `[PCG Ticket ${t.number}] ${t.title}`;
     const smsBody = `New ticket ${t.number}: ${t.title} | Store: ${t.storeName} | Priority: ${t.priority}`;
@@ -10975,6 +11034,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails }
     setShowForm(false);
     setForm(EMPTY_FORM);
     sendTicketNotification(t);
+    if (setNotifications) setNotifications(ns => [{ id: Date.now(), type: "new_ticket", ticketId: t.id, message: `${t.number} — ${t.title} · ${t.storeName}`, read: false, createdAt: new Date().toISOString() }, ...ns]);
     showAlert("success","Ticket created — notification sent");
   };
 
@@ -10988,6 +11048,14 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails }
   };
 
   return (
+    <>
+    {lightbox && (
+      <div onClick={() => setLightbox(null)} style={{ position:"fixed", inset:0, zIndex:99999, background:"rgba(0,0,0,0.88)", display:"flex", alignItems:"center", justifyContent:"center", cursor:"zoom-out", padding:"1.5rem" }}>
+        <img src={lightbox.src} alt={lightbox.name} style={{ maxWidth:"100%", maxHeight:"100%", borderRadius:"0.75rem", boxShadow:"0 24px 80px rgba(0,0,0,0.6)", objectFit:"contain" }} onClick={e=>e.stopPropagation()} />
+        <button onClick={() => setLightbox(null)} style={{ position:"absolute", top:20, right:24, background:"rgba(255,255,255,0.12)", border:"none", borderRadius:"50%", width:40, height:40, color:"#fff", fontSize:"1.25rem", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+        {lightbox.name && <div style={{ position:"absolute", bottom:20, left:"50%", transform:"translateX(-50%)", color:"rgba(255,255,255,0.6)", fontSize:"0.78rem", background:"rgba(0,0,0,0.5)", padding:"0.3rem 0.75rem", borderRadius:"1rem", whiteSpace:"nowrap", maxWidth:"80vw", overflow:"hidden", textOverflow:"ellipsis" }}>{lightbox.name}</div>}
+      </div>
+    )}
     <div style={{ display:"flex", gap:"1.25rem", height:"calc(100vh - 160px)", minHeight:480 }}>
 
       {/* Left: status sidebar */}
@@ -11007,8 +11075,13 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails }
             <span style={{ fontSize:"0.72rem", fontWeight:700, color:item.dot, background:item.dot+"22", padding:"0.15rem 0.55rem", borderRadius:"1rem", minWidth:28, textAlign:"center" }}>{item.count}</span>
           </button>
         ))}
+        <div style={{ margin:"0.75rem 1.25rem 0", padding:"0.75rem", background:th.card2, borderRadius:"0.5rem" }}>
+          <div style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.25rem" }}>Avg Resolution</div>
+          <div style={{ fontSize:"1.25rem", fontWeight:800, color: avgResolutionDays ? O : th.muted, fontFamily:"'Raleway'" }}>{avgResolutionDays || "—"}</div>
+          <div style={{ fontSize:"0.7rem", color:th.muted }}>{avgResolutionDays ? "per closed ticket" : "no closed tickets yet"}</div>
+        </div>
         <div style={{ marginTop:"auto", padding:"1.25rem" }}>
-          <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "", dueDate: new Date().toISOString().split("T")[0] }); setShowForm(true); }} style={{ ...btn(th, { width:"100%", padding:"0.6rem", fontSize:"0.82rem" }) }}>+ New Ticket</button>
+          <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "", dueDate: defaultDueDate() }); setShowForm(true); }} style={{ ...btn(th, { width:"100%", padding:"0.6rem", fontSize:"0.82rem" }) }}>+ New Ticket</button>
         </div>
       </div>
 
@@ -11135,8 +11208,15 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails }
                       {selectedTicket.attachments.map((a, i) => (
                         <div key={i} style={{ borderRadius:"0.625rem", overflow:"hidden", border:`1px solid ${th.cardBorder}`, background:th.card2 }}>
                           {a.type.startsWith("image/")
-                            ? <img src={a.dataUrl} alt={a.name} style={{ display:"block", width:140, height:110, objectFit:"cover", cursor:"pointer" }} onClick={()=>window.open(a.dataUrl,"_blank")} />
-                            : <div style={{ width:160, padding:"0.625rem" }}>
+                            ? <div style={{ position:"relative", cursor:"zoom-in" }} onClick={() => setLightbox({ src: a.dataUrl, name: a.name })}>
+                                <img src={a.dataUrl} alt={a.name} style={{ display:"block", width:160, height:120, objectFit:"cover" }} />
+                                <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0)", display:"flex", alignItems:"center", justifyContent:"center", transition:"background .2s" }}
+                                  onMouseEnter={e=>e.currentTarget.style.background="rgba(0,0,0,0.25)"}
+                                  onMouseLeave={e=>e.currentTarget.style.background="rgba(0,0,0,0)"}>
+                                  <span style={{ color:"#fff", fontSize:"1.25rem", opacity:0, transition:"opacity .2s", pointerEvents:"none" }}>🔍</span>
+                                </div>
+                              </div>
+                            : <div style={{ width:180, padding:"0.625rem" }}>
                                 <video src={a.dataUrl} controls style={{ width:"100%", borderRadius:"0.375rem", display:"block" }} />
                                 <div style={{ fontSize:"0.68rem", color:th.muted, marginTop:"0.25rem", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.name}</div>
                               </div>
@@ -11288,6 +11368,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails }
         </div>
       )}
     </div>
+    </>
   );
 }
 
@@ -11310,14 +11391,14 @@ const getTabs = (user) => {
   // Executive & IT → full admin suite
   if (ut === "executive" || ut === "it") return [
     ...BASE_TABS,
-    { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
-    { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
-    { id: "pulse",     label: "Pulse",     icon: (c) => ICONS.pulse(c), green: true },
-    { id: "labor",     label: "Labor",     icon: (c) => ICONS.dollar(c) },
+    { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
+    { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
+    { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
+    { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
-    { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
-    { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
-    { id: "settings",  label: "Settings",  icon: (c) => ICONS.settings(c) },
+    { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
+    { id: "users",     label: "Users",        icon: (c) => ICONS.users(c) },
+    { id: "settings",  label: "Settings",     icon: (c) => ICONS.settings(c) },
   ];
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
@@ -16080,10 +16161,11 @@ function BusinessCasesCard({ user, th, onViewCase }) {
 }
 
 // ── Knowledge Base ────────────────────────────────────────────────────────────
-function KnowledgeBase({ th, user, showAlert }) {
+function KnowledgeBase({ th, user, showAlert, stores }) {
   const KB_CATEGORIES = ["Setup Guide", "SOP", "Training", "Policy", "Reference"];
   const CAT_COLORS = { "Setup Guide":"#3b82f6", "SOP":"#8b5cf6", "Training":"#22c55e", "Policy":"#ef4444", "Reference":"#f59e0b" };
   const isAdmin = user && (user.userType === "executive" || user.userType === "it");
+  const [kbSection, setKbSection] = React.useState("articles");
 
   const [articles, setArticles] = useState([]);
   const [selectedArticle, setSelectedArticle] = useState(null);
@@ -16457,6 +16539,8 @@ function KnowledgeBase({ th, user, showAlert }) {
 
   // ── Main list view ───────────────────────────────────────────────────
   return React.createElement("div", { className: "fade-in" },
+    // Articles section
+    React.createElement("div", null,
     // Search & filter bar
     React.createElement("div", { style: { display:"flex", gap:"0.75rem", marginBottom:"1.25rem", flexWrap:"wrap", alignItems:"center" } },
       React.createElement("div", { style: { flex:1, minWidth:200, position:"relative" } },
@@ -16508,12 +16592,17 @@ function KnowledgeBase({ th, user, showAlert }) {
         )
       ))
     )
+    ) // close articles wrapper div
   );
 }
 
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
+  const handleLogout = () => {
+    try { window.google?.accounts?.id?.disableAutoSelect(); } catch {}
+    setUser(null);
+  };
   const [tab, setTab]           = useState("dashboard");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem('pcg_sidebar_collapsed') === 'true'; } catch { return false; } });
   const [links, setLinks]       = useState(() => { const s=loadFromStorage(); return s?.links    || INIT_LINKS; });
@@ -16553,6 +16642,7 @@ function PCGPortal() {
   const cloudTodosLoaded = useRef(false);
   const cloudNotificationsLoaded = useRef(false);
   const cloudGlobalNotifyLoaded = useRef(false);
+  const cloudTicketNotifyLoaded = useRef(false);
   const projectsUserEdited = useRef(false);
   const dailyReportsUserEdited = useRef(false);
   // Previous dailyReports snapshot for diffing in the per-report save effect
@@ -17215,6 +17305,19 @@ function PCGPortal() {
     cloudSave('pcg_global_notify_v1', globalNotifyEmails);
   }, [globalNotifyEmails]);
 
+  // Cloud sync ticket notify emails
+  useEffect(() => {
+    cloudLoad('pcg_ticket_notify_v1').then(data => {
+      cloudTicketNotifyLoaded.current = true;
+      if (data && Array.isArray(data) && data.length > 0) setTicketNotifyEmails(data);
+    }).catch(() => { cloudTicketNotifyLoaded.current = true; });
+  }, []);
+  useEffect(() => {
+    if (!cloudTicketNotifyLoaded.current) return;
+    if (ticketNotifyEmails.length === 0) return;
+    cloudSave('pcg_ticket_notify_v1', ticketNotifyEmails);
+  }, [ticketNotifyEmails]);
+
   // Cloud sync chat data
   const chatPollRef = useRef(null);
   useEffect(() => {
@@ -17535,7 +17638,7 @@ function PCGPortal() {
     return (
       <div style={{ minHeight:"100vh", background:th.bg, transition:"background .3s" }}>
         {/* Lock button */}
-        <button onClick={()=>setUser(null)} style={{
+        <button onClick={handleLogout} style={{
           position:"fixed", top:16, right:16, zIndex:100,
           background:th.card3, border:`1px solid ${th.cardBorder}`, borderRadius:"0.5rem",
           padding:"0.4rem 0.75rem", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.375rem",
@@ -17558,7 +17661,7 @@ function PCGPortal() {
     return (
       <div style={{ minHeight:"100vh", background:th.bg, transition:"background .3s", display:"flex", alignItems:"center", justifyContent:"center" }}>
         {/* Lock button */}
-        <button onClick={()=>setUser(null)} style={{
+        <button onClick={handleLogout} style={{
           position:"fixed", top:16, right:16, zIndex:100,
           background:th.card3, border:`1px solid ${th.cardBorder}`, borderRadius:"0.5rem",
           padding:"0.4rem 0.75rem", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.375rem",
@@ -17679,7 +17782,10 @@ function PCGPortal() {
           color: accent, letterSpacing: 1.6, textTransform: "uppercase",
           padding: "0.15rem 0.5rem",
           background: `${accent}12`,
-          border: `1px solid ${accent}33`,
+          borderTop: `1px solid ${accent}33`,
+          borderLeft: `1px solid ${accent}33`,
+          borderRight: `1px solid ${accent}33`,
+          borderBottom: `2px solid ${accent}66`,
           borderRadius: 999,
         }}>{label}</span>
         <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` }} />
@@ -17845,7 +17951,7 @@ function PCGPortal() {
                 onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.borderColor = th.cardBorder; }}>{ICONS.upload(O)}</button>
               </>
             )}
-            <button onClick={() => setUser(null)} title="Sign out" style={{
+            <button onClick={handleLogout} title="Sign out" style={{
               padding: "0.4rem 0.55rem",
               background: th.card3,
               border: `1px solid ${th.cardBorder}`,
@@ -17987,7 +18093,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v5.47
+            v5.62
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -18082,15 +18188,15 @@ function PCGPortal() {
                 {tab === "cash" && "Deposit tracking and missing-deposit alerts."}
                 {tab === "projects" && "Track construction, remodels, and new store builds."}
                 {tab === "users" && "User accounts and access management."}
-                {tab === "kb" && "Company guides, SOPs, and training materials."}
+                {tab === "kb" && "Company guides, SOPs, training materials, and reference articles."}
                 {tab === "settings" && "Portal configuration and preferences."}
-                {tab === "tickets" && "Submit and track maintenance & service tickets."}
+                {tab === "tickets"  && "Submit and track maintenance & service tickets."}
               </p>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
             {/* Notification bell */}
-            {canViewProjects(user) && (
+            {(canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && (
               <div style={{ position: "relative" }}>
                 <button onClick={() => { setShowNotifs(s => !s); setShowChatPanel(false); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4, display: "flex", alignItems: "center" }}>
                   {ICONS.bell(th.text)}
@@ -18112,11 +18218,11 @@ function PCGPortal() {
                     {notifications.slice(0, 30).map(n => (
                       <div key={n.id} onClick={() => {
                         setNotifications(ns => ns.map(nn => nn.id === n.id ? { ...nn, read: true } : nn));
-                        setTab("projects");
+                        setTab(n.type === "new_ticket" ? "tickets" : "projects");
                         setShowNotifs(false);
                       }} style={{ padding: "0.625rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, cursor: "pointer", background: n.read ? "transparent" : (O + "08") }}>
                         <div style={{ fontSize: "0.8125rem", color: th.text, fontWeight: n.read ? 400 : 600 }}>
-                          {n.type === "phase_change" ? "🔄" : n.type === "deadline_approaching" ? "⏰" : n.type === "overdue" ? "🔴" : "🆕"} {n.message}
+                          {n.type === "phase_change" ? "🔄" : n.type === "deadline_approaching" ? "⏰" : n.type === "overdue" ? "🔴" : n.type === "new_ticket" ? "🎫" : "🆕"} {n.message}
                         </div>
                         <div style={{ fontSize: "0.625rem", color: th.muted, marginTop: 2 }}>{new Date(n.createdAt).toLocaleString()}</div>
                       </div>
@@ -18297,8 +18403,8 @@ function PCGPortal() {
           {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
-          {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} />}
-          {tab === "tickets" && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} />}
+          {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
+          {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={setTab} />}
         </div>
       </div>
 
