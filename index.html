@@ -8407,6 +8407,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailSending, setEmailSending] = useState(false);
+  const [lightbox, setLightbox] = useState(null); // { photos, idx }
 
   // ─── Native jsPDF generator ────────────────────────────────────────
   // Builds a professional, text-based PDF directly using jsPDF primitives
@@ -8451,13 +8452,14 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       y += 0.25;
     };
     const sectionTitle = (title) => {
-      addPageIfNeeded(0.5);
+      y += 0.2;
+      addPageIfNeeded(0.75);
       setText(textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
       doc.text(title, margin, y);
       y += 0.08;
-      setDraw(brandOrange); doc.setLineWidth(0.025);
+      setDraw(brandOrange); doc.setLineWidth(0.03);
       doc.line(margin, y, margin + contentW, y);
-      y += 0.22;
+      y += 0.3;
     };
     const wrapText = (text, maxWidth, fontSize) => {
       doc.setFontSize(fontSize);
@@ -8654,7 +8656,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       const stats = `Wind: ${w.wind || '0'} MPH  •  Precip: ${w.precipitation || '0'}"  •  Hum: ${w.humidity || '0'}%`;
       doc.text(stats, x + wCardW / 2, y + 1.4, { align: 'center' });
     }
-    y += wCardH + 0.3;
+    y += wCardH + 0.5;
 
     // ────────── Work Logs ──────────
     sectionTitle('Work Logs');
@@ -8688,7 +8690,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
         doc.text(col3, statsX - c3w, y);
         doc.text(col2, statsX - c3w - 0.4 - c2w, y);
         doc.text(col1, statsX - c3w - 0.4 - c2w - 0.4 - c1w, y);
-        y += 0.2;
+        y += 0.28;
         // Description
         if (descLines.length > 0) {
           setText([68, 68, 68]); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
@@ -8697,7 +8699,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
             doc.text(line, margin, y);
             y += 0.15;
           }
-          y += 0.05;
+          y += 0.12;
         }
         // Photos: 3 per row, each tile 2.0" × 1.5" (4:3 landscape).
         // CONTAIN-fit so images never overflow their tile bounds (jsPDF's
@@ -8770,12 +8772,12 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
               y += photoH + photoGap;
             }
           }
-          y += 0.05;
+          y += 0.15;
         }
         // Divider between logs
-        setDraw(lineLight); doc.setLineWidth(0.008);
+        setDraw(lineLight); doc.setLineWidth(0.01);
         doc.line(margin, y, margin + contentW, y);
-        y += 0.2;
+        y += 0.3;
       }
       // Total row
       const totalW = (report.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
@@ -8784,7 +8786,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       const totalStr = `Total: ${totalW} workers  •  ${totalH} hours`;
       const tw = doc.getTextWidth(totalStr);
       doc.text(totalStr, margin + contentW - tw, y);
-      y += 0.3;
+      y += 0.45;
     }
 
     // ────────── Materials / Equipment / General Notes ──────────
@@ -8803,19 +8805,19 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
         doc.text(line, margin, y);
         y += 0.15;
       }
-      y += 0.2;
+      y += 0.3;
     }
 
     // ────────── Safety Survey ──────────
     sectionTitle('Safety Survey');
-    const rowH = 0.28;
+    const rowH = 0.32;
     // Table header
     setFill(bgSoft);
     doc.rect(margin, y, contentW, rowH, 'F');
     setText(textMuted); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-    doc.text('Question', margin + 0.1, y + 0.18);
-    doc.text('Answer', margin + 4.3, y + 0.18);
-    doc.text('Notes', margin + 5.0, y + 0.18);
+    doc.text('Question', margin + 0.1, y + 0.21);
+    doc.text('Answer', margin + 4.3, y + 0.21);
+    doc.text('Notes', margin + 5.0, y + 0.21);
     y += rowH;
     setDraw(lineLight); doc.setLineWidth(0.008);
     const questions = [
@@ -8829,27 +8831,27 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     for (const q of questions) {
       addPageIfNeeded(rowH + 0.05);
       setText(textDark); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-      doc.text(q.label, margin + 0.1, y + 0.18);
+      doc.text(q.label, margin + 0.1, y + 0.21);
       // Answer Yes/No
       const ans = report.survey?.[q.key];
       const ansStr = ans === true ? 'Yes' : ans === false ? 'No' : '—';
       setText(ans === true ? [220, 38, 38] : ans === false ? [34, 197, 94] : textFaint);
       doc.setFont('helvetica', 'bold');
-      doc.text(ansStr, margin + 4.3, y + 0.18);
+      doc.text(ansStr, margin + 4.3, y + 0.21);
       // Notes
       setText(textMuted); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
       const noteText = report.surveyNotes?.[q.key] || '';
       const noteLines = wrapText(noteText, 2.4, 8);
       if (noteLines.length > 0) {
-        doc.text(noteLines[0], margin + 5.0, y + 0.18);
+        doc.text(noteLines[0], margin + 5.0, y + 0.21);
       }
       doc.line(margin, y + rowH, margin + contentW, y + rowH);
       y += rowH;
     }
-    y += 0.25;
+    y += 0.45;
 
     // ────────── Signature ──────────
-    addPageIfNeeded(0.9);
+    addPageIfNeeded(1.1);
     setDraw(textDark); doc.setLineWidth(0.015);
     doc.line(margin, y + 0.35, margin + 3, y + 0.35);
     setText(textMuted); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
@@ -9024,6 +9026,24 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     setEmailSending(false);
   };
 
+  const lightboxModal = lightbox ? (
+    <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.93)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999, padding: "1rem" }}>
+      <div onClick={e => e.stopPropagation()} style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", maxWidth: "92vw" }}>
+        <button onClick={() => setLightbox(null)} style={{ position: "absolute", top: -44, right: 0, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: "1.25rem", cursor: "pointer", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        <img src={lightbox.photos[lightbox.idx].data} alt={lightbox.photos[lightbox.idx].name || "Photo"} style={{ maxWidth: "90vw", maxHeight: "82vh", objectFit: "contain", borderRadius: "0.5rem", display: "block", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" }} />
+        <div style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.75rem", marginTop: "0.625rem", textAlign: "center" }}>
+          {lightbox.photos[lightbox.idx].name || "Photo"} {" · "} {lightbox.idx + 1} / {lightbox.photos.length}
+        </div>
+        {lightbox.idx > 0 && (
+          <button onClick={e => { e.stopPropagation(); setLightbox(lb => ({ ...lb, idx: lb.idx - 1 })); }} style={{ position: "absolute", left: -56, top: "45%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: "1.75rem", cursor: "pointer", borderRadius: "50%", width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>‹</button>
+        )}
+        {lightbox.idx < lightbox.photos.length - 1 && (
+          <button onClick={e => { e.stopPropagation(); setLightbox(lb => ({ ...lb, idx: lb.idx + 1 })); }} style={{ position: "absolute", right: -56, top: "45%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: "1.75rem", cursor: "pointer", borderRadius: "50%", width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>›</button>
+        )}
+      </div>
+    </div>
+  ) : null;
+
   // ── Report Preview ──
   if (drView === "preview" && editReport !== null) {
     const r = dailyReports.find(rep => rep.id === editReport);
@@ -9128,7 +9148,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
                   {w.photos && w.photos.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
                       {w.photos.map((p, pi) => (
-                        <div key={pi} className="photo-item" style={{ position: "relative", width: "calc(33.33% - 0.34rem)", pageBreakInside: "avoid", breakInside: "avoid" }}>
+                        <div key={pi} className="photo-item" onClick={() => setLightbox({ photos: w.photos, idx: pi })} style={{ position: "relative", width: "calc(33.33% - 0.34rem)", pageBreakInside: "avoid", breakInside: "avoid", cursor: "zoom-in" }}>
                           <img src={p.data} alt={p.name} style={{ width: "100%", borderRadius: "0.375rem", aspectRatio: "4/3", objectFit: "cover", maxHeight: "200px" }} />
                           <div style={{ position: "absolute", bottom: 4, left: 4, background: "#000000aa", color: "#fff", fontSize: "0.5rem", padding: "1px 4px", borderRadius: 3 }}>
                             {p.timestamp ? (() => { const ymd = String(p.timestamp).slice(0,10); return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? new Date(ymd + "T12:00:00").toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : p.timestamp; })() : ""}
@@ -9191,6 +9211,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
             )}
           </div>
         </div>
+      {lightboxModal}
       </div>
     );
   }
@@ -9320,7 +9341,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: "0.375rem" }}>
                     {wl.photos.map((p, pi) => (
                       <div key={pi} style={{ position: "relative" }}>
-                        <img src={p.data} alt={p.name} style={{ width: "100%", borderRadius: "0.375rem", aspectRatio: "1", objectFit: "cover" }} />
+                        <img src={p.data} alt={p.name} onClick={() => setLightbox({ photos: wl.photos, idx: pi })} style={{ width: "100%", borderRadius: "0.375rem", aspectRatio: "1", objectFit: "cover", cursor: "zoom-in" }} />
                         <button onClick={() => removePhoto(idx, pi)} style={{ position: "absolute", top: 2, right: 2, background: "#ff4444", color: "#fff", border: "none", borderRadius: "50%", width: 18, height: 18, fontSize: "0.625rem", cursor: "pointer", lineHeight: "18px", padding: 0 }}>×</button>
                       </div>
                     ))}
@@ -9376,6 +9397,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
           <button onClick={() => saveReport("draft")} style={btn(th, { padding: "0.5rem 1.25rem" })}>Save Draft</button>
           <button onClick={() => saveReport("submitted")} style={btn(th, { padding: "0.5rem 1.25rem", background: "#22c55e", color: "#fff" })}>Submit & Sign</button>
         </div>
+      {lightboxModal}
       </div>
     );
   }
@@ -10871,6 +10893,21 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     "Other": [],
   };
 
+  const TICKET_TEMPLATES = [
+    { label:"Ice Machine Down",      icon:"🧊", category:"Equipment Repair / Maintenance", priority:"High",   selectedIssues:["Ice machine not making ice"], notes:"" },
+    { label:"Fryer Issue",           icon:"🍟", category:"Equipment Repair / Maintenance", priority:"High",   selectedIssues:["Fryer issue"], notes:"" },
+    { label:"POS System Down",       icon:"💻", category:"IT / Technology",                priority:"High",   selectedIssues:["POS system down"], notes:"" },
+    { label:"Drive-Thru Headset",    icon:"🎧", category:"Equipment Repair / Maintenance", priority:"Medium", selectedIssues:["Drive-thru speaker/intercom not working"], notes:"" },
+    { label:"AC Not Cooling",        icon:"❄️", category:"HVAC",                           priority:"High",   selectedIssues:["Air conditioning not cooling"], notes:"" },
+    { label:"Walk-In Cooler Issue",  icon:"🌡️", category:"HVAC",                           priority:"High",   selectedIssues:["Walk-in cooler temperature issue"], notes:"" },
+    { label:"Grease Trap Service",   icon:"🪣", category:"Cleaning / Janitorial",          priority:"Medium", selectedIssues:["Grease trap full / needs service"], notes:"Scheduled grease trap service needed." },
+    { label:"Hood Cleaning",         icon:"🔧", category:"Cleaning / Janitorial",          priority:"Medium", selectedIssues:["Hood cleaning needed"], notes:"Monthly hood cleaning required." },
+    { label:"Pest Control",          icon:"🐛", category:"Cleaning / Janitorial",          priority:"High",   selectedIssues:["Pest control needed"], notes:"" },
+    { label:"Plumbing Clog",         icon:"🚽", category:"Plumbing",                       priority:"Medium", selectedIssues:["Toilet clogged"], notes:"" },
+    { label:"Electrical Issue",      icon:"⚡", category:"Electrical",                     priority:"High",   selectedIssues:["Breaker tripping repeatedly"], notes:"" },
+    { label:"Roof Leak",             icon:"🏚️", category:"Exterior Building Maintenance",  priority:"High",   selectedIssues:["Roof leak"], notes:"" },
+  ];
+
   // Derive manager's linked store by name match
   const managerStore = React.useMemo(() => isManager ? (stores.find(s => s.mgr === user?.name) || null) : null, [stores, user, isManager]);
   // Stores a DM or manager can submit tickets for
@@ -10910,7 +10947,9 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const [detailTab, setDetailTab] = React.useState("details");
   const [newComment, setNewComment] = React.useState("");
   const [lightbox, setLightbox] = React.useState(null);
-  const EMPTY_FORM = { title:CATEGORIES[0], storePC: managerStore?.pc || "", category:CATEGORIES[0], priority:"Medium", selectedIssues:[], notes:"", ticketOwner: user?.name || "", attachments:[] };
+  const [issuePickerOpen, setIssuePickerOpen] = React.useState(false);
+  const [showTemplates, setShowTemplates] = React.useState(false);
+  const EMPTY_FORM = { title:CATEGORIES[0], storePC: managerStore?.pc || "", category:CATEGORIES[0], priority:"Medium", selectedIssues:[], notes:"", ticketOwner: user?.name || "", attachments:[], dueDate:"" };
   const [form, setForm] = React.useState(EMPTY_FORM);
   const fileInputRef = React.useRef(null);
 
@@ -11034,6 +11073,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     setTickets(ts => [t, ...ts]);
     setSelectedId(t.id);
     setShowForm(false);
+    setIssuePickerOpen(false);
     setForm(EMPTY_FORM);
     sendTicketNotification(t);
     if (setNotifications) setNotifications(ns => [{ id: Date.now(), type: "new_ticket", ticketId: t.id, message: `${t.number} — ${t.title} · ${t.storeName}`, read: false, createdAt: new Date().toISOString() }, ...ns]);
@@ -11075,6 +11115,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
             </button>
           ))}
           <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "" }); setShowForm(true); }} style={{ ...btn(th, { padding:"0.4rem 0.875rem", fontSize:"0.75rem", flexShrink:0, whiteSpace:"nowrap" }) }}>+ New</button>
+          <button onClick={() => setShowTemplates(true)} style={{ ...btn(th, { padding:"0.4rem 0.75rem", fontSize:"0.75rem", flexShrink:0, whiteSpace:"nowrap", background:th.card2, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>⚡</button>
         </div>
       ) : !isMobile ? (
       <div style={{ ...card(th), width:230, flexShrink:0, padding:"1.25rem 0", display:"flex", flexDirection:"column", overflow:"hidden", transition:"width .2s" }}>
@@ -11101,6 +11142,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
 
         <div style={{ marginTop:"auto", padding:"1.25rem" }}>
           <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "" }); setShowForm(true); }} style={{ ...btn(th, { width:"100%", padding:"0.6rem", fontSize:"0.82rem" }) }}>+ New Ticket</button>
+          <button onClick={() => setShowTemplates(true)} style={{ ...btn(th, { width:"100%", padding:"0.5rem", fontSize:"0.78rem", marginTop:"0.4rem", background:th.card2, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>⚡ Quick Templates</button>
         </div>
       </div>
       ) : null}
@@ -11144,8 +11186,13 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
               </div>
               <div style={{ fontSize:"0.72rem", color:O, fontWeight:600, marginBottom:"0.15rem" }}>PC# {t.storePC} · {t.storeName}</div>
               <div style={{ fontSize:"0.7rem", color:th.muted, marginBottom:"0.3rem" }}>{t.category}</div>
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                <span style={{ fontSize:"0.68rem", fontWeight:700, color:statusColor(t.status), background:statusBg(t.status), padding:"0.15rem 0.5rem", borderRadius:"0.75rem" }}>{t.status}</span>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:"0.4rem" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:"0.3rem" }}>
+                  <button type="button" title="Click to cycle status" onClick={e=>{ e.stopPropagation(); const next=t.status==="Open"?"In Progress":t.status==="In Progress"?"Closed":"Open"; updateStatus(t.id,next); }} style={{ fontSize:"0.68rem", fontWeight:700, color:statusColor(t.status), background:statusBg(t.status), padding:"0.15rem 0.5rem", borderRadius:"0.75rem", border:"none", cursor:"pointer" }}>{t.status} ›</button>
+                  {t.dueDate && t.status!=="Closed" && new Date(t.dueDate+"T23:59:59") < new Date() && (
+                    <span style={{ fontSize:"0.62rem", fontWeight:700, color:"#ef4444", background:"#ef444418", padding:"0.1rem 0.4rem", borderRadius:"0.75rem" }}>Overdue</span>
+                  )}
+                </div>
                 <span style={{ fontSize:"0.68rem", color:th.muted }}>{t.ticketOwner}</span>
               </div>
             </div>
@@ -11179,6 +11226,12 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", flexWrap:"wrap", paddingBottom:"0.75rem" }}>
                   <span style={{ fontSize:"0.72rem", fontWeight:700, color:statusColor(selectedTicket.status), background:statusBg(selectedTicket.status), padding:"0.2rem 0.6rem", borderRadius:"0.75rem" }}>{selectedTicket.status}</span>
+                  {selectedTicket.dueDate && (
+                    <span style={{ fontSize:"0.72rem", fontWeight:600, color: (selectedTicket.status!=="Closed" && new Date(selectedTicket.dueDate+"T23:59:59")<new Date()) ? "#ef4444" : th.muted }}>
+                      · Due <strong style={{ color: (selectedTicket.status!=="Closed" && new Date(selectedTicket.dueDate+"T23:59:59")<new Date()) ? "#ef4444" : th.text }}>{fmtDate(selectedTicket.dueDate)}</strong>
+                      {selectedTicket.status!=="Closed" && new Date(selectedTicket.dueDate+"T23:59:59")<new Date() && <span style={{ marginLeft:4, background:"#ef4444", color:"#fff", borderRadius:"0.5rem", padding:"0 5px", fontSize:"0.62rem" }}>OVERDUE</span>}
+                    </span>
+                  )}
                   <span style={{ fontSize:"0.72rem", color:th.muted }}>· Owner <strong style={{ color:th.text }}>{selectedTicket.ticketOwner}</strong></span>
                   <span style={{ fontSize:"0.72rem", color:th.muted }}>· By <strong style={{ color:th.text }}>{selectedTicket.createdBy}</strong></span>
                 </div>
@@ -11300,22 +11353,54 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
         </div>
       )}
 
+      {/* Templates Popup */}
+      {showTemplates && (
+        <div onClick={()=>setShowTemplates(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:9998, backdropFilter:"blur(2px)" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:th.card, borderRadius:"1.25rem 1.25rem 0 0", padding:"1.25rem 1.25rem 2rem", width:"100%", maxWidth:580, maxHeight:"75vh", overflowY:"auto", boxShadow:"0 -8px 32px rgba(0,0,0,0.25)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1rem" }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:"0.9375rem", color:th.text }}>⚡ Quick Templates</div>
+                <div style={{ fontSize:"0.75rem", color:th.muted, marginTop:"0.125rem" }}>Tap a template to pre-fill a new ticket</div>
+              </div>
+              <button onClick={()=>setShowTemplates(false)} style={{ background:"none", border:"none", color:th.muted, fontSize:"1.25rem", cursor:"pointer" }}>×</button>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem" }}>
+              {TICKET_TEMPLATES.map(tmpl => {
+                const clr = tmpl.priority==="High" ? "#ef4444" : tmpl.priority==="Medium" ? "#f59e0b" : "#22c55e";
+                return (
+                  <button key={tmpl.label} type="button"
+                    onClick={()=>{ setForm({ ...EMPTY_FORM, storePC:managerStore?.pc||"", category:tmpl.category, title:tmpl.label, priority:tmpl.priority, selectedIssues:tmpl.selectedIssues, notes:tmpl.notes }); setShowTemplates(false); setShowForm(true); }}
+                    style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", gap:"0.25rem", padding:"0.75rem", borderRadius:"0.75rem", border:`1.5px solid ${th.cardBorder}`, background:th.card2, cursor:"pointer", textAlign:"left", transition:"border-color .15s" }}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor=clr}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor=th.cardBorder}>
+                    <span style={{ fontSize:"1.25rem", lineHeight:1 }}>{tmpl.icon}</span>
+                    <span style={{ fontSize:"0.8rem", fontWeight:700, color:th.text }}>{tmpl.label}</span>
+                    <span style={{ fontSize:"0.68rem", color:th.muted }}>{tmpl.category}</span>
+                    <span style={{ fontSize:"0.68rem", fontWeight:700, color:clr }}>{tmpl.priority}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* New Ticket Modal */}
       {showForm && (
-        <div onClick={e=>{ if(e.target===e.currentTarget) setShowForm(false); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999, padding:"1rem", backdropFilter:"blur(2px)" }}>
+        <div onClick={e=>{ if(e.target===e.currentTarget) { setShowForm(false); setIssuePickerOpen(false); } }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999, padding:"1rem", backdropFilter:"blur(2px)" }}>
           <div onClick={e=>e.stopPropagation()} className="fade-in" style={{ ...card(th), padding:"1.5rem", width:"100%", maxWidth:580, maxHeight:"90vh", overflowY:"auto" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1.25rem" }}>
               <div style={{ fontSize:"0.8rem", fontWeight:700, color:O, textTransform:"uppercase", letterSpacing:1 }}>New Ticket</div>
               <button onClick={()=>setShowForm(false)} style={{ background:"none", border:"none", color:th.muted, fontSize:"1.375rem", cursor:"pointer", lineHeight:1, padding:4 }}>×</button>
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.75rem" }}>
-              <input style={{ ...inp(th), gridColumn:"span 2", color:th.muted, fontSize:"0.85rem" }} placeholder="Ticket title (auto-filled from category)" value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} />
+              <div style={{ ...inp(th), gridColumn:"span 2", fontSize:"0.875rem", color:th.text, cursor:"default", userSelect:"none", opacity:0.85 }}>{form.category}</div>
               {isManager && managerStore
                 ? <div style={{ ...inp(th), display:"flex", alignItems:"center", gap:"0.5rem", color:th.text, cursor:"default" }}>
                     <span style={{ fontSize:"0.875rem" }}>🏪</span>
                     <span style={{ fontSize:"0.875rem", fontWeight:600 }}>{managerStore.name} <span style={{ fontWeight:400, color:th.muted }}>(PC# {managerStore.pc})</span></span>
                   </div>
-                : <select style={inp(th)} value={form.storePC} onChange={e=>setForm(f=>({...f,storePC:e.target.value}))}>
+                : <select style={inp(th)} value={form.storePC} onChange={e=>{ const s=stores.find(st=>st.pc===e.target.value); setForm(f=>({...f,storePC:e.target.value,ticketOwner:s?.mgr||f.ticketOwner})); }}>
                     <option value="">Select Store</option>
                     {allowedStores.map(s=><option key={s.pc} value={s.pc}>{s.name} (PC# {s.pc})</option>)}
                   </select>
@@ -11323,33 +11408,82 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
               <select style={inp(th)} value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value,title:e.target.value,selectedIssues:[]}))}>
                 {CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
               </select>
-              <select style={inp(th)} value={form.priority} onChange={e=>setForm(f=>({...f,priority:e.target.value}))}>
-                {PRIORITIES.map(p=><option key={p} value={p}>{p}</option>)}
-              </select>
+              <div style={{ gridColumn:"span 2", display:"flex", gap:"0.5rem", alignItems:"center" }}>
+                <span style={{ fontSize:"0.72rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.8, flexShrink:0 }}>Priority</span>
+                {["Low","Medium","High"].map(p => {
+                  const sel = form.priority === p;
+                  const clr = p==="High" ? "#ef4444" : p==="Medium" ? "#f59e0b" : "#22c55e";
+                  return (
+                    <button key={p} type="button" onClick={()=>setForm(f=>({...f,priority:p}))}
+                      style={{ flex:1, padding:"0.45rem 0", borderRadius:"2rem", border:`2px solid ${sel?clr:th.cardBorder}`, background:sel?clr:"transparent", color:sel?"#fff":th.muted, fontSize:"0.8rem", fontWeight:700, cursor:"pointer", transition:"all .15s" }}>
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
               <input style={{ ...inp(th), gridColumn:"span 2" }} placeholder="Ticket Owner (name)" value={form.ticketOwner} onChange={e=>setForm(f=>({...f,ticketOwner:e.target.value}))} />
-              {/* Issue chip picker */}
+              <div style={{ display:"flex", flexDirection:"column", gap:"0.2rem" }}>
+                <label style={{ fontSize:"0.65rem", color:th.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5 }}>Due Date (optional)</label>
+                <input type="date" style={inp(th)} value={form.dueDate} onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))} />
+              </div>
+              {/* Issue picker button */}
               <div style={{ gridColumn:"span 2" }}>
-                <div style={{ fontSize:"0.72rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.8, marginBottom:"0.5rem" }}>
-                  Select Issue(s) {ISSUE_OPTIONS[form.category]?.length > 0 && <span style={{ fontWeight:400, textTransform:"none", fontSize:"0.7rem" }}>— tap all that apply</span>}
-                </div>
                 {ISSUE_OPTIONS[form.category]?.length > 0 ? (
-                  <div style={{ display:"flex", flexWrap:"wrap", gap:"0.4rem" }}>
-                    {ISSUE_OPTIONS[form.category].map(issue => {
-                      const selected = form.selectedIssues.includes(issue);
-                      return (
-                        <button key={issue} type="button" onClick={() => setForm(f => ({ ...f, selectedIssues: selected ? f.selectedIssues.filter(i=>i!==issue) : [...f.selectedIssues, issue] }))}
-                          style={{ padding:"0.35rem 0.7rem", borderRadius:"2rem", border:`1.5px solid ${selected ? O : th.cardBorder}`, background: selected ? O+"18" : th.card2, color: selected ? O : th.text, fontSize:"0.78rem", fontWeight: selected ? 700 : 400, cursor:"pointer", transition:"all .15s" }}>
-                          {selected ? "✓ " : ""}{issue}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <>
+                    <button type="button" onClick={()=>setIssuePickerOpen(true)}
+                      style={{ ...inp(th), width:"100%", textAlign:"left", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center", gap:"0.5rem", boxSizing:"border-box" }}>
+                      <span style={{ fontSize:"0.875rem", color: form.selectedIssues.length ? th.text : th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>
+                        {form.selectedIssues.length > 0 ? form.selectedIssues.join(", ") : "Select issue(s)…"}
+                      </span>
+                      {form.selectedIssues.length > 0
+                        ? <span style={{ background:O, color:"#fff", borderRadius:"1rem", padding:"1px 9px", fontSize:"0.7rem", fontWeight:700, flexShrink:0 }}>{form.selectedIssues.length}</span>
+                        : <span style={{ color:th.muted, fontSize:"0.8rem", flexShrink:0 }}>▾</span>
+                      }
+                    </button>
+                    {form.selectedIssues.length > 0 && (
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:"0.35rem", marginTop:"0.5rem" }}>
+                        {form.selectedIssues.map(issue => (
+                          <span key={issue} style={{ display:"inline-flex", alignItems:"center", gap:"0.25rem", padding:"0.25rem 0.6rem", borderRadius:"2rem", background:O+"18", border:`1.5px solid ${O}`, color:O, fontSize:"0.75rem", fontWeight:700 }}>
+                            {issue}
+                            <button type="button" onClick={()=>setForm(f=>({...f,selectedIssues:f.selectedIssues.filter(i=>i!==issue)}))} style={{ background:"none", border:"none", color:O, cursor:"pointer", fontSize:"0.8rem", lineHeight:1, padding:0 }}>×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 ) : (
-                  <div style={{ fontSize:"0.8rem", color:th.muted, fontStyle:"italic" }}>No predefined issues for this category.</div>
+                  <div style={{ ...inp(th), color:th.muted, fontSize:"0.875rem" }}>No predefined issues for this category</div>
                 )}
               </div>
               <textarea style={{ ...inp(th), gridColumn:"span 2", resize:"vertical" }} rows={3} placeholder="Additional notes (optional)..." value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
             </div>
+
+            {/* Issue picker popup sheet */}
+            {issuePickerOpen && ISSUE_OPTIONS[form.category]?.length > 0 && (
+              <div onClick={()=>setIssuePickerOpen(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:10001, backdropFilter:"blur(2px)" }}>
+                <div onClick={e=>e.stopPropagation()} style={{ background:th.card, borderRadius:"1.25rem 1.25rem 0 0", padding:"1.25rem 1.25rem 2rem", width:"100%", maxWidth:580, maxHeight:"72vh", overflowY:"auto", boxShadow:"0 -8px 32px rgba(0,0,0,0.25)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1rem" }}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:"0.9375rem", color:th.text }}>Select Issues</div>
+                      <div style={{ fontSize:"0.75rem", color:th.muted, marginTop:"0.125rem" }}>{form.category} — tap all that apply</div>
+                    </div>
+                    <button onClick={()=>setIssuePickerOpen(false)} style={{ ...btn(th,{padding:"0.4rem 1rem",fontSize:"0.8rem"}) }}>Done {form.selectedIssues.length > 0 && `(${form.selectedIssues.length})`}</button>
+                  </div>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:"0.5rem" }}>
+                    {ISSUE_OPTIONS[form.category].map(issue => {
+                      const sel = form.selectedIssues.includes(issue);
+                      return (
+                        <button key={issue} type="button"
+                          onClick={()=>setForm(f=>({...f,selectedIssues:sel?f.selectedIssues.filter(i=>i!==issue):[...f.selectedIssues,issue]}))}
+                          style={{ padding:"0.45rem 0.9rem", borderRadius:"2rem", border:`1.5px solid ${sel?O:th.cardBorder}`, background:sel?O+"18":th.card2, color:sel?O:th.text, fontSize:"0.8rem", fontWeight:sel?700:400, cursor:"pointer", transition:"all .15s" }}>
+                          {sel ? "✓ " : ""}{issue}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Attachments */}
             <div style={{ marginTop:"1rem" }}>
@@ -11386,7 +11520,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
             </div>
 
             <div style={{ display:"flex", justifyContent:"flex-end", gap:"0.75rem", marginTop:"1.25rem" }}>
-              <button onClick={()=>setShowForm(false)} style={{ ...btn(th,{background:th.card2,color:th.text,border:`1px solid ${th.cardBorder}`}) }}>Cancel</button>
+              <button onClick={()=>{ setShowForm(false); setIssuePickerOpen(false); }} style={{ ...btn(th,{background:th.card2,color:th.text,border:`1px solid ${th.cardBorder}`}) }}>Cancel</button>
               <button onClick={createTicket} style={btn(th)}>Create Ticket</button>
             </div>
           </div>
@@ -12707,6 +12841,27 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, an
   const [dailyFeed, setDailyFeed] = useState(null);
   const [newsTab, setNewsTab] = useState("general"); // "general" | "restaurant" | "inspire" | "papajohns"
   const [hoveredKpi, setHoveredKpi] = useState(null);
+  const ticketStats = React.useMemo(() => {
+    try {
+      const allTs = JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]");
+      // Filter tickets by role
+      let ts = allTs;
+      if (user?.userType === "dm") {
+        // DM sees only their district's stores
+        const districtPCs = new Set((stores||[]).filter(s => s.district === user.district).map(s => String(s.pc)));
+        ts = allTs.filter(t => districtPCs.has(String(t.storePC)));
+      } else if (user?.userType === "manager") {
+        // Manager sees only their store
+        ts = allTs.filter(t => String(t.storePC) === String(user.storePC));
+      }
+      const open = ts.filter(t => t.status === "Open");
+      const inProg = ts.filter(t => t.status === "In Progress");
+      const highPrio = ts.filter(t => t.priority === "High" && t.status !== "Closed");
+      const overdue = ts.filter(t => t.dueDate && t.status !== "Closed" && new Date(t.dueDate+"T23:59:59") < new Date());
+      const recent = [...open, ...inProg].sort((a,b) => new Date(b.updatedAt)-new Date(a.updatedAt)).slice(0,8);
+      return { open: open.length, inProg: inProg.length, highPrio: highPrio.length, overdue: overdue.length, recent };
+    } catch { return { open:0, inProg:0, highPrio:0, overdue:0, recent:[] }; }
+  }, [user, stores]);
 
   // Fetch weather once on mount — cached for the session
   useEffect(() => {
@@ -13136,9 +13291,67 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, an
         <TodayBrief user={user} th={th} />
       )}
 
-      {/* ─── Business Cases from Orion ─────────────────────────────────── */}
-      {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
-        <BusinessCasesCard user={user} th={th} />
+      {/* ─── Business Cases + Tickets — side-by-side ─────────────────────── */}
+      {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm' || ticketStats.open > 0 || ticketStats.inProg > 0) && (
+        <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:"1rem", marginBottom:"1.25rem", alignItems:"stretch" }}>
+
+          {/* Left: Business Cases */}
+          {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
+            <div style={{ ...card(th), padding:"1.1rem 1.15rem" }}>
+              <BusinessCasesCard user={user} th={th} inline={true} />
+            </div>
+          )}
+
+          {/* Right: Service Tickets */}
+          {(ticketStats.open > 0 || ticketStats.inProg > 0) && (
+            <div style={{ ...card(th), padding:"1.1rem 1.15rem", display:"flex", flexDirection:"column" }}>
+              {/* Header */}
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.875rem" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:"0.5rem" }}>
+                  <span style={{ fontSize:"1rem" }}>🎫</span>
+                  <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"0.85rem", color:th.text }}>Service Tickets</span>
+                </div>
+                <button onClick={()=>setTab("tickets")} style={{ background:"none", border:"none", color:O, fontSize:"0.72rem", fontWeight:700, cursor:"pointer", padding:0 }}>View All →</button>
+              </div>
+              {/* Ticker stats */}
+              <div style={{ display:"flex", gap:"0.6rem", marginBottom:"0.875rem" }}>
+                {[
+                  { label:"Open", value:ticketStats.open, color:"#3b82f6" },
+                  { label:"In Progress", value:ticketStats.inProg, color:O },
+                  { label:"High Priority", value:ticketStats.highPrio, color:"#ef4444" },
+                  ...(ticketStats.overdue > 0 ? [{ label:"Overdue", value:ticketStats.overdue, color:"#ef4444" }] : []),
+                ].map(s => (
+                  <div key={s.label} style={{ flex:"1 1 60px", textAlign:"center", background:s.color+"13", borderRadius:"0.5rem", padding:"0.5rem 0.25rem", border:`1px solid ${s.color}28` }}>
+                    <div style={{ fontSize:"1.25rem", fontWeight:800, color:s.color, fontFamily:"'Raleway'", lineHeight:1 }}>{s.value}</div>
+                    <div style={{ fontSize:"0.58rem", color:th.muted, fontWeight:700, textTransform:"uppercase", letterSpacing:0.4, marginTop:"0.2rem" }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Divider */}
+              <div style={{ height:"1px", background:th.cardBorder, marginBottom:"0.75rem" }} />
+              {/* Ticket list — scrollable */}
+              {ticketStats.recent.length > 0 ? (
+                <div style={{ overflowY:"auto", maxHeight:"260px", display:"flex", flexDirection:"column", gap:"0.35rem", flex:1, paddingRight:"0.15rem" }}>
+                  {ticketStats.recent.map(t => {
+                    const pClr = t.priority==="High"?"#ef4444":t.priority==="Medium"?"#f59e0b":"#22c55e";
+                    const sClr = t.status==="Open"?"#3b82f6":O;
+                    return (
+                      <div key={t.id} onClick={()=>setTab("tickets")} style={{ display:"flex", alignItems:"center", gap:"0.5rem", padding:"0.4rem 0.5rem", borderRadius:"0.4rem", cursor:"pointer", borderLeft:`3px solid ${pClr}`, background:th.bg }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:"0.75rem", fontWeight:700, color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.number} — {t.title}</div>
+                          <div style={{ fontSize:"0.65rem", color:th.muted }}>{t.storeName}</div>
+                        </div>
+                        <span style={{ fontSize:"0.62rem", fontWeight:700, color:sClr, background:sClr+"18", padding:"0.12rem 0.4rem", borderRadius:"0.4rem", flexShrink:0 }}>{t.status}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ fontSize:"0.75rem", color:th.muted, textAlign:"center", padding:"0.75rem 0" }}>No open tickets</div>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* ─── Quick Actions ────────────────────────────────────────────────
@@ -16088,7 +16301,7 @@ function TodayBrief({ user, th }) {
 }
 
 /** BusinessCasesCard — Dashboard card showing auto-generated business cases */
-function BusinessCasesCard({ user, th, onViewCase }) {
+function BusinessCasesCard({ user, th, onViewCase, inline }) {
   const [cases, setCases] = useState([]);
   const [totalOpp, setTotalOpp] = useState(0);
   const [byStatus, setByStatus] = useState({});
@@ -16131,8 +16344,8 @@ function BusinessCasesCard({ user, th, onViewCase }) {
   if (loading) return null;
   if (cases.length === 0) return null;
 
-  return (
-    <div style={{ background: th.card, borderRadius: '0.75rem', padding: '1.25rem', border: `1px solid ${th.cardBorder}`, marginBottom: '1.25rem' }}>
+  const inner = (
+    <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontSize: '1rem' }}>📋</span>
@@ -16181,6 +16394,13 @@ function BusinessCasesCard({ user, th, onViewCase }) {
           )}
         </div>
       ))}
+    </div>
+  );
+
+  if (inline) return inner;
+  return (
+    <div style={{ background: th.card, borderRadius: '0.75rem', padding: '1.25rem', border: `1px solid ${th.cardBorder}`, marginBottom: '1.25rem' }}>
+      {inner}
     </div>
   );
 }
@@ -18130,7 +18350,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v5.69
+            v5.71
           </div>
         )}
         {/* Collapse toggle — desktop only */}
