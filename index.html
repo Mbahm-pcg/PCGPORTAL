@@ -2584,13 +2584,14 @@ const DISTRICTS_SEED = {
 // ─── Admin: User Management ──────────────────────────────────────────────────
 
 function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
-  const [addMode, setAddMode] = useState(false);
+  const [view, setView] = useState('list'); // 'list' | 'edit'
   const [editId, setEditId] = useState(null);
   const [showPw, setShowPw]   = useState(false);
   const [form, setForm] = useState({ username:"", password:"", name:"", role:"Manager", initials:"", isAdmin:false, region:"PA", active:true, email:"", phone:"" });
   const [search, setSearch] = useState("");
   const [welcomeSent, setWelcomeSent] = useState(null);
-  const [modalTop, setModalTop] = useState(null);
+  const [saveFlash, setSaveFlash] = useState(false);
+  const savedScrollY = React.useRef(0);
 
   const nextId = () => Math.max(0, ...users.map(u => u.id)) + 1;
   const initials = (name) => name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0,2);
@@ -2664,30 +2665,35 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
     setTimeout(() => setEmailAction(null), 3000);
   };
 
+  const openEditPage = (u = null) => {
+    savedScrollY.current = window.scrollY;
+    setEditId(u ? u.id : null);
+    setForm(u ? { ...u } : { username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"" });
+    setView('edit');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const closeEditPage = () => {
+    setView('list');
+    setEditId(null);
+    setTimeout(() => window.scrollTo({ top: savedScrollY.current, behavior: 'instant' }), 0);
+  };
+
   const save = () => {
     if (!form.username || !form.name) return;
     const ini = form.initials || initials(form.name);
     if (editId) {
       setUsers(us => us.map(u => u.id === editId ? { ...u, ...form, initials: ini } : u));
-      setEditId(null);
     } else {
       const newUser = { ...form, id: nextId(), initials: ini, mustSetup: true };
       setUsers(us => [...us, newUser]);
       sendWelcomeEmail(newUser);
-      setAddMode(false);
     }
     setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"" });
+    setSaveFlash(true);
+    setTimeout(() => { setSaveFlash(false); closeEditPage(); }, 450);
   };
 
-  const placeModalNear = (e) => {
-    const rect = e?.currentTarget?.getBoundingClientRect?.();
-    if (!rect) { setModalTop(null); return; }
-    const MODAL_H = 520;
-    const ideal = rect.top - MODAL_H / 2; // vertically center modal on the clicked row
-    const top = Math.max(16, Math.min(ideal, window.innerHeight - MODAL_H - 16));
-    setModalTop(top);
-  };
-  const startEdit = (u, e) => { placeModalNear(e); setEditId(u.id); setForm({ ...u }); setAddMode(true); };
+  const startEdit = (u) => openEditPage(u);
   const toggleActive = (id) => setUsers(us => us.map(u => u.id === id ? { ...u, active: !u.active } : u));
   const del = (id) => {
     const target = users.find(u => u.id === id);
@@ -2717,6 +2723,119 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
     .filter(u => roleFilter === "all" || u.userType === roleFilter)
     .sort((a,b) => (b.active===false ? 1 : 0) - (a.active===false ? 1 : 0));
 
+  const rc = roleColor(form.userType || "manager");
+
+  // ── Edit page view (blurred users list as background) ─────────────────────
+  if (view === 'edit') {
+    return (
+      // Negative margins cancel the parent's 3vw/5vw padding so blur fills edge-to-edge
+      // Sidebar and top bar are unaffected (no fixed positioning)
+      <div style={{ position:"relative", margin:"-3vw -5vw", minHeight:"calc(100vh - 80px)", display:"flex", justifyContent:"center", alignItems:"flex-start", padding:"4rem 1rem 4rem" }}>
+        {/* Blurred user cards — absolute, stays within content area only */}
+        <div style={{ position:"absolute", inset:0, overflow:"hidden", pointerEvents:"none" }}>
+          <div style={{ filter:"blur(7px)", opacity:0.72, padding:"2rem 1.5rem", transform:"scale(1.04)", transformOrigin:"top left" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:"0.875rem" }}>
+              {users.slice(0, 16).map(u => {
+                const urc = roleColor(u.userType);
+                return (
+                  <div key={u.id} style={{ background:th.card, borderRadius:"0.75rem", overflow:"hidden", border:`1px solid ${th.cardBorder}` }}>
+                    <div style={{ background:`${urc}18`, padding:"0.875rem 1.1rem", display:"flex", alignItems:"center", gap:"0.65rem" }}>
+                      <div style={{ width:36, height:36, borderRadius:"50%", background:`${urc}30`, border:`2px solid ${urc}66`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.78rem", fontWeight:800, color:urc, flexShrink:0 }}>
+                        {(u.initials || (u.name||"?").split(" ").map(w=>w[0]).join("")).toUpperCase().slice(0,2)}
+                      </div>
+                      <div style={{ minWidth:0 }}>
+                        <div style={{ fontSize:"0.8rem", fontWeight:700, color:th.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{u.name}</div>
+                        <div style={{ fontSize:"0.63rem", color:urc, fontWeight:600 }}>{ROLE_LABEL[u.userType] || u.role || "—"}</div>
+                      </div>
+                    </div>
+                    <div style={{ padding:"0.5rem 1.1rem", fontSize:"0.67rem", color:th.muted }}>{u.email || u.role || "—"}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        {/* Frosted overlay */}
+        <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.38)", pointerEvents:"none" }} />
+        {/* Edit card */}
+        <div style={{ position:"relative", zIndex:2, width:"100%", maxWidth:520 }}>
+          <div style={{ borderRadius:"1.5rem", overflow:"hidden", boxShadow:`0 0 0 1px ${rc}33, 0 8px 32px rgba(0,0,0,0.18), 0 40px 80px rgba(0,0,0,0.45)` }}>
+            {/* Frosted glass header — blurred bg shows through, tinted by role color */}
+            <div style={{ backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)", background:`linear-gradient(135deg,${rc}88,${rc}55)`, borderBottom:`1px solid ${rc}44`, padding:"1.5rem 1.75rem", display:"flex", alignItems:"center", gap:"1rem" }}>
+                <div style={{ width:54, height:54, borderRadius:"50%", background:"rgba(255,255,255,0.18)", border:"2.5px solid rgba(255,255,255,0.5)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.1rem", fontWeight:800, color:"#fff", flexShrink:0, boxShadow:"0 2px 12px rgba(0,0,0,0.2)" }}>
+                  {form.name ? form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2) : "?"}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:"1.1rem", fontWeight:800, color:"#fff", lineHeight:1.2, textShadow:"0 1px 4px rgba(0,0,0,0.2)" }}>{form.name || (editId ? "Edit User" : "New User")}</div>
+                  <div style={{ fontSize:"0.7rem", color:"rgba(255,255,255,0.8)", fontWeight:600, marginTop:"0.15rem" }}>{ROLE_LABEL[form.userType] || "User"} · {editId ? "Editing" : "New account"}</div>
+                </div>
+                <button onClick={closeEditPage} style={{ background:"rgba(255,255,255,0.18)", border:"1.5px solid rgba(255,255,255,0.4)", borderRadius:"50%", width:34, height:34, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:"1.1rem", cursor:"pointer", flexShrink:0, lineHeight:1 }}>×</button>
+              </div>
+              {/* Form body — solid, clean */}
+              <div style={{ ...card(th), borderRadius:0, padding:"1.5rem 1.75rem" }}>
+                {/* Account section */}
+                <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
+                  <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
+                  <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Account</span>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem", marginBottom:"1.25rem" }}>
+                  <input style={inp(th)} placeholder="Full Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
+                  <input style={inp(th)} placeholder="Username *" value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} />
+                  <div style={{ position:"relative" }}>
+                    <input style={inp(th)} placeholder="Password" type={showPw?"text":"password"} autoComplete="new-password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} />
+                    <button type="button" onClick={()=>setShowPw(s=>!s)} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:th.muted, cursor:"pointer", fontSize:"0.72rem" }}>{showPw?"Hide":"Show"}</button>
+                  </div>
+                  <select style={inp(th)} value={form.region} onChange={e=>setForm(f=>({...f,region:e.target.value}))}>
+                    <option value="All">All Regions</option>
+                    <option value="PA">PA Only</option>
+                    <option value="NJ">NJ Only</option>
+                  </select>
+                </div>
+                {/* Role section */}
+                <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
+                  <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
+                  <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Access & Role</span>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem", marginBottom:"1.25rem" }}>
+                  <select style={inp(th)} value={form.userType||"manager"} onChange={e=>setForm(f=>({...f,userType:e.target.value}))}>
+                    {USERTYPE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                  </select>
+                  <select style={inp(th)} value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+                    {ROLE_OPTIONS.map(r=><option key={r}>{r}</option>)}
+                  </select>
+                  <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
+                    <input type="checkbox" checked={form.isAdmin} onChange={e=>setForm(f=>({...f,isAdmin:e.target.checked}))} style={{ accentColor:rc, width:15, height:15 }} /> Admin Access
+                  </label>
+                  <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
+                    <input type="checkbox" checked={!!form.darkMode} onChange={e=>setForm(f=>({...f,darkMode:e.target.checked}))} style={{ accentColor:"#888", width:15, height:15 }} /> Dark Mode
+                  </label>
+                </div>
+                {/* Contact section */}
+                <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
+                  <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
+                  <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Contact Info</span>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem", marginBottom:"1rem" }}>
+                  <input style={inp(th)} type="email" placeholder="Email address" value={form.email||""} onChange={e=>setForm(f=>({...f,email:e.target.value}))} />
+                  <input style={inp(th)} placeholder="Phone number" value={form.phone||""} onChange={e=>handlePhoneChange(e.target.value, setForm, "phone")} />
+                </div>
+                {welcomeSent && (
+                  <div style={{ padding:"0.5rem 0.75rem", borderRadius:"0.375rem", marginBottom:"0.75rem", fontSize:"0.8rem", fontWeight:600, background:welcomeSent==="success"?"#00d08418":"#ff444418", color:welcomeSent==="success"?"#00d084":"#ff6666" }}>
+                    {welcomeSent==="success" ? "✅ Welcome email sent!" : "⚠️ Welcome email failed — user was still created."}
+                  </div>
+                )}
+                <div style={{ display:"flex", gap:"0.5rem", justifyContent:"flex-end", paddingTop:"1rem", borderTop:`1px solid ${th.cardBorder}` }}>
+                  <button style={btn(th, { background:"transparent", color:th.muted, padding:"0.65rem 1.4rem", border:`1px solid ${th.cardBorder}` })} onClick={closeEditPage}>Cancel</button>
+                  <button disabled={saveFlash} style={btn(th, { padding:"0.65rem 1.75rem", background: saveFlash ? "#22c55e" : `linear-gradient(135deg,${rc},${rc}bb)`, color:"#fff", boxShadow: saveFlash ? "0 4px 16px #22c55e55" : `0 4px 16px ${rc}55`, fontWeight:700, transition:"background 0.2s, box-shadow 0.2s" })} onClick={save}>{saveFlash ? "✓ Saved!" : (editId ? "Save Changes" : "Create User")}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+    );
+  }
+
+  // ── List view ─────────────────────────────────────────────────────────────
   return (
     <div className="fade-in">
       {/* ─── Top bar ─────────────────────────────────────────────── */}
@@ -2735,7 +2854,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
         </div>
         <div style={{ flex:1 }} />
         {canManageUser(currentUser, { userType: "manager" }) && (
-          <button onClick={(e) => { placeModalNear(e); setAddMode(a => !a); setEditId(null); setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, email:"", phone:"" }); }} style={{
+          <button onClick={() => openEditPage(null)} style={{
             padding:"0.7rem 1.25rem", fontSize:"0.74rem", fontWeight:800, textTransform:"uppercase", letterSpacing:0.7, fontFamily:"'Source Sans 3'",
             color: "#fff",
             background: `linear-gradient(135deg, ${O} 0%, #ff8040 100%)`,
@@ -2751,104 +2870,6 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
           </button>
         )}
       </div>
-
-      {/* Modal overlay — user edit/add. Replaces the old inline-at-top form
-          so you don't have to scroll back up after clicking Edit on a row
-          deep in the list. */}
-      {addMode && (
-        <div
-          onClick={(e) => { if (e.target === e.currentTarget) { setAddMode(false); setEditId(null); } }}
-          style={{
-            position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 9999, padding: "1rem", backdropFilter: "blur(2px)",
-            animation: "fadeIn .15s ease",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              ...card(th),
-              padding: "1.5rem",
-              width: "100%",
-              maxWidth: 640,
-              maxHeight: "calc(100vh - 2rem)",
-              overflowY: "auto",
-              border: `1px solid ${O}55`,
-              borderRadius: "0.875rem",
-              boxShadow: "0 24px 80px rgba(0,0,0,0.45)",
-            }}
-            className="fade-in"
-          >
-            {/* Modal header with avatar preview */}
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1.25rem" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:"0.75rem" }}>
-                <div style={{ width:42, height:42, borderRadius:"50%", background:`${roleColor(form.userType||"manager")}22`, border:`2px solid ${roleColor(form.userType||"manager")}55`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.9rem", fontWeight:800, color:roleColor(form.userType||"manager") }}>
-                  {form.name ? form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2) : "?"}
-                </div>
-                <div>
-                  <div style={{ fontSize:"0.8125rem", fontWeight:700, color:th.text }}>{editId ? "Edit User" : "New User"}</div>
-                  {form.name && <div style={{ fontSize:"0.7rem", color:th.muted }}>{form.name}</div>}
-                </div>
-              </div>
-              <button onClick={() => { setAddMode(false); setEditId(null); }} style={{ background:"none", border:"none", color:th.muted, fontSize:"1.375rem", cursor:"pointer", lineHeight:1, padding:4 }}>×</button>
-            </div>
-
-            {/* Account section */}
-            <div style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.5rem" }}>Account</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.625rem", marginBottom:"1rem" }}>
-              <input style={inp(th)} placeholder="Full Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
-              <input style={inp(th)} placeholder="Username *" value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} />
-              <div style={{ position:"relative" }}>
-                <input style={inp(th)} placeholder="Password" type={showPw?"text":"password"} autoComplete="new-password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} />
-                <button type="button" onClick={()=>setShowPw(s=>!s)} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:th.muted, cursor:"pointer", fontSize:"0.72rem" }}>{showPw?"Hide":"Show"}</button>
-              </div>
-              <select style={inp(th)} value={form.region} onChange={e=>setForm(f=>({...f,region:e.target.value}))}>
-                <option value="All">All Regions</option>
-                <option value="PA">PA Only</option>
-                <option value="NJ">NJ Only</option>
-              </select>
-            </div>
-
-            {/* Access section */}
-            <div style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.5rem" }}>Access & Role</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.625rem", marginBottom:"1rem" }}>
-              <select style={inp(th)} value={form.userType||"manager"} onChange={e=>setForm(f=>({...f,userType:e.target.value}))}>
-                {USERTYPE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
-              </select>
-              <select style={inp(th)} value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
-                {ROLE_OPTIONS.map(r=><option key={r}>{r}</option>)}
-              </select>
-              <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8125rem", color:th.text, padding:"0.625rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
-                <input type="checkbox" checked={form.isAdmin} onChange={e=>setForm(f=>({...f,isAdmin:e.target.checked}))} style={{ accentColor:O, width:16, height:16 }} />
-                Admin Access
-              </label>
-              <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8125rem", color:th.text, padding:"0.625rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
-                <input type="checkbox" checked={!!form.darkMode} onChange={e=>setForm(f=>({...f,darkMode:e.target.checked}))} style={{ accentColor:"#888", width:16, height:16 }} />
-                🌙 Dark Mode
-              </label>
-            </div>
-
-            {/* Contact section */}
-            <div style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.5rem" }}>Contact Info</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.625rem", marginBottom:"0.75rem" }}>
-              <input style={inp(th)} type="email" placeholder="✉ Email address" value={form.email||""} onChange={e=>setForm(f=>({...f,email:e.target.value}))} />
-              <input style={inp(th)} placeholder="📱 Phone number" value={form.phone||""} onChange={e=>handlePhoneChange(e.target.value, setForm, "phone")} />
-            </div>
-            {welcomeSent && (
-              <div style={{ padding:"0.5rem 0.75rem", borderRadius:"0.375rem", marginBottom:"0.75rem", fontSize:"0.8rem", fontWeight:600,
-                background: welcomeSent==="success" ? "#00d08418" : "#ff444418",
-                color: welcomeSent==="success" ? "#00d084" : "#ff6666" }}>
-                {welcomeSent==="success" ? "✅ Welcome email sent!" : "⚠️ Welcome email failed — user was still created."}
-              </div>
-            )}
-            <div style={{ display:"flex", gap:"0.625rem", justifyContent: "flex-end", paddingTop: "0.5rem", borderTop: `1px solid ${th.cardBorder}`, marginTop: "0.5rem" }}>
-              <button style={btn(th, { background:th.card3, color:th.muted })} onClick={() => { setAddMode(false); setEditId(null); }}>Cancel</button>
-              <button style={btn(th)} onClick={save}>{editId ? "Save Changes" : "Create User"}</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ─── User cards grid ──────────────────────────────────────── */}
       {displayUsers.length === 0 && (
@@ -2889,7 +2910,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
               {/* Card actions */}
               <div style={{ padding:"0.625rem 1rem", borderTop:`1px solid ${th.cardBorder}`, display:"flex", gap:"0.4rem", flexWrap:"wrap", background:th.card2 }}>
                 {canManageUser(currentUser, u) && (
-                  <button onClick={(e) => startEdit(u, e)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", flex:1 }) }}>Edit</button>
+                  <button onClick={() => startEdit(u)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", flex:1 }) }}>Edit</button>
                 )}
                 {canManageUser(currentUser, u) && (
                   <button onClick={() => toggleActive(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>
@@ -18369,7 +18390,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v5.72
+            v5.74
           </div>
         )}
         {/* Collapse toggle — desktop only */}
