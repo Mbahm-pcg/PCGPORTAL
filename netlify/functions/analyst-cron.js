@@ -31,30 +31,46 @@ exports.handler = async (event) => {
 
     // ── Step 2: Create Business Cases from high/medium severity anomalies ──
     let casesCreated = 0;
+    const CAP = 16; // raised from 10 to guarantee coverage across all 8 districts
     const existingCases = await getCases({ limit: 50 });
     const existingKeys = new Set(existingCases.map(c => `${c.anomalyType}_${c.storeName}_${c.createdAt?.slice(0, 10)}`));
 
-    for (const anomaly of anomalies) {
-      // Skip if we already have an open case for this anomaly today
-      const key = `${anomaly.type}_${anomaly.storeName}_${today}`;
-      if (existingKeys.has(key)) continue;
+    // Filter to actionable candidates not already covered today
+    const severityRank = { high: 0, medium: 1, low: 2 };
+    const candidates = anomalies
+      .filter(a => {
+        const key = `${a.type}_${a.storeName}_${today}`;
+        return !existingKeys.has(key) && (a.severity === 'high' || a.severity === 'medium');
+      })
+      .sort((a, b) => (severityRank[a.severity] ?? 2) - (severityRank[b.severity] ?? 2));
 
-      // Only create cases for high severity, or medium if < 5 cases today
-      if (anomaly.severity === 'high' || (anomaly.severity === 'medium' && casesCreated < 5)) {
-        try {
-          const dataContext = await buildDataContext({ district: anomaly.district });
-          const created = await createCaseFromAnomaly(anomaly, dataContext);
-          if (created) {
-            casesCreated++;
-            console.log(`[analyst-cron] Created case: ${created.title}`);
-          }
-        } catch (err) {
-          console.warn(`[analyst-cron] Failed to create case for ${anomaly.storeName}:`, err.message);
-        }
+    // Pass 1: guarantee one case per district using each district's highest-severity anomaly
+    const districtsSeen = new Set();
+    const pass1 = [];
+    for (const anomaly of candidates) {
+      const d = Number(anomaly.district);
+      if (!isNaN(d) && !districtsSeen.has(d)) {
+        districtsSeen.add(d);
+        pass1.push(anomaly);
       }
+    }
 
-      // Cap at 10 new cases per run to control LLM costs
-      if (casesCreated >= 10) break;
+    // Pass 2: fill remaining cap slots from all remaining candidates by severity
+    const pass1Keys = new Set(pass1.map(a => `${a.type}_${a.storeName}`));
+    const pass2 = candidates.filter(a => !pass1Keys.has(`${a.type}_${a.storeName}`));
+
+    for (const anomaly of [...pass1, ...pass2]) {
+      if (casesCreated >= CAP) break;
+      try {
+        const dataContext = await buildDataContext({ district: anomaly.district });
+        const created = await createCaseFromAnomaly(anomaly, dataContext);
+        if (created) {
+          casesCreated++;
+          console.log(`[analyst-cron] Created case: ${created.title}`);
+        }
+      } catch (err) {
+        console.warn(`[analyst-cron] Failed to create case for ${anomaly.storeName}:`, err.message);
+      }
     }
 
     // ── Step 3: Generate Today's Brief (exec + per-district for DMs) ────

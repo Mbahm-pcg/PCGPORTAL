@@ -152,7 +152,7 @@ async function updateCaseStatus(id, newStatus, userId) {
 async function getCases({ status, district, severity, limit } = {}) {
   let index = await loadCasesIndex();
   if (status) index = index.filter(c => c.status === status);
-  if (district) index = index.filter(c => c.district === district);
+  if (district != null) index = index.filter(c => Number(c.district) === Number(district));
   if (severity) index = index.filter(c => c.severity === severity);
   if (limit) index = index.slice(0, limit);
   return index;
