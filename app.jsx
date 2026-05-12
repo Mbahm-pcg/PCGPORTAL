@@ -6593,10 +6593,11 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         <div style={{ position:'relative', zIndex:1 }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:'1rem' }}>
             <div>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:th.text, marginBottom:'0.25rem' }}>
-                {distLabel}
+              <div style={{ display:'flex', alignItems:'center', gap:'0.55rem', marginBottom:'0.25rem' }}>
+                <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:th.text }}>{distLabel}</div>
+                <span style={{ fontSize:'0.55rem', fontWeight:800, color:G, background:`${G}22`, border:`1px solid ${G}44`, padding:'0.12rem 0.5rem', borderRadius:999, letterSpacing:'0.5px', textTransform:'uppercase' }}>Live</span>
               </div>
-              <div style={{ fontSize:'0.8rem', color:th.muted }}>{distStores.length + ' stores \u00b7 District ' + distNum}</div>
+              <div style={{ fontSize:'0.78rem', color:th.muted }}>{distStores.length + ' stores \u00b7 ' + new Date(busDt + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}</div>
             </div>
             <div style={{ textAlign:'right' }}>
               {/* Day / Week toggle */}
@@ -6714,6 +6715,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
       })()}
 
       {/* Sales by Day — this week vs last week comparison */}
+      <div style={{ height:1, background:`linear-gradient(90deg, ${G}44, transparent)`, margin:'1.25rem 0 1rem' }} />
       {weekTotals?.weeklyByDay && weekTotals?.prevByDay && (weekTotals.weeklyByDay.some(v => v > 0) || weekTotals.prevByDay.some(v => v > 0)) && (() => {
         const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const thisWeek = [...weekTotals.weeklyByDay];
@@ -7195,6 +7197,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
       )}
 
       {/* Store Performance Grid */}
+      <div style={{ height:1, background:`linear-gradient(90deg, ${G}44, transparent)`, margin:'0 0 1rem' }} />
       <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1.25rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder }}>
         <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1rem', color:th.text, marginBottom:'1rem' }}>Stores in District {distNum}</div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:'0.75rem' }}>
@@ -7737,21 +7740,36 @@ function AdminPulse({ stores, districts, th, user }) {
               }), { netSales:0, guests:0, voids:0, forecast:0 });
               distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
               const fcPct = distTotals.forecast > 0 ? (distTotals.netSales / distTotals.forecast * 100) : 0;
+              const fcColor = fcPct <= 0 ? th.muted : fcPct >= 100 ? '#22c55e' : fcPct >= 90 ? '#ff9800' : '#f44336';
               return (
                 <div key={distNum} onClick={() => setPulseView({ level:"district", num:distNum })}
                   className="card-hover" style={{
                   background:th.card2, borderRadius:'0.625rem', padding:'1rem',
-                  borderLeft:`3px solid ${G}`, cursor:'pointer', transition:'all .2s',
+                  paddingTop:'0.85rem',
+                  borderTop:`3px solid ${G}`,
+                  cursor:'pointer', transition:'all .2s', overflow:'hidden',
                 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.5rem' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.35rem' }}>
                     <div style={{ fontWeight:700, fontSize:'0.85rem', color:G }}>District {distNum}</div>
-                    <div style={{ fontSize:'0.65rem', color:th.muted }}>{dmName(distNum)} · {distStores.length} stores</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:'0.35rem' }}>
+                      {fcPct > 0 && (
+                        <span style={{ fontSize:'0.62rem', fontWeight:800, color:fcColor, background:`${fcColor}18`, border:`1px solid ${fcColor}33`, padding:'0.1rem 0.4rem', borderRadius:999 }}>
+                          {fcPct.toFixed(0)}% fc
+                        </span>
+                      )}
+                      <div style={{ fontSize:'0.65rem', color:th.muted }}>{dmName(distNum)} · {distStores.length}</div>
+                    </div>
                   </div>
                   <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.3rem', color:th.text }}>{fmtUSD(distTotals.netSales)}</div>
-                  <div style={{ display:'flex', gap:'1rem', marginTop:'0.375rem', fontSize:'0.72rem' }}>
+                  {/* Forecast attainment bar */}
+                  {fcPct > 0 && (
+                    <div style={{ height:3, background:`${G}22`, borderRadius:999, margin:'0.4rem 0', overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${Math.min(fcPct, 100)}%`, background: fcColor, borderRadius:999, boxShadow:`0 0 6px ${fcColor}88`, transition:'width .5s ease' }} />
+                    </div>
+                  )}
+                  <div style={{ display:'flex', gap:'0.75rem', marginTop:'0.25rem', fontSize:'0.72rem' }}>
                     <span style={{ color:'#74c0fc' }}>{fmtNum(distTotals.guests)} guests</span>
                     <span style={{ color:'#ffd43b' }}>{fmtAvg(distTotals.avgCheck)} avg</span>
-                    {fcPct > 0 && <span style={{ color: fcPct >= 100 ? '#69db7c' : '#ff6b6b' }}>{fcPct.toFixed(0)}% fc</span>}
                   </div>
                 </div>
               );
@@ -7774,16 +7792,37 @@ function AdminPulse({ stores, districts, th, user }) {
       {loading && Object.keys(storeData).length === 0 && (
         <div style={{ ...card(th), padding:'2.5rem', textAlign:'center', marginBottom:'1rem', background:`linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border:`1px solid ${G}33` }}>
           <div style={{ fontSize:'3rem', marginBottom:'0.75rem', animation:'pulseRing 2s ease-out infinite' }}>💚</div>
-          <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1.1rem', color:G, marginBottom:'0.375rem' }}>Loading Pulse Data...</div>
-          <div style={{ fontSize:'0.8rem', color:th.muted, marginBottom:'1rem' }}>
-            Fetching data from {activePCs.length} stores
+          <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1.1rem', color:G, marginBottom:'0.25rem' }}>Loading Pulse Data...</div>
+          <div style={{ fontSize:'0.75rem', color:`${G}66`, marginBottom:'1.25rem' }}>
+            Connecting to {activePCs.length} stores across 8 districts
           </div>
-          <div style={{ maxWidth:320, margin:'0 auto' }}>
-            <div style={{ background:`${G}22`, borderRadius:6, height:10, overflow:'hidden', marginBottom:'0.5rem' }}>
-              <div style={{ height:'100%', background:`linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius:6, transition:'width 0.3s ease', width:`${progress}%`, boxShadow:`0 0 12px ${G}` }} />
+          <div style={{ maxWidth:300, margin:'0 auto' }}>
+            {/* Store count row above bar */}
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.4rem' }}>
+              <span style={{ fontSize:'0.72rem', color:G, fontWeight:700 }}>
+                {Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length)} / {activePCs.length} stores
+              </span>
+              <span style={{ fontSize:'0.72rem', color:`${G}88`, fontWeight:700 }}>{progress}%</span>
             </div>
-            <div style={{ fontSize:'0.75rem', color:G, fontWeight:700 }}>
-              {Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length)}/{activePCs.length} stores loaded — {progress}%
+            {/* Slim bar with shimmer */}
+            <div style={{ background:`${G}22`, borderRadius:999, height:8, overflow:'hidden', position:'relative' }}>
+              <div style={{ height:'100%', background:`linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius:999, transition:'width 0.3s ease', width:`${progress}%`, boxShadow:`0 0 10px ${G}99`, position:'relative', overflow:'hidden' }}>
+                <div style={{ position:'absolute', top:0, left:'-60%', width:'60%', height:'100%', background:'linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)', animation:'shimmerSlide 1.6s ease-in-out infinite' }} />
+              </div>
+            </div>
+            {/* District dots */}
+            <div style={{ display:'flex', justifyContent:'space-between', marginTop:'0.6rem' }}>
+              {[1,2,3,4,5,6,7,8].map(d => {
+                const dPct = d / 8;
+                const isDone = progress / 100 >= dPct;
+                const isActive = progress / 100 >= (d - 1) / 8 && progress / 100 < dPct;
+                return (
+                  <div key={d} style={{ textAlign:'center', flex:1 }}>
+                    <div style={{ width:6, height:6, borderRadius:'50%', margin:'0 auto 0.2rem', background: isDone ? G : isActive ? `${G}88` : th.cardBorder, boxShadow: isDone ? `0 0 5px ${G}` : 'none', animation: isActive ? 'pulse 1.5s ease-in-out infinite' : 'none', transition:'background .3s' }} />
+                    <div style={{ fontSize:'0.52rem', color: isDone ? `${G}99` : th.muted, fontWeight:700, letterSpacing:'0.3px' }}>D{d}</div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -7930,6 +7969,7 @@ function AdminPulse({ stores, districts, th, user }) {
       <style>{`
         @keyframes pulseRing { 0% { transform:scale(1); opacity:0.8; } 70% { transform:scale(1.6); opacity:0; } 100% { transform:scale(1.6); opacity:0; } }
         @keyframes wtdPulse { 0%,100% { opacity:0.4; } 50% { opacity:1; } }
+        @keyframes shimmerSlide { 0% { left:-60%; } 100% { left:120%; } }
       `}</style>
     </div>
   );
@@ -15840,10 +15880,10 @@ function AdminLabor({ stores, districts, th, user }) {
   summary.laborPct = summary.sales > 0 ? Math.round((summary.laborDollars / summary.sales) * 1000) / 10 : 0;
 
   const kpiCards = [
-    { label: 'Total Labor', value: fmtDollars(summary.laborDollars), color: laborColor(summary.laborPct) },
-    { label: 'Avg Labor %', value: fmtPct(summary.laborPct), color: laborColor(summary.laborPct) },
-    { label: 'Total Sales', value: fmtDollars(summary.sales), color: '#FF671F' },
-    { label: 'Scheduled Now', value: String(summary.scheduledNow || summary.employeesOnClock || 0), color: '#FF671F' },
+    { label: 'Total Labor', value: fmtDollars(summary.laborDollars), color: laborColor(summary.laborPct), sub: `${fmtPct(summary.laborPct)} of sales` },
+    { label: 'Avg Labor %', value: fmtPct(summary.laborPct), color: laborColor(summary.laborPct), sub: 'threshold 23%' },
+    { label: 'Total Sales', value: fmtDollars(summary.sales), color: '#FF671F', sub: `${filtered.length} stores` },
+    { label: 'Scheduled Now', value: String(summary.scheduledNow || summary.employeesOnClock || 0), color: '#FF671F', sub: `${summary.overtimeCount || 0} on overtime` },
   ];
 
   return (
@@ -15864,9 +15904,11 @@ function AdminLabor({ stores, districts, th, user }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
         {kpiCards.map((k, i) => (
-          <div key={i} style={{ ...card(th), padding: '1rem', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.6875rem', color: th.muted, textTransform: 'uppercase', fontWeight: 600, letterSpacing: 0.5 }}>{k.label}</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: k.color, marginTop: '0.25rem', fontFamily: "'Source Sans 3'" }}>{k.value}</div>
+          <div key={i} style={{ ...card(th), padding: '0.85rem 1rem', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: k.color, borderRadius: '0.625rem 0.625rem 0 0', opacity: 0.85 }} />
+            <div style={{ fontSize: '0.58rem', color: th.muted, textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.8 }}>{k.label}</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 700, color: k.color, marginTop: '0.15rem', fontFamily: "'Source Sans 3'" }}>{k.value}</div>
+            <div style={{ fontSize: '0.58rem', color: th.muted, marginTop: '0.1rem', fontWeight: 600 }}>{k.sub}</div>
           </div>
         ))}
       </div>
@@ -15910,28 +15952,50 @@ function AdminLabor({ stores, districts, th, user }) {
             }} style={{
               ...card(th),
               padding: '1rem',
-              borderLeft: `3px solid ${clr}`,
+              paddingLeft: '1.25rem',
+              borderLeft: `4px solid ${clr}`,
               cursor: 'pointer',
               transition: 'transform .15s, box-shadow .15s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 12px #0003'; }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 4px 16px ${clr}22`; }}
             onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              {/* Header row: name + % pill + district */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
                 <span style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text }}>{s.name}</span>
-                <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                  {(t.overtimeCount || 0) > 0 && <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#f44336', background: '#f4433615', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>{t.overtimeCount} OT</span>}
+                <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                  {t.sales > 0 && (
+                    <span style={{ fontSize: '0.65rem', fontWeight: 800, color: clr, background: `${clr}18`, padding: '0.1rem 0.4rem', borderRadius: 999 }}>
+                      {fmtPct(pct)}
+                    </span>
+                  )}
                   <span style={{ fontSize: '0.6875rem', color: th.muted }}>D{s.district}</span>
                 </div>
               </div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: th.text, marginBottom: '0.25rem' }}>{fmtDollars(t.laborDollars)}</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                <span style={{ color: clr, fontWeight: 600 }}>{t.sales > 0 ? fmtPct(pct) : '—'}</span>
-                <span style={{ color: th.muted }}>{fmtDollars(t.sales)} sales</span>
+              {/* Labor % progress bar */}
+              <div style={{ height: 4, background: th.cardBorder, borderRadius: 999, marginBottom: '0.45rem', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${Math.min((pct / 35) * 100, 100)}%`, background: clr, borderRadius: 999, boxShadow: `0 0 8px ${clr}88`, transition: 'width .5s ease' }} />
               </div>
-              {timeFilter === 'today' && t.employees !== undefined && (
-                <div style={{ fontSize: '0.6875rem', color: th.muted, marginTop: '0.35rem' }}>
-                  {t.scheduledNow || t.employeesOnClock || 0} scheduled now / {t.scheduledToday || t.employees} today
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: th.text, marginBottom: '0.2rem' }}>{fmtDollars(t.laborDollars)}</div>
+              <div style={{ fontSize: '0.72rem', color: th.muted, marginBottom: '0.35rem' }}>of {fmtDollars(t.sales)} sales</div>
+              {/* Employee status chips */}
+              {timeFilter === 'today' && (
+                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                  {(t.scheduledNow || t.employeesOnClock || 0) > 0 && (
+                    <span style={{ fontSize: '0.58rem', fontWeight: 800, color: '#22c55e', background: '#22c55e18', border: '1px solid #22c55e33', padding: '0.12rem 0.4rem', borderRadius: 999 }}>
+                      {t.scheduledNow || t.employeesOnClock} clocked in
+                    </span>
+                  )}
+                  {(t.scheduledToday || t.employees || 0) > 0 && (
+                    <span style={{ fontSize: '0.58rem', fontWeight: 800, color: '#74c0fc', background: '#74c0fc18', border: '1px solid #74c0fc33', padding: '0.12rem 0.4rem', borderRadius: 999 }}>
+                      {t.scheduledToday || t.employees} today
+                    </span>
+                  )}
+                  {(t.overtimeCount || 0) > 0 && (
+                    <span style={{ fontSize: '0.58rem', fontWeight: 800, color: '#f44336', background: '#f4433618', border: '1px solid #f4433633', padding: '0.12rem 0.4rem', borderRadius: 999 }}>
+                      {t.overtimeCount} OT
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -17942,7 +18006,7 @@ function PCGPortal() {
         style={{
           position: "relative",
           display: "flex", alignItems: "center",
-          gap: collapsed ? 0 : "0.7rem",
+          gap: collapsed ? 0 : "0.55rem",
           width: "100%",
           padding: collapsed ? "0.7rem 0" : "0.65rem 0.85rem",
           borderRadius: "0.625rem",
@@ -17969,18 +18033,19 @@ function PCGPortal() {
             left: collapsed ? "50%" : 0,
             top: collapsed ? "auto" : "20%",
             bottom: collapsed ? -2 : "20%",
-            width: collapsed ? 18 : 3,
+            width: collapsed ? 18 : 4,
             height: collapsed ? 3 : "auto",
             transform: collapsed ? "translateX(-50%)" : "none",
             background: C,
             borderRadius: 999,
-            boxShadow: `0 0 8px ${C}`,
+            boxShadow: `0 0 12px ${C}cc, 0 0 4px ${C}`,
           }} />
         )}
         <span style={{
           fontSize: "0.95rem",
-          display: "flex", alignItems: "center",
+          display: "flex", alignItems: "center", justifyContent: "center",
           flexShrink: 0,
+          width: collapsed ? undefined : 18,
           filter: isActive && glow ? `drop-shadow(0 0 6px ${C})` : "none",
           transition: "filter .2s",
         }}>
@@ -17993,12 +18058,13 @@ function PCGPortal() {
             <span style={{ position: "absolute", top: 4, right: 4, minWidth: 8, height: 8, borderRadius: "50%", background: C, boxShadow: `0 0 6px ${C}` }} />
           ) : (
             <span style={{
-              minWidth: 22, height: 20, borderRadius: 999,
+              minWidth: 20, height: 18, borderRadius: 999,
               background: C, color: "#fff",
-              fontSize: "0.6rem", fontWeight: 800,
+              fontSize: "0.58rem", fontWeight: 900,
               display: "flex", alignItems: "center", justifyContent: "center",
-              padding: "0 7px",
-              boxShadow: `0 2px 8px ${C}66`,
+              padding: "0 6px",
+              boxShadow: `0 2px 10px ${C}99`,
+              letterSpacing: "0.3px",
             }}>
               {badge > 99 ? "99+" : badge}
             </span>
@@ -18333,14 +18399,12 @@ function PCGPortal() {
       }}>
         {!collapsed && (
           <div style={{
-            display: "inline-flex", alignItems: "center", gap: "0.4rem",
-            fontSize: "0.6rem", color: th.muted, fontWeight: 700, letterSpacing: 0.5,
-            padding: "0.25rem 0.55rem",
-            background: th.card3,
-            borderRadius: 999,
+            display: "inline-flex", alignItems: "center", gap: "0.35rem",
+            fontSize: "0.55rem", color: th.muted, fontWeight: 700, letterSpacing: 0.5,
+            opacity: 0.55,
           }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v5.76
+            <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
+            v5.77
           </div>
         )}
         {/* Collapse toggle — desktop only */}
