@@ -13029,6 +13029,41 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, an
         </div>
       </div>
 
+      {/* Unread Announcements — shown at top so they're never missed */}
+      {unreadAnnouncements.length > 0 && (
+        <div onClick={() => setTab("announcements")} style={{
+          position: "relative", overflow: "hidden",
+          background: `linear-gradient(135deg, ${O}12 0%, ${th.card} 60%)`,
+          border: `1px solid ${O}44`,
+          borderRadius: "0.875rem",
+          padding: "1rem 1.25rem",
+          cursor: "pointer",
+          display: "flex", alignItems: "center", gap: "1rem",
+          marginBottom: "1.25rem",
+          transition: "all .2s ease",
+          boxShadow: `0 2px 12px ${O}18`,
+        }}
+        onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 6px 24px ${O}33`; e.currentTarget.style.transform = "translateY(-1px)"; }}
+        onMouseLeave={e => { e.currentTarget.style.boxShadow = `0 2px 12px ${O}18`; e.currentTarget.style.transform = "none"; }}>
+          <div aria-hidden="true" style={{ position: "absolute", top: -30, left: -20, width: 120, height: 120, borderRadius: "50%", background: `radial-gradient(circle, ${O}22 0%, transparent 70%)`, pointerEvents: "none", filter: "blur(8px)" }} />
+          <div style={{ width: 40, height: 40, borderRadius: "0.625rem", background: `${O}22`, border: `1px solid ${O}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, position: "relative" }}>
+            {ICONS.announcements(O)}
+            <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", background: O, color: "#fff", fontSize: "0.55rem", fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${th.card}` }}>
+              {unreadAnnouncements.length}
+            </div>
+          </div>
+          <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+            <div style={{ fontSize: "0.72rem", fontWeight: 800, color: O, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.2rem" }}>
+              {unreadAnnouncements.length} Unread Announcement{unreadAnnouncements.length !== 1 ? "s" : ""}
+            </div>
+            <div style={{ fontSize: "0.85rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {unreadAnnouncements[0]?.title || "Tap to view company updates"}
+            </div>
+          </div>
+          <div style={{ color: O, fontSize: "1rem", fontWeight: 900, flexShrink: 0, opacity: 0.7 }}>→</div>
+        </div>
+      )}
+
       {/* ─── KPI Cards ─────────────────────────────────────────────────────
           Top gradient accent strip + filled icon bubble + big Raleway
           numeric. Hover: subtle lift, glow ring, icon bubble brightens. */}
@@ -13257,70 +13292,49 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, an
         );
       })()}
 
-      {/* ─── Quick Actions ────────────────────────────────────────────────
-          Icon-first mini cards with a subtle hover lift. Generous tap
-          targets (88×88) for mobile-friendliness. */}
+      {/* ─── Quick Actions ─────────────────────────────────────────────── */}
       <div style={{ marginBottom: "1.75rem" }}>
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          marginBottom: "0.875rem",
-        }}>
-          <div style={{ fontSize: "0.68rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1.5 }}>Quick Actions</div>
-          <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.cardBorder}, transparent)`, marginLeft: "1rem" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.28rem 0.7rem", background: `${O}15`, border: `1px solid ${O}33`, borderRadius: "999px" }}>
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M8 1v6H2v2h6v6h2v-6h6V7h-6V1H8z" fill={O}/></svg>
+            <span style={{ fontSize: "0.65rem", fontWeight: 800, color: O, textTransform: "uppercase", letterSpacing: 1.3 }}>Quick Actions</span>
+          </div>
+          <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.cardBorder}, transparent)` }} />
         </div>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(auto-fit, minmax(${isMobile ? "140px" : "160px"}, 1fr))`,
-          gap: "0.75rem",
-        }}>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
           {quickActions.map(a => (
             <button
               key={a.label}
               onClick={() => setTab(a.tab)}
-              onMouseEnter={() => setHoveredKpi("qa_" + a.label)}
-              onMouseLeave={() => setHoveredKpi(null)}
               style={{
-                position: "relative",
-                display: "flex", flexDirection: "column", alignItems: "flex-start",
-                gap: "0.75rem",
-                padding: "1rem 1.1rem",
+                display: "inline-flex", alignItems: "center", gap: "0.5rem",
+                padding: "0.55rem 1.1rem",
                 background: th.card,
-                border: `1px solid ${hoveredKpi === "qa_" + a.label ? O + "55" : th.cardBorder}`,
-                borderRadius: "0.75rem",
+                border: `1px solid ${th.cardBorder}`,
+                borderRadius: "999px",
                 cursor: "pointer",
                 fontFamily: "'Source Sans 3'",
-                textAlign: "left",
-                transform: hoveredKpi === "qa_" + a.label ? "translateY(-2px)" : "none",
-                boxShadow: hoveredKpi === "qa_" + a.label
-                  ? `0 10px 24px rgba(0,0,0,0.10), 0 0 0 1px ${O}33`
-                  : `0 1px 3px rgba(0,0,0,0.04)`,
-                transition: "all .25s cubic-bezier(.4,0,.2,1)",
-                overflow: "hidden",
+                fontSize: "0.82rem", fontWeight: 700, color: th.muted,
+                transition: "all .2s ease",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = `${O}12`;
+                e.currentTarget.style.borderColor = `${O}55`;
+                e.currentTarget.style.color = O;
+                e.currentTarget.style.boxShadow = `0 4px 14px ${O}22`;
+                e.currentTarget.style.transform = "translateY(-1px)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = th.card;
+                e.currentTarget.style.borderColor = th.cardBorder;
+                e.currentTarget.style.color = th.muted;
+                e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.04)";
+                e.currentTarget.style.transform = "none";
               }}
             >
-              {/* Icon bubble */}
-              <div style={{
-                width: 38, height: 38, borderRadius: "0.5rem",
-                background: `${O}15`,
-                border: `1px solid ${O}33`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                transition: "all .2s ease",
-              }}>
-                {a.icon(O)}
-              </div>
-              {/* Label */}
-              <div style={{
-                fontSize: "0.85rem", fontWeight: 700, color: th.text,
-                lineHeight: 1.2,
-              }}>{a.label}</div>
-              {/* Arrow affordance on hover */}
-              {hoveredKpi === "qa_" + a.label && (
-                <div style={{
-                  position: "absolute", top: 14, right: 14,
-                  fontSize: "0.8rem", color: O, fontWeight: 900,
-                  animation: "fadeIn .15s ease",
-                }}>→</div>
-              )}
+              {a.icon(O)}
+              {a.label}
             </button>
           ))}
         </div>
@@ -13522,8 +13536,11 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, an
         return (
           <div style={{ marginBottom: "1.75rem" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.875rem" }}>
-              <div style={{ fontSize: "0.68rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1.5 }}>Pending Tasks</div>
-              <div style={{ padding: "0.125rem 0.45rem", background: `${O}22`, borderRadius: "999px", fontSize: "0.6rem", fontWeight: 800, color: O }}>{myTodos.length}</div>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.28rem 0.7rem", background: `${O}15`, border: `1px solid ${O}33`, borderRadius: "999px" }}>
+                {ICONS.todos(O)}
+                <span style={{ fontSize: "0.65rem", fontWeight: 800, color: O, textTransform: "uppercase", letterSpacing: 1.3 }}>Pending Tasks</span>
+                <span style={{ fontSize: "0.6rem", fontWeight: 900, color: "#fff", background: O, borderRadius: "999px", padding: "0.05rem 0.45rem", marginLeft: "0.1rem" }}>{myTodos.length}</span>
+              </div>
               <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.cardBorder}, transparent)` }} />
               <button onClick={() => setTab("todos")} style={{
                 background: "none", border: "none", color: O, cursor: "pointer",
@@ -13579,20 +13596,6 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, an
         );
       })()}
 
-      {/* Unread Announcements */}
-      {unreadAnnouncements.length > 0 && (
-        <div onClick={() => setTab("announcements")} className="card-hover" style={{
-          background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.75rem",
-          padding: "1rem 1.25rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.75rem",
-          borderLeft: `3px solid ${O}`, marginBottom: "1.75rem",
-        }}>
-          {ICONS.announcements(O)}
-          <div>
-            <div style={{ fontSize: "0.875rem", fontWeight: 600, color: th.text }}>{unreadAnnouncements.length} unread announcement{unreadAnnouncements.length !== 1 ? "s" : ""}</div>
-            <div style={{ fontSize: "0.75rem", color: th.muted }}>Tap to view company updates</div>
-          </div>
-        </div>
-      )}
 
       {/* ─── News Feed ────────────────────────────────────────────────────
           Editorial grid with 16:9 hero images, source pills, and a clean
@@ -16764,6 +16767,8 @@ function PCGPortal() {
     setUser(null);
   };
   const [tab, setTab]           = useState("dashboard");
+  const tabHistoryRef  = useRef(["dashboard"]); // visited tab stack for swipe-back
+  const isGoingBackRef = useRef(false);          // flag to suppress history push on goBack
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem('pcg_sidebar_collapsed') === 'true'; } catch { return false; } });
   const [links, setLinks]       = useState(() => { const s=loadFromStorage(); return s?.links    || INIT_LINKS; });
   const [notes, setNotes]       = useState(() => { const s=loadFromStorage(); return s?.notes    || {}; });
@@ -16844,6 +16849,88 @@ function PCGPortal() {
   const isMobile = useIsMobile();
   const th = getTheme(dark);
   const TABS = getTabs(user);
+
+  // Lock body scroll while mobile drawer is open
+  useEffect(() => {
+    if (isMobile && drawerOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isMobile, drawerOpen]);
+
+  // Reset to login when app resumes after 15+ min in background (PWA fresh-open behavior)
+  useEffect(() => {
+    const hiddenAt = { t: null };
+    const TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        hiddenAt.t = Date.now();
+      } else if (hiddenAt.t && Date.now() - hiddenAt.t > TIMEOUT_MS) {
+        setUser(null);
+        setTab("dashboard");
+        tabHistoryRef.current = ["dashboard"];
+      }
+    };
+
+    // BFCache restore (browser back/forward) — always reset
+    const onPageShow = (e) => {
+      if (e.persisted) {
+        setUser(null);
+        setTab("dashboard");
+        tabHistoryRef.current = ["dashboard"];
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pageshow', onPageShow);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pageshow', onPageShow);
+    };
+  }, []);
+
+  // Build tab history so swipe-back knows where to return
+  useEffect(() => {
+    if (isGoingBackRef.current) { isGoingBackRef.current = false; return; }
+    const h = tabHistoryRef.current;
+    if (h[h.length - 1] !== tab) tabHistoryRef.current = [...h, tab];
+  }, [tab]);
+
+  const goBack = useCallback(() => {
+    const h = tabHistoryRef.current;
+    if (h.length <= 1) return;
+    const next = h.slice(0, -1);
+    tabHistoryRef.current = next;
+    isGoingBackRef.current = true;
+    setTab(next[next.length - 1]);
+  }, []);
+
+  // Swipe-from-left-edge gesture to go back (mobile only)
+  useEffect(() => {
+    if (!isMobile) return;
+    let startX = 0, startY = 0, edgeSwipe = false;
+    const onStart = (e) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      edgeSwipe = startX < 32;
+    };
+    const onEnd = (e) => {
+      if (!edgeSwipe) return;
+      const dx = e.changedTouches[0].clientX - startX;
+      const dy = Math.abs(e.changedTouches[0].clientY - startY);
+      if (dx > 60 && dy < 80) goBack();
+      edgeSwipe = false;
+    };
+    document.addEventListener('touchstart', onStart, { passive: true });
+    document.addEventListener('touchend',   onEnd,   { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', onStart);
+      document.removeEventListener('touchend',   onEnd);
+    };
+  }, [isMobile, goBack]);
 
   useEffect(() => { try { localStorage.setItem('pcg_sidebar_collapsed', sidebarCollapsed); } catch {} }, [sidebarCollapsed]);
 
@@ -18253,7 +18340,7 @@ function PCGPortal() {
             borderRadius: 999,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v5.75
+            v5.76
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -18300,16 +18387,19 @@ function PCGPortal() {
       {/* Mobile slide-out drawer */}
       {isMobile && (
         <div className="sidebar-drawer" style={{
-          position: "fixed", top: 0, left: 0, height: "100vh", width: "clamp(260px, 20vw, 360px)", zIndex: 200,
-          background: th.sidebar, backdropFilter: "blur(18px) saturate(140%)", WebkitBackdropFilter: "blur(18px) saturate(140%)", borderRight: `1px solid ${th.sidebarBorder}`,
+          position: "fixed", top: 0, left: 0, height: "100vh", width: "100vw", zIndex: 200,
+          background: th.sidebar, backdropFilter: "blur(18px) saturate(140%)", WebkitBackdropFilter: "blur(18px) saturate(140%)",
           display: "flex", flexDirection: "column",
           transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
-          boxShadow: drawerOpen ? "4px 0 32px #00000040" : "none",
+          transition: "transform .28s cubic-bezier(.4,0,.2,1)",
+          overflowY: "auto",
         }}>
           {/* Close button */}
           <button onClick={() => setDrawerOpen(false)} style={{
             position: "absolute", top: 14, right: 14, background: "none", border: "none",
-            color: th.muted, fontSize:"1.375rem", cursor: "pointer", lineHeight: 1, zIndex: 1
+            color: th.muted, fontSize: "1.75rem", cursor: "pointer", lineHeight: 1, zIndex: 1,
+            width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+            borderRadius: "0.5rem",
           }}>×</button>
           <SidebarContent onNav={() => setDrawerOpen(false)} />
         </div>
