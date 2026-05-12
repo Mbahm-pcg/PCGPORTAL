@@ -7297,7 +7297,7 @@ function AdminPulse({ stores, districts, th, user }) {
 
   async function loadAll() {
     setLoading(true); setProgress(0);
-    const results = await fetchDate(busDt, 6, p => { setProgress(p); setStoreData({ ...results }); });
+    const results = await fetchDate(busDt, 6, p => { setProgress(p); });
     setStoreData(results);
     setDateCache(prev => ({ ...prev, [busDt]: aggResults(results) }));
     setLoading(false); setLastRefresh(new Date()); setCountdown(300);
