@@ -5,5 +5,14 @@
     "minimalistic-assert": "^1.0.1",
     "sharp": "^0.34.5",
     "web-push": "^3.6.7"
+  },
+  "scripts": {
+    "build": "babel app.jsx -o app.js --presets @babel/preset-react",
+    "watch": "babel app.jsx -o app.js --presets @babel/preset-react --watch"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.28.6",
+    "@babel/core": "^7.29.0",
+    "@babel/preset-react": "^7.28.5"
   }
 }
