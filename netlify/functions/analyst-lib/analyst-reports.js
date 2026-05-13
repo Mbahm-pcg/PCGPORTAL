@@ -162,8 +162,10 @@ async function sendDMBriefs(settings, users) {
       const briefHtml = await generateDMBrief(d);
       if (!briefHtml) continue;
 
-      // Find DM email from users list or settings
+      // Find DM email from users list — skip if excluded
       const dmUser = (users || []).find(u => u.userType === 'dm' && u.district === d && u.active);
+      const excludedDM = settings.excludeDM || [];
+      if (dmUser && excludedDM.includes(dmUser.id)) { console.log(`[analyst-reports] DM D${d} excluded, skipping`); continue; }
       const dmEmail = dmUser?.email || DM_EMAILS[d]?.email;
       if (!dmEmail) { console.log(`[analyst-reports] No email for DM D${d}, skipping`); continue; }
 
@@ -195,7 +197,13 @@ async function sendExecReport(settings, isLaborAdjusted) {
     const reportHtml = await generateExecReport(isLaborAdjusted);
     if (!reportHtml) return false;
 
-    const to = settings.execReportCC || ['Mike@PeopleCapitalGroup.com'];
+    // Build recipient list: CC list minus excluded users
+    const excludedExec = settings.excludeExec || [];
+    const to = (settings.execReportCC || ['Mike@PeopleCapitalGroup.com']).filter(email => {
+      // CC emails aren't user IDs so they're never excluded — exclusion only applies to auto-detected users
+      return true;
+    });
+    if (to.length === 0) { console.log('[analyst-reports] No exec report recipients, skipping'); return false; }
     const reportType = isLaborAdjusted ? 'Post-Adjustment' : 'Preliminary';
     const subject = `Orion Exec Report — ${reportType} — Week of ${today}`;
 

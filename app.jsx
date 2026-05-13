@@ -10611,20 +10611,29 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             {/* Dynamic Exec Recipients */}
             {(() => {
               const execUsers = (users || []).filter(u => (u.userType === 'executive' || u.userType === 'it') && u.active);
+              const excludedExec = reportSettings.excludeExec || [];
               return (
                 <div style={{ marginBottom: '1rem', padding: '0.75rem', background: th.card2, borderRadius: '0.5rem' }}>
-                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>Exec Report — Primary Recipients</div>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>Exec Report — Recipients</div>
                   {execUsers.length > 0 ? (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
-                      {execUsers.map(u => (
-                        <span key={u.id} style={{ fontSize: '0.75rem', color: th.text, background: th.card3, padding: '0.2rem 0.6rem', borderRadius: '0.3rem', border: `1px solid ${th.cardBorder}` }}>
-                          {u.name} <span style={{ color: u.email ? '#22c55e' : '#ff4444', fontSize: '0.65rem' }}>{u.email || '(no email)'}</span>
-                        </span>
-                      ))}
+                      {execUsers.map(u => {
+                        const excluded = excludedExec.includes(u.id);
+                        return (
+                          <span key={u.id} onClick={() => {
+                            const updated = excluded ? excludedExec.filter(id => id !== u.id) : [...excludedExec, u.id];
+                            updateReportSetting({ excludeExec: updated });
+                          }} style={{ fontSize: '0.75rem', color: excluded ? th.muted : th.text, background: excluded ? th.card2 : th.card3, padding: '0.2rem 0.6rem 0.2rem 0.4rem', borderRadius: '0.3rem', border: `1px solid ${excluded ? '#ff444444' : th.cardBorder}`, cursor: 'pointer', opacity: excluded ? 0.5 : 1, textDecoration: excluded ? 'line-through' : 'none', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <span style={{ fontSize: '0.7rem' }}>{excluded ? '⊘' : '✓'}</span>
+                            {u.name} <span style={{ color: u.email ? '#22c55e' : '#ff4444', fontSize: '0.65rem' }}>{u.email || '(no email)'}</span>
+                          </span>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div style={{ fontSize: '0.75rem', color: th.muted }}>No executive/IT users found</div>
                   )}
+                  <div style={{ fontSize: '0.6rem', color: th.muted, marginTop: '0.4rem' }}>Click a name to include/exclude from reports</div>
                 </div>
               );
             })()}
@@ -10632,23 +10641,32 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             {/* Dynamic DM Recipients */}
             {(() => {
               const dmUsers = (users || []).filter(u => u.userType === 'dm' && u.active);
+              const excludedDM = reportSettings.excludeDM || [];
               return (
                 <div style={{ marginBottom: '1rem', padding: '0.75rem', background: th.card2, borderRadius: '0.5rem' }}>
-                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>DM Brief — Primary Recipients</div>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>DM Brief — Recipients</div>
                   {dmUsers.length > 0 ? (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
-                      {dmUsers.map(u => (
-                        <span key={u.id} style={{ fontSize: '0.75rem', color: th.text, background: th.card3, padding: '0.2rem 0.6rem', borderRadius: '0.3rem', border: `1px solid ${th.cardBorder}` }}>
-                          D{u.district} — {u.name} <span style={{ color: u.email ? '#22c55e' : '#ff4444', fontSize: '0.65rem' }}>{u.email || '(no email)'}</span>
-                        </span>
-                      ))}
+                      {dmUsers.map(u => {
+                        const excluded = excludedDM.includes(u.id);
+                        return (
+                          <span key={u.id} onClick={() => {
+                            const updated = excluded ? excludedDM.filter(id => id !== u.id) : [...excludedDM, u.id];
+                            updateReportSetting({ excludeDM: updated });
+                          }} style={{ fontSize: '0.75rem', color: excluded ? th.muted : th.text, background: excluded ? th.card2 : th.card3, padding: '0.2rem 0.6rem 0.2rem 0.4rem', borderRadius: '0.3rem', border: `1px solid ${excluded ? '#ff444444' : th.cardBorder}`, cursor: 'pointer', opacity: excluded ? 0.5 : 1, textDecoration: excluded ? 'line-through' : 'none', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <span style={{ fontSize: '0.7rem' }}>{excluded ? '⊘' : '✓'}</span>
+                            D{u.district} — {u.name} <span style={{ color: u.email ? '#22c55e' : '#ff4444', fontSize: '0.65rem' }}>{u.email || '(no email)'}</span>
+                          </span>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div style={{ fontSize: '0.75rem', color: th.muted }}>No DM users found</div>
                   )}
                   {dmUsers.some(u => !u.email) && (
-                    <div style={{ fontSize: '0.7rem', color: '#ff4444', marginTop: '0.5rem' }}>⚠️ DMs without email addresses will not receive briefs. Update their profiles in Users.</div>
+                    <div style={{ fontSize: '0.7rem', color: '#ff4444', marginTop: '0.5rem' }}>⚠️ DMs without email addresses will not receive briefs.</div>
                   )}
+                  <div style={{ fontSize: '0.6rem', color: th.muted, marginTop: '0.4rem' }}>Click a name to include/exclude from reports</div>
                 </div>
               );
             })()}
