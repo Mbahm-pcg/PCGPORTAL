@@ -6,16 +6,16 @@ const { PERSONA } = require('./analyst-prompts');
 const { cacheSave, cacheLoad } = require('./analyst-cache');
 const { logAudit } = require('./analyst-audit');
 
-// ── DM district mapping ─────────────────────────────────────────────────────
-const DM_EMAILS = {
-  1: { name: 'District 1 DM', email: null },
-  2: { name: 'District 2 DM', email: null },
-  3: { name: 'District 3 DM', email: null },
-  4: { name: 'District 4 DM', email: null },
-  5: { name: 'District 5 DM', email: null },
-  6: { name: 'District 6 DM', email: null },
-  7: { name: 'District 7 DM', email: null },
-  8: { name: 'District 8 DM', email: null },
+// ── DM district mapping (fallback if user data not available) ────────────────
+const DM_INFO = {
+  1: { name: 'Taylor Cormier', email: 'taylor@peoplecapitalgroup.com' },
+  2: { name: 'Jay Patel', email: 'jay@peoplecapitalgroup.com' },
+  3: { name: 'Sonia Khalique', email: 'sonia@peoplecapitalgroup.com' },
+  4: { name: 'Yolicet Grin-Martinez', email: 'yolicet@peoplecapitalgroup.com' },
+  5: { name: 'Shreyes Mehta', email: 'sunny@peoplecapitalgroup.com' },
+  6: { name: 'Mohamed', email: 'Mohamed@peoplecapitalgroup.com' },
+  7: { name: 'Sharmin Akter', email: 'sharmin@peoplecapitalgroup.com' },
+  8: { name: 'Mike (District 8)', email: null },
 };
 
 // ── Email sender ─────────────────────────────────────────────────────────────
@@ -65,9 +65,7 @@ function wrapEmail(title, subtitle, bodyHtml, footerNote) {
     <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 680px; margin: 0 auto; background: #ffffff;">
       <div style="background: linear-gradient(135deg, #0b0b0c 0%, #1a1a2e 100%); padding: 28px 32px; border-radius: 8px 8px 0 0;">
         <div style="display: flex; align-items: center; gap: 14px;">
-          <div style="width: 44px; height: 44px; background: #FF671F; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
-            <span style="font-size: 20px; font-weight: 900; color: #fff; font-family: Arial, sans-serif;">O</span>
-          </div>
+          <!--logo removed-->
           <div>
             <h1 style="color: #fff; margin: 0; font-size: 20px; font-weight: 700;">${title}</h1>
             <p style="color: #FF671F; margin: 4px 0 0; font-size: 13px; font-weight: 600; letter-spacing: 0.5px;">${subtitle}</p>
@@ -188,37 +186,60 @@ async function generateExecReport(isLaborAdjusted) {
   const weekStart = fmtDate(lastSun);
   const weekEnd = fmtDate(lastSat);
 
-  const snapshot = await buildKPISnapshot();
-  if (snapshot.error) return null;
-
-  const net = snapshot.network;
-  const stores = snapshot.stores || [];
   const fmtD = v => '$' + Math.round(v).toLocaleString();
   const fmtP = v => (v || 0).toFixed(1) + '%';
 
-  // Build district summaries from WTD data
-  const distMap = {};
-  for (const s of stores) {
-    const d = s.district || 0;
-    if (!distMap[d]) distMap[d] = { sales: 0, labor: 0, stores: 0, ot: 0 };
-    distMap[d].sales += s.wtd?.sales || 0;
-    distMap[d].labor += s.wtd?.laborDollars || 0;
-    distMap[d].stores++;
-    distMap[d].ot += s.today?.overtimeCount || 0;
+  // Build list of dates in last completed week
+  const lwDates = [];
+  const d = new Date(lastSun);
+  while (d <= lastSat) {
+    lwDates.push(fmtDate(d));
+    d.setDate(d.getDate() + 1);
   }
 
-  // Sort stores by WTD labor % for top/bottom
-  const storesWithWtd = stores.filter(s => s.wtd?.sales > 0).map(s => ({
-    ...s, wtdLaborPct: s.wtd.sales > 0 ? (s.wtd.laborDollars / s.wtd.sales) * 100 : 0
-  }));
-  storesWithWtd.sort((a, b) => a.wtdLaborPct - b.wtdLaborPct);
-  const best5 = storesWithWtd.slice(0, 5);
-  const worst5 = storesWithWtd.slice(-5).reverse();
+  // Pull last week's actual data from per-store daily blobs
+  const storeWeekData = [];
+  for (const store of STORES) {
+    const history = await cacheLoad(`pcg_labor_store_${store.pc}`);
+    const daily = history?.daily || [];
+    let weekSales = 0, weekLabor = 0;
+    for (const dt of lwDates) {
+      const entry = daily.find(e => e.date === dt);
+      if (entry) {
+        weekSales += entry.sales || 0;
+        weekLabor += entry.laborDollars || 0;
+      }
+    }
+    storeWeekData.push({
+      name: store.name,
+      district: store.district,
+      weekSales,
+      weekLabor,
+      weekLaborPct: weekSales > 0 ? (weekLabor / weekSales) * 100 : 0,
+    });
+  }
 
-  // Network WTD totals
-  const wtdSales = stores.reduce((s, st) => s + (st.wtd?.sales || 0), 0);
-  const wtdLabor = stores.reduce((s, st) => s + (st.wtd?.laborDollars || 0), 0);
+  // Build district summaries from last week's data
+  const distMap = {};
+  for (const s of storeWeekData) {
+    const d = s.district || 0;
+    if (!distMap[d]) distMap[d] = { sales: 0, labor: 0, stores: 0 };
+    distMap[d].sales += s.weekSales;
+    distMap[d].labor += s.weekLabor;
+    distMap[d].stores++;
+  }
+
+  // Sort stores by last week's labor % for top/bottom
+  const storesWithData = storeWeekData.filter(s => s.weekSales > 0);
+  storesWithData.sort((a, b) => a.weekLaborPct - b.weekLaborPct);
+  const best5 = storesWithData.slice(0, 5);
+  const worst5 = storesWithData.slice(-5).reverse();
+
+  // Network totals for last week
+  const wtdSales = storeWeekData.reduce((s, st) => s + st.weekSales, 0);
+  const wtdLabor = storeWeekData.reduce((s, st) => s + st.weekLabor, 0);
   const wtdLaborPct = wtdSales > 0 ? (wtdLabor / wtdSales) * 100 : 0;
+  const storeCount = STORES.length;
 
   const tblStyle = 'width:100%;border-collapse:collapse;font-size:14px;margin:12px 0 20px;';
   const thStyle = 'padding:10px 12px;text-align:left;border-bottom:2px solid #FF671F;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:#666;';
@@ -230,39 +251,29 @@ async function generateExecReport(isLaborAdjusted) {
 
   // Get LLM to write ONLY the executive summary (2-3 sentences) — much more reliable
   const dataContext = await buildDataContext({ includeStoreDetail: false });
-  const summaryPrompt = `Write a 2-3 sentence executive summary for a weekly operations report covering the week of ${weekStart} to ${weekEnd}. WTD Network Sales: ${fmtD(wtdSales)}, WTD Labor: ${fmtP(wtdLaborPct)}, ${net.storeCount} stores, ${net.overtimeCount} OT employees. ${isLaborAdjusted ? 'This is the post-adjustment report — labor figures are final.' : 'This is the preliminary report — labor figures may change after DM adjustments.'} Be concise and professional. Return plain text only, no HTML tags, no markdown.`;
+  const summaryPrompt = `Write a 2-3 sentence executive summary for a weekly operations report covering the week of ${weekStart} to ${weekEnd}. Network Sales: ${fmtD(wtdSales)}, Labor: ${fmtP(wtdLaborPct)}, ${storeCount} stores. ${isLaborAdjusted ? 'This is the post-adjustment report — labor figures are final.' : 'This is the preliminary report — labor figures may change after DM adjustments.'} Be concise and professional. Return plain text only, no HTML tags, no markdown.`;
 
   let summaryText = '';
   try {
     const summaryResult = await generateStructured({ system: PERSONA, userPrompt: summaryPrompt, action: 'brief', userId: 'system' });
     summaryText = summaryResult.text.replace(/<[^>]+>/g, '').replace(/```/g, '').replace(/\*\*/g, '').trim();
-  } catch { summaryText = `The network recorded ${fmtD(wtdSales)} in WTD sales across ${net.storeCount} stores with a ${fmtP(wtdLaborPct)} labor rate.`; }
+  } catch { summaryText = `The network recorded ${fmtD(wtdSales)} in sales across ${storeCount} stores with a ${fmtP(wtdLaborPct)} labor rate for the week of ${weekStart} to ${weekEnd}.`; }
 
   html += `<h3 style="color:#0b0b0c;font-size:16px;margin:0 0 8px;">Executive Summary — Week of ${weekStart} to ${weekEnd}</h3>`;
   html += `<p style="font-size:14px;line-height:1.6;color:#333;margin:0 0 20px;">${summaryText}</p>`;
 
   // Network KPIs
-  html += `<h3 style="color:#0b0b0c;font-size:16px;margin:0 0 8px;">Network KPIs — Week to Date</h3>`;
+  const storesWithSales = storeWeekData.filter(s => s.weekSales > 0).length;
+  html += `<h3 style="color:#0b0b0c;font-size:16px;margin:0 0 8px;">Network KPIs — ${weekStart} to ${weekEnd}</h3>`;
   html += `<table style="${tblStyle}">`;
   html += `<tr><th style="${thStyle}">Metric</th><th style="${thStyle}">Value</th></tr>`;
-  html += `<tr><td style="${tdStyle}">WTD Net Sales</td><td style="${tdBold}color:#00d084;">${fmtD(wtdSales)}</td></tr>`;
-  html += `<tr><td style="${tdStyle}">WTD Labor Cost</td><td style="${tdBold}">${fmtD(wtdLabor)}</td></tr>`;
-  html += `<tr><td style="${tdStyle}">WTD Labor %</td><td style="${tdBold}color:${wtdLaborPct > 26 ? '#f44336' : wtdLaborPct > 23 ? '#ff9800' : '#4caf50'};">${fmtP(wtdLaborPct)}</td></tr>`;
-  html += `<tr><td style="${tdStyle}">Stores Reporting</td><td style="${tdBold}">${net.storeCount}</td></tr>`;
-  html += `<tr><td style="${tdStyle}">Employees in OT</td><td style="${tdBold}color:${net.overtimeCount > 10 ? '#f44336' : '#333'};">${net.overtimeCount}</td></tr>`;
-  html += `<tr><td style="${tdStyle}">Scheduled Now</td><td style="${tdBold}">${net.scheduledNow}</td></tr>`;
+  html += `<tr><td style="${tdStyle}">Net Sales</td><td style="${tdBold}color:#00d084;">${fmtD(wtdSales)}</td></tr>`;
+  html += `<tr><td style="${tdStyle}">Labor Cost</td><td style="${tdBold}">${fmtD(wtdLabor)}</td></tr>`;
+  html += `<tr><td style="${tdStyle}">Labor %</td><td style="${tdBold}color:${wtdLaborPct > 26 ? '#f44336' : wtdLaborPct > 23 ? '#ff9800' : '#4caf50'};">${fmtP(wtdLaborPct)}</td></tr>`;
+  html += `<tr><td style="${tdStyle}">Stores</td><td style="${tdBold}">${storeCount} total (${storesWithSales} reporting)</td></tr>`;
   html += `</table>`;
 
-  // District Scorecard — include DM names from store data
-  // DM names are stored on stores in the STORES config; look them up
-  const dmNames = {};
-  for (const s of STORES) {
-    if (s.district && s.dmName && !dmNames[s.district]) dmNames[s.district] = s.dmName;
-  }
-  // Fallback: try to get from the stores array if dmName isn't in config
-  for (const s of stores) {
-    if (s.district && s.dmName && !dmNames[s.district]) dmNames[s.district] = s.dmName;
-  }
+  // District Scorecard — DM names from DM_INFO mapping
 
   html += `<h3 style="color:#0b0b0c;font-size:16px;margin:0 0 8px;">District Scorecard</h3>`;
   html += `<table style="${tblStyle}">`;
@@ -275,23 +286,44 @@ async function generateExecReport(isLaborAdjusted) {
   for (const [d, v] of distEntries) {
     const pct = v.sales > 0 ? (v.labor / v.sales) * 100 : 0;
     const pctColor = pct > 26 ? '#f44336' : pct > 23 ? '#ff9800' : '#4caf50';
-    const dm = dmNames[d] || dmNames[Number(d)] || '—';
+    const dm = DM_INFO[d]?.name || DM_INFO[Number(d)]?.name || '—';
     html += `<tr><td style="${tdBold}">D${d}</td><td style="${tdStyle}">${dm}</td><td style="${tdStyle}">${fmtD(v.sales)}</td><td style="${tdStyle}color:${pctColor};font-weight:700;">${fmtP(pct)}</td><td style="${tdStyle}">${v.stores}</td><td style="${tdStyle}">${v.ot}</td></tr>`;
   }
   html += `</table>`;
 
-  // Top 5 / Bottom 5
-  html += `<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:20px;">`;
-  html += `<div style="flex:1;min-width:200px;"><h3 style="color:#4caf50;font-size:14px;margin:0 0 8px;">Top 5 — Best Labor %</h3>`;
+  // Top 5 / Bottom 5 by Labor %
+  html += `<h3 style="color:#0b0b0c;font-size:16px;margin:20px 0 8px;">Top 5 — Best Labor %</h3>`;
+  html += `<table style="${tblStyle}"><tr><th style="${thStyle}">Store</th><th style="${thStyle}">District</th><th style="${thStyle}">Labor %</th><th style="${thStyle}">Sales</th></tr>`;
   for (const s of best5) {
-    html += `<div style="padding:4px 0;font-size:13px;border-bottom:1px solid #f0f0f0;"><strong>${s.name}</strong> (D${s.district}) — <span style="color:#4caf50;font-weight:700;">${fmtP(s.wtdLaborPct)}</span> · ${fmtD(s.wtd.sales)}</div>`;
+    html += `<tr><td style="${tdBold}">${s.name}</td><td style="${tdStyle}">D${s.district}</td><td style="${tdStyle}color:#4caf50;font-weight:700;">${fmtP(s.weekLaborPct)}</td><td style="${tdStyle}">${fmtD(s.weekSales)}</td></tr>`;
   }
-  html += `</div>`;
-  html += `<div style="flex:1;min-width:200px;"><h3 style="color:#f44336;font-size:14px;margin:0 0 8px;">Bottom 5 — Highest Labor %</h3>`;
+  html += `</table>`;
+
+  html += `<h3 style="color:#0b0b0c;font-size:16px;margin:20px 0 8px;">Bottom 5 — Highest Labor %</h3>`;
+  html += `<table style="${tblStyle}"><tr><th style="${thStyle}">Store</th><th style="${thStyle}">District</th><th style="${thStyle}">Labor %</th><th style="${thStyle}">Sales</th></tr>`;
   for (const s of worst5) {
-    html += `<div style="padding:4px 0;font-size:13px;border-bottom:1px solid #f0f0f0;"><strong>${s.name}</strong> (D${s.district}) — <span style="color:#f44336;font-weight:700;">${fmtP(s.wtdLaborPct)}</span> · ${fmtD(s.wtd.sales)}</div>`;
+    html += `<tr><td style="${tdBold}">${s.name}</td><td style="${tdStyle}">D${s.district}</td><td style="${tdStyle}color:#f44336;font-weight:700;">${fmtP(s.weekLaborPct)}</td><td style="${tdStyle}">${fmtD(s.weekSales)}</td></tr>`;
   }
-  html += `</div></div>`;
+  html += `</table>`;
+
+  // Top 5 / Bottom 5 by Sales
+  const bySales = [...storesWithData].sort((a, b) => b.weekSales - a.weekSales);
+  const topSales5 = bySales.slice(0, 5);
+  const bottomSales5 = bySales.slice(-5).reverse();
+
+  html += `<h3 style="color:#0b0b0c;font-size:16px;margin:20px 0 8px;">Top 5 — Highest Sales</h3>`;
+  html += `<table style="${tblStyle}"><tr><th style="${thStyle}">Store</th><th style="${thStyle}">District</th><th style="${thStyle}">Sales</th><th style="${thStyle}">Labor %</th></tr>`;
+  for (const s of topSales5) {
+    html += `<tr><td style="${tdBold}">${s.name}</td><td style="${tdStyle}">D${s.district}</td><td style="${tdStyle}color:#00d084;font-weight:700;">${fmtD(s.weekSales)}</td><td style="${tdStyle}">${fmtP(s.weekLaborPct)}</td></tr>`;
+  }
+  html += `</table>`;
+
+  html += `<h3 style="color:#0b0b0c;font-size:16px;margin:20px 0 8px;">Bottom 5 — Lowest Sales</h3>`;
+  html += `<table style="${tblStyle}"><tr><th style="${thStyle}">Store</th><th style="${thStyle}">District</th><th style="${thStyle}">Sales</th><th style="${thStyle}">Labor %</th></tr>`;
+  for (const s of bottomSales5) {
+    html += `<tr><td style="${tdBold}">${s.name}</td><td style="${tdStyle}">D${s.district}</td><td style="${tdStyle}color:#f44336;font-weight:700;">${fmtD(s.weekSales)}</td><td style="${tdStyle}">${fmtP(s.weekLaborPct)}</td></tr>`;
+  }
+  html += `</table>`;
 
   return html;
 }
@@ -310,7 +342,7 @@ async function sendDMBriefs(settings, users) {
       const dmUser = (users || []).find(u => u.userType === 'dm' && u.district === d && u.active);
       const excludedDM = settings.excludeDM || [];
       if (dmUser && excludedDM.includes(dmUser.id)) { console.log(`[analyst-reports] DM D${d} excluded, skipping`); continue; }
-      const dmEmail = dmUser?.email || DM_EMAILS[d]?.email;
+      const dmEmail = dmUser?.email || DM_INFO[d]?.email;
       if (!dmEmail) { console.log(`[analyst-reports] No email for DM D${d}, skipping`); continue; }
 
       const cc = settings.dmBriefCC || [];
