@@ -2,6 +2,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@netlify/blobs": "^10.7.2",
+    "@netlify/database": "^1.0.0",
+    "drizzle-orm": "^1.0.0-beta.22",
     "minimalistic-assert": "^1.0.1",
     "sharp": "^0.34.5",
     "web-push": "^3.6.7"
@@ -13,6 +15,7 @@
   "devDependencies": {
     "@babel/cli": "^7.28.6",
     "@babel/core": "^7.29.0",
-    "@babel/preset-react": "^7.28.5"
+    "@babel/preset-react": "^7.28.5",
+    "drizzle-kit": "^1.0.0-beta.22"
   }
 }
