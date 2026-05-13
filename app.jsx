@@ -115,13 +115,13 @@ const USERS_SEED = [
   // ── Office Staff ────────────────────────────────────────────────────────────
   { id:4,  username:"office.staff",       password:"w@!O7Z5vJq", name:"Office Staff",           role:"Office Staff",      initials:"OS", isAdmin:false, userType:"office_staff", district:null, active:true,  darkMode:false },
   // ── District Managers ───────────────────────────────────────────────────────
-  { id:5,  username:"taylor.cormier",     password:"65#JERbs@r", name:"Taylor Cormier",         role:"District Manager",  initials:"TC", isAdmin:false, userType:"dm",           district:1,    active:true,  darkMode:false },
-  { id:6,  username:"jay.patel",          password:"!KB4$8fsoX", name:"Jay Patel",              role:"District Manager",  initials:"JP", isAdmin:false, userType:"dm",           district:2,    active:true,  darkMode:false },
-  { id:7,  username:"sonia.khalique",     password:"1DtMdZ#w6@", name:"Sonia Khalique",         role:"District Manager",  initials:"SK", isAdmin:false, userType:"dm",           district:3,    active:true,  darkMode:false },
-  { id:8,  username:"yolicet.grin",       password:"1%gC5LLy%w", name:"Yolicet Grin-Martinez",  role:"District Manager",  initials:"YG", isAdmin:false, userType:"dm",           district:4,    active:true,  darkMode:false },
-  { id:9,  username:"shreyes.mehta",      password:"M5u2zg$J!C", name:"Shreyes Mehta",          role:"District Manager",  initials:"SM", isAdmin:false, userType:"dm",           district:5,    active:true,  darkMode:false },
-  { id:10, username:"mohamed.dm6",        password:"%k63sZTY#r", name:"Mohamed",                role:"District Manager",  initials:"MO", isAdmin:false, userType:"dm",           district:6,    active:true,  darkMode:false },
-  { id:11, username:"sharmin.akter",      password:"aBASi#5b2#", name:"Sharmin Akter",          role:"District Manager",  initials:"SA", isAdmin:false, userType:"dm",           district:7,    active:true,  darkMode:false },
+  { id:5,  username:"taylor.cormier",     password:"65#JERbs@r", name:"Taylor Cormier",         role:"District Manager",  initials:"TC", isAdmin:false, userType:"dm",           district:1,    active:true,  darkMode:false, email:"taylor@peoplecapitalgroup.com" },
+  { id:6,  username:"jay.patel",          password:"!KB4$8fsoX", name:"Jay Patel",              role:"District Manager",  initials:"JP", isAdmin:false, userType:"dm",           district:2,    active:true,  darkMode:false, email:"jay@peoplecapitalgroup.com" },
+  { id:7,  username:"sonia.khalique",     password:"1DtMdZ#w6@", name:"Sonia Khalique",         role:"District Manager",  initials:"SK", isAdmin:false, userType:"dm",           district:3,    active:true,  darkMode:false, email:"sonia@peoplecapitalgroup.com" },
+  { id:8,  username:"yolicet.grin",       password:"1%gC5LLy%w", name:"Yolicet Grin-Martinez",  role:"District Manager",  initials:"YG", isAdmin:false, userType:"dm",           district:4,    active:true,  darkMode:false, email:"yolicet@peoplecapitalgroup.com" },
+  { id:9,  username:"shreyes.mehta",      password:"M5u2zg$J!C", name:"Shreyes Mehta",          role:"District Manager",  initials:"SM", isAdmin:false, userType:"dm",           district:5,    active:true,  darkMode:false, email:"sunny@peoplecapitalgroup.com" },
+  { id:10, username:"mohamed.dm6",        password:"%k63sZTY#r", name:"Mohamed",                role:"District Manager",  initials:"MO", isAdmin:false, userType:"dm",           district:6,    active:true,  darkMode:false, email:"Mohamed@peoplecapitalgroup.com" },
+  { id:11, username:"sharmin.akter",      password:"aBASi#5b2#", name:"Sharmin Akter",          role:"District Manager",  initials:"SA", isAdmin:false, userType:"dm",           district:7,    active:true,  darkMode:false, email:"sharmin@peoplecapitalgroup.com" },
   { id:12, username:"mike.d8",            password:"KRq60b%$wJ", name:"Mike (District 8)",      role:"District Manager",  initials:"MD", isAdmin:false, userType:"dm",           district:8,    active:true,  darkMode:false },
   // ── Store Managers ──────────────────────────────────────────────────────────
   { id:13, username:"clarence.jackson",   password:"w%HoG9%0Yl", name:"Clarence Jackson",       role:"Store Manager",     initials:"CJ", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
@@ -10051,6 +10051,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [logLoading, setLogLoading] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [pushSubs, setPushSubs] = useState(null);
+  const [notifyInfoOpen, setNotifyInfoOpen] = useState(false);
 
   // ── Orion Report Settings ──────────────────────────────────────────
   const [reportSettings, setReportSettings] = useState(null);
@@ -10128,6 +10129,37 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
     <div className="fade-in">
       <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: th.text, marginBottom: "0.25rem" }}>⚙️ Settings</div>
       <div style={{ color: th.muted, fontSize: "0.8125rem", marginBottom: "1.5rem" }}>System configuration and notification settings.</div>
+
+      {/* Info card */}
+      <div style={{ ...card(th), borderLeft: `3px solid ${O}`, marginBottom: "1.25rem" }}>
+        <button onClick={() => setNotifyInfoOpen(o => !o)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", background: "none", border: "none", cursor: "pointer", padding: "1rem 1.25rem", textAlign: "left" }}>
+          <span style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text }}>How Notifications Work</span>
+          <span style={{ fontSize: "0.75rem", color: th.muted, marginLeft: "0.5rem" }}>{notifyInfoOpen ? "▲ Hide" : "▼ Show"}</span>
+        </button>
+        {notifyInfoOpen && (
+          <div style={{ fontSize: "0.8125rem", color: th.muted, lineHeight: 1.7, padding: "0 1.25rem 1.25rem" }}>
+
+            <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem", marginTop: "0.25rem" }}>📂 Project Notifications</div>
+            <div style={{ marginBottom: "0.25rem" }}>📬 <strong>Global list</strong> — everyone in the Global Project Notifications list gets notified on every project update</div>
+            <div style={{ marginBottom: "0.25rem" }}>📋 <strong>Per-project list</strong> — additional emails can be added inside each individual project's settings</div>
+            <div style={{ marginBottom: "0.75rem" }}>🔔 <strong>Triggers:</strong> New project added, phase changes, checklist updates, deadline warnings</div>
+
+            <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>🎫 Ticket Notifications</div>
+            <div style={{ marginBottom: "0.25rem" }}>🎫 <strong>Ticket list</strong> — everyone in the Ticket Notifications list is notified when a new service ticket is created</div>
+            <div style={{ marginBottom: "0.25rem" }}>🔔 <strong>In-app bell</strong> — a bell badge appears in the header for every new ticket; clicking it jumps to the Tickets tab</div>
+            <div style={{ marginBottom: "0.75rem" }}>⚡ <strong>Triggers:</strong> New ticket submitted</div>
+
+            <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>📡 Delivery Channels</div>
+            <div style={{ marginBottom: "0.25rem" }}>📧 <strong>Email</strong> — sent via Resend to all matching recipients (unless disabled in user profile)</div>
+            <div style={{ marginBottom: "0.25rem" }}>📱 <strong>SMS</strong> — sent via Twilio to users with a phone number + SMS enabled in their profile</div>
+            <div style={{ marginBottom: "0.25rem" }}>🔔 <strong>Web Push</strong> — browser/device push notification for users with Push enabled in their profile</div>
+            <div style={{ marginBottom: "0.75rem" }}>⚠️ <strong>Matching:</strong> Your user's <em>email</em> must appear in the relevant notify list to receive SMS or Push</div>
+
+            <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>⚙️ Powered By</div>
+            <div>Resend (email) · Twilio (SMS) · Web Push VAPID — configure API keys in Netlify environment variables</div>
+          </div>
+        )}
+      </div>
 
       {/* Global Notify List */}
       <div style={{ ...card(th), padding: "1.5rem", marginBottom: "1.25rem" }}>
@@ -10489,32 +10521,6 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         );
       })()}
 
-      {/* Info card */}
-      <div style={{ ...card(th), padding: "1.25rem", borderLeft: `3px solid ${O}` }}>
-        <div style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" }}>How Notifications Work</div>
-        <div style={{ fontSize: "0.8125rem", color: th.muted, lineHeight: 1.7 }}>
-
-          <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem", marginTop: "0.25rem" }}>📂 Project Notifications</div>
-          <div style={{ marginBottom: "0.25rem" }}>📬 <strong>Global list</strong> — everyone in the Global Project Notifications list gets notified on every project update</div>
-          <div style={{ marginBottom: "0.25rem" }}>📋 <strong>Per-project list</strong> — additional emails can be added inside each individual project's settings</div>
-          <div style={{ marginBottom: "0.75rem" }}>🔔 <strong>Triggers:</strong> New project added, phase changes, checklist updates, deadline warnings</div>
-
-          <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>🎫 Ticket Notifications</div>
-          <div style={{ marginBottom: "0.25rem" }}>🎫 <strong>Ticket list</strong> — everyone in the Ticket Notifications list is notified when a new service ticket is created</div>
-          <div style={{ marginBottom: "0.25rem" }}>🔔 <strong>In-app bell</strong> — a bell badge appears in the header for every new ticket; clicking it jumps to the Tickets tab</div>
-          <div style={{ marginBottom: "0.75rem" }}>⚡ <strong>Triggers:</strong> New ticket submitted</div>
-
-          <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>📡 Delivery Channels</div>
-          <div style={{ marginBottom: "0.25rem" }}>📧 <strong>Email</strong> — sent via Resend to all matching recipients (unless disabled in user profile)</div>
-          <div style={{ marginBottom: "0.25rem" }}>📱 <strong>SMS</strong> — sent via Twilio to users with a phone number + SMS enabled in their profile</div>
-          <div style={{ marginBottom: "0.25rem" }}>🔔 <strong>Web Push</strong> — browser/device push notification for users with Push enabled in their profile</div>
-          <div style={{ marginBottom: "0.75rem" }}>⚠️ <strong>Matching:</strong> Your user's <em>email</em> must appear in the relevant notify list to receive SMS or Push</div>
-
-          <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>⚙️ Powered By</div>
-          <div>Resend (email) · Twilio (SMS) · Web Push VAPID — configure API keys in Netlify environment variables</div>
-        </div>
-      </div>
-
       {/* Announcements — mike.bahm only */}
       {user?.username === "mike.bahm" && (() => {
         const [annTitle, setAnnTitle] = React.useState("");
@@ -10568,7 +10574,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       })()}
 
       {/* Orion Report Settings */}
-      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', marginTop: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reportOpen ? '1rem' : 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontSize: '1.125rem' }}>🔮</span>
@@ -17134,6 +17140,8 @@ function PCGPortal() {
   const [pendingOrionQuestion, setPendingOrionQuestion] = useState(null); // KPI click → ask Orion
   const tabHistoryRef  = useRef(["dashboard"]); // visited tab stack for swipe-back
   const isGoingBackRef = useRef(false);          // flag to suppress history push on goBack
+  const sidebarNavRef  = useRef(null);           // ref to sidebar nav scroll container
+  const sidebarScrollPos = useRef(0);            // persisted scroll position across re-renders
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem('pcg_sidebar_collapsed') === 'true'; } catch { return false; } });
   const [links, setLinks]       = useState(() => { const s=loadFromStorage(); return s?.links    || INIT_LINKS; });
   const [notes, setNotes]       = useState(() => { const s=loadFromStorage(); return s?.notes    || {}; });
@@ -17192,6 +17200,12 @@ function PCGPortal() {
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [dailyReportSyncStatus]);
+
+  // Restore sidebar scroll position after every re-render
+  useEffect(() => {
+    if (sidebarNavRef.current) sidebarNavRef.current.scrollTop = sidebarScrollPos.current;
+  });
+
   const [showNotifs, setShowNotifs] = useState(false);
   const [showChatPanel, setShowChatPanel] = useState(false);
   const [chatQuickReply, setChatQuickReply] = useState({ channelId: null, text: "" });
@@ -18407,7 +18421,7 @@ function PCGPortal() {
     );
   };
 
-  const SidebarContent = ({ onNav, collapsed }) => (
+  const SidebarContent = ({ onNav, collapsed, navRef, onNavScroll }) => (
     <>
       {/* ─── Header / Brand block ─────────────────────────────────────── */}
       <div style={{
@@ -18583,7 +18597,7 @@ function PCGPortal() {
       </div>
 
       {/* ─── Nav body ─────────────────────────────────────────────────── */}
-      <div style={{ padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
+      <div ref={navRef} onScroll={onNavScroll} style={{ padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
         {/* Universal tabs */}
         {BASE_TABS.map(t => {
           const isActive = tab === t.id;
@@ -18705,7 +18719,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v6.5
+            v6.6
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -18741,7 +18755,7 @@ function PCGPortal() {
 
       {/* Desktop sidebar */}
       <div className="desktop-sidebar sidebar-drawer" style={{ width: sidebarCollapsed ? 64 : "clamp(240px, 20vw, 360px)", background: th.sidebar, borderRight: `1px solid ${th.sidebarBorder}`, display: "flex", flexDirection: "column", flexShrink: 0, height: "100vh", overflow: "hidden", transition: "width .25s cubic-bezier(.4,0,.2,1)", position: "sticky", top: 0, alignSelf: "flex-start" }}>
-        <SidebarContent collapsed={sidebarCollapsed} />
+        <SidebarContent collapsed={sidebarCollapsed} navRef={sidebarNavRef} onNavScroll={e => { sidebarScrollPos.current = e.currentTarget.scrollTop; }} />
       </div>
 
       {/* Mobile drawer overlay */}
