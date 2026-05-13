@@ -111,7 +111,7 @@ const USERS_SEED = [
   // ── IT Team ─────────────────────────────────────────────────────────────────
   { id:2,  username:"it.admin",           password:"Hr0#8AtQ!f", name:"IT Admin",               role:"IT Administrator",  initials:"IT", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false },
   { id:3,  username:"hr.admin",           password:"!19uPAs@iV", name:"HR Admin",               role:"HR / IT Staff",     initials:"HR", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false },
-  { id:92, username:"ahmed@peoplecapitalgroup.com", password:"", name:"Ahmed Bhuiyan",          role:"IT Administrator",  initials:"AB", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false, region:"All", email:"ahmed@peoplecapitalgroup.com", phone:"" },
+  { id:92, username:"ahmed@peoplecapitalgroup.com", password:"", name:"Ahmed Bhuiyan",          role:"IT Administrator",  initials:"AB", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false, region:"All", email:"ahmed@peoplecapitalgroup.com", phone:"", twoFactorRequired:true },
   // ── Office Staff ────────────────────────────────────────────────────────────
   { id:4,  username:"office.staff",       password:"w@!O7Z5vJq", name:"Office Staff",           role:"Office Staff",      initials:"OS", isAdmin:false, userType:"office_staff", district:null, active:true,  darkMode:false },
   // ── District Managers ───────────────────────────────────────────────────────
@@ -403,6 +403,120 @@ function getOverallCompletion(project) {
 }
 const canEditProjects = (u) => u && (u.userType === "executive" || u.userType === "it" || u.userType === "office_staff" || u.userType === "construction");
 const canViewProjects = (u) => u && u.userType !== "manager";
+const ADMIN_2FA_TYPES = [];
+const isAdminTwoFactorLocked = (u) => !!u && ADMIN_2FA_TYPES.includes(u.userType);
+const isTwoFactorRequired = (u) => !!u && (isAdminTwoFactorLocked(u) || u.twoFactorRequired === true);
+const TRUSTED_DEVICE_TOKEN_PREFIX = "pcg_device_token_v2_";
+const TRUSTED_2FA_MS = 7 * 24 * 60 * 60 * 1000;
+const TOTP_BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+function createTotpSecret(length = 20) {
+  const bytes = new Uint8Array(length);
+  if (window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  let bits = "";
+  bytes.forEach(b => { bits += b.toString(2).padStart(8, "0"); });
+  let secret = "";
+  for (let i = 0; i < bits.length; i += 5) {
+    secret += TOTP_BASE32_ALPHABET[parseInt(bits.slice(i, i + 5).padEnd(5, "0"), 2)];
+  }
+  return secret;
+}
+
+function base32ToBytes(secret) {
+  const clean = String(secret || "").replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
+  let bits = "";
+  for (const char of clean) {
+    const value = TOTP_BASE32_ALPHABET.indexOf(char);
+    if (value >= 0) bits += value.toString(2).padStart(5, "0");
+  }
+  const bytes = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(parseInt(bits.slice(i, i + 8), 2));
+  return new Uint8Array(bytes);
+}
+
+async function hotp(secret, counter) {
+  if (!window.crypto?.subtle) throw new Error("Secure browser crypto is required for 2FA.");
+  const key = await window.crypto.subtle.importKey("raw", base32ToBytes(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const counterBytes = new ArrayBuffer(8);
+  new DataView(counterBytes).setUint32(4, counter, false);
+  const hmac = new Uint8Array(await window.crypto.subtle.sign("HMAC", key, counterBytes));
+  const offset = hmac[hmac.length - 1] & 0xf;
+  const binary = ((hmac[offset] & 0x7f) << 24) | ((hmac[offset + 1] & 0xff) << 16) | ((hmac[offset + 2] & 0xff) << 8) | (hmac[offset + 3] & 0xff);
+  return String(binary % 1000000).padStart(6, "0");
+}
+
+async function verifyTotp(secret, token, windowSteps = 1) {
+  const cleanToken = String(token || "").replace(/\s+/g, "");
+  if (!/^\d{6}$/.test(cleanToken) || !secret) return false;
+  const counter = Math.floor(Date.now() / 30000);
+  for (let offset = -windowSteps; offset <= windowSteps; offset++) {
+    if (await hotp(secret, counter + offset) === cleanToken) return true;
+  }
+  return false;
+}
+
+function getTotpUri(user, secret) {
+  const issuer = "PCG Portal";
+  const account = user?.email || user?.username || "user";
+  return `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`;
+}
+
+function getTotpQrUrl(user, secret) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&data=${encodeURIComponent(getTotpUri(user, secret))}`;
+}
+
+function getTrustedDeviceStorageKey(user) {
+  return TRUSTED_DEVICE_TOKEN_PREFIX + String(user?.id ?? user?.username ?? "unknown");
+}
+
+function generateDeviceToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, c => ({ "+": "-", "/": "_", "=": "" }[c]));
+}
+
+async function isTwoFactorDeviceTrusted(user) {
+  if (!user?.twoFactorSecret) return false;
+  const token = localStorage.getItem(getTrustedDeviceStorageKey(user));
+  if (!token) return false;
+  try {
+    const userId = String(user?.id ?? user?.username ?? "unknown");
+    const res = await fetch("/.netlify/functions/trusted-devices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "check", userId, token }),
+    });
+    const json = await res.json();
+    return json.trusted === true;
+  } catch {
+    return false;
+  }
+}
+
+async function trustTwoFactorDevice(user) {
+  const userId = String(user?.id ?? user?.username ?? "unknown");
+  const token = generateDeviceToken();
+  const expiresAt = Date.now() + TRUSTED_2FA_MS;
+  try {
+    const res = await fetch("/.netlify/functions/trusted-devices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "trust", userId, token, expiresAt }),
+    });
+    if ((await res.json()).ok) {
+      localStorage.setItem(getTrustedDeviceStorageKey(user), token);
+    }
+  } catch {
+    // non-fatal — user just gets prompted for 2FA again next time
+  }
+}
+
+const shouldPromptTwoFactor = async (u) => isTwoFactorRequired(u) && !(await isTwoFactorDeviceTrusted(u));
+
 const normalizePersonName = (v) => (v || "").toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 const isManagersStore = (store, user) => {
   const managerName = normalizePersonName(store?.mgr);
@@ -470,6 +584,12 @@ function spawnTransitionFX(cx, cy, newDark) {
 function Login({ onLogin, dark, toggleDark, users }) {
   const th = getTheme(dark);
   const [form, setForm] = useState({ u: "", p: "" });
+  const [authStage, setAuthStage] = useState("password");
+  const [pendingUser, setPendingUser] = useState(null);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState("");
+  const [twoFactorSetupReady, setTwoFactorSetupReady] = useState(false);
+  const [trustDevice, setTrustDevice] = useState(false);
   const [err, setErr] = useState("");
   const [show, setShow] = useState(false);
   const [logoAnim, setLogoAnim] = useState(false);
@@ -529,25 +649,16 @@ function Login({ onLogin, dark, toggleDark, users }) {
     }
   }, [dark, toggleDark]);
 
-  const submit = () => {
-    if (loading) return;
-    console.log("[DEBUG] Login attempt:", form.u, form.p);
-    console.log("[DEBUG] Users in state:", users.map(u => ({ id: u.id, username: u.username, hasPassword: !!u.password })));
-    const found = users.find(u => u.username === form.u && u.password === form.p && u.active !== false);
-    if (found) {
-      setLoading(true);
-      // Brief spinner, then trigger exit animation, then hand off to dashboard
-      setTimeout(() => {
-        setLoading(false);
-        setExiting(true);
-        setTimeout(() => onLogin(found), 700);
-      }, 400);
-    } else {
-      setErr("Invalid credentials. Try again.");
-      setShake(true);
-      setTimeout(() => setShake(false), 520);
-    }
-  };
+  const beginTwoFactor = useCallback((found) => {
+    setPendingUser(found);
+    setTwoFactorSetupSecret(found.twoFactorSecret ? "" : createTotpSecret());
+    setTwoFactorSetupReady(false);
+    setTrustDevice(false);
+    setTwoFactorCode("");
+    setAuthStage("2fa");
+    setLoading(false);
+    setErr("");
+  }, []);
 
   const finishLogin = useCallback((found) => {
     setLoading(true);
@@ -558,6 +669,58 @@ function Login({ onLogin, dark, toggleDark, users }) {
       setTimeout(() => onLogin(found), 700);
     }, 400);
   }, [onLogin]);
+
+  const verifyTwoFactorAndLogin = async () => {
+    if (loading || !pendingUser) return;
+    const secret = pendingUser.twoFactorSecret || twoFactorSetupSecret;
+    setLoading(true);
+    try {
+      const ok = await verifyTotp(secret, twoFactorCode);
+      if (!ok) {
+        setErr("Invalid 2FA code. Check Google Authenticator and try again.");
+        setShake(true);
+        setLoading(false);
+        setTimeout(() => setShake(false), 520);
+        return;
+      }
+      const updates = pendingUser.twoFactorSecret ? {} : {
+        twoFactorSecret: secret,
+        twoFactorEnabled: true,
+        twoFactorRequired: true,
+      };
+      const verifiedUser = { ...pendingUser, ...updates };
+      if (trustDevice) await trustTwoFactorDevice(verifiedUser);
+      finishLogin(verifiedUser);
+    } catch (e) {
+      setErr(e.message || "Could not verify 2FA code.");
+      setLoading(false);
+    }
+  };
+
+  const submit = async () => {
+    if (loading) return;
+    if (authStage === "2fa") {
+      if (twoFactorSetupSecret && !twoFactorSetupReady) {
+        setTwoFactorSetupReady(true);
+        setErr("");
+        return;
+      }
+      await verifyTwoFactorAndLogin();
+      return;
+    }
+    const found = users.find(u => u.username === form.u && u.password === form.p && u.active !== false);
+    if (found) {
+      if (await shouldPromptTwoFactor(found)) {
+        beginTwoFactor(found);
+      } else {
+        finishLogin(found);
+      }
+    } else {
+      setErr("Invalid credentials. Try again.");
+      setShake(true);
+      setTimeout(() => setShake(false), 520);
+    }
+  };
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
@@ -579,7 +742,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
             const profile = await res.json();
             const email = (profile.email || "").trim().toLowerCase();
             if (!profile.email_verified) { setErr("Google account email is not verified."); return; }
-            const allowedGoogleDomain = GOOGLE_ALLOWED_DOMAINS.some(d => email.endsWith("@" + d));
+            const allowedGoogleDomain = GOOGLE_ALLOWED_DOMAINS.some(d => email.endsWith("@" + d.toLowerCase()));
             if (!allowedGoogleDomain) { setErr("Use your People Capital Group or RGI Google account."); return; }
             const found = users.find(u => {
               const userEmail = (u.email || "").trim().toLowerCase();
@@ -587,13 +750,14 @@ function Login({ onLogin, dark, toggleDark, users }) {
               return u.active !== false && (userEmail === email || username === email);
             });
             if (!found) { setErr("Google login worked, but this email is not active in the portal users list."); return; }
-            finishLogin(found);
+            if (await shouldPromptTwoFactor(found)) beginTwoFactor(found);
+            else finishLogin(found);
           } catch (e) { setErr(e.message || "Google sign-in failed."); }
         }
       });
     };
     init();
-  }, [finishLogin, users]);
+  }, [beginTwoFactor, finishLogin, users]);
 
   const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -883,6 +1047,8 @@ function Login({ onLogin, dark, toggleDark, users }) {
             </div>
 
             {/* Username — floating label */}
+            {authStage === "password" ? (
+              <>
             <div className="login-input-wrap" style={{ position: "relative", marginBottom: "1.1rem" }}>
               <input
                 id="login-user"
@@ -979,6 +1145,110 @@ function Login({ onLogin, dark, toggleDark, users }) {
                 {show ? "Hide" : "Show"}
               </button>
             </div>
+              </>
+            ) : (
+              <>
+                <div style={{
+                  background: dark ? "rgba(255, 103, 31, 0.12)" : "rgba(255, 103, 31, 0.08)",
+                  border: "1px solid rgba(255, 103, 31, 0.35)",
+                  borderRadius: "0.75rem",
+                  padding: "0.85rem 0.95rem",
+                  marginBottom: "1rem",
+                  color: palette.text,
+                  fontSize: "0.8rem",
+                  lineHeight: 1.45,
+                }}>
+                  <div style={{ fontWeight: 800, marginBottom: "0.25rem", color: "#FF671F" }}>
+                    {twoFactorSetupSecret && !twoFactorSetupReady ? "Set up Google Authenticator" : "Two-factor verification"}
+                  </div>
+                  {twoFactorSetupSecret && !twoFactorSetupReady ? (
+                    <>
+                      <div style={{ color: palette.textDim, marginBottom: "0.55rem" }}>
+                        Scan this QR code in Google Authenticator, or enter the setup key manually.
+                      </div>
+                      <div style={{ display:"flex", justifyContent:"center", margin:"0.75rem 0" }}>
+                        <img
+                          src={getTotpQrUrl(pendingUser, twoFactorSetupSecret)}
+                          alt="Google Authenticator setup QR code"
+                          style={{ width:180, height:180, borderRadius:"0.75rem", background:"#fff", padding:8, border:`1px solid ${palette.inputBorder}` }}
+                        />
+                      </div>
+                      <div style={{ fontSize:"0.68rem", fontWeight:800, color:palette.textGhost, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.35rem" }}>
+                        Setup key
+                      </div>
+                      <div style={{ fontFamily: "monospace", fontSize: "0.9rem", fontWeight: 800, color: palette.text, wordBreak: "break-all", padding: "0.55rem", borderRadius: "0.5rem", background: palette.inputBg, border: `1px solid ${palette.inputBorder}` }}>
+                        {twoFactorSetupSecret}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ color: palette.textDim }}>
+                      Enter the 6-digit code from Google Authenticator for {pendingUser?.name || pendingUser?.username}.
+                    </div>
+                  )}
+                </div>
+                {(!twoFactorSetupSecret || twoFactorSetupReady) && (
+                <>
+                <div className="login-input-wrap" style={{ position: "relative", marginBottom: "1.1rem" }}>
+                  <input
+                    id="login-2fa"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder=" "
+                    value={twoFactorCode}
+                    onChange={e => { setTwoFactorCode(e.target.value.replace(/\D/g, "").slice(0, 6)); if (err) setErr(""); }}
+                    onFocus={() => setFocusField("2fa")}
+                    onBlur={() => setFocusField(null)}
+                    onKeyDown={e => e.key === "Enter" && submit()}
+                    autoComplete="one-time-code"
+                    style={{
+                      width: "100%",
+                      padding: "1.1rem 1rem 0.55rem",
+                      background: palette.inputBg,
+                      border: `1px solid ${focusField === "2fa" ? "#FF671F" : palette.inputBorder}`,
+                      borderRadius: "0.625rem",
+                      color: palette.text,
+                      fontSize: "20px",
+                      fontFamily: "'Source Sans 3'",
+                      fontWeight: 800,
+                      letterSpacing: 4,
+                      outline: "none",
+                      transition: "border-color .2s, background .2s, box-shadow .2s",
+                      boxShadow: focusField === "2fa" ? "0 0 0 3px rgba(255, 103, 31, 0.18)" : "none",
+                      WebkitAppearance: "none",
+                    }}
+                  />
+                  <label htmlFor="login-2fa" style={{
+                    position: "absolute", left: 16, top: 17,
+                    fontSize: "0.9rem", color: palette.inputLabel, fontWeight: 500,
+                    pointerEvents: "none",
+                    transformOrigin: "left top",
+                    transition: "transform .2s ease, color .2s ease, letter-spacing .2s ease",
+                  }}>
+                    Authenticator Code
+                  </label>
+                </div>
+                <label style={{ display:"flex", alignItems:"center", gap:"0.55rem", cursor:"pointer", fontSize:"0.78rem", color:palette.textDim, margin:"-0.35rem 0 1rem", userSelect:"none" }}>
+                  <input
+                    type="checkbox"
+                    checked={trustDevice}
+                    onChange={e => setTrustDevice(e.target.checked)}
+                    style={{ accentColor:"#FF671F", width:15, height:15 }}
+                  />
+                  Trust this device for 7 days
+                </label>
+                </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setAuthStage("password"); setPendingUser(null); setTwoFactorSetupSecret(""); setTwoFactorSetupReady(false); setTwoFactorCode(""); setTrustDevice(false); setErr(""); }}
+                  style={{ background: "none", border: "none", color: palette.textGhost, cursor: "pointer", fontSize: "0.75rem", marginBottom: "1rem", padding: 0, fontFamily: "'Source Sans 3'" }}
+                >
+                  Use a different account
+                </button>
+              </>
+            )}
 
             {/* Error */}
             {err && (
@@ -1029,14 +1299,16 @@ function Login({ onLogin, dark, toggleDark, users }) {
               {loading ? (
                 <>
                   <span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid #ffffff66", borderTopColor: "#fff", borderRadius: "50%", animation: "loginMeshShift 0.8s linear infinite" }} />
-                  Signing In…
+                  {authStage === "2fa" ? "Verifying..." : "Signing In..."}
                 </>
               ) : (
-                <>Sign In <span style={{ fontSize: "1rem" }}>→</span></>
+                <>{authStage === "2fa" ? (twoFactorSetupSecret && !twoFactorSetupReady ? "I added it" : "Verify Code") : "Sign In"} <span style={{ fontSize: "1rem" }}>→</span></>
               )}
             </button>
 
             {/* Google Workspace sign-in */}
+            {authStage === "password" && (
+            <>
             <div style={{
               display: "flex", alignItems: "center", gap: "0.75rem",
               margin: "1.25rem 0 1.1rem",
@@ -1077,9 +1349,11 @@ function Login({ onLogin, dark, toggleDark, users }) {
                       <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                     </svg>
                     Sign in with Google
-                  </div>
+                </div>
               )}
             </div>
+            </>
+            )}
 
             {/* Footer */}
             <div style={{
@@ -2450,7 +2724,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const [view, setView] = useState('list'); // 'list' | 'edit'
   const [editId, setEditId] = useState(null);
   const [showPw, setShowPw]   = useState(false);
-  const [form, setForm] = useState({ username:"", password:"", name:"", role:"Manager", initials:"", isAdmin:false, region:"PA", active:true, email:"", phone:"" });
+  const [form, setForm] = useState({ username:"", password:"", name:"", role:"Manager", initials:"", isAdmin:false, region:"PA", active:true, email:"", phone:"", twoFactorRequired:false });
   const [search, setSearch] = useState("");
   const [welcomeSent, setWelcomeSent] = useState(null);
   const [saveFlash, setSaveFlash] = useState(false);
@@ -2460,6 +2734,27 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const initials = (name) => name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0,2);
 
   const [emailAction, setEmailAction] = useState(null); // { userId, type, status }
+  const [revokeAction, setRevokeAction] = useState(null); // { userId, status }
+
+  const revokeTrustedDevices = async (u) => {
+    setRevokeAction({ userId: u.id, status: "revoking" });
+    try {
+      const userId = String(u.id ?? u.username ?? "unknown");
+      const res = await fetch("/.netlify/functions/trusted-devices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revoke", userId }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error("Revoke failed");
+      setRevokeAction({ userId: u.id, status: "ok" });
+      showAlert("success", `Trusted devices revoked for ${u.name}. They will need to re-verify 2FA on next login.`);
+    } catch {
+      setRevokeAction({ userId: u.id, status: "fail" });
+      showAlert("error", "Failed to revoke trusted devices");
+    }
+    setTimeout(() => setRevokeAction(null), 3000);
+  };
 
   const sendWelcomeEmail = async (newUser) => {
     if (!newUser.email) return;
@@ -2531,7 +2826,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const openEditPage = (u = null) => {
     savedScrollY.current = window.scrollY;
     setEditId(u ? u.id : null);
-    setForm(u ? { ...u } : { username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"" });
+    setForm(u ? { ...u } : { username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
     setView('edit');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -2544,14 +2839,15 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const save = () => {
     if (!form.username || !form.name) return;
     const ini = form.initials || initials(form.name);
+    const securedForm = { ...form, twoFactorRequired: isTwoFactorRequired(form) };
     if (editId) {
-      setUsers(us => us.map(u => u.id === editId ? { ...u, ...form, initials: ini } : u));
+      setUsers(us => us.map(u => u.id === editId ? { ...u, ...securedForm, initials: ini } : u));
     } else {
-      const newUser = { ...form, id: nextId(), initials: ini, mustSetup: true };
+      const newUser = { ...securedForm, id: nextId(), initials: ini, mustSetup: true };
       setUsers(us => [...us, newUser]);
       sendWelcomeEmail(newUser);
     }
-    setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"" });
+    setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
     setSaveFlash(true);
     setTimeout(() => { setSaveFlash(false); closeEditPage(); }, 450);
   };
@@ -2587,6 +2883,10 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
     .sort((a,b) => (b.active===false ? 1 : 0) - (a.active===false ? 1 : 0));
 
   const rc = roleColor(form.userType || "manager");
+  const AHMED_EMAIL = "ahmed@peoplecapitalgroup.com";
+  const isAhmed = (u) => u?.id === 92 || (u?.email || "").toLowerCase() === AHMED_EMAIL || (u?.username || "").toLowerCase() === AHMED_EMAIL;
+  const formTwoFactorLocked = isAdminTwoFactorLocked(form) || isAhmed(form) || !isAhmed(currentUser);
+  const formTwoFactorLockedReason = isAhmed(form) ? "Your 2FA cannot be disabled" : !isAhmed(currentUser) ? "Only the IT admin can manage 2FA settings" : "Executive and IT users always require 2FA";
 
   // ── Edit page view (blurred users list as background) ─────────────────────
   if (view === 'edit') {
@@ -2671,6 +2971,9 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
                   </label>
                   <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
                     <input type="checkbox" checked={!!form.darkMode} onChange={e=>setForm(f=>({...f,darkMode:e.target.checked}))} style={{ accentColor:"#888", width:15, height:15 }} /> Dark Mode
+                  </label>
+                  <label title={formTwoFactorLocked ? formTwoFactorLockedReason : "Require this user to use an authenticator code at login"} style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:formTwoFactorLocked?"not-allowed":"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem", gridColumn:"1 / -1", opacity:formTwoFactorLocked?0.82:1 }}>
+                    <input type="checkbox" checked={formTwoFactorLocked && isAhmed(form) ? true : !!form.twoFactorRequired} disabled={formTwoFactorLocked} onChange={e=>setForm(f=>({...f,twoFactorRequired:e.target.checked}))} style={{ accentColor:"#FF671F", width:15, height:15 }} /> Require 2FA{formTwoFactorLocked ? ` (${isAhmed(form) ? "always on" : "IT admin only"})` : ""}
                   </label>
                 </div>
                 {/* Contact section */}
@@ -2768,6 +3071,11 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
                   <span>{u.darkMode ? "🌙 Dark" : "☀️ Light"} · {u.region||"PA"}</span>
                   <span>{u.lastLogin ? new Date(u.lastLogin).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "Never logged in"}</span>
                 </div>
+                {isTwoFactorRequired(u) && (
+                  <div style={{ fontSize:"0.68rem", color:"#FF671F", fontWeight:800, marginTop:"0.15rem" }}>
+                    2FA required{u.twoFactorSecret ? " and set up" : " - setup pending"}
+                  </div>
+                )}
               </div>
 
               {/* Card actions */}
@@ -2792,6 +3100,15 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
                     title={u.email ? "Resend welcome email" : "No email on file"}
                     style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#10b98118", color:"#10b981", opacity:u.email?1:0.35 }) }}>
                     {emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"⏳":emailAction.status==="ok"?"✅":"❌") : "📧"}
+                  </button>
+                )}
+                {isFullAdmin(currentUser) && isTwoFactorRequired(u) && (
+                  <button
+                    onClick={() => revokeTrustedDevices(u)}
+                    disabled={revokeAction?.userId === u.id && revokeAction?.status === "revoking"}
+                    title="Revoke trusted devices — forces 2FA re-verification on next login"
+                    style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#f9731618", color:"#f97316", opacity: revokeAction?.userId === u.id && revokeAction?.status === "revoking" ? 0.5 : 1 }) }}>
+                    {revokeAction?.userId === u.id ? (revokeAction.status === "revoking" ? "⏳" : revokeAction.status === "ok" ? "✅" : "❌") : "🔐"}
                   </button>
                 )}
                 {isFullAdmin(currentUser) && (
@@ -18353,7 +18670,7 @@ function PCGPortal() {
     }
   }, [dark]);
 
-  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const updated = { ...u, lastLogin: now }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, lastLogin: now } : x)); if (u.darkMode !== undefined) setDark(u.darkMode); if (u.userType === "vendor") setTab("projects"); }} dark={dark} users={users} toggleDark={() => {
+  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const updated = { ...u, lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); if (u.darkMode !== undefined) setDark(u.darkMode); if (u.userType === "vendor") setTab("projects"); }} dark={dark} users={users} toggleDark={() => {
     const newDark = !dark;
     setDark(newDark);
   }} />;
@@ -18823,7 +19140,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v6.8
+            v7.0
           </div>
         )}
         {/* Collapse toggle — desktop only */}
