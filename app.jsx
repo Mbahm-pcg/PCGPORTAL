@@ -10749,46 +10749,39 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             <div style={{ marginTop: '1.25rem', padding: '1rem', background: th.card3, borderRadius: '0.5rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.text, marginBottom: '0.75rem' }}>Send Report Now</div>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button onClick={async () => {
-                  showAlert('success', 'Sending daily exec report...');
-                  try {
-                    const res = await fetch('/.netlify/functions/analyst', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send-report', reportType: 'daily', userId: user.id }) });
-                    const data = await res.json();
-                    showAlert(data.ok ? 'success' : 'error', data.ok ? 'Daily exec report sent! Check your inbox.' : 'Failed: ' + (data.error || 'unknown'));
-                  } catch (e) { showAlert('error', 'Failed: ' + e.message); }
-                }} style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.75rem', background: '#00d084' })}>
-                  Daily Exec Report
-                </button>
-                <button onClick={async () => {
-                  showAlert('success', 'Sending exec report (preliminary)...');
-                  try {
-                    const res = await fetch('/.netlify/functions/analyst', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send-report', reportType: 'exec', laborAdjusted: false, userId: user.id }) });
-                    const data = await res.json();
-                    showAlert(data.ok ? 'success' : 'error', data.ok ? 'Exec report (preliminary) sent!' : 'Failed: ' + (data.error || 'unknown'));
-                  } catch (e) { showAlert('error', 'Failed: ' + e.message); }
-                }} style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.75rem' })}>
-                  Exec Report — Preliminary
-                </button>
-                <button onClick={async () => {
-                  showAlert('success', 'Sending exec report (post-adjustment)...');
-                  try {
-                    const res = await fetch('/.netlify/functions/analyst', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send-report', reportType: 'exec', laborAdjusted: true, userId: user.id }) });
-                    const data = await res.json();
-                    showAlert(data.ok ? 'success' : 'error', data.ok ? 'Exec report (post-adjustment) sent!' : 'Failed: ' + (data.error || 'unknown'));
-                  } catch (e) { showAlert('error', 'Failed: ' + e.message); }
-                }} style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.75rem' })}>
-                  Exec Report — Post-Adjustment
-                </button>
-                <button onClick={async () => {
-                  showAlert('success', 'Sending DM briefs...');
-                  try {
-                    const res = await fetch('/.netlify/functions/analyst', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send-report', reportType: 'dm', userId: user.id }) });
-                    const data = await res.json();
-                    showAlert(data.ok ? 'success' : 'error', data.ok ? `${data.sent} DM briefs sent!` : 'Failed: ' + (data.error || 'unknown'));
-                  } catch (e) { showAlert('error', 'Failed: ' + e.message); }
-                }} style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.75rem', background: '#22c55e' })}>
-                  DM Daily Briefs
-                </button>
+                {[
+                  { label: 'Daily Exec Report', type: 'daily', color: '#00d084', desc: 'today\'s snapshot' },
+                  { label: 'Weekly — Preliminary', type: 'exec', color: '#FF671F', desc: 'last week, pre-adjustment', extra: { laborAdjusted: false } },
+                  { label: 'Weekly — Post-Adjustment', type: 'exec', color: '#FF671F', desc: 'last week, final figures', extra: { laborAdjusted: true } },
+                  { label: 'DM Daily Briefs', type: 'dm', color: '#22c55e', desc: 'per-district to each DM' },
+                ].map(r => (
+                  <button key={r.label} onClick={async () => {
+                    showAlert('success', `Generating ${r.label}... This may take a few minutes. You'll get an email when it's done.`);
+                    try {
+                      await fetch('/.netlify/functions/analyst-report-background', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reportType: r.type, userId: user.id, ...(r.extra || {}) }),
+                      });
+                      // Poll for completion
+                      let attempts = 0;
+                      const poll = setInterval(async () => {
+                        attempts++;
+                        if (attempts > 60) { clearInterval(poll); return; } // 5 min max
+                        try {
+                          const status = await cloudLoad('analyst/report-last-send');
+                          if (status && new Date(status.at) > new Date(Date.now() - 300000)) {
+                            clearInterval(poll);
+                            if (status.error) showAlert('error', 'Report failed: ' + status.error);
+                            else showAlert('success', `${r.label} sent! Check your inbox.`);
+                          }
+                        } catch {}
+                      }, 5000);
+                    } catch (e) { showAlert('error', 'Failed to start: ' + e.message); }
+                  }} style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.75rem', background: r.color })}
+                    title={r.desc}>
+                    {r.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
