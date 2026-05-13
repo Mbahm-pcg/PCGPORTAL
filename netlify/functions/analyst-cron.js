@@ -1,6 +1,8 @@
-// analyst-cron.js — Scheduled function: refresh KPI cache, detect anomalies, generate briefs + cases
-// Schedule: "0 10 * * *" (5:30 AM ET = 10:30 UTC, but using 10:00 UTC / 6:00 AM ET)
-// Also runs every 4 hours for anomaly detection via labor-cron piggyback.
+// analyst-cron.js — Scheduled function: anomalies, briefs, cases, AND email reports
+// Schedule: runs at multiple times (see netlify.toml)
+// DM briefs: 7 AM ET daily (11:00 UTC)
+// Exec report: Sunday 10 AM ET (14:00 UTC) + Tuesday 10 AM ET (14:00 UTC)
+// Anomaly detection: every run
 
 const { detectAnomalies } = require('./analyst-lib/analyst-anomaly');
 const { createCaseFromAnomaly, getCases } = require('./analyst-lib/analyst-cases');
@@ -9,6 +11,7 @@ const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { PERSONA, buildBriefPrompt } = require('./analyst-lib/analyst-prompts');
 const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
 const { logAudit } = require('./analyst-lib/analyst-audit');
+const { sendDMBriefs, sendExecReport, loadReportSettings } = require('./analyst-lib/analyst-reports');
 
 exports.handler = async (event) => {
   const headers = {
@@ -136,13 +139,51 @@ exports.handler = async (event) => {
       console.log(`[analyst-cron] Generated ${briefsGenerated} briefs`);
     }
 
-    // ── Step 4: Log run summary ─────────────────────────────────────────
+    // ── Step 4: Email reports (time-gated) ────────────────────────────
+    let dmBriefsSent = 0;
+    let execReportSent = false;
+    const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const hourET = nowET.getHours();
+    const dayET = nowET.getDay(); // 0=Sun, 2=Tue
+
+    const reportSettings = await loadReportSettings();
+
+    // DM daily briefs — send at 7 AM ET (cron fires at 11 UTC)
+    if ((hourET >= 6 && hourET <= 8) || isManual) {
+      if (reportSettings.dmBriefEnabled !== false) {
+        try {
+          // Load users from blob to get DM emails
+          const usersBlob = await cacheLoad('pcg_portal_users');
+          dmBriefsSent = await sendDMBriefs(reportSettings, Array.isArray(usersBlob) ? usersBlob : []);
+          console.log(`[analyst-cron] Sent ${dmBriefsSent} DM briefs`);
+        } catch (err) {
+          console.warn('[analyst-cron] DM briefs failed:', err.message);
+        }
+      }
+    }
+
+    // Exec weekly report — Sunday 10 AM ET (preliminary) + Tuesday 10 AM ET (post-adjustment)
+    if (((dayET === 0 || dayET === 2) && hourET >= 9 && hourET <= 11) || isManual) {
+      if (reportSettings.execReportEnabled !== false) {
+        try {
+          const isLaborAdjusted = dayET === 2; // Tuesday = post-adjustment
+          execReportSent = await sendExecReport(reportSettings, isLaborAdjusted);
+          console.log(`[analyst-cron] Sent exec report (${isLaborAdjusted ? 'post-adjustment' : 'preliminary'})`);
+        } catch (err) {
+          console.warn('[analyst-cron] Exec report failed:', err.message);
+        }
+      }
+    }
+
+    // ── Step 5: Log run summary ─────────────────────────────────────────
     const summary = {
       ok: true,
       completedAt: new Date().toISOString(),
       anomaliesDetected: anomalies.length,
       casesCreated,
       briefsGenerated,
+      dmBriefsSent,
+      execReportSent,
       isManual,
     };
 

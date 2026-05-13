@@ -10052,6 +10052,37 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [logOpen, setLogOpen] = useState(false);
   const [pushSubs, setPushSubs] = useState(null);
 
+  // ── Orion Report Settings ──────────────────────────────────────────
+  const [reportSettings, setReportSettings] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [newReportCC, setNewReportCC] = useState("");
+
+  const loadReportSettings = async () => {
+    setReportLoading(true);
+    try {
+      const res = await fetch('/.netlify/functions/analyst', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'report-settings', userId: user.id }),
+      });
+      const data = await res.json();
+      setReportSettings(data.settings || {});
+    } catch {}
+    setReportLoading(false);
+  };
+
+  const updateReportSetting = async (update) => {
+    try {
+      const res = await fetch('/.netlify/functions/analyst', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'report-settings', userId: user.id, update }),
+      });
+      const data = await res.json();
+      if (data.settings) setReportSettings(data.settings);
+      showAlert("success", "Report settings updated");
+    } catch { showAlert("error", "Failed to update settings"); }
+  };
+
   const loadNotifyLog = async () => {
     setLogLoading(true);
     try {
@@ -10535,6 +10566,118 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           </>
         );
       })()}
+
+      {/* Orion Report Settings */}
+      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reportOpen ? '1rem' : 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '1.125rem' }}>🔮</span>
+            <span style={{ fontWeight: 700, fontSize: '1rem', color: th.text }}>Orion Report Settings</span>
+          </div>
+          <button onClick={() => { setReportOpen(o => !o); if (!reportSettings) loadReportSettings(); }}
+            style={{ ...btn(th, { padding: '0.35rem 0.75rem', fontSize: '0.75rem' }) }}>
+            {reportOpen ? 'Hide' : 'Configure'}
+          </button>
+        </div>
+
+        {reportOpen && reportLoading && <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0' }}>Loading...</div>}
+
+        {reportOpen && !reportLoading && reportSettings && (
+          <div>
+            <p style={{ fontSize: '0.8125rem', color: th.muted, marginBottom: '1rem' }}>
+              Configure who receives Orion's automated reports. DM briefs send daily at 7 AM ET. Exec reports send Sundays (preliminary) and Tuesdays (post-adjustment) at 10 AM ET.
+            </p>
+
+            {/* Toggles */}
+            <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: th.text, cursor: 'pointer' }}>
+                <input type="checkbox" checked={reportSettings.dmBriefEnabled !== false}
+                  onChange={e => updateReportSetting({ dmBriefEnabled: e.target.checked })} />
+                DM Daily Briefs
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: th.text, cursor: 'pointer' }}>
+                <input type="checkbox" checked={reportSettings.execReportEnabled !== false}
+                  onChange={e => updateReportSetting({ execReportEnabled: e.target.checked })} />
+                Exec Weekly Reports
+              </label>
+            </div>
+
+            {/* Exec Report CC */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>
+                Exec Report Recipients (CC on all exec reports)
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '0.5rem' }}>
+                {(reportSettings.execReportCC || []).map((email, i) => (
+                  <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: '999px', padding: '0.2rem 0.6rem', fontSize: '0.75rem', color: th.text }}>
+                    {email}
+                    <button onClick={() => {
+                      const updated = (reportSettings.execReportCC || []).filter((_, j) => j !== i);
+                      updateReportSetting({ execReportCC: updated });
+                    }} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginLeft: 2 }}>✕</button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input style={inp(th)} placeholder="Add email address" value={newReportCC}
+                  onChange={e => setNewReportCC(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && newReportCC.includes('@')) {
+                      const updated = [...(reportSettings.execReportCC || []), newReportCC.trim()];
+                      updateReportSetting({ execReportCC: updated });
+                      setNewReportCC('');
+                    }
+                  }} />
+                <button onClick={() => {
+                  if (!newReportCC.includes('@')) { showAlert('error', 'Enter a valid email'); return; }
+                  const updated = [...(reportSettings.execReportCC || []), newReportCC.trim()];
+                  updateReportSetting({ execReportCC: updated });
+                  setNewReportCC('');
+                }} style={btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem' })}>Add</button>
+              </div>
+            </div>
+
+            {/* DM Brief CC */}
+            <div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>
+                DM Brief CC (copied on all DM daily briefs)
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '0.5rem' }}>
+                {(reportSettings.dmBriefCC || []).map((email, i) => (
+                  <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: '999px', padding: '0.2rem 0.6rem', fontSize: '0.75rem', color: th.text }}>
+                    {email}
+                    <button onClick={() => {
+                      const updated = (reportSettings.dmBriefCC || []).filter((_, j) => j !== i);
+                      updateReportSetting({ dmBriefCC: updated });
+                    }} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginLeft: 2 }}>✕</button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input style={inp(th)} placeholder="Add email address" value={newReportCC}
+                  onChange={e => setNewReportCC(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && newReportCC.includes('@')) {
+                      const updated = [...(reportSettings.dmBriefCC || []), newReportCC.trim()];
+                      updateReportSetting({ dmBriefCC: updated });
+                      setNewReportCC('');
+                    }
+                  }} />
+                <button onClick={() => {
+                  if (!newReportCC.includes('@')) { showAlert('error', 'Enter a valid email'); return; }
+                  const updated = [...(reportSettings.dmBriefCC || []), newReportCC.trim()];
+                  updateReportSetting({ dmBriefCC: updated });
+                  setNewReportCC('');
+                }} style={btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem' })}>Add</button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '1rem', fontSize: '0.7rem', color: th.muted, lineHeight: 1.5 }}>
+              <strong>Schedule:</strong> DM briefs daily at 7:00 AM ET. Exec reports: Sunday 10:00 AM ET (preliminary — labor may be inaccurate until DM adjustments by Monday 1 PM) + Tuesday 10:00 AM ET (post-adjustment, final figures).
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Notification Log */}
       <div style={{ marginTop: "1.5rem" }}>
@@ -18517,7 +18660,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v6.1
+            v6.5
           </div>
         )}
         {/* Collapse toggle — desktop only */}

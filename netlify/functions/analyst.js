@@ -1,5 +1,5 @@
 // analyst.js — HTTP handler for the UOP Analyst module
-// Actions: ask, brief, brief-refresh, case-list, case-detail, case-update, feedback
+// Actions: ask, brief, brief-refresh, case-list, case-detail, case-update, feedback, report-settings
 
 const { askAnalyst } = require('./analyst-lib/analyst-claude');
 const { buildDataContext, buildKPISnapshot } = require('./analyst-lib/analyst-data');
@@ -8,6 +8,7 @@ const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { getCases, loadCase, updateCaseStatus } = require('./analyst-lib/analyst-cases');
 const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
 const { logFeedback } = require('./analyst-lib/analyst-audit');
+const { loadReportSettings } = require('./analyst-lib/analyst-reports');
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -199,6 +200,20 @@ exports.handler = async (event) => {
     if (action === 'snapshot') {
       const snapshot = await buildKPISnapshot({ district });
       return json(200, snapshot);
+    }
+
+    // ── Report Settings (get/update) ───────────────────────────────────
+    if (action === 'report-settings') {
+      const { update } = payload;
+      if (update) {
+        // Merge update into existing settings
+        const current = await loadReportSettings();
+        const merged = { ...current, ...update };
+        await cacheSave('analyst/report-settings', merged);
+        return json(200, { settings: merged, updated: true });
+      }
+      const settings = await loadReportSettings();
+      return json(200, { settings });
     }
 
     return json(400, { error: `Unknown action: ${action}` });
