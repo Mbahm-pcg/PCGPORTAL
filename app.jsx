@@ -10602,10 +10602,55 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               </label>
             </div>
 
+            {/* Dynamic Exec Recipients */}
+            {(() => {
+              const execUsers = (users || []).filter(u => (u.userType === 'executive' || u.userType === 'it') && u.active);
+              return (
+                <div style={{ marginBottom: '1rem', padding: '0.75rem', background: th.card2, borderRadius: '0.5rem' }}>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>Exec Report — Primary Recipients</div>
+                  {execUsers.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                      {execUsers.map(u => (
+                        <span key={u.id} style={{ fontSize: '0.75rem', color: th.text, background: th.card3, padding: '0.2rem 0.6rem', borderRadius: '0.3rem', border: `1px solid ${th.cardBorder}` }}>
+                          {u.name} <span style={{ color: u.email ? '#22c55e' : '#ff4444', fontSize: '0.65rem' }}>{u.email || '(no email)'}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '0.75rem', color: th.muted }}>No executive/IT users found</div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Dynamic DM Recipients */}
+            {(() => {
+              const dmUsers = (users || []).filter(u => u.userType === 'dm' && u.active);
+              return (
+                <div style={{ marginBottom: '1rem', padding: '0.75rem', background: th.card2, borderRadius: '0.5rem' }}>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>DM Brief — Primary Recipients</div>
+                  {dmUsers.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                      {dmUsers.map(u => (
+                        <span key={u.id} style={{ fontSize: '0.75rem', color: th.text, background: th.card3, padding: '0.2rem 0.6rem', borderRadius: '0.3rem', border: `1px solid ${th.cardBorder}` }}>
+                          D{u.district} — {u.name} <span style={{ color: u.email ? '#22c55e' : '#ff4444', fontSize: '0.65rem' }}>{u.email || '(no email)'}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '0.75rem', color: th.muted }}>No DM users found</div>
+                  )}
+                  {dmUsers.some(u => !u.email) && (
+                    <div style={{ fontSize: '0.7rem', color: '#ff4444', marginTop: '0.5rem' }}>⚠️ DMs without email addresses will not receive briefs. Update their profiles in Users.</div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Exec Report CC */}
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>
-                Exec Report Recipients (CC on all exec reports)
+                Additional CC — Exec Reports
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '0.5rem' }}>
                 {(reportSettings.execReportCC || []).map((email, i) => (
@@ -10640,7 +10685,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             {/* DM Brief CC */}
             <div>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>
-                DM Brief CC (copied on all DM daily briefs)
+                Additional CC — DM Daily Briefs
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '0.5rem' }}>
                 {(reportSettings.dmBriefCC || []).map((email, i) => (
