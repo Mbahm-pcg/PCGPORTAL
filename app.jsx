@@ -17283,6 +17283,10 @@ function PCGPortal() {
   const [showProfile, setShowProfile] = useState(false);
   const [cloudStatus, setCloudStatus] = useState('idle');
   const [logoAnim, setLogoAnim] = useState(false);
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
+  const [timeoutCountdown, setTimeoutCountdown] = useState(60);
+  const lastActivityRef = useRef(Date.now());
+  const warningActiveRef = useRef(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [dataAlert, setDataAlert]   = useState(null); // { type: "success"|"error", msg }
   const importRef = useRef(null);
@@ -17335,6 +17339,48 @@ function PCGPortal() {
       window.removeEventListener('pageshow', onPageShow);
     };
   }, []);
+
+  // Inactivity session timeout — 5 min total (4min45s idle → 15s warning → logout)
+  useEffect(() => {
+    if (!user) return;
+    const WARN_AFTER = 4 * 60 * 1000 + 45 * 1000;
+    const LOGOUT_AFTER = 5 * 60 * 1000;
+
+    const resetActivity = () => {
+      lastActivityRef.current = Date.now();
+      if (warningActiveRef.current) {
+        warningActiveRef.current = false;
+        setShowTimeoutWarning(false);
+        setTimeoutCountdown(15);
+      }
+    };
+
+    const EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+    EVENTS.forEach(e => window.addEventListener(e, resetActivity, { passive: true }));
+
+    const interval = setInterval(() => {
+      const idle = Date.now() - lastActivityRef.current;
+      if (idle >= LOGOUT_AFTER) {
+        setUser(null);
+        setTab("dashboard");
+        tabHistoryRef.current = ["dashboard"];
+        warningActiveRef.current = false;
+        setShowTimeoutWarning(false);
+        setTimeoutCountdown(15);
+      } else if (idle >= WARN_AFTER && !warningActiveRef.current) {
+        warningActiveRef.current = true;
+        setShowTimeoutWarning(true);
+        setTimeoutCountdown(Math.round((LOGOUT_AFTER - idle) / 1000));
+      } else if (warningActiveRef.current) {
+        setTimeoutCountdown(Math.round((LOGOUT_AFTER - idle) / 1000));
+      }
+    }, 1000);
+
+    return () => {
+      EVENTS.forEach(e => window.removeEventListener(e, resetActivity));
+      clearInterval(interval);
+    };
+  }, [user]);
 
   // Build tab history so swipe-back knows where to return
   useEffect(() => {
@@ -18784,7 +18830,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v6.6
+            v6.7
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -18812,6 +18858,29 @@ function PCGPortal() {
 
   return (
     <div className="dash-enter" style={{ display: "flex", minHeight: "100vh", background: th.bg, transition: "background .3s" }}>
+
+      {/* Session timeout warning banner */}
+      {showTimeoutWarning && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: timeoutCountdown <= 5 ? "#ef4444" : "#FF671F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.5rem", boxShadow: "0 2px 12px rgba(0,0,0,0.25)", transition: "background .3s", gap: "1rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", fontFamily: "'Source Sans 3'", fontSize: "0.9375rem" }}>
+            <span style={{ fontSize: "1.125rem" }}>⏱️</span>
+            <span>You've been inactive — logging out in</span>
+            <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.125rem", minWidth: "2rem" }}>{timeoutCountdown}s</span>
+          </div>
+          <div style={{ display: "flex", gap: "0.625rem", flexShrink: 0 }}>
+            <button
+              onClick={() => { lastActivityRef.current = Date.now(); warningActiveRef.current = false; setShowTimeoutWarning(false); setTimeoutCountdown(15); }}
+              style={{ padding: "0.375rem 1rem", borderRadius: "0.5rem", background: "#fff", color: "#FF671F", border: "none", cursor: "pointer", fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.875rem" }}>
+              Stay Logged In
+            </button>
+            <button
+              onClick={() => { setUser(null); setTab("dashboard"); tabHistoryRef.current = ["dashboard"]; setShowTimeoutWarning(false); }}
+              style={{ padding: "0.375rem 1rem", borderRadius: "0.5rem", background: "rgba(0,0,0,0.2)", color: "#fff", border: "1px solid rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.875rem" }}>
+              Log Out
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Global Ask Analyst Omnibar (Cmd-K) */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
