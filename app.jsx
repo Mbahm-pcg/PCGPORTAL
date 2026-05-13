@@ -11647,7 +11647,7 @@ function importData(file, onSuccess, onError) {
 }
 
 // ── Chat Section ─────────────────────────────────────────────────────────────
-function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert, initialChannelId }) {
+function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert, initialChannelId, pendingOrionQuestion, clearPendingOrion }) {
   const [chatView, setChatView] = useState(initialChannelId ? "thread" : "list");
   const [activeChannelId, setActiveChannelId] = useState(initialChannelId || null);
   const [msgText, setMsgText] = useState("");
@@ -11657,6 +11657,88 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   const [groupName, setGroupName] = useState("");
   const [groupMembers, setGroupMembers] = useState([]);
   const [dmSearch, setDmSearch] = useState("");
+  const [orionThinking, setOrionThinking] = useState(false);
+
+  // ── Handle pending Orion question from KPI tile click ──────────────
+  useEffect(() => {
+    if (!pendingOrionQuestion) return;
+    const analystChId = `analyst_${user.id}`;
+    // Ensure we're in the analyst channel thread
+    setActiveChannelId(analystChId);
+    setChatView("thread");
+    // Auto-send the question after a brief delay for state to settle
+    const timer = setTimeout(() => {
+      const msg = {
+        id: makeMsgId(), channelId: analystChId, senderId: user.id,
+        senderName: user.name, senderInitials: user.initials,
+        text: pendingOrionQuestion, mentions: [], attachments: [],
+        timestamp: new Date().toISOString(), deleted: false,
+      };
+      setMessages(prev => [...prev, msg]);
+      setReadState(prev => ({ ...prev, [`${user.id}_${analystChId}`]: msg.timestamp }));
+      sendToOrion(pendingOrionQuestion, analystChId);
+      if (clearPendingOrion) clearPendingOrion();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [pendingOrionQuestion]);
+
+  // ── Analyst channels — seed on first load ──────────────────────────
+  const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm");
+  useEffect(() => {
+    if (!isAnalystUser) return;
+    const analystChannels = [
+      { id: `analyst_${user.id}`, type: "analyst", name: "Orion — My Analyst", members: [user.id], createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "analyst_exec", type: "analyst", name: "Orion — Executive Room", members: users.filter(u => u.userType === "executive" || u.userType === "it").map(u => u.id), createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "analyst_ops", type: "analyst", name: "Orion — Operations", members: users.filter(u => ["executive", "it", "dm", "office_staff"].includes(u.userType)).map(u => u.id), createdAt: "2026-01-01T00:00:00.000Z" },
+    ];
+    const existing = channels.map(c => c.id);
+    const toAdd = analystChannels.filter(ac => !existing.includes(ac.id));
+    if (toAdd.length > 0) setChannels(prev => [...toAdd, ...prev]);
+  }, [user?.id]);
+
+  // ── Send message to Orion (analyst channel handler) ────────────────
+  const sendToOrion = async (question, channelId) => {
+    setOrionThinking(true);
+    try {
+      const district = user.userType === "dm" ? user.district : null;
+      const res = await fetch("/.netlify/functions/analyst", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ask", question, channelId,
+          userId: user.id, userRole: user.userType, district,
+          forceDeep: question.toLowerCase().includes("deep analysis"),
+        }),
+      });
+      const data = await res.json();
+      if (data.answer) {
+        const orionMsg = {
+          id: data.messageId || makeMsgId(),
+          channelId,
+          senderId: "orion",
+          senderName: "Orion",
+          senderInitials: "O",
+          text: data.answer,
+          mentions: [],
+          attachments: [],
+          timestamp: new Date().toISOString(),
+          deleted: false,
+          isOrion: true,
+          model: data.model,
+          tokens: data.tokens,
+          latencyMs: data.latencyMs,
+        };
+        setMessages(prev => [...prev, orionMsg]);
+      }
+    } catch (err) {
+      const errorMsg = {
+        id: makeMsgId(), channelId, senderId: "orion", senderName: "Orion", senderInitials: "O",
+        text: "Sorry, I encountered an error processing your question. Please try again.",
+        mentions: [], attachments: [], timestamp: new Date().toISOString(), deleted: false, isOrion: true,
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    }
+    setOrionThinking(false);
+  };
   const [logFilters, setLogFilters] = useState({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -11666,6 +11748,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
 
   // Get channel display name
   const getChannelName = (ch) => {
+    if (ch.type === "analyst") return ch.name || "Orion Analyst";
     if (ch.type === "dm") {
       const otherId = ch.members.find(id => id !== user.id);
       const other = users.find(u => u.id === otherId);
@@ -11680,6 +11763,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
 
   // Get channel avatar/initials
   const getChannelAvatar = (ch) => {
+    if (ch.type === "analyst") return "🔮";
     if (ch.type === "dm") {
       const otherId = ch.members.find(id => id !== user.id);
       const other = users.find(u => u.id === otherId);
@@ -11749,12 +11833,19 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
       deleted: false, deletedBy: null
     };
     setMessages(prev => [...prev, msg]);
+    const questionText = msgText.trim();
     setMsgText(""); setPendingAttachments([]);
     // Update own read state
     setReadState(prev => ({ ...prev, [`${user.id}_${activeChannelId}`]: msg.timestamp }));
 
-    // Push notification for chat messages
+    // If this is an analyst channel, route to Orion instead of push notifications
     const ch = channels.find(c => c.id === activeChannelId);
+    if (ch && ch.type === "analyst") {
+      sendToOrion(questionText, activeChannelId);
+      return;
+    }
+
+    // Push notification for regular chat messages
     if (ch && ch.members) {
       const recipientIds = ch.members.filter(id => id !== user.id);
       const pushIds = recipientIds.filter(id => {
@@ -12048,14 +12139,14 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
           <button onClick={() => { setChatView("list"); setActiveChannelId(null); setMsgText(""); setPendingAttachments([]); setMentionQuery(null); }}
             style={{ ...btn(th, { padding: "0.4rem 0.75rem", fontSize: "0.8125rem", background: "none", color: th.muted }) }}>← Back</button>
           <div style={{ width: 36, height: 36, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: activeChannel.type === "dm" ? "0.75rem" : "1rem",
-            background: activeChannel.type === "dm" ? O + "22" : activeChannel.type === "project" ? "#8b5cf622" : "#3b82f622",
-            color: activeChannel.type === "dm" ? O : activeChannel.type === "project" ? "#8b5cf6" : "#3b82f6" }}>
+            background: activeChannel.type === "analyst" ? "#8b5cf622" : activeChannel.type === "dm" ? O + "22" : activeChannel.type === "project" ? "#8b5cf622" : "#3b82f622",
+            color: activeChannel.type === "analyst" ? "#8b5cf6" : activeChannel.type === "dm" ? O : activeChannel.type === "project" ? "#8b5cf6" : "#3b82f6" }}>
             {getChannelAvatar(activeChannel)}
           </div>
           <div>
             <div style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>{getChannelName(activeChannel)}</div>
             <div style={{ fontSize: "0.6875rem", color: th.muted }}>
-              {activeChannel.type === "dm" ? "Direct Message" : `${activeChannel.members.length} member${activeChannel.members.length !== 1 ? "s" : ""}`}
+              {activeChannel.type === "analyst" ? "AI Analyst — ask about sales, labor, operations" : activeChannel.type === "dm" ? "Direct Message" : `${activeChannel.members.length} member${activeChannel.members.length !== 1 ? "s" : ""}`}
             </div>
           </div>
         </div>
@@ -12063,7 +12154,11 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
         {/* Messages */}
         <div style={{ flex: 1, overflow: "auto", paddingRight: 4, minHeight: 0 }}>
           {threadMessages.length === 0 && (
-            <div style={{ textAlign: "center", color: th.muted, fontSize: "0.875rem", marginTop: "3rem" }}>No messages yet. Say hello! 👋</div>
+            <div style={{ textAlign: "center", color: th.muted, fontSize: "0.875rem", marginTop: "3rem" }}>
+              {activeChannel && activeChannel.type === "analyst"
+                ? <>🔮 <strong style={{ color: "#8b5cf6" }}>Orion is ready.</strong> Ask anything about your stores, labor, sales, or operations.<br/><span style={{ fontSize: "0.75rem" }}>Try: "Which stores have the highest labor today?" or "Deep analysis on District 3"</span></>
+                : "No messages yet. Say hello! 👋"}
+            </div>
           )}
           {grouped.map(([date, msgs]) => (
             <div key={date}>
@@ -12072,25 +12167,29 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
               </div>
               {msgs.map(m => {
                 const isMine = m.senderId === user.id;
+                const isOrionMsg = m.isOrion || m.senderId === "orion";
                 const canDelete = isMine || isAdmin;
                 const seenBy = isMine ? getSeenBy(m) : [];
                 return (
                   <div key={m.id} style={{ display: "flex", flexDirection: isMine ? "row-reverse" : "row", gap: "0.5rem", marginBottom: "0.75rem", alignItems: "flex-start" }}>
                     {!isMine && (
-                      <div style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.625rem", flexShrink: 0, marginTop: 2 }}>
-                        {m.senderInitials}
+                      <div style={{ width: 32, height: 32, borderRadius: "50%", background: isOrionMsg ? "#8b5cf622" : O + "22", color: isOrionMsg ? "#8b5cf6" : O, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: isOrionMsg ? "1rem" : "0.625rem", flexShrink: 0, marginTop: 2 }}>
+                        {isOrionMsg ? "🔮" : m.senderInitials}
                       </div>
                     )}
-                    <div style={{ maxWidth: "70%" }}>
-                      {!isMine && <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.text, marginBottom: 2 }}>{m.senderName}</div>}
+                    <div style={{ maxWidth: isOrionMsg ? "85%" : "70%" }}>
+                      {!isMine && <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: isOrionMsg ? "#8b5cf6" : th.text, marginBottom: 2 }}>{m.senderName}{isOrionMsg && m.model ? <span style={{ fontSize: "0.55rem", color: th.muted, marginLeft: 6 }}>{m.model.includes("haiku") ? "⚡ Haiku" : "🧠 Sonnet"} · {m.latencyMs ? (m.latencyMs/1000).toFixed(1)+"s" : ""}</span> : null}</div>}
                       <div style={{
-                        padding: "0.5rem 0.75rem", borderRadius: isMine ? "1rem 1rem 0.25rem 1rem" : "1rem 1rem 1rem 0.25rem",
-                        background: m.deleted ? th.card2 : isMine ? O : th.card2,
+                        padding: isOrionMsg ? "0.75rem 1rem" : "0.5rem 0.75rem", borderRadius: isMine ? "1rem 1rem 0.25rem 1rem" : "1rem 1rem 1rem 0.25rem",
+                        background: m.deleted ? th.card2 : isMine ? O : isOrionMsg ? th.card : th.card2,
                         color: m.deleted ? th.muted : isMine ? "#fff" : th.text,
+                        border: isOrionMsg ? `1px solid ${th.cardBorder}` : "none",
                         fontSize: "0.8125rem", fontStyle: m.deleted ? "italic" : "normal", lineHeight: 1.5,
                         position: "relative"
                       }}>
-                        {m.deleted ? "[Message deleted]" : (
+                        {m.deleted ? "[Message deleted]" : isOrionMsg ? (
+                          typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(m.text, th) : m.text
+                        ) : (
                           <>
                             {m.text.split(/@([\w.]+)/g).map((part, i) =>
                               i % 2 === 1 ? <span key={i} style={{ fontWeight: 700, color: isMine ? "#fff" : O }}>@{part}</span> : <span key={i}>{part}</span>
@@ -12129,6 +12228,21 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
               })}
             </div>
           ))}
+          {/* Orion typing indicator */}
+          {orionThinking && activeChannel && activeChannel.type === "analyst" && (
+            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem", alignItems: "flex-start" }}>
+              <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#8b5cf622", color: "#8b5cf6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", flexShrink: 0 }}>🔮</div>
+              <div>
+                <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: "#8b5cf6", marginBottom: 2 }}>Orion</div>
+                <div style={{ padding: "0.5rem 0.75rem", borderRadius: "1rem 1rem 1rem 0.25rem", background: th.card, border: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#8b5cf6", animation: "pulse 1s ease-in-out infinite" }} />
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#8b5cf6", animation: "pulse 1s ease-in-out infinite", animationDelay: "0.2s" }} />
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#8b5cf6", animation: "pulse 1s ease-in-out infinite", animationDelay: "0.4s" }} />
+                  <span style={{ fontSize: "0.75rem", color: th.muted, marginLeft: 4 }}>Analyzing...</span>
+                </div>
+              </div>
+            </div>
+          )}
           <div ref={messagesEndRef} />
         </div>
 
@@ -12593,7 +12707,7 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
 }
 
 // ── Dashboard Pulse Snapshot ────────────────────────────────────────────────
-function DashboardPulse({ stores, th, setTab, isMobile }) {
+function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
   const G = '#00d084';
   const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
 
@@ -12707,22 +12821,20 @@ function DashboardPulse({ stores, th, setTab, isMobile }) {
         <>
           {/* KPI Cards */}
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: wtdTotals ? "0.75rem" : 0 }}>
-            <div style={{ background: th.card2, borderRadius: "0.75rem", padding: "1rem 1.25rem", borderLeft: `3px solid ${G}`, flex: "1 1 130px", minWidth: 130 }}>
-              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: G, textShadow: `0 0 12px ${G}66` }}>{fmtUSD(totals.netSales)}</div>
-              <div style={{ fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" }}>Net Sales — {todayStr}</div>
-            </div>
-            <div style={{ background: th.card2, borderRadius: "0.75rem", padding: "1rem 1.25rem", borderLeft: "3px solid #74c0fc", flex: "1 1 130px", minWidth: 130 }}>
-              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: "#74c0fc" }}>{fmtNum(totals.guests)}</div>
-              <div style={{ fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" }}>Guests / Checks</div>
-            </div>
-            <div style={{ background: th.card2, borderRadius: "0.75rem", padding: "1rem 1.25rem", borderLeft: "3px solid #ffd43b", flex: "1 1 130px", minWidth: 130 }}>
-              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: "#ffd43b" }}>{fmtAvg(totals.avgCheck)}</div>
-              <div style={{ fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" }}>Avg Check</div>
-            </div>
-            <div style={{ background: th.card2, borderRadius: "0.75rem", padding: "1rem 1.25rem", borderLeft: "3px solid #f06595", flex: "1 1 130px", minWidth: 130 }}>
-              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: "#f06595" }}>{fmtUSD(totals.discounts)}</div>
-              <div style={{ fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" }}>Discounts</div>
-            </div>
+            {[
+              { label: "Net Sales", value: fmtUSD(totals.netSales), color: G, sub: `Net Sales — ${todayStr}`, question: `Explain today's net sales of ${fmtUSD(totals.netSales)}. How does it compare to last week and what's driving it?` },
+              { label: "Guests", value: fmtNum(totals.guests), color: "#74c0fc", sub: "Guests / Checks", question: `Explain today's guest count of ${fmtNum(totals.guests)}. Is this above or below average? What could improve it?` },
+              { label: "Avg Check", value: fmtAvg(totals.avgCheck), color: "#ffd43b", sub: "Avg Check", question: `Explain today's average check of ${fmtAvg(totals.avgCheck)}. How does it compare to our target and what's affecting it?` },
+              { label: "Discounts", value: fmtUSD(totals.discounts), color: "#f06595", sub: "Discounts", question: `Explain today's discount total of ${fmtUSD(totals.discounts)}. Is this within normal range? Which stores are discounting the most?` },
+            ].map(kpi => (
+              <div key={kpi.label} onClick={() => onAskOrion && onAskOrion(kpi.question)} style={{ background: th.card2, borderRadius: "0.75rem", padding: "1rem 1.25rem", borderLeft: `3px solid ${kpi.color}`, flex: "1 1 130px", minWidth: 130, cursor: onAskOrion ? "pointer" : "default", transition: "transform 0.15s, box-shadow 0.15s" }}
+                onMouseEnter={e => { if (onAskOrion) { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = `0 8px 20px rgba(0,0,0,0.1), 0 0 0 1px ${kpi.color}33`; }}}
+                onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: kpi.color, textShadow: kpi.label === "Net Sales" ? `0 0 12px ${kpi.color}66` : "none" }}>{kpi.value}</div>
+                <div style={{ fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" }}>{kpi.sub}</div>
+                {onAskOrion && <div style={{ fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.35rem", opacity: 0.7 }}>🔮 Click to ask Orion</div>}
+              </div>
+            ))}
           </div>
 
           {/* WTD */}
@@ -12763,7 +12875,7 @@ function DashboardPulse({ stores, th, setTab, isMobile }) {
 }
 
 // ── Dashboard Component ─────────────────────────────────────────────────────
-function Dashboard({ user, th, links, todos, stores, projects, announcements, announcementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef }) {
+function Dashboard({ user, th, links, todos, stores, projects, announcements, announcementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion }) {
   const O = "#FF671F";
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -13381,7 +13493,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, an
       </div>
 
       {/* Pulse Snapshot — all executives */}
-      {user?.userType === "executive" && <DashboardPulse stores={stores} th={th} setTab={setTab} isMobile={isMobile} />}
+      {user?.userType === "executive" && <DashboardPulse stores={stores} th={th} setTab={setTab} isMobile={isMobile} onAskOrion={onAskOrion} />}
 
       {/* Analytics Snapshot — all executives */}
       {user?.userType === "executive" && salesWeeks && salesWeeks.length > 0 && (() => {
@@ -16831,6 +16943,7 @@ function PCGPortal() {
     setUser(null);
   };
   const [tab, setTab]           = useState("dashboard");
+  const [pendingOrionQuestion, setPendingOrionQuestion] = useState(null); // KPI click → ask Orion
   const tabHistoryRef  = useRef(["dashboard"]); // visited tab stack for swipe-back
   const isGoingBackRef = useRef(false);          // flag to suppress history push on goBack
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem('pcg_sidebar_collapsed') === 'true'; } catch { return false; } });
@@ -18404,7 +18517,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v5.77
+            v6.0
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -18704,7 +18817,7 @@ function PCGPortal() {
         )}
 
         <div className="main-content-padding" style={{ padding: "3vw 5vw" }}>
-          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} announcementsDismissed={announcementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} />}
+          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} announcementsDismissed={announcementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} />}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
@@ -18718,7 +18831,7 @@ function PCGPortal() {
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} />}
           {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} />}
-          {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} />}
+          {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={setTab} />}

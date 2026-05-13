@@ -60,22 +60,51 @@ async function callClaude({ system, userPrompt, action, userId, forceDeep, maxTo
 
 /**
  * Ask a question with the analyst persona. Returns { answer, model, tokens }
+ * Supports conversation history for multi-turn chat.
  */
-async function askAnalyst({ userPrompt, userId, forceDeep }) {
-  const result = await callClaude({
-    system: ASK_SYSTEM,
-    userPrompt,
-    action: forceDeep ? 'deep' : 'ask',
-    userId,
-    forceDeep,
-    maxTokens: forceDeep ? 2048 : 1024,
-  });
-  return {
-    answer: result.text,
-    model: result.model,
-    tokens: { input: result.inputTokens, output: result.outputTokens },
-    latencyMs: result.latencyMs,
-  };
+async function askAnalyst({ userPrompt, userId, forceDeep, history }) {
+  const inputLength = (ASK_SYSTEM || '').length + (userPrompt || '').length;
+  const model = pickModel({ action: forceDeep ? 'deep' : 'ask', inputLength, forceDeep });
+  const start = Date.now();
+
+  try {
+    // Build messages array with conversation history
+    const messages = [];
+    if (history && Array.isArray(history)) {
+      // Include last 10 turns max to control token usage
+      const recent = history.slice(-10);
+      for (const turn of recent) {
+        if (turn.role === 'user') messages.push({ role: 'user', content: turn.content });
+        else if (turn.role === 'assistant') messages.push({ role: 'assistant', content: turn.content });
+      }
+    }
+    messages.push({ role: 'user', content: userPrompt });
+
+    const response = await getClient().messages.create({
+      model,
+      max_tokens: forceDeep ? 2048 : 1024,
+      system: ASK_SYSTEM,
+      messages,
+    });
+
+    const latencyMs = Date.now() - start;
+    const text = response.content?.[0]?.text || '';
+    const inputTokens = response.usage?.input_tokens || 0;
+    const outputTokens = response.usage?.output_tokens || 0;
+
+    logLLMCall({ model, action: forceDeep ? 'deep' : 'ask', inputTokens, outputTokens, latencyMs, userId }).catch(() => {});
+
+    return {
+      answer: text,
+      model,
+      tokens: { input: inputTokens, output: outputTokens },
+      latencyMs,
+    };
+  } catch (err) {
+    const latencyMs = Date.now() - start;
+    logLLMCall({ model, action: 'ask', inputTokens: 0, outputTokens: 0, latencyMs, userId, error: err.message }).catch(() => {});
+    throw err;
+  }
 }
 
 /**

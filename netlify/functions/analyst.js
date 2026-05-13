@@ -36,7 +36,7 @@ exports.handler = async (event) => {
   try {
     // ── Ask Analyst (omnibar / chat) ─────────────────────────────────────
     if (action === 'ask') {
-      const { question, forceDeep } = payload;
+      const { question, forceDeep, channelId, history } = payload;
       if (!question) return json(400, { error: 'Missing question' });
 
       // Build data context scoped to user's district (DMs) or full network (execs)
@@ -44,15 +44,48 @@ exports.handler = async (event) => {
       const dataContext = await buildDataContext({ district: district || null, includeStoreDetail: true });
 
       const prompt = buildAskPrompt(question, userRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext);
-      const result = await askAnalyst({ userPrompt: prompt, userId, forceDeep });
+
+      // Load conversation history from blob if channelId provided and no inline history
+      let chatHistory = history || null;
+      if (!chatHistory && channelId) {
+        const stored = await cacheLoad(`analyst/chat/${channelId}`);
+        if (stored && Array.isArray(stored)) chatHistory = stored;
+      }
+
+      const result = await askAnalyst({ userPrompt: prompt, userId, forceDeep, history: chatHistory });
+
+      const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+      // Save conversation turn to history blob if channelId provided
+      if (channelId) {
+        const existing = (await cacheLoad(`analyst/chat/${channelId}`)) || [];
+        const updated = Array.isArray(existing) ? existing : [];
+        updated.push({ role: 'user', content: question, ts: new Date().toISOString() });
+        updated.push({ role: 'assistant', content: result.answer, ts: new Date().toISOString(), messageId });
+        // Keep last 20 turns (10 pairs)
+        if (updated.length > 20) updated.splice(0, updated.length - 20);
+        await cacheSave(`analyst/chat/${channelId}`, updated);
+      }
 
       return json(200, {
         answer: result.answer,
         model: result.model,
         tokens: result.tokens,
         latencyMs: result.latencyMs,
-        messageId: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        messageId,
       });
+    }
+
+    // ── Chat History (load/clear) ────────────────────────────────────────
+    if (action === 'chat-history') {
+      const { channelId, clear } = payload;
+      if (!channelId) return json(400, { error: 'Missing channelId' });
+      if (clear) {
+        await cacheSave(`analyst/chat/${channelId}`, []);
+        return json(200, { ok: true, cleared: true });
+      }
+      const history = (await cacheLoad(`analyst/chat/${channelId}`)) || [];
+      return json(200, { history });
     }
 
     // ── Today's Brief ────────────────────────────────────────────────────
