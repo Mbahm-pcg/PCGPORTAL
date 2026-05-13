@@ -6,6 +6,139 @@ const { PERSONA } = require('./analyst-prompts');
 const { cacheSave, cacheLoad } = require('./analyst-cache');
 const { logAudit } = require('./analyst-audit');
 
+// ── Pulse POS direct fetcher (same API as pulse.js / labor-cron.js) ──────────
+const POS_APIS = {
+  p227: { host: 'pos-ra.dunkindonuts.com', path: '/p227', xkey: 'sUVxDiWxfv9xIUyBxJlpN3A7znHoIoPx1nfTR6DL', apikey: 'MjI3Onp2RnIrV1dWbnpFeXN0MThhejdyd0tHTFlOZlNGMmlZV0lRZGZXNTZ3L3FvUmFhUGMyQ1ZQalJjaHZtdWVFMWdJSzhremtJSnkxZ3E1YXlzWGN2OVpBPT0=' },
+  p228: { host: 'pos-ra.dunkindonuts.com', path: '/p228', xkey: 'g6ge9xpyBo2I0tNXGXntQ8fm104dt3VD3lQ7HjTP', apikey: 'MjI4Onp2RnIrV1dWbnpFeXN0MThhejdyd0tHTFlOZlNGMmlZV0lRZGZXNTZ3L3FvUmFhUGMyQ1ZQalJjaHZtdWVFMWdJSzhremtJSnkxZ3E1YXlzWGN2OVpBPT0=' },
+};
+function posRoute(pc) { return pc === '345986' ? 'p227' : 'p228'; }
+
+function fetchPOSSales(pc, busDt) {
+  const cfg = POS_APIS[posRoute(pc)];
+  const body = JSON.stringify({ locRef: pc, busDt, include: 'locRef,busDt,revenueCenters' });
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: cfg.host, port: 443, path: `${cfg.path}/getOperationsDailyTotals`, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': cfg.xkey, 'Api-Key': cfg.apikey, 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      let raw = '';
+      res.on('data', d => raw += d);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(raw);
+          const netSales = (json.revenueCenters || []).reduce((sum, r) => sum + (r.netSlsTtl || 0), 0);
+          resolve(netSales);
+        } catch { resolve(0); }
+      });
+    });
+    req.on('error', () => resolve(0));
+    req.setTimeout(20000, () => { req.destroy(); resolve(0); });
+    req.write(body);
+    req.end();
+  });
+}
+
+// ── Paycor labor fetcher (uses same OAuth as labor-cron) ─────────────────────
+const PAYCOR_HOST = 'apis.paycor.com';
+let paycorTokenCache = { accessToken: null, refreshToken: process.env.PAYCOR_REFRESH_TOKEN || null, expiresAt: 0 };
+let paycorRefreshPromise = null;
+
+async function getPaycorToken() {
+  if (paycorTokenCache.accessToken && Date.now() < paycorTokenCache.expiresAt - 60000) return paycorTokenCache.accessToken;
+  if (paycorRefreshPromise) return paycorRefreshPromise;
+  paycorRefreshPromise = (async () => {
+    if (!paycorTokenCache.refreshToken) throw new Error('No Paycor refresh token');
+    const formBody = `grant_type=refresh_token&refresh_token=${encodeURIComponent(paycorTokenCache.refreshToken)}&client_id=${encodeURIComponent(process.env.PAYCOR_CLIENT_ID)}&client_secret=${encodeURIComponent(process.env.PAYCOR_CLIENT_SECRET)}`;
+    const tokenPath = `/sts/v1/common/token?subscription-key=${process.env.PAYCOR_SUBSCRIPTION_KEY}`;
+    return new Promise((resolve, reject) => {
+      const req = https.request({ hostname: PAYCOR_HOST, port: 443, path: tokenPath, method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(formBody) } }, (res) => {
+        let raw = '';
+        res.on('data', d => raw += d);
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(raw);
+            if (data.access_token) {
+              paycorTokenCache = { accessToken: data.access_token, refreshToken: data.refresh_token || paycorTokenCache.refreshToken, expiresAt: Date.now() + (data.expires_in || 3600) * 1000 };
+              resolve(data.access_token);
+            } else reject(new Error('Token refresh failed'));
+          } catch (e) { reject(e); }
+        });
+      });
+      req.on('error', reject);
+      req.write(formBody);
+      req.end();
+    });
+  })();
+  try { return await paycorRefreshPromise; } finally { paycorRefreshPromise = null; }
+}
+
+function fetchPaycorPunches(legalEntityId, startDate, endDate) {
+  return new Promise(async (resolve) => {
+    try {
+      const token = await getPaycorToken();
+      const path = `/v1/legalentities/${legalEntityId}/punches?startDate=${startDate}&endDate=${endDate}`;
+      const req = https.request({ hostname: PAYCOR_HOST, port: 443, path, method: 'GET', headers: { 'Authorization': `Bearer ${token}`, 'Ocp-Apim-Subscription-Key': process.env.PAYCOR_SUBSCRIPTION_KEY, 'Content-Type': 'application/json' } }, (res) => {
+        let raw = '';
+        res.on('data', d => raw += d);
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(raw);
+            const records = data.records || data || [];
+            const totalHours = Array.isArray(records) ? records.reduce((sum, r) => sum + (r.hourAmount || 0), 0) : 0;
+            resolve(totalHours);
+          } catch { resolve(0); }
+        });
+      });
+      req.on('error', () => resolve(0));
+      req.setTimeout(25000, () => { req.destroy(); resolve(0); });
+      req.end();
+    } catch { resolve(0); }
+  });
+}
+
+// ── Fetch last week's data from live APIs when blobs are empty ────────────────
+async function fetchLastWeekLive(weekDates) {
+  console.log(`[analyst-reports] Fetching last week live data for ${weekDates.length} days...`);
+  const storeData = [];
+
+  // Process in batches of 5 stores to avoid rate limits
+  for (let i = 0; i < STORES.length; i += 5) {
+    const batch = STORES.slice(i, i + 5);
+    const results = await Promise.all(batch.map(async (store) => {
+      // Fetch sales for each day of the week from Pulse POS
+      let weekSales = 0;
+      for (const dt of weekDates) {
+        const daySales = await fetchPOSSales(store.pc, dt);
+        weekSales += daySales;
+      }
+
+      // Fetch labor hours from Paycor for the week range
+      let weekHours = 0;
+      try {
+        weekHours = await fetchPaycorPunches(store.paycor, weekDates[0], weekDates[weekDates.length - 1]);
+      } catch {}
+
+      // Estimate labor cost using cached pay rates or avg rate
+      const payRates = await cacheLoad(`pcg_payrates_${store.paycor}`);
+      let avgRate = 13; // fallback
+      if (payRates?.rates) {
+        const rates = Object.values(payRates.rates).filter(r => r.payType !== 'Salary' && r.payRate > 0);
+        if (rates.length > 0) avgRate = rates.reduce((s, r) => s + r.payRate, 0) / rates.length;
+      }
+      const weekLabor = weekHours * avgRate;
+
+      return { name: store.name, district: store.district, weekSales, weekLabor, weekLaborPct: weekSales > 0 ? (weekLabor / weekSales) * 100 : 0 };
+    }));
+    storeData.push(...results);
+
+    // Pause between batches
+    if (i + 5 < STORES.length) await new Promise(r => setTimeout(r, 1000));
+  }
+
+  console.log(`[analyst-reports] Fetched live data for ${storeData.length} stores`);
+  return storeData;
+}
+
 // ── DM district mapping (fallback if user data not available) ────────────────
 const DM_INFO = {
   1: { name: 'Taylor Cormier', email: 'taylor@peoplecapitalgroup.com' },
@@ -197,8 +330,11 @@ async function generateExecReport(isLaborAdjusted) {
     d.setDate(d.getDate() + 1);
   }
 
-  // Pull last week's actual data from per-store daily blobs
-  const storeWeekData = [];
+  // Pull last week's data — try blobs first, fall back to live API calls
+  let storeWeekData = [];
+  let usedLiveData = false;
+
+  // Try blobs first
   for (const store of STORES) {
     const history = await cacheLoad(`pcg_labor_store_${store.pc}`);
     const daily = history?.daily || [];
@@ -210,13 +346,15 @@ async function generateExecReport(isLaborAdjusted) {
         weekLabor += entry.laborDollars || 0;
       }
     }
-    storeWeekData.push({
-      name: store.name,
-      district: store.district,
-      weekSales,
-      weekLabor,
-      weekLaborPct: weekSales > 0 ? (weekLabor / weekSales) * 100 : 0,
-    });
+    storeWeekData.push({ name: store.name, district: store.district, weekSales, weekLabor, weekLaborPct: weekSales > 0 ? (weekLabor / weekSales) * 100 : 0 });
+  }
+
+  // Check if blobs had real data — if total sales is $0 or very low, fetch live
+  const blobTotal = storeWeekData.reduce((s, st) => s + st.weekSales, 0);
+  if (blobTotal < 1000) {
+    console.log(`[analyst-reports] Blob data insufficient (${blobTotal}), fetching from live APIs...`);
+    storeWeekData = await fetchLastWeekLive(lwDates);
+    usedLiveData = true;
   }
 
   // Build district summaries from last week's data
@@ -277,7 +415,7 @@ async function generateExecReport(isLaborAdjusted) {
 
   html += `<h3 style="color:#0b0b0c;font-size:16px;margin:0 0 8px;">District Scorecard</h3>`;
   html += `<table style="${tblStyle}">`;
-  html += `<tr><th style="${thStyle}">District</th><th style="${thStyle}">DM</th><th style="${thStyle}">WTD Sales</th><th style="${thStyle}">WTD Labor %</th><th style="${thStyle}">Stores</th><th style="${thStyle}">OT</th></tr>`;
+  html += `<tr><th style="${thStyle}">District</th><th style="${thStyle}">DM</th><th style="${thStyle}">Sales</th><th style="${thStyle}">Labor Cost</th><th style="${thStyle}">Labor %</th><th style="${thStyle}">Stores</th></tr>`;
   const distEntries = Object.entries(distMap).sort((a, b) => {
     const aPct = a[1].sales > 0 ? (a[1].labor / a[1].sales) * 100 : 0;
     const bPct = b[1].sales > 0 ? (b[1].labor / b[1].sales) * 100 : 0;
@@ -287,7 +425,7 @@ async function generateExecReport(isLaborAdjusted) {
     const pct = v.sales > 0 ? (v.labor / v.sales) * 100 : 0;
     const pctColor = pct > 26 ? '#f44336' : pct > 23 ? '#ff9800' : '#4caf50';
     const dm = DM_INFO[d]?.name || DM_INFO[Number(d)]?.name || '—';
-    html += `<tr><td style="${tdBold}">D${d}</td><td style="${tdStyle}">${dm}</td><td style="${tdStyle}">${fmtD(v.sales)}</td><td style="${tdStyle}color:${pctColor};font-weight:700;">${fmtP(pct)}</td><td style="${tdStyle}">${v.stores}</td><td style="${tdStyle}">${v.ot}</td></tr>`;
+    html += `<tr><td style="${tdBold}">D${d}</td><td style="${tdStyle}">${dm}</td><td style="${tdStyle}">${fmtD(v.sales)}</td><td style="${tdStyle}">${fmtD(v.labor)}</td><td style="${tdStyle}color:${pctColor};font-weight:700;">${fmtP(pct)}</td><td style="${tdStyle}">${v.stores}</td></tr>`;
   }
   html += `</table>`;
 
@@ -324,6 +462,49 @@ async function generateExecReport(isLaborAdjusted) {
     html += `<tr><td style="${tdBold}">${s.name}</td><td style="${tdStyle}">D${s.district}</td><td style="${tdStyle}color:#f44336;font-weight:700;">${fmtD(s.weekSales)}</td><td style="${tdStyle}">${fmtP(s.weekLaborPct)}</td></tr>`;
   }
   html += `</table>`;
+
+  // Weather summary for the week (Philadelphia area)
+  try {
+    const wxData = await new Promise((resolve) => {
+      const wxUrl = `/v1/forecast?latitude=40.084&longitude=-75.052&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&temperature_unit=fahrenheit&timezone=America/New_York&start_date=${weekStart}&end_date=${weekEnd}`;
+      const req = https.request({ hostname: 'api.open-meteo.com', port: 443, path: wxUrl, method: 'GET' }, (res) => {
+        let raw = '';
+        res.on('data', d => raw += d);
+        res.on('end', () => { try { resolve(JSON.parse(raw)); } catch { resolve(null); } });
+      });
+      req.on('error', () => resolve(null));
+      req.setTimeout(10000, () => { req.destroy(); resolve(null); });
+      req.end();
+    });
+
+    if (wxData?.daily) {
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const wxIcon = (code) => {
+        if (code == null) return '🌡️';
+        if (code <= 1) return '☀️';
+        if (code <= 3) return '⛅';
+        if (code <= 48) return '🌫️';
+        if (code <= 57) return '🌦️';
+        if (code <= 67) return '🌧️';
+        if (code <= 77) return '❄️';
+        if (code <= 82) return '🌧️';
+        return '⛈️';
+      };
+
+      html += `<h3 style="color:#0b0b0c;font-size:16px;margin:20px 0 8px;">Weather — Philadelphia (${weekStart} to ${weekEnd})</h3>`;
+      html += `<table style="${tblStyle}"><tr><th style="${thStyle}">Day</th><th style="${thStyle}"></th><th style="${thStyle}">High</th><th style="${thStyle}">Low</th><th style="${thStyle}">Rain %</th></tr>`;
+      for (let i = 0; i < (wxData.daily.time || []).length; i++) {
+        const dt = wxData.daily.time[i];
+        const dayName = dayNames[new Date(dt + 'T12:00:00').getDay()];
+        const hi = Math.round(wxData.daily.temperature_2m_max[i]);
+        const lo = Math.round(wxData.daily.temperature_2m_min[i]);
+        const rain = wxData.daily.precipitation_probability_max?.[i] || 0;
+        const icon = wxIcon(wxData.daily.weather_code?.[i]);
+        html += `<tr><td style="${tdBold}">${dayName} ${dt.slice(5)}</td><td style="${tdStyle}">${icon}</td><td style="${tdStyle}">${hi}°F</td><td style="${tdStyle}">${lo}°F</td><td style="${tdStyle}${rain > 50 ? 'color:#2196f3;font-weight:700;' : ''}">${rain}%</td></tr>`;
+      }
+      html += `</table>`;
+    }
+  } catch (e) { console.warn('[analyst-reports] Weather fetch failed:', e.message); }
 
   return html;
 }
