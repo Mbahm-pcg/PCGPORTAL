@@ -10750,6 +10750,16 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.text, marginBottom: '0.75rem' }}>Send Report Now</div>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <button onClick={async () => {
+                  showAlert('success', 'Sending daily exec report...');
+                  try {
+                    const res = await fetch('/.netlify/functions/analyst', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send-report', reportType: 'daily', userId: user.id }) });
+                    const data = await res.json();
+                    showAlert(data.ok ? 'success' : 'error', data.ok ? 'Daily exec report sent! Check your inbox.' : 'Failed: ' + (data.error || 'unknown'));
+                  } catch (e) { showAlert('error', 'Failed: ' + e.message); }
+                }} style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.75rem', background: '#00d084' })}>
+                  Daily Exec Report
+                </button>
+                <button onClick={async () => {
                   showAlert('success', 'Sending exec report (preliminary)...');
                   try {
                     const res = await fetch('/.netlify/functions/analyst', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send-report', reportType: 'exec', laborAdjusted: false, userId: user.id }) });

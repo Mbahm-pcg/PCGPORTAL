@@ -219,7 +219,7 @@ exports.handler = async (event) => {
     // ── Send Report Now (on-demand) ────────────────────────────────────
     if (action === 'send-report') {
       const { reportType } = payload; // 'exec' or 'dm'
-      const { sendExecReport, sendDMBriefs, loadReportSettings: loadRS } = require('./analyst-lib/analyst-reports');
+      const { sendExecReport, sendExecDailyReport, sendDMBriefs, loadReportSettings: loadRS } = require('./analyst-lib/analyst-reports');
       const settings = await loadRS();
 
       if (reportType === 'exec') {
@@ -228,13 +228,18 @@ exports.handler = async (event) => {
         return json(200, { ok: true, sent, reportType: 'exec', laborAdjusted: isLaborAdjusted });
       }
 
+      if (reportType === 'daily') {
+        const sent = await sendExecDailyReport(settings);
+        return json(200, { ok: true, sent, reportType: 'daily' });
+      }
+
       if (reportType === 'dm') {
         const usersBlob = await cacheLoad('pcg_portal_users');
         const sent = await sendDMBriefs(settings, Array.isArray(usersBlob) ? usersBlob : []);
         return json(200, { ok: true, sent, reportType: 'dm' });
       }
 
-      return json(400, { error: 'reportType must be exec or dm' });
+      return json(400, { error: 'reportType must be exec, daily, or dm' });
     }
 
     return json(400, { error: `Unknown action: ${action}` });

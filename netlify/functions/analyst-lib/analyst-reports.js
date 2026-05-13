@@ -65,7 +65,9 @@ function wrapEmail(title, subtitle, bodyHtml, footerNote) {
     <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 680px; margin: 0 auto; background: #ffffff;">
       <div style="background: linear-gradient(135deg, #0b0b0c 0%, #1a1a2e 100%); padding: 28px 32px; border-radius: 8px 8px 0 0;">
         <div style="display: flex; align-items: center; gap: 14px;">
-          <div style="width: 44px; height: 44px; background: rgba(255,103,31,0.15); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; line-height: 1;">&#128302;</div>
+          <div style="width: 44px; height: 44px; background: #FF671F; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 20px; font-weight: 900; color: #fff; font-family: Arial, sans-serif;">O</span>
+          </div>
           <div>
             <h1 style="color: #fff; margin: 0; font-size: 20px; font-weight: 700;">${title}</h1>
             <p style="color: #FF671F; margin: 4px 0 0; font-size: 13px; font-weight: 600; letter-spacing: 0.5px;">${subtitle}</p>
@@ -115,9 +117,77 @@ ${dataContext}`;
   return result.text;
 }
 
+// ── Generate Exec Daily Report Email ─────────────────────────────────────────
+async function generateExecDailyReport() {
+  const today = new Date().toISOString().slice(0, 10);
+  const snapshot = await buildKPISnapshot();
+  if (snapshot.error) return null;
+
+  const net = snapshot.network;
+  const stores = snapshot.stores || [];
+  const fmtD = v => '$' + Math.round(v).toLocaleString();
+  const fmtP = v => (v || 0).toFixed(1) + '%';
+
+  const tblStyle = 'width:100%;border-collapse:collapse;font-size:14px;margin:12px 0 20px;';
+  const thStyle = 'padding:10px 12px;text-align:left;border-bottom:2px solid #FF671F;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:#666;';
+  const tdStyle = 'padding:8px 12px;border-bottom:1px solid #eee;';
+  const tdBold = 'padding:8px 12px;border-bottom:1px solid #eee;font-weight:700;';
+
+  // LLM executive summary
+  const dataContext = await buildDataContext({ includeStoreDetail: false });
+  let summaryText = '';
+  try {
+    const r = await generateStructured({ system: PERSONA, userPrompt: `Write a 2-3 sentence daily operations summary for ${today}. Network Sales Today: ${fmtD(net.sales)}, Labor: ${fmtP(net.laborPct)}, ${net.storeCount} stores, ${net.overtimeCount} OT, ${net.scheduledNow} scheduled now. Be concise. Plain text only, no HTML, no markdown.`, action: 'brief', userId: 'system' });
+    summaryText = r.text.replace(/<[^>]+>/g, '').replace(/```/g, '').replace(/\*\*/g, '').trim();
+  } catch { summaryText = `Today the network recorded ${fmtD(net.sales)} in sales across ${net.storeCount} stores.`; }
+
+  let html = '';
+  html += `<h3 style="color:#0b0b0c;font-size:16px;margin:0 0 8px;">Daily Summary — ${today}</h3>`;
+  html += `<p style="font-size:14px;line-height:1.6;color:#333;margin:0 0 20px;">${summaryText}</p>`;
+
+  html += `<h3 style="color:#0b0b0c;font-size:16px;margin:0 0 8px;">Today's KPIs</h3>`;
+  html += `<table style="${tblStyle}"><tr><th style="${thStyle}">Metric</th><th style="${thStyle}">Value</th></tr>`;
+  html += `<tr><td style="${tdStyle}">Net Sales</td><td style="${tdBold}color:#00d084;">${fmtD(net.sales)}</td></tr>`;
+  html += `<tr><td style="${tdStyle}">Labor Cost</td><td style="${tdBold}">${fmtD(net.laborDollars)}</td></tr>`;
+  html += `<tr><td style="${tdStyle}">Labor %</td><td style="${tdBold}color:${net.laborPct > 26 ? '#f44336' : net.laborPct > 23 ? '#ff9800' : '#4caf50'};">${fmtP(net.laborPct)}</td></tr>`;
+  html += `<tr><td style="${tdStyle}">Scheduled Now</td><td style="${tdBold}">${net.scheduledNow}</td></tr>`;
+  html += `<tr><td style="${tdStyle}">Overtime</td><td style="${tdBold}">${net.overtimeCount}</td></tr>`;
+  html += `</table>`;
+
+  // Top/bottom 3 by today's labor %
+  const withLabor = stores.filter(s => s.today.sales > 0 && s.today.laborPct > 0);
+  withLabor.sort((a, b) => a.today.laborPct - b.today.laborPct);
+  const best3 = withLabor.slice(0, 3);
+  const worst3 = withLabor.slice(-3).reverse();
+
+  html += `<div style="display:flex;gap:24px;flex-wrap:wrap;">`;
+  html += `<div style="flex:1;min-width:180px;"><h3 style="color:#4caf50;font-size:14px;margin:0 0 8px;">Best Today</h3>`;
+  for (const s of best3) html += `<div style="padding:4px 0;font-size:13px;border-bottom:1px solid #f0f0f0;"><strong>${s.name}</strong> — <span style="color:#4caf50;font-weight:700;">${fmtP(s.today.laborPct)}</span> · ${fmtD(s.today.sales)}</div>`;
+  html += `</div>`;
+  html += `<div style="flex:1;min-width:180px;"><h3 style="color:#f44336;font-size:14px;margin:0 0 8px;">Worst Today</h3>`;
+  for (const s of worst3) html += `<div style="padding:4px 0;font-size:13px;border-bottom:1px solid #f0f0f0;"><strong>${s.name}</strong> — <span style="color:#f44336;font-weight:700;">${fmtP(s.today.laborPct)}</span> · ${fmtD(s.today.sales)}</div>`;
+  html += `</div></div>`;
+
+  return html;
+}
+
 // ── Generate Exec Weekly Report Email ────────────────────────────────────────
 async function generateExecReport(isLaborAdjusted) {
   const today = new Date().toISOString().slice(0, 10);
+
+  // Calculate last completed week (Sun-Sat)
+  const now = new Date(today + 'T12:00:00');
+  const dayOfWeek = now.getDay(); // 0=Sun
+  // Last Saturday = most recent Saturday before today
+  const lastSat = new Date(now);
+  lastSat.setDate(now.getDate() - (dayOfWeek === 0 ? 1 : dayOfWeek + 1));
+  // Last Sunday = 6 days before last Saturday
+  const lastSun = new Date(lastSat);
+  lastSun.setDate(lastSat.getDate() - 6);
+  const fmtDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const weekStart = fmtDate(lastSun);
+  const weekEnd = fmtDate(lastSat);
+
   const snapshot = await buildKPISnapshot();
   if (snapshot.error) return null;
 
@@ -160,7 +230,7 @@ async function generateExecReport(isLaborAdjusted) {
 
   // Get LLM to write ONLY the executive summary (2-3 sentences) — much more reliable
   const dataContext = await buildDataContext({ includeStoreDetail: false });
-  const summaryPrompt = `Write a 2-3 sentence executive summary for a weekly operations report. Data as of ${today}. WTD Network Sales: ${fmtD(wtdSales)}, WTD Labor: ${fmtP(wtdLaborPct)}, ${net.storeCount} stores, ${net.overtimeCount} OT employees. ${isLaborAdjusted ? 'This is the post-adjustment report — labor figures are final.' : 'This is the preliminary report — labor figures may change after DM adjustments.'} Be concise and professional. Return plain text only, no HTML tags, no markdown.`;
+  const summaryPrompt = `Write a 2-3 sentence executive summary for a weekly operations report covering the week of ${weekStart} to ${weekEnd}. WTD Network Sales: ${fmtD(wtdSales)}, WTD Labor: ${fmtP(wtdLaborPct)}, ${net.storeCount} stores, ${net.overtimeCount} OT employees. ${isLaborAdjusted ? 'This is the post-adjustment report — labor figures are final.' : 'This is the preliminary report — labor figures may change after DM adjustments.'} Be concise and professional. Return plain text only, no HTML tags, no markdown.`;
 
   let summaryText = '';
   try {
@@ -168,7 +238,7 @@ async function generateExecReport(isLaborAdjusted) {
     summaryText = summaryResult.text.replace(/<[^>]+>/g, '').replace(/```/g, '').replace(/\*\*/g, '').trim();
   } catch { summaryText = `The network recorded ${fmtD(wtdSales)} in WTD sales across ${net.storeCount} stores with a ${fmtP(wtdLaborPct)} labor rate.`; }
 
-  html += `<h3 style="color:#0b0b0c;font-size:16px;margin:0 0 8px;">Executive Summary</h3>`;
+  html += `<h3 style="color:#0b0b0c;font-size:16px;margin:0 0 8px;">Executive Summary — Week of ${weekStart} to ${weekEnd}</h3>`;
   html += `<p style="font-size:14px;line-height:1.6;color:#333;margin:0 0 20px;">${summaryText}</p>`;
 
   // Network KPIs
@@ -183,10 +253,20 @@ async function generateExecReport(isLaborAdjusted) {
   html += `<tr><td style="${tdStyle}">Scheduled Now</td><td style="${tdBold}">${net.scheduledNow}</td></tr>`;
   html += `</table>`;
 
-  // District Scorecard
+  // District Scorecard — include DM names from store data
+  // DM names are stored on stores in the STORES config; look them up
+  const dmNames = {};
+  for (const s of STORES) {
+    if (s.district && s.dmName && !dmNames[s.district]) dmNames[s.district] = s.dmName;
+  }
+  // Fallback: try to get from the stores array if dmName isn't in config
+  for (const s of stores) {
+    if (s.district && s.dmName && !dmNames[s.district]) dmNames[s.district] = s.dmName;
+  }
+
   html += `<h3 style="color:#0b0b0c;font-size:16px;margin:0 0 8px;">District Scorecard</h3>`;
   html += `<table style="${tblStyle}">`;
-  html += `<tr><th style="${thStyle}">District</th><th style="${thStyle}">WTD Sales</th><th style="${thStyle}">WTD Labor %</th><th style="${thStyle}">Stores</th><th style="${thStyle}">OT</th></tr>`;
+  html += `<tr><th style="${thStyle}">District</th><th style="${thStyle}">DM</th><th style="${thStyle}">WTD Sales</th><th style="${thStyle}">WTD Labor %</th><th style="${thStyle}">Stores</th><th style="${thStyle}">OT</th></tr>`;
   const distEntries = Object.entries(distMap).sort((a, b) => {
     const aPct = a[1].sales > 0 ? (a[1].labor / a[1].sales) * 100 : 0;
     const bPct = b[1].sales > 0 ? (b[1].labor / b[1].sales) * 100 : 0;
@@ -195,7 +275,8 @@ async function generateExecReport(isLaborAdjusted) {
   for (const [d, v] of distEntries) {
     const pct = v.sales > 0 ? (v.labor / v.sales) * 100 : 0;
     const pctColor = pct > 26 ? '#f44336' : pct > 23 ? '#ff9800' : '#4caf50';
-    html += `<tr><td style="${tdBold}">D${d}</td><td style="${tdStyle}">${fmtD(v.sales)}</td><td style="${tdStyle}color:${pctColor};font-weight:700;">${fmtP(pct)}</td><td style="${tdStyle}">${v.stores}</td><td style="${tdStyle}">${v.ot}</td></tr>`;
+    const dm = dmNames[d] || dmNames[Number(d)] || '—';
+    html += `<tr><td style="${tdBold}">D${d}</td><td style="${tdStyle}">${dm}</td><td style="${tdStyle}">${fmtD(v.sales)}</td><td style="${tdStyle}color:${pctColor};font-weight:700;">${fmtP(pct)}</td><td style="${tdStyle}">${v.stores}</td><td style="${tdStyle}">${v.ot}</td></tr>`;
   }
   html += `</table>`;
 
@@ -290,4 +371,27 @@ async function sendExecReport(settings, isLaborAdjusted) {
   }
 }
 
-module.exports = { sendDMBriefs, sendExecReport, loadReportSettings, sendEmail, wrapEmail };
+// ── Send Exec Daily Report ───────────────────────────────────────────────────
+async function sendExecDailyReport(settings) {
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const reportHtml = await generateExecDailyReport();
+    if (!reportHtml) return false;
+    const to = settings.execReportCC || ['Mike@PeopleCapitalGroup.com'];
+    const subject = `Orion Daily Exec Report — ${today}`;
+    const html = wrapEmail(
+      `Daily Executive Report`,
+      `ORION ANALYST • PEOPLE CAPITAL GROUP • ${today}`,
+      reportHtml,
+      null
+    );
+    await sendEmail({ to, subject, html });
+    console.log(`[analyst-reports] Sent exec daily report to ${to.join(', ')}`);
+    return true;
+  } catch (err) {
+    console.warn('[analyst-reports] Failed exec daily report:', err.message);
+    return false;
+  }
+}
+
+module.exports = { sendDMBriefs, sendExecReport, sendExecDailyReport, loadReportSettings, sendEmail, wrapEmail };
