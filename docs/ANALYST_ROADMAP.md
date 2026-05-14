@@ -43,7 +43,7 @@
 - [ ] Cash variance autopilot (deposit variance → auto business case with likely cause)
 
 ## Phase 5 — Embedded / White-Label / Enterprise
-- [ ] SSO (Google), session timeout, 2FA on admin
+- [x] SSO (Google), session timeout, 2FA on admin
 - [ ] SOC 2-style audit trail, PII redaction on logs
 - [ ] Row-level security per location
 - [ ] Embeddable mode (narrow mobile view for GMs)
