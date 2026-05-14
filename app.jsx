@@ -12215,7 +12215,12 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [labor, setLabor] = useState(null);
   const [hourly, setHourly] = useState(null);
   const [workers, setWorkers] = useState([]);
-  const [workersExpanded, setWorkersExpanded] = useState(false);
+  const [orderTypes, setOrderTypes] = useState([]);
+  const [lwDaySales, setLwDaySales] = useState(null);
+  const [activeAnnouncements, setActiveAnnouncements] = useState([]);
+  const [carouselPage, setCarouselPage] = useState(0);
+  const touchStartX = useRef(null);
+  const carouselInnerRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
@@ -12239,18 +12244,24 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     if (!pc) { setLoading(false); return; }
     setRefreshing(true);
     try {
-      const [opsRes, laborBlob, checkRes, storeBlob] = await Promise.all([
+      const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra }),
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
+
+      const [opsRes, laborBlob, checkRes, storeBlob, orderDims, orderTotals, announceBlob] = await Promise.all([
         fetchOpsTotals(pc, todayStr).catch(() => null),
         cloudLoad('pcg_labor_v1').catch(() => null),
-        fetch(PULSE_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api: apiRoute(pc), endpoint: 'getGuestChecks', locRef: pc, busDt: todayStr, include: 'guestChecks' })
-        }).then(r => r.ok ? r.json() : null).catch(() => null),
+        pulsePost('getGuestChecks', { include: 'guestChecks' }),
         cloudLoad(`pcg_labor_store_${pc}`).catch(() => null),
+        pulsePost('getOrderTypeDimensions'),
+        pulsePost('getOrderTypeDailyTotals', { include: 'revenueCenters.orderTypes' }),
+        cloudLoad('pcg_announcements_v1').catch(() => null),
       ]);
+
       if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
       if (laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
+
       if (checkRes?.guestChecks) {
         const h = Array.from({ length: 24 }, (_, i) => ({ hour: i, sales: 0 }));
         for (const ck of checkRes.guestChecks) {
@@ -12260,6 +12271,33 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         }
         setHourly(h);
       }
+
+      // Order type breakdown
+      if (orderTotals?.revenueCenters) {
+        const nameMap = {};
+        for (const o of (orderDims?.orderTypes || [])) nameMap[o.num] = o.name;
+        const agg = {};
+        for (const rc of orderTotals.revenueCenters) {
+          for (const ot of (rc.orderTypes || [])) {
+            if (!agg[ot.otNum]) agg[ot.otNum] = { name: nameMap[ot.otNum] || `Type ${ot.otNum}`, sales: 0, checks: 0 };
+            agg[ot.otNum].sales += ot.netSlsTtl || 0;
+            agg[ot.otNum].checks += ot.chkCnt || 0;
+          }
+        }
+        setOrderTypes(Object.values(agg).filter(o => o.sales > 0).sort((a, b) => b.sales - a.sales));
+      }
+
+      // Last week same-day sales from store blob history
+      const daily = storeBlob?.daily || [];
+      const lw = new Date(); lw.setDate(lw.getDate() - 7);
+      const lwStr = lw.toISOString().slice(0, 10);
+      const lwEntry = daily.find(d => d.date === lwStr);
+      if (lwEntry?.sales > 0) setLwDaySales(lwEntry.sales);
+
+      // Active announcements
+      const allAnnounce = Array.isArray(announceBlob) ? announceBlob : [];
+      setActiveAnnouncements(allAnnounce.filter(a => a.active).slice(0, 3));
+
       const empList = storeBlob?.daily?.[0]?.employees || [];
       if (empList.length > 0) {
         setWorkers(empList.filter(e => e.hoursToday > 0).map(e => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
@@ -12288,8 +12326,6 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const weekRow = latestWeek?.stores?.find(r => String(r.pc) === String(pc));
   const vsLW = weekRow?.diffSale ?? null;
   const vsLWPct = weekRow?.diffPct ?? null;
-  const deposit = (cashDeposits || []).filter(d => String(d.pc) === String(pc) && (d.depositDate === todayStr || (d.businessDates || []).includes(todayStr))).sort((a, b) => String(b.depositDate || '').localeCompare(String(a.depositDate || '')))[0];
-  const depositColor = deposit ? "#22c55e" : "#f59e0b";
   const now = new Date();
   const currentHour = now.getHours();
   const visibleHours = hourly ? hourly.filter(h => h.hour >= 5 && h.hour <= Math.max(5, currentHour)) : [];
@@ -12298,9 +12334,6 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const fmt = n => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
   const hourLabel = h => h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
   const assetLabel = { DT: 'Drive-Thru', IL: 'Inline', FS: 'Freestanding', GS: 'Gas Station' }[store.baseAsset] || store.baseAsset || 'Unknown';
-  const clockedIn = storeLabor?.scheduledNow ?? storeLabor?.employeesOnClock;
-  const scheduledToday = storeLabor?.scheduledToday ?? storeLabor?.employees;
-  const needsAttention = !deposit || (laborPct != null && laborPct > 25.9);
   const cardBase = {
     background: dark ? `linear-gradient(180deg, ${th.card} 0%, ${th.card2} 100%)` : "#ffffff",
     border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`,
@@ -12336,12 +12369,12 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       </div>
 
       <div className="fade-in" style={{ maxWidth: 380, margin: "0 auto", padding: "0.75rem 0.75rem 5.9rem", display: "grid", gap: "0.7rem" }}>
-        {needsAttention && (
+        {laborPct != null && laborPct > 25.9 && (
           <div style={{ background: dark ? "#f59e0b14" : "#fffbeb", border: `1px solid ${dark ? "#f59e0b55" : "#fcd34d"}`, borderLeft: "3px solid #f59e0b", borderRadius: 10, padding: "0.62rem 0.8rem", display: "flex", alignItems: "center", gap: "0.55rem" }}>
             <span style={{ fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}>⚠️</span>
             <div>
               <div style={{ color: dark ? "#f59e0b" : "#92400e", fontSize: "0.68rem", fontWeight: 900, letterSpacing: 0.3 }}>Action Needed</div>
-              <div style={{ color: dark ? "#fcd34d" : "#b45309", fontSize: "0.62rem", marginTop: "0.1rem" }}>{!deposit ? "Deposit has not been posted today." : "Labor is over target — review staffing."}</div>
+              <div style={{ color: dark ? "#fcd34d" : "#b45309", fontSize: "0.62rem", marginTop: "0.1rem" }}>Labor is over target — review staffing.</div>
             </div>
           </div>
         )}
@@ -12357,24 +12390,33 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
               </div>
             </>
           )}
-          {vsLW !== null && <><div style={{ height: 1, background: th.cardBorder, margin: "0.85rem 0 0.65rem" }} /><div style={{ color: th.muted, fontSize: "0.66rem" }}>Last week: <span style={{ color: vsLW < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{vsLW < 0 ? "Down" : "Up"} {fmt(Math.abs(vsLW))} ({Math.abs(vsLWPct || 0).toFixed(0)}%)</span></div></>}
+          {vsLW !== null && <><div style={{ height: 1, background: th.cardBorder, margin: "0.85rem 0 0.65rem" }} /><div style={{ color: th.muted, fontSize: "0.66rem" }}>vs last week: <span style={{ color: vsLW < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{vsLW < 0 ? "▼" : "▲"} {fmt(Math.abs(vsLW))} ({Math.abs(vsLWPct || 0).toFixed(0)}%)</span></div></>}
+          {!loading && sales && lwDaySales > 0 && (() => {
+            const pct = Math.min(Math.round((sales.netSales / lwDaySales) * 100), 150);
+            const paceColor = pct >= 100 ? "#22c55e" : pct >= 90 ? "#f59e0b" : "#ef4444";
+            return (
+              <div style={{ marginTop: "0.7rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
+                  <span style={{ color: th.muted, fontSize: "0.58rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Sales Pace</span>
+                  <span style={{ color: paceColor, fontSize: "0.62rem", fontWeight: 900 }}>{pct}% of last {now.toLocaleDateString("en-US", { weekday: "short" })}</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 99, background: dark ? "rgba(255,255,255,0.08)" : "#e5e7eb", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: Math.min(pct, 100) + "%", borderRadius: 99, background: `linear-gradient(90deg, ${paceColor}99, ${paceColor})`, transition: "width 0.6s ease" }} />
+                </div>
+                <div style={{ color: th.subtle, fontSize: "0.56rem", marginTop: "0.25rem" }}>Target: {fmt(lwDaySales)}</div>
+              </div>
+            );
+          })()}
         </Card>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.7rem" }}>
-          <Card accent={laborColor} style={{ minHeight: 112 }}>
-            <Label right={<Chip color={laborColor}>{laborLabel}</Chip>}>Labor</Label>
-            <div style={{ color: laborColor, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.6rem", lineHeight: 1 }}>{loading ? "--" : laborPct != null ? laborPct.toFixed(1) + "%" : "--"}</div>
-            <div style={{ color: th.muted, fontSize: "0.6rem", lineHeight: 1.35, marginTop: "0.4rem" }}>
-              {storeLabor?.laborDollars ? `${fmt(storeLabor.laborDollars)} labor` : "Target 22.9%"}
-            </div>
-          </Card>
 
-          <Card accent={depositColor} style={{ minHeight: 112 }}>
-            <Label right={<Chip color={depositColor}>{deposit ? "Posted" : "Pending"}</Chip>}>Deposit</Label>
-            <div style={{ color: depositColor, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", lineHeight: 1.1 }}>{deposit ? "Recorded" : "Needs Check"}</div>
-            <div style={{ color: th.muted, fontSize: "0.6rem", lineHeight: 1.35, marginTop: "0.45rem" }}>{deposit ? `${fmt(deposit.amount)} on ${deposit.depositDate}` : `No deposit for ${todayStr}`}</div>
-          </Card>
-        </div>
+        <Card accent={laborColor}>
+          <Label right={<Chip color={laborColor}>{laborLabel}</Chip>}>Labor</Label>
+          <div style={{ color: laborColor, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.6rem", lineHeight: 1 }}>{loading ? "--" : laborPct != null ? laborPct.toFixed(1) + "%" : "--"}</div>
+          <div style={{ color: th.muted, fontSize: "0.6rem", lineHeight: 1.35, marginTop: "0.4rem" }}>
+            {storeLabor?.laborDollars ? `${fmt(storeLabor.laborDollars)} labor` : "Target 22.9%"}
+          </div>
+        </Card>
 
         {!loading && visibleHours.length > 0 && (
           <Card style={{ padding: "0.9rem 0.9rem 0.75rem" }}>
@@ -12420,29 +12462,126 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
           </Card>
         )}
 
-        <Card>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.65rem" }}>
-            <div style={{ color: "#8b5cf6", fontSize: "0.58rem", fontWeight: 900, letterSpacing: 1.6, textTransform: "uppercase" }}>
-              Who's Working{workers.length > 0 && <span style={{ marginLeft: "0.4rem", color: th.muted, fontWeight: 700 }}>· {workers.length}</span>}
-            </div>
-            {workers.length > 3 && <button onClick={() => setWorkersExpanded(v => !v)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.65rem", color: "#8b5cf6", fontWeight: 900, fontFamily: "'Source Sans 3'", padding: 0 }}>{workersExpanded ? "Less" : `+${workers.length - 3} more`}</button>}
-          </div>
-          {workers.length > 0 ? (
-            <div style={{ display: "grid", gap: "0.5rem" }}>
-              {(workersExpanded ? workers : workers.slice(0, 3)).map((w, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
-                    <span style={{ color: th.text, fontWeight: 600, fontSize: "0.8rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</span>
-                  </div>
-                  <span style={{ color: th.muted, fontSize: "0.65rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>{w.hoursToday.toFixed(1)}h</span>
+        {(() => {
+          const carouselPages = [
+            { id: 'workers', show: workers.length > 0, content: (
+              <>
+                <div style={{ display: "flex", alignItems: "center", marginBottom: "0.65rem" }}>
+                  <div style={{ color: "#8b5cf6", fontSize: "0.58rem", fontWeight: 900, letterSpacing: 1.6, textTransform: "uppercase" }}>Who's Working <span style={{ color: th.muted, fontWeight: 700 }}>· {workers.length}</span></div>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ color: th.muted, fontSize: "0.72rem" }}>{loading ? "Loading..." : "No shift data yet — updates every 4 hours."}</div>
-          )}
-        </Card>
+                <div style={{ display: "grid", gap: "0.45rem" }}>
+                  {workers.slice(0, 5).map((w, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
+                        <span style={{ color: th.text, fontWeight: 600, fontSize: "0.8rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</span>
+                      </div>
+                      <span style={{ color: th.muted, fontSize: "0.65rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>{w.hoursToday.toFixed(1)}h</span>
+                    </div>
+                  ))}
+                  {workers.length > 5 && <div style={{ color: th.muted, fontSize: "0.62rem", textAlign: "center", marginTop: "0.2rem" }}>+{workers.length - 5} more in full portal</div>}
+                </div>
+              </>
+            )},
+            { id: 'orders', show: !loading, content: (
+              <>
+                <Label>Order Types</Label>
+                {orderTypes.length > 0 ? (() => {
+                  const total = orderTypes.reduce((s, o) => s + o.sales, 0);
+                  return (
+                    <div style={{ display: "grid", gap: "0.5rem" }}>
+                      {orderTypes.map((o, i) => {
+                        const pct = total > 0 ? Math.round((o.sales / total) * 100) : 0;
+                        const colors = [O, "#8b5cf6", "#74c0fc", "#f59e0b"];
+                        const c = colors[i % colors.length];
+                        return (
+                          <div key={o.name}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
+                              <span style={{ color: th.text, fontSize: "0.72rem", fontWeight: 600 }}>{o.name}</span>
+                              <span style={{ color: th.muted, fontSize: "0.65rem" }}>{fmt(o.sales)} <span style={{ color: c, fontWeight: 800 }}>{pct}%</span></span>
+                            </div>
+                            <div style={{ height: 5, borderRadius: 99, background: dark ? "rgba(255,255,255,0.07)" : "#e5e7eb" }}>
+                              <div style={{ height: "100%", width: pct + "%", borderRadius: 99, background: c, opacity: 0.85, transition: "width 0.5s ease" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })() : <div style={{ color: th.muted, fontSize: "0.72rem" }}>No order type data yet.</div>}
+              </>
+            )},
+            { id: 'announce', show: activeAnnouncements.length > 0, content: (
+              <>
+                <Label right={<span style={{ background: `${O}22`, color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: "0.08rem 0.38rem", fontSize: "0.54rem", fontWeight: 900 }}>{activeAnnouncements.length}</span>}>Announcements</Label>
+                <div style={{ display: "grid", gap: "0.55rem" }}>
+                  {activeAnnouncements.map((a, i) => (
+                    <div key={a.id || i} style={{ paddingLeft: "0.6rem", borderLeft: `2px solid ${O}66` }}>
+                      <div style={{ color: th.text, fontSize: "0.76rem", fontWeight: 700, lineHeight: 1.3 }}>{a.title}</div>
+                      <div style={{ color: th.muted, fontSize: "0.65rem", marginTop: "0.18rem", lineHeight: 1.4 }}>{a.message}</div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={onFullPortal} style={{ marginTop: "0.65rem", background: "none", border: "none", color: O, fontSize: "0.62rem", fontWeight: 800, cursor: "pointer", padding: 0, fontFamily: "'Source Sans 3'" }}>View all in portal →</button>
+              </>
+            )},
+          ].filter(p => p.show);
+
+          if (carouselPages.length === 0) return null;
+          const page = Math.min(carouselPage, carouselPages.length - 1);
+
+          const onTouchStart = e => { touchStartX.current = e.touches[0].clientX; };
+          const onTouchMove = e => {
+            if (touchStartX.current === null || !carouselInnerRef.current) return;
+            const dx = e.touches[0].clientX - touchStartX.current;
+            carouselInnerRef.current.style.transition = 'none';
+            carouselInnerRef.current.style.transform = `translateX(calc(-${page * 100}% + ${dx}px))`;
+          };
+          const onTouchEnd = e => {
+            if (touchStartX.current === null) return;
+            const dx = e.changedTouches[0].clientX - touchStartX.current;
+            const newPage = Math.abs(dx) > 44
+              ? Math.max(0, Math.min(carouselPages.length - 1, page + (dx < 0 ? 1 : -1)))
+              : page;
+            if (carouselInnerRef.current) {
+              carouselInnerRef.current.style.transition = 'transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)';
+              carouselInnerRef.current.style.transform = `translateX(-${newPage * 100}%)`;
+            }
+            setCarouselPage(newPage);
+            touchStartX.current = null;
+          };
+
+          return (
+            <Card style={{ userSelect: "none", overflow: "hidden", padding: "0.9rem 0.9rem 0.75rem" }}>
+              {/* Sliding strip */}
+              <div style={{ overflow: "hidden" }}>
+                <div ref={carouselInnerRef} style={{ display: "flex", transform: `translateX(-${page * 100}%)`, transition: "transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)", willChange: "transform" }}
+                  onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+                >
+                  {carouselPages.map(p => (
+                    <div key={p.id} style={{ minWidth: "100%", width: "100%", flexShrink: 0 }}>
+                      {p.content}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Dot indicators */}
+              {carouselPages.length > 1 && (
+                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.35rem", marginTop: "0.85rem", paddingTop: "0.6rem", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"}` }}>
+                  {carouselPages.map((p, i) => (
+                    <button key={p.id} onClick={() => {
+                      if (carouselInnerRef.current) {
+                        carouselInnerRef.current.style.transition = 'transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)';
+                        carouselInnerRef.current.style.transform = `translateX(-${i * 100}%)`;
+                      }
+                      setCarouselPage(i);
+                    }} style={{ width: i === page ? 20 : 7, height: 7, borderRadius: 99, background: i === page ? "#22c55e" : (dark ? "rgba(255,255,255,0.2)" : "#d1d5db"), border: "none", cursor: "pointer", padding: 0, transition: "all 0.25s ease" }} />
+                  ))}
+                </div>
+              )}
+            </Card>
+          );
+        })()}
 
         {lastRefresh && <div style={{ textAlign: "center", fontSize: "0.58rem", color: th.subtle, opacity: 0.7 }}>Updated {lastRefresh.toLocaleTimeString()}</div>}
       </div>
@@ -19553,7 +19692,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.37
+            v7.42
           </div>
         )}
         {/* Collapse toggle — desktop only */}
