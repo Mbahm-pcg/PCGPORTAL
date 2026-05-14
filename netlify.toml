@@ -17,6 +17,10 @@
 [functions.analyst-cron]
   schedule = "0 11,14 * * *"
 
+# Daily reports backup — 11:59 PM ET (4:59 AM UTC). Keeps 7 days of rolling backups.
+[functions.reports-backup]
+  schedule = "59 4 * * *"
+
 [[headers]]
   for = "/*"
   [headers.values]

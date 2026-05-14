@@ -8563,6 +8563,46 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
   const [pdfImporting, setPdfImporting] = useState(false);
   const [forceSyncState, setForceSyncState] = useState('idle'); // 'idle' | 'syncing' | 'success' | 'error'
   const [forceSyncMsg, setForceSyncMsg] = useState('');
+  const [backupState, setBackupState] = useState('idle'); // 'idle' | 'running' | 'done' | 'error'
+  const [lastBackupTime, setLastBackupTime] = useState(null);
+
+  // On mount, check today's backup blob for a savedAt timestamp
+  useEffect(() => {
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    cloudLoad(`pcg_daily_reports_backup_${date}`).then(data => {
+      if (data?.[0] || Array.isArray(data)) {
+        // blob exists — pull savedAt from the raw wrapper via a direct fetch
+        fetch('/.netlify/functions/storage', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'load', key: `pcg_daily_reports_backup_${date}` }),
+        }).then(r => r.ok ? r.json() : null).then(j => {
+          if (j?.savedAt) setLastBackupTime(new Date(j.savedAt));
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
+
+  const backupAllReports = async () => {
+    if (backupState === 'running') return;
+    setBackupState('running');
+    try {
+      const toBackup = dailyReports || [];
+      const full = await Promise.all(toBackup.map(async r => {
+        const hasStripped = (r.workLogs || []).some(w => (w.photos || []).some(p => p._photoStripped));
+        return hasStripped ? (await cloudLoadReport(r.id) || r) : r;
+      }));
+      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const key = `pcg_daily_reports_backup_${date}`;
+      const ok = await cloudSave(key, full);
+      if (ok) setLastBackupTime(new Date());
+      setBackupState(ok ? 'done' : 'error');
+      showAlert && showAlert(ok ? 'success' : 'error', ok ? `Backup saved (${full.length} reports)` : 'Backup failed. Check your connection.');
+    } catch {
+      setBackupState('error');
+      showAlert && showAlert('error', 'Backup failed unexpectedly.');
+    }
+    setTimeout(() => setBackupState('idle'), 4000);
+  };
 
   // Re-upload EVERY local report to the cloud, plus refresh the index and
   // the legacy backup blob. Use this when a report shows up on one device
@@ -9717,6 +9757,26 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
              forceSyncState === 'success' ? '✓ Synced' :
              forceSyncState === 'error' ? '⚠ Partial' :
              '☁ Force Sync'}
+          </button>
+          <button
+            onClick={backupAllReports}
+            disabled={backupState === 'running' || dailyReports.length === 0}
+            title="Snapshot all reports (with photos) into a dated backup blob. Safe to run anytime."
+            style={btn(th, {
+              padding: "0.4rem 1rem",
+              fontSize: "0.8125rem",
+              background: backupState === 'done' ? '#22c55e' : backupState === 'error' ? '#ef4444' : backupState === 'running' ? '#f59e0b' : th.card3,
+              color: backupState === 'idle' ? th.muted : '#fff',
+              border: `1px solid ${backupState === 'done' ? '#22c55e' : backupState === 'error' ? '#ef4444' : backupState === 'running' ? '#f59e0b' : th.cardBorder}`,
+              opacity: (backupState === 'running' || dailyReports.length === 0) ? 0.7 : 1,
+              cursor: backupState === 'running' ? 'wait' : 'pointer',
+              transition: 'all .15s',
+            })}
+          >
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.1rem", lineHeight: 1.2 }}>
+              <span>{backupState === 'running' ? '⏳ Backing up…' : backupState === 'done' ? '✓ Backed Up' : backupState === 'error' ? '⚠ Failed' : '🗄 Backup Reports'}</span>
+              {backupState === 'idle' && lastBackupTime && <span style={{ fontSize: "0.6rem", opacity: 0.7 }}>Last: {lastBackupTime.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>}
+            </div>
           </button>
         </div>}
       </div>
@@ -19470,7 +19530,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.24
+            v7.27
           </div>
         )}
         {/* Collapse toggle — desktop only */}
