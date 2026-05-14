@@ -24,8 +24,15 @@ function dateStr(offsetDays = 0) {
   return d.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
-exports.handler = async () => {
-  console.log('[reports-backup] Starting daily backup');
+exports.handler = async (event) => {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Content-Type': 'application/json',
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
+  console.log('[reports-backup] Starting backup');
   const store = getStore_();
 
   try {
@@ -35,7 +42,7 @@ exports.handler = async () => {
 
     if (!Array.isArray(index) || index.length === 0) {
       console.log('[reports-backup] No reports in index — nothing to back up');
-      return { statusCode: 200, body: JSON.stringify({ ok: true, backed: 0 }) };
+      return { statusCode: 200, headers, body: JSON.stringify({ ok: true, backed: 0 }) };
     }
 
     // 2. Hydrate each report: load metadata blob + photos blob in parallel
@@ -86,10 +93,11 @@ exports.handler = async () => {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, backed: valid.length, key: backupKey }),
+      headers,
+      body: JSON.stringify({ ok: true, backed: valid.length, key: backupKey, savedAt: new Date().toISOString() }),
     };
   } catch (e) {
     console.error('[reports-backup] Fatal error:', e);
-    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: e.message }) };
   }
 };

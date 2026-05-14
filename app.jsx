@@ -8586,17 +8586,13 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     if (backupState === 'running') return;
     setBackupState('running');
     try {
-      const toBackup = dailyReports || [];
-      const full = await Promise.all(toBackup.map(async r => {
-        const hasStripped = (r.workLogs || []).some(w => (w.photos || []).some(p => p._photoStripped));
-        return hasStripped ? (await cloudLoadReport(r.id) || r) : r;
-      }));
-      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      const key = `pcg_daily_reports_backup_${date}`;
-      const ok = await cloudSave(key, full);
-      if (ok) setLastBackupTime(new Date());
+      // Trigger server-side backup — reads blobs directly, bypasses the 6MB Lambda limit
+      const res = await fetch('/.netlify/functions/reports-backup', { method: 'POST' });
+      const j = res.ok ? await res.json() : null;
+      const ok = res.ok && j?.ok;
+      if (ok && j?.savedAt) setLastBackupTime(new Date(j.savedAt));
       setBackupState(ok ? 'done' : 'error');
-      showAlert && showAlert(ok ? 'success' : 'error', ok ? `Backup saved (${full.length} reports)` : 'Backup failed. Check your connection.');
+      showAlert && showAlert(ok ? 'success' : 'error', ok ? `Backup saved (${j.backed} reports)` : 'Backup failed. Check your connection.');
     } catch {
       setBackupState('error');
       showAlert && showAlert('error', 'Backup failed unexpectedly.');
@@ -19530,7 +19526,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.27
+            v7.28
           </div>
         )}
         {/* Collapse toggle — desktop only */}
