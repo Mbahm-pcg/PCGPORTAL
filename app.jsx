@@ -8575,7 +8575,11 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     let ok = 0, fail = 0;
     for (const r of toSync) {
       try {
-        const result = await cloudSaveReport(r);
+        // Local state has photos stripped after a page load. Hydrate from cloud
+        // first so we re-upload the real photos, not empty placeholders.
+        const localHasStripped = (r.workLogs || []).some(w => (w.photos || []).some(p => p._photoStripped));
+        const full = localHasStripped ? (await cloudLoadReport(r.id) || r) : r;
+        const result = await cloudSaveReport(full);
         if (result) ok++; else fail++;
       } catch { fail++; }
     }
@@ -19466,7 +19470,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.23
+            v7.24
           </div>
         )}
         {/* Collapse toggle — desktop only */}
