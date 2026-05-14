@@ -12220,6 +12220,20 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [showStoreInfo, setShowStoreInfo] = useState(false);
+  const toggleBtnRef = useRef(null);
+
+  const handleToggle = useCallback(() => {
+    const btn = toggleBtnRef.current;
+    if (btn) {
+      const rect = btn.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const overlay = spawnTransitionFX(cx, cy, !dark);
+      setTimeout(() => { toggleDark(); overlay.remove(); }, 350);
+    } else {
+      toggleDark();
+    }
+  }, [dark, toggleDark]);
 
   const fetchAll = useCallback(async () => {
     if (!pc) { setLoading(false); return; }
@@ -12288,55 +12302,47 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const scheduledToday = storeLabor?.scheduledToday ?? storeLabor?.employees;
   const needsAttention = !deposit || (laborPct != null && laborPct > 25.9);
   const cardBase = {
-    background: `linear-gradient(180deg, ${th.card} 0%, ${th.card2} 100%)`,
-    border: `1px solid ${th.cardBorder}`,
-    borderRadius: 8,
-    boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
+    background: dark ? `linear-gradient(180deg, ${th.card} 0%, ${th.card2} 100%)` : "#ffffff",
+    border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`,
+    borderRadius: 10,
+    boxShadow: dark ? "0 12px 28px rgba(0,0,0,0.22)" : "0 2px 8px rgba(0,0,0,0.07), 0 8px 24px rgba(0,0,0,0.06)",
   };
-  const Card = ({ children, accent, style }) => <div style={{ ...cardBase, borderLeft: accent ? `3px solid ${accent}` : cardBase.border, padding: "0.9rem", ...style }}>{children}</div>;
+  const Card = ({ children, accent, style }) => <div style={{ ...cardBase, borderLeft: accent ? `3px solid ${accent}` : `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, padding: "0.9rem", ...style }}>{children}</div>;
   const Label = ({ children, color, right }) => <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.65rem" }}><div style={{ color: color || th.muted, fontSize: "0.58rem", fontWeight: 900, letterSpacing: 1.4, textTransform: "uppercase" }}>{children}</div>{right}</div>;
   const Chip = ({ children, color = th.muted }) => <span style={{ color, background: `${color}18`, border: `1px solid ${color}55`, borderRadius: 999, padding: "0.12rem 0.42rem", fontSize: "0.56rem", fontWeight: 900, textTransform: "uppercase", whiteSpace: "nowrap" }}>{children}</span>;
   const MiniStat = ({ label, value, color }) => <div style={{ minWidth: 0 }}><div style={{ color: color || th.text, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</div><div style={{ color: th.muted, fontSize: "0.6rem", marginTop: "0.18rem" }}>{label}</div></div>;
-  const IconButton = ({ children, onClick, title }) => <button onClick={onClick} title={title} aria-label={title} style={{ width: 34, height: 34, borderRadius: 8, background: th.card, border: `1px solid ${th.cardBorder}`, color: th.text, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontFamily: "'Source Sans 3'", fontWeight: 900, fontSize: "0.72rem" }}>{children}</button>;
+  const IconButton = ({ children, onClick, title, btnRef }) => <button ref={btnRef} onClick={onClick} title={title} aria-label={title} style={{ width: 34, height: 34, borderRadius: 8, background: dark ? th.card : "#ffffff", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, boxShadow: dark ? "none" : "0 1px 4px rgba(0,0,0,0.08)", color: th.text, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>{children}</button>;
 
   return (
-    <div style={{ minHeight: "100vh", background: dark ? "#0b0d13" : th.bg, color: th.text }}>
-      <div style={{ background: dark ? "rgba(11,13,19,0.96)" : th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, padding: "0.7rem 0.85rem", position: "sticky", top: 0, zIndex: 10, backdropFilter: "blur(12px)" }}>
-        <div style={{ maxWidth: 380, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr auto", gap: "0.65rem", alignItems: "center" }}>
-          <button onClick={() => setShowStoreInfo(true)} title="View store details" style={{ background: "none", border: "none", cursor: "pointer", color: th.text, padding: 0, textAlign: "left", minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.42rem", minWidth: 0 }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: loading ? "#f59e0b" : "#22c55e", boxShadow: `0 0 0 4px ${(loading ? "#f59e0b" : "#22c55e")}18`, flexShrink: 0 }} />
-              <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.92rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name || `Store #${pc}`}</span>
+    <div style={{ minHeight: "100vh", background: dark ? "#0b0d13" : "#f1f3f7", color: th.text }}>
+      <div style={{ position: "sticky", top: 0, zIndex: 10 }}>
+        <div style={{ height: 3, background: `linear-gradient(90deg, ${O} 0%, #ff9950 100%)` }} />
+        <div style={{ background: dark ? "rgba(11,13,19,0.97)" : "rgba(255,255,255,0.97)", borderBottom: `1px solid ${th.headerBorder}`, padding: "0.65rem 0.85rem", backdropFilter: "blur(16px)" }}>
+          <div style={{ maxWidth: 380, margin: "0 auto", display: "grid", gridTemplateColumns: "auto 1fr auto", gap: "0.6rem", alignItems: "center" }}>
+            <img src={LOGOS[th.logoSeal]} alt="PCG" style={{ width: 30, height: 30, objectFit: "contain", flexShrink: 0 }} />
+            <button onClick={() => setShowStoreInfo(true)} title="View store details" style={{ background: "none", border: "none", cursor: "pointer", color: th.text, padding: 0, textAlign: "left", minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.38rem", minWidth: 0 }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: loading ? "#f59e0b" : "#22c55e", boxShadow: `0 0 0 3px ${(loading ? "#f59e0b" : "#22c55e")}22`, flexShrink: 0 }} />
+                <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.95rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name || `Store #${pc}`}</span>
+              </div>
+              <div style={{ color: th.muted, fontSize: "0.58rem", marginTop: "0.1rem", paddingLeft: "0.95rem" }}>#{pc} · {now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · {loading ? "Syncing…" : "Live"}</div>
+            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+              <IconButton onClick={handleToggle} title={dark ? "Switch to light" : "Switch to dark"} btnRef={toggleBtnRef}>{dark ? ICONS.sun("#f59e0b") : ICONS.moon(th.muted)}</IconButton>
+              <IconButton onClick={onLogout} title="Sign out">{ICONS.logout(th.muted)}</IconButton>
             </div>
-            <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: "0.12rem" }}>#{pc} / {now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} / {loading ? "Syncing" : "Live"}</div>
-          </button>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-            <IconButton onClick={toggleDark} title={dark ? "Switch to light" : "Switch to dark"}>{dark ? "☀" : "🌙"}</IconButton>
-            <IconButton onClick={onLogout} title="Sign out">⏏</IconButton>
           </div>
-        </div>
-      </div>
-
-      <div style={{ display: "none", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, padding: "0.55rem 1rem", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-          <img src={LOGOS[th.logoSeal]} alt="PCG" style={{ width: 26, height: 26, objectFit: "contain" }} />
-          <span style={{ fontSize: "0.63rem", color: O, fontWeight: 700 }}>Hi, {(user?.name || "there").split(" ")[0]}</span>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <button onClick={() => setShowStoreInfo(true)} title="View store details" style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.9rem", color: th.text, padding: "0.1rem 0.4rem", display: "block", margin: "0 auto" }}>{store.name || `Store #${pc}`}</button>
-          <div style={{ fontSize: "0.55rem", color: th.muted }}>{now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", justifyContent: "flex-end" }}>
-          <button onClick={fetchAll} disabled={refreshing} title="Refresh" style={{ background: refreshing ? th.card : th.ob, border: `1px solid ${refreshing ? th.cardBorder : O + "55"}`, borderRadius: "0.4rem", color: refreshing ? th.muted : O, padding: "0.28rem 0.45rem", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }}>{refreshing ? "..." : "↻"}</button>
-          <button onClick={toggleDark} title={dark ? "Switch to Light" : "Switch to Dark"} style={{ background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "0.4rem", color: th.muted, padding: "0.28rem 0.4rem", cursor: "pointer", fontSize: "0.75rem", lineHeight: 1 }}>{dark ? "☀️" : "🌙"}</button>
-          <button onClick={onLogout} title="Sign out" style={{ background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "0.4rem", color: th.muted, padding: "0.28rem 0.45rem", cursor: "pointer", fontSize: "0.65rem" }}>Out</button>
         </div>
       </div>
 
       <div className="fade-in" style={{ maxWidth: 380, margin: "0 auto", padding: "0.75rem 0.75rem 5.9rem", display: "grid", gap: "0.7rem" }}>
         {needsAttention && (
-          <div style={{ background: "#f59e0b16", border: "1px solid #f59e0b55", borderRadius: 8, padding: "0.58rem 0.75rem", color: "#f59e0b", fontSize: "0.68rem", fontWeight: 800 }}>
-            Review needed: {!deposit ? "deposit pending" : "labor over target"}.
+          <div style={{ background: dark ? "#f59e0b14" : "#fffbeb", border: `1px solid ${dark ? "#f59e0b55" : "#fcd34d"}`, borderLeft: "3px solid #f59e0b", borderRadius: 10, padding: "0.62rem 0.8rem", display: "flex", alignItems: "center", gap: "0.55rem" }}>
+            <span style={{ fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}>⚠️</span>
+            <div>
+              <div style={{ color: dark ? "#f59e0b" : "#92400e", fontSize: "0.68rem", fontWeight: 900, letterSpacing: 0.3 }}>Action Needed</div>
+              <div style={{ color: dark ? "#fcd34d" : "#b45309", fontSize: "0.62rem", marginTop: "0.1rem" }}>{!deposit ? "Deposit has not been posted today." : "Labor is over target — review staffing."}</div>
+            </div>
           </div>
         )}
 
@@ -12371,13 +12377,46 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         </div>
 
         {!loading && visibleHours.length > 0 && (
-          <Card>
+          <Card style={{ padding: "0.9rem 0.9rem 0.75rem" }}>
             <Label right={peakHour && <Chip color={O}>Peak {hourLabel(peakHour.hour)}</Chip>}>Sales By Hour</Label>
-            <div style={{ height: 86, display: "flex", alignItems: "end", gap: 3, paddingTop: 6 }}>
-              {visibleHours.map(h => <div key={h.hour} title={`${hourLabel(h.hour)}: ${fmt(h.sales)}`} style={{ flex: 1, height: Math.max(3, Math.round(h.sales / maxSales * 100)) + "%", background: h.hour === currentHour ? O : h.sales > 0 ? "#8a4b32" : `${th.cardBorder}55`, borderRadius: "3px 3px 0 0", opacity: h.hour === currentHour ? 1 : 0.9 }} />)}
+            {/* Chart area */}
+            <div style={{ position: "relative", height: 110, marginTop: 4 }}>
+              {/* Subtle grid lines */}
+              {[33, 66].map(pct => (
+                <div key={pct} style={{ position: "absolute", left: 0, right: 0, bottom: pct + "%", height: 1, background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)", pointerEvents: "none" }} />
+              ))}
+              {/* Bars */}
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 2 }}>
+                {visibleHours.map(h => {
+                  const isCurrent = h.hour === currentHour;
+                  const isPeak = peakHour && h.hour === peakHour.hour;
+                  const heightPct = Math.max(4, Math.round(h.sales / maxSales * 100));
+                  const barBg = isCurrent
+                    ? `linear-gradient(180deg, ${O} 0%, #c94d0a 100%)`
+                    : isPeak
+                    ? `linear-gradient(180deg, #ff9950 0%, #c94d0a 100%)`
+                    : h.sales > 0
+                    ? dark ? `linear-gradient(180deg, #a0522d88 0%, #6b321855 100%)` : `linear-gradient(180deg, #fdba7488 0%, #f9731644 100%)`
+                    : dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.05)";
+                  return (
+                    <div key={h.hour} title={`${hourLabel(h.hour)}: ${fmt(h.sales)}`} style={{ flex: 1, height: heightPct + "%", background: barBg, borderRadius: "4px 4px 0 0", boxShadow: isCurrent ? `0 0 8px ${O}55` : "none", transition: "height 0.4s ease" }} />
+                  );
+                })}
+              </div>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: th.subtle, fontSize: "0.55rem", marginTop: "0.2rem" }}><span>{hourLabel(visibleHours[0]?.hour ?? 5)}</span><span>{hourLabel(visibleHours[Math.floor(visibleHours.length / 2)]?.hour ?? 5)}</span><span style={{ color: O }}>{hourLabel(currentHour)}</span></div>
-            {peakHour && <div style={{ color: th.muted, fontSize: "0.66rem", marginTop: "0.55rem" }}>Peak hour: <span style={{ color: O, fontWeight: 900 }}>{hourLabel(peakHour.hour)} - {fmt(peakHour.sales)}</span></div>}
+            {/* X-axis labels */}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.3rem", paddingTop: "0.2rem", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"}` }}>
+              <span style={{ color: th.subtle, fontSize: "0.54rem" }}>{hourLabel(visibleHours[0]?.hour ?? 5)}</span>
+              <span style={{ color: th.subtle, fontSize: "0.54rem" }}>{hourLabel(visibleHours[Math.floor(visibleHours.length / 2)]?.hour ?? 5)}</span>
+              <span style={{ color: O, fontSize: "0.54rem", fontWeight: 800 }}>{hourLabel(currentHour)} now</span>
+            </div>
+            {/* Peak + current summary */}
+            {peakHour && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.5rem" }}>
+                <div style={{ color: th.muted, fontSize: "0.62rem" }}>Peak <span style={{ color: O, fontWeight: 900 }}>{hourLabel(peakHour.hour)} · {fmt(peakHour.sales)}</span></div>
+                {hourly && hourly[currentHour]?.sales > 0 && <div style={{ color: th.muted, fontSize: "0.62rem" }}>Now <span style={{ color: O, fontWeight: 900 }}>{fmt(hourly[currentHour].sales)}</span></div>}
+              </div>
+            )}
           </Card>
         )}
 
@@ -12405,22 +12444,10 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
           )}
         </Card>
 
-        <Card style={{ display: "none" }}>
-          <Label>Cash / Deposit</Label>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.85rem" }}>
-            <div style={{ width: 26, height: 26, borderRadius: "0.3rem", background: deposit ? "#22c55e" : "#f59e0b", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 900, fontSize: "0.85rem" }}>{deposit ? "✓" : "!"}</div>
-            <div>
-              <div style={{ color: deposit ? "#22c55e" : "#f59e0b", fontWeight: 900, fontSize: "0.85rem" }}>{deposit ? "Deposit Recorded" : "Deposit Pending"}</div>
-              <div style={{ color: th.muted, fontSize: "0.66rem" }}>{deposit ? `Amount: ${fmt(deposit.amount)} - ${deposit.depositDate}` : `Not posted yet for ${todayStr}`}</div>
-            </div>
-          </div>
-        </Card>
-
-        <button onClick={onFullPortal} style={{ display: "none", background: th.card, color: th.muted, border: `1px solid ${th.cardBorder}`, borderRadius: "0.55rem", padding: "0.85rem", fontWeight: 800, fontFamily: "'Source Sans 3'", cursor: "pointer", width: "100%" }}>Full Portal</button>
         {lastRefresh && <div style={{ textAlign: "center", fontSize: "0.58rem", color: th.subtle, opacity: 0.7 }}>Updated {lastRefresh.toLocaleTimeString()}</div>}
       </div>
 
-      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.45rem", boxShadow: "0 14px 36px rgba(0,0,0,0.28)", backdropFilter: "blur(12px)" }}>
+      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
         <button onClick={fetchAll} disabled={refreshing} title="Refresh" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text }}>
           <span style={{ fontSize: "1.15rem", lineHeight: 1 }}>{refreshing ? "·" : "↻"}</span>
           <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Refresh</span>
@@ -19056,7 +19083,7 @@ function PCGPortal() {
         stores={stores}
         th={th}
         dark={dark}
-        toggleDark={handleToggle}
+        toggleDark={() => setDark(d => !d)}
         salesWeeks={salesWeeks}
         cashDeposits={cashDeposits}
         onFullPortal={() => setManagerMode("full")}
@@ -19526,7 +19553,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.28
+            v7.37
           </div>
         )}
         {/* Collapse toggle — desktop only */}
