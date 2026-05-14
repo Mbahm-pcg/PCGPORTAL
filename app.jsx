@@ -5264,24 +5264,56 @@ async function cloudDelete(key) {
 }
 
 // ─── Per-report cloud helpers ─────────────────────────────────────
-// Daily reports are stored as ONE BLOB PER REPORT to stay under the ~6 MB
-// Netlify Lambda payload limit. An index blob holds lightweight metadata
-// so we can list reports without downloading every one.
-const DR_KEY_PREFIX = 'pcg_dr_';
-const DR_INDEX_KEY  = 'pcg_daily_reports_index_v1';
-const drKey = (id) => `${DR_KEY_PREFIX}${id}`;
+// Reports are stored as TWO blobs per report to stay well under the 6 MB
+// Netlify Lambda request-body limit:
+//   pcg_dr_{id}        — report metadata + workLog text (no photo data)
+//   pcg_dr_{id}_photos — photo arrays keyed by workLog index
+// An index blob (pcg_daily_reports_index_v1) holds lightweight metadata
+// so we can list reports without downloading any of them.
+// On load the two blobs are recombined transparently — the UI sees a normal
+// report object with photos exactly as before.
+const DR_KEY_PREFIX   = 'pcg_dr_';
+const DR_PHOTOS_SUFFIX = '_photos';
+const DR_INDEX_KEY    = 'pcg_daily_reports_index_v1';
+const drKey       = (id) => `${DR_KEY_PREFIX}${id}`;
+const drPhotosKey = (id) => `${DR_KEY_PREFIX}${id}${DR_PHOTOS_SUFFIX}`;
 
 async function cloudSaveReport(report) {
   if (!report || report.id == null) return false;
-  return cloudSave(drKey(report.id), report);
+  // Split: strip photo data out of the report, save separately
+  const photoMap = {};
+  const slimReport = {
+    ...report,
+    workLogs: (report.workLogs || []).map((w, i) => {
+      if (w.photos && w.photos.length > 0) photoMap[i] = w.photos;
+      return { ...w, photos: [] };
+    }),
+  };
+  const [reportOk, photosOk] = await Promise.all([
+    cloudSave(drKey(report.id), slimReport),
+    cloudSave(drPhotosKey(report.id), photoMap),
+  ]);
+  return reportOk && photosOk;
 }
 async function cloudLoadReport(id) {
   if (id == null) return null;
-  return cloudLoad(drKey(id));
+  const [report, photoMap] = await Promise.all([
+    cloudLoad(drKey(id)),
+    cloudLoad(drPhotosKey(id)),
+  ]);
+  if (!report) return null;
+  // Recombine photos back into workLogs
+  if (photoMap && typeof photoMap === 'object') {
+    report.workLogs = (report.workLogs || []).map((w, i) => ({
+      ...w,
+      photos: photoMap[i] || w.photos || [],
+    }));
+  }
+  return report;
 }
 async function cloudDeleteReport(id) {
   if (id == null) return;
-  return cloudDelete(drKey(id));
+  await Promise.all([cloudDelete(drKey(id)), cloudDelete(drPhotosKey(id))]);
 }
 function makeDailyReportIndexEntry(r) {
   return {
@@ -19434,7 +19466,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.22
+            v7.23
           </div>
         )}
         {/* Collapse toggle — desktop only */}
