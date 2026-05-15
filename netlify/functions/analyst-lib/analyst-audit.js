@@ -53,4 +53,25 @@ async function logFeedback({ userId, messageId, rating, comment }) {
   await cacheSave(key, entries);
 }
 
-module.exports = { logAudit, logLLMCall, logFeedback };
+/** Log an API access event (who called what, when, and with what result) */
+async function logAccessEvent({ userId, userRole, action, district, statusCode, latencyMs, error, meta }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const key = `analyst/access/${today}`;
+  const existing = await cacheLoad(key);
+  const lines = Array.isArray(existing) ? existing : [];
+  lines.push({
+    ts: new Date().toISOString(),
+    type: 'access',
+    userId: userId || null,
+    userRole: userRole || null,
+    action: action || null,
+    district: district || null,
+    statusCode: statusCode || null,
+    latencyMs: latencyMs || null,
+    error: error || null,
+    meta: meta || null,
+  });
+  await cacheSave(key, lines);
+}
+
+module.exports = { logAudit, logLLMCall, logFeedback, logAccessEvent };

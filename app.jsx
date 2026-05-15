@@ -201,6 +201,14 @@ const INIT_LINKS = {
 
 const O = "#FF671F", Od = "#cc4f12", W = "#fff";
 
+// Fire-and-forget audit event from the client (PDF exports, sync, backup, errors)
+function logClientEvent(userId, userRole, event, meta) {
+  fetch('/.netlify/functions/analyst', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'log-event', userId, userRole, event, meta }),
+  }).catch(() => {});
+}
+
 // Theme definitions
 const DARK = {
   bg: "#0f0f0f",
@@ -2850,10 +2858,12 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
     const securedForm = { ...form, twoFactorRequired: isTwoFactorRequired(form) };
     if (editId) {
       setUsers(us => us.map(u => u.id === editId ? { ...u, ...securedForm, initials: ini } : u));
+      logClientEvent(currentUser?.id, currentUser?.userType, 'user_edited', { targetName: form.name, targetRole: form.userType });
     } else {
       const newUser = { ...securedForm, id: nextId(), initials: ini, mustSetup: true };
       setUsers(us => [...us, newUser]);
       sendWelcomeEmail(newUser);
+      logClientEvent(currentUser?.id, currentUser?.userType, 'user_created', { targetName: form.name, targetRole: form.userType });
     }
     setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
     setSaveFlash(true);
@@ -2861,11 +2871,17 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   };
 
   const startEdit = (u) => openEditPage(u);
-  const toggleActive = (id) => setUsers(us => us.map(u => u.id === id ? { ...u, active: !u.active } : u));
+  const toggleActive = (id) => {
+    const target = users.find(u => u.id === id);
+    const newActive = !target?.active;
+    setUsers(us => us.map(u => u.id === id ? { ...u, active: newActive } : u));
+    logClientEvent(currentUser?.id, currentUser?.userType, newActive ? 'user_activated' : 'user_deactivated', { targetName: target?.name, targetRole: target?.userType });
+  };
   const del = (id) => {
     const target = users.find(u => u.id === id);
     if (!canManageUser(currentUser, target)) return;
     setUsers(us => us.filter(u => u.id !== id));
+    logClientEvent(currentUser?.id, currentUser?.userType, 'user_deleted', { targetName: target?.name, targetRole: target?.userType });
   };
 
   const filtered = users.filter(u => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
@@ -8593,9 +8609,11 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       if (ok && j?.savedAt) setLastBackupTime(new Date(j.savedAt));
       setBackupState(ok ? 'done' : 'error');
       showAlert && showAlert(ok ? 'success' : 'error', ok ? `Backup saved (${j.backed} reports)` : 'Backup failed. Check your connection.');
-    } catch {
+      logClientEvent(user?.id, user?.userType, ok ? 'backup' : 'backup_error', { backed: j?.backed, savedAt: j?.savedAt, error: ok ? null : 'Backup failed' });
+    } catch (e) {
       setBackupState('error');
       showAlert && showAlert('error', 'Backup failed unexpectedly.');
+      logClientEvent(user?.id, user?.userType, 'backup_error', { error: e?.message || 'Unexpected error' });
     }
     setTimeout(() => setBackupState('idle'), 4000);
   };
@@ -8633,10 +8651,12 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       setForceSyncState('success');
       setForceSyncMsg(`Synced ${ok} report${ok !== 1 ? 's' : ''} to cloud.`);
       showAlert && showAlert('success', `Synced ${ok} daily report${ok !== 1 ? 's' : ''} to cloud.`);
+      logClientEvent(user?.id, user?.userType, 'force_sync', { synced: ok, failed: 0, store: project.pc });
     } else {
       setForceSyncState('error');
       setForceSyncMsg(`${ok} synced, ${fail} failed.`);
       showAlert && showAlert('error', `Sync partial: ${ok} succeeded, ${fail} failed. Check your connection and try again.`);
+      logClientEvent(user?.id, user?.userType, 'force_sync_error', { synced: ok, failed: fail, store: project.pc, error: `${fail} report(s) failed` });
     }
     setTimeout(() => setForceSyncState('idle'), 3500);
   };
@@ -9225,10 +9245,12 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       setPdfLoading(false);
       if (download) {
         doc.save(filename);
+        logClientEvent(user?.id, user?.userType, 'pdf_download', { filename, reportDate: reportData.date, store: project.pc });
         return null;
       }
       return doc.output('blob');
     } catch(e) {
+      logClientEvent(user?.id, user?.userType, 'pdf_error', { error: e.message, reportId, store: project.pc });
       showAlert && showAlert("error", "PDF generation failed: " + e.message);
       setPdfLoading(false);
       return null;
@@ -11209,6 +11231,11 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       <div style={{ marginTop: "1.5rem" }}>
         <NotificationLogSection th={th} notifyLog={notifyLog} pushSubs={pushSubs} logLoading={logLoading} logOpen={logOpen} setLogOpen={setLogOpen} loadNotifyLog={loadNotifyLog} users={users || []} />
       </div>
+
+      {/* Audit Log */}
+      <div style={{ marginTop: "1.25rem" }}>
+        <AuditLogSection th={th} user={user} users={users || []} />
+      </div>
     </div>
   );
 }
@@ -11292,6 +11319,189 @@ function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, 
 
       {logOpen && !logLoading && (!notifyLog || notifyLog.length === 0) && (
         <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0', textAlign: 'center' }}>No notification history yet. Run a manual pulse notification to start logging.</div>
+      )}
+    </div>
+  );
+}
+
+// ── Audit Log Section (rendered inside AdminSettings) ─────────────────────
+function AuditLogSection({ th, user, users }) {
+  const O = '#FF671F';
+  const [open, setOpen] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const [entries, setEntries] = React.useState(null);
+  const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
+  const [filterAction, setFilterAction] = React.useState('');
+
+  const userName = (id) => {
+    if (!id) return '—';
+    const u = (users || []).find(u => String(u.id) === String(id));
+    return u ? u.name : `User #${id}`;
+  };
+
+  const load = async (d) => {
+    setLoading(true);
+    try {
+      const res = await fetch('/.netlify/functions/analyst', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'audit-log', userId: user.id, date: d }),
+      });
+      const data = await res.json();
+      setEntries(Array.isArray(data.entries) ? data.entries : []);
+    } catch { setEntries([]); }
+    setLoading(false);
+  };
+
+  const handleToggle = () => {
+    setOpen(o => {
+      if (!o && entries === null) load(date);
+      return !o;
+    });
+  };
+
+  const handleDateChange = (d) => {
+    setDate(d);
+    if (open) load(d);
+  };
+
+  const ACTION_COLORS = {
+    ask: '#6366f1', brief: '#0ea5e9', 'brief-refresh': '#0ea5e9',
+    'case-list': '#8b5cf6', 'case-detail': '#8b5cf6', 'case-update': '#f59e0b',
+    feedback: '#10b981', snapshot: '#64748b', 'report-settings': '#64748b',
+    'send-report': '#f97316',
+    pdf_download: '#06b6d4', pdf_error: '#f44336',
+    force_sync: '#22c55e', force_sync_error: '#f44336',
+    backup: '#3b82f6', backup_error: '#f44336',
+    login: '#22c55e', logout: '#94a3b8', session_timeout: '#f59e0b',
+    user_created: '#a855f7', user_edited: '#6366f1', user_deleted: '#f44336',
+    user_activated: '#22c55e', user_deactivated: '#f59e0b',
+  };
+
+  const displayed = (entries || []).filter(e => !filterAction || e.action === filterAction);
+  const uniqueActions = [...new Set((entries || []).map(e => e.action).filter(Boolean))].sort();
+
+  return (
+    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: open ? '1rem' : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '1.125rem' }}>🔍</span>
+          <span style={{ fontWeight: 700, fontSize: '1rem', color: th.text }}>Audit Log</span>
+          {entries !== null && !loading && (
+            <span style={{ fontSize: '0.7rem', color: th.muted, background: th.card2, padding: '0.1rem 0.5rem', borderRadius: '0.9rem', fontWeight: 600 }}>
+              {entries.length} event{entries.length !== 1 ? 's' : ''} today
+            </span>
+          )}
+        </div>
+        <button onClick={handleToggle} style={{ ...btn(th, { padding: '0.35rem 0.75rem', fontSize: '0.75rem' }) }}>
+          {open ? 'Hide' : 'View Log'}
+        </button>
+      </div>
+
+      {open && (
+        <div>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span style={{ fontSize: '0.75rem', color: th.muted, fontWeight: 600 }}>Date</span>
+              <input type="date" value={date} onChange={e => handleDateChange(e.target.value)}
+                style={{ ...inp(th), padding: '0.3rem 0.6rem', fontSize: '0.8rem', width: 'auto' }} />
+            </div>
+            {uniqueActions.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ fontSize: '0.75rem', color: th.muted, fontWeight: 600 }}>Action</span>
+                <select value={filterAction} onChange={e => setFilterAction(e.target.value)}
+                  style={{ ...inp(th), padding: '0.3rem 0.6rem', fontSize: '0.8rem', width: 'auto' }}>
+                  <option value="">All</option>
+                  {uniqueActions.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '0.5rem', marginLeft: 'auto' }}>
+              <button onClick={() => {
+                if (!displayed.length) return;
+                const headers = ['Time', 'User', 'Role', 'Action', 'Scope', 'Status', 'Detail', 'Latency(ms)'];
+                const rows = [...displayed].reverse().map(e => [
+                  e.ts ? new Date(e.ts).toLocaleString() : '',
+                  userName(e.userId),
+                  e.userRole || '',
+                  e.action || '',
+                  e.district ? `D${e.district}` : 'Network',
+                  e.statusCode || '',
+                  e.error || (e.meta?.filename || (e.meta?.backed != null ? `${e.meta.backed} reports` : (e.meta?.synced != null ? `${e.meta.synced} synced` : ''))) || '',
+                  e.latencyMs != null ? e.latencyMs : '',
+                ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+                const csv = [headers.join(','), ...rows].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `audit_log_${date}.csv`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+              }} style={{ ...btn(th, { padding: '0.3rem 0.75rem', fontSize: '0.75rem' }) }}>
+                ↓ CSV
+              </button>
+              <button onClick={() => load(date)} style={{ ...btn(th, { padding: '0.3rem 0.75rem', fontSize: '0.75rem' }) }}>
+                ↻ Refresh
+              </button>
+            </div>
+          </div>
+
+          {loading && <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0' }}>Loading...</div>}
+
+          {!loading && displayed.length === 0 && (
+            <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0', textAlign: 'center' }}>
+              No audit events recorded for {date}.
+            </div>
+          )}
+
+          {!loading && displayed.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                <thead>
+                  <tr>
+                    {['Time', 'User', 'Role', 'Action', 'Scope', 'Status', 'Detail', 'ms'].map(h =>
+                      <th key={h} style={{ padding: '0.5rem 0.6rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...displayed].reverse().map((e, i) => {
+                    const dt = e.ts ? new Date(e.ts) : null;
+                    const isErr = e.statusCode >= 400;
+                    const actionColor = ACTION_COLORS[e.action] || th.muted;
+                    return (
+                      <tr key={i} style={{ borderBottom: `1px solid ${th.cardBorder}`, background: isErr ? '#f4433608' : 'transparent' }}>
+                        <td style={{ padding: '0.4rem 0.6rem', color: th.muted, whiteSpace: 'nowrap', fontSize: '0.75rem' }}>
+                          {dt ? dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }) : '—'}
+                        </td>
+                        <td style={{ padding: '0.4rem 0.6rem', color: th.text, fontWeight: 500 }}>{userName(e.userId)}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>{e.userRole || '—'}</td>
+                        <td style={{ padding: '0.4rem 0.6rem' }}>
+                          <span style={{ fontSize: '0.65rem', fontWeight: 700, color: actionColor, background: actionColor + '18', padding: '0.15rem 0.45rem', borderRadius: '0.2rem', whiteSpace: 'nowrap' }}>
+                            {e.action || '—'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>
+                          {e.district ? `D${e.district}` : 'Network'}
+                        </td>
+                        <td style={{ padding: '0.4rem 0.6rem' }}>
+                          <span style={{ fontSize: '0.65rem', fontWeight: 700, color: isErr ? '#f44336' : '#4caf50', background: isErr ? '#f4433618' : '#4caf5018', padding: '0.15rem 0.4rem', borderRadius: '0.2rem' }}>
+                            {e.statusCode || '—'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.4rem 0.6rem', color: isErr ? '#f44336' : th.muted, fontSize: '0.72rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {e.error ? e.error : e.meta ? (e.meta.filename || (e.meta.backed != null ? `${e.meta.backed} reports` : (e.meta.synced != null ? `${e.meta.synced} synced` : '')) || '') : '—'}
+                        </td>
+                        <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem', textAlign: 'right' }}>
+                          {e.latencyMs != null ? e.latencyMs : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -18043,6 +18253,7 @@ function PCGPortal() {
   const [managerMode, setManagerMode] = useState(null);
   const handleLogout = () => {
     try { window.google?.accounts?.id?.disableAutoSelect(); } catch {}
+    logClientEvent(user?.id, user?.userType, 'logout', { name: user?.name });
     setManagerMode(null);
     setUser(null);
   };
@@ -18162,6 +18373,7 @@ function PCGPortal() {
       if (document.hidden) {
         hiddenAt.t = Date.now();
       } else if (hiddenAt.t && Date.now() - hiddenAt.t > TIMEOUT_MS) {
+        logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'background_tab', name: user?.name });
         setUser(null);
         setTab("dashboard");
         tabHistoryRef.current = ["dashboard"];
@@ -18171,6 +18383,7 @@ function PCGPortal() {
     // BFCache restore (browser back/forward) — always reset
     const onPageShow = (e) => {
       if (e.persisted) {
+        logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'bfcache_restore', name: user?.name });
         setUser(null);
         setTab("dashboard");
         tabHistoryRef.current = ["dashboard"];
@@ -18206,6 +18419,7 @@ function PCGPortal() {
     const interval = setInterval(() => {
       const idle = Date.now() - lastActivityRef.current;
       if (idle >= LOGOUT_AFTER) {
+        logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'inactivity', name: user?.name });
         setUser(null);
         setTab("dashboard");
         tabHistoryRef.current = ["dashboard"];
@@ -19205,7 +19419,7 @@ function PCGPortal() {
     }
   }, [dark]);
 
-  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.darkMode !== undefined) setDark(u.darkMode); if (u.userType === "vendor") setTab("projects"); }} dark={dark} users={users} toggleDark={() => {
+  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.darkMode !== undefined) setDark(u.darkMode); if (u.userType === "vendor") setTab("projects"); logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType }); }} dark={dark} users={users} toggleDark={() => {
     const newDark = !dark;
     setDark(newDark);
   }} />;
@@ -19692,7 +19906,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.42
+            v7.52
           </div>
         )}
         {/* Collapse toggle — desktop only */}

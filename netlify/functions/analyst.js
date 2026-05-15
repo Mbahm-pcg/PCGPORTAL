@@ -7,7 +7,7 @@ const { buildBriefPrompt, buildAskPrompt, PERSONA } = require('./analyst-lib/ana
 const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { getCases, loadCase, updateCaseStatus } = require('./analyst-lib/analyst-cases');
 const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
-const { logFeedback } = require('./analyst-lib/analyst-audit');
+const { logFeedback, logAccessEvent } = require('./analyst-lib/analyst-audit');
 const { loadReportSettings } = require('./analyst-lib/analyst-reports');
 
 const headers = {
@@ -33,12 +33,23 @@ exports.handler = async (event) => {
   }
 
   const { action, userId, userRole, district } = payload;
+  const t0 = Date.now();
+
+  // Wrap response so every action is audit-logged before returning
+  const respond = async (statusCode, body) => {
+    const latencyMs = Date.now() - t0;
+    // Don't log the audit-log read itself to avoid noise
+    if (action !== 'audit-log') {
+      logAccessEvent({ userId, userRole, action, district, statusCode, latencyMs }).catch(() => {});
+    }
+    return json(statusCode, body);
+  };
 
   try {
     // ── Ask Analyst (omnibar / chat) ─────────────────────────────────────
     if (action === 'ask') {
       const { question, forceDeep, channelId, history } = payload;
-      if (!question) return json(400, { error: 'Missing question' });
+      if (!question) return respond(400, { error: 'Missing question' });
 
       // Build data context scoped to user's district (DMs) or full network (execs)
       const scope = district ? `District ${district}` : 'Network';
@@ -68,7 +79,7 @@ exports.handler = async (event) => {
         await cacheSave(`analyst/chat/${channelId}`, updated);
       }
 
-      return json(200, {
+      return respond(200, {
         answer: result.answer,
         model: result.model,
         tokens: result.tokens,
@@ -80,13 +91,13 @@ exports.handler = async (event) => {
     // ── Chat History (load/clear) ────────────────────────────────────────
     if (action === 'chat-history') {
       const { channelId, clear } = payload;
-      if (!channelId) return json(400, { error: 'Missing channelId' });
+      if (!channelId) return respond(400, { error: 'Missing channelId' });
       if (clear) {
         await cacheSave(`analyst/chat/${channelId}`, []);
-        return json(200, { ok: true, cleared: true });
+        return respond(200, { ok: true, cleared: true });
       }
       const history = (await cacheLoad(`analyst/chat/${channelId}`)) || [];
-      return json(200, { history });
+      return respond(200, { history });
     }
 
     // ── Today's Brief ────────────────────────────────────────────────────
@@ -98,7 +109,7 @@ exports.handler = async (event) => {
       // Check cache first
       const cached = await cacheLoad(briefKey);
       if (cached && !payload.refresh) {
-        return json(200, { brief: cached, cached: true });
+        return respond(200, { brief: cached, cached: true });
       }
 
       // Generate fresh brief
@@ -121,7 +132,7 @@ exports.handler = async (event) => {
       };
 
       await cacheSave(briefKey, brief);
-      return json(200, { brief, cached: false });
+      return respond(200, { brief, cached: false });
     }
 
     // ── Brief Refresh (force regeneration) ───────────────────────────────
@@ -151,7 +162,7 @@ exports.handler = async (event) => {
 
       const briefKey = `analyst/briefs/${today}_${district || 'network'}`;
       await cacheSave(briefKey, brief);
-      return json(200, { brief, cached: false });
+      return respond(200, { brief, cached: false });
     }
 
     // ── Case List ────────────────────────────────────────────────────────
@@ -164,42 +175,42 @@ exports.handler = async (event) => {
       const byStatus = {};
       cases.forEach(c => { byStatus[c.status] = (byStatus[c.status] || 0) + 1; });
 
-      return json(200, { cases, totalOpportunity, byStatus, count: cases.length });
+      return respond(200, { cases, totalOpportunity, byStatus, count: cases.length });
     }
 
     // ── Case Detail ──────────────────────────────────────────────────────
     if (action === 'case-detail') {
       const { caseId } = payload;
-      if (!caseId) return json(400, { error: 'Missing caseId' });
+      if (!caseId) return respond(400, { error: 'Missing caseId' });
       const c = await loadCase(caseId);
-      if (!c) return json(404, { error: 'Case not found' });
-      return json(200, { case: c });
+      if (!c) return respond(404, { error: 'Case not found' });
+      return respond(200, { case: c });
     }
 
     // ── Case Status Update ───────────────────────────────────────────────
     if (action === 'case-update') {
       const { caseId, status } = payload;
-      if (!caseId || !status) return json(400, { error: 'Missing caseId or status' });
+      if (!caseId || !status) return respond(400, { error: 'Missing caseId or status' });
       const valid = ['New', 'In Review', 'Accepted', 'In Progress', 'Done'];
-      if (!valid.includes(status)) return json(400, { error: `Invalid status. Must be: ${valid.join(', ')}` });
+      if (!valid.includes(status)) return respond(400, { error: `Invalid status. Must be: ${valid.join(', ')}` });
       const updated = await updateCaseStatus(caseId, status, userId);
-      if (!updated) return json(404, { error: 'Case not found' });
-      return json(200, { case: updated });
+      if (!updated) return respond(404, { error: 'Case not found' });
+      return respond(200, { case: updated });
     }
 
     // ── Feedback (thumbs up/down) ────────────────────────────────────────
     if (action === 'feedback') {
       const { messageId, rating, comment } = payload;
-      if (!messageId || !rating) return json(400, { error: 'Missing messageId or rating' });
-      if (!['up', 'down'].includes(rating)) return json(400, { error: 'Rating must be up or down' });
+      if (!messageId || !rating) return respond(400, { error: 'Missing messageId or rating' });
+      if (!['up', 'down'].includes(rating)) return respond(400, { error: 'Rating must be up or down' });
       await logFeedback({ userId, messageId, rating, comment });
-      return json(200, { ok: true });
+      return respond(200, { ok: true });
     }
 
     // ── KPI Snapshot (raw data for debugging) ────────────────────────────
     if (action === 'snapshot') {
       const snapshot = await buildKPISnapshot({ district });
-      return json(200, snapshot);
+      return respond(200, snapshot);
     }
 
     // ── Report Settings (get/update) ───────────────────────────────────
@@ -210,10 +221,10 @@ exports.handler = async (event) => {
         const current = await loadReportSettings();
         const merged = { ...current, ...update };
         await cacheSave('analyst/report-settings', merged);
-        return json(200, { settings: merged, updated: true });
+        return respond(200, { settings: merged, updated: true });
       }
       const settings = await loadReportSettings();
-      return json(200, { settings });
+      return respond(200, { settings });
     }
 
     // ── Send Report Now (on-demand) ────────────────────────────────────
@@ -225,27 +236,44 @@ exports.handler = async (event) => {
       if (reportType === 'exec') {
         const isLaborAdjusted = payload.laborAdjusted || false;
         const sent = await sendExecReport(settings, isLaborAdjusted);
-        return json(200, { ok: true, sent, reportType: 'exec', laborAdjusted: isLaborAdjusted });
+        return respond(200, { ok: true, sent, reportType: 'exec', laborAdjusted: isLaborAdjusted });
       }
 
       if (reportType === 'daily') {
         const sent = await sendExecDailyReport(settings);
-        return json(200, { ok: true, sent, reportType: 'daily' });
+        return respond(200, { ok: true, sent, reportType: 'daily' });
       }
 
       if (reportType === 'dm') {
         const usersBlob = await cacheLoad('pcg_portal_users');
         const sent = await sendDMBriefs(settings, Array.isArray(usersBlob) ? usersBlob : []);
-        return json(200, { ok: true, sent, reportType: 'dm' });
+        return respond(200, { ok: true, sent, reportType: 'dm' });
       }
 
-      return json(400, { error: 'reportType must be exec, daily, or dm' });
+      return respond(400, { error: 'reportType must be exec, daily, or dm' });
     }
 
-    return json(400, { error: `Unknown action: ${action}` });
+    // ── Client Event Log (PDF download, sync, backup, errors) ────────
+    if (action === 'log-event') {
+      const { event, meta } = payload;
+      if (!event) return respond(400, { error: 'Missing event' });
+      await logAccessEvent({ userId, userRole, action: event, district, statusCode: meta?.error ? 500 : 200, latencyMs: meta?.latencyMs || null, error: meta?.error || null, meta: meta || null });
+      return json(200, { ok: true });
+    }
+
+    // ── Audit Log (read access events for a given date) ───────────────
+    if (action === 'audit-log') {
+      const { date } = payload;
+      const targetDate = date || new Date().toISOString().slice(0, 10);
+      const entries = (await cacheLoad(`analyst/access/${targetDate}`)) || [];
+      return json(200, { date: targetDate, entries, count: entries.length });
+    }
+
+    return respond(400, { error: `Unknown action: ${action}` });
 
   } catch (err) {
     console.error('[analyst] error:', err);
+    logAccessEvent({ userId, userRole, action, district, statusCode: 500, latencyMs: Date.now() - t0, error: err.message }).catch(() => {});
     return json(500, { error: err.message || 'Internal error' });
   }
 };
