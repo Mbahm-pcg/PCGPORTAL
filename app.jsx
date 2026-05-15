@@ -12479,6 +12479,9 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [showStoreInfo, setShowStoreInfo] = useState(false);
+  const [dayOffset, setDayOffset] = useState(0);
+  const [storeBlob, setStoreBlob] = useState(null);
+  const [histHourly, setHistHourly] = useState(null);
   const toggleBtnRef = useRef(null);
 
   const handleToggle = useCallback(() => {
@@ -12503,7 +12506,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra }),
       }).then(r => r.ok ? r.json() : null).catch(() => null);
 
-      const [opsRes, laborBlob, checkRes, storeBlob, orderDims, orderTotals, announceBlob] = await Promise.all([
+      const [opsRes, laborBlob, checkRes, storeBlobData, orderDims, orderTotals, announceBlob] = await Promise.all([
         fetchOpsTotals(pc, todayStr).catch(() => null),
         cloudLoad('pcg_labor_v1').catch(() => null),
         pulsePost('getGuestChecks', { include: 'guestChecks' }),
@@ -12524,6 +12527,15 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
           if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += ck.chkTtl || ck.subTtl || 0;
         }
         setHourly(h);
+        // Cache hourly so historical days can show the chart
+        try {
+          localStorage.setItem(`embed_hourly_${pc}_${todayStr}`, JSON.stringify(h));
+          const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 31);
+          const cutoffStr = cutoff.toISOString().slice(0, 10);
+          for (const k of Object.keys(localStorage)) {
+            if (k.startsWith('embed_hourly_') && k.length >= 10 && k.slice(-10) < cutoffStr) localStorage.removeItem(k);
+          }
+        } catch {}
       }
 
       // Order type breakdown
@@ -12542,17 +12554,20 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       }
 
       // Last week same-day sales from store blob history
-      const daily = storeBlob?.daily || [];
+      const daily = storeBlobData?.daily || [];
       const lw = new Date(); lw.setDate(lw.getDate() - 7);
       const lwStr = lw.toISOString().slice(0, 10);
       const lwEntry = daily.find(d => d.date === lwStr);
       if (lwEntry?.sales > 0) setLwDaySales(lwEntry.sales);
 
+      // Save store blob for day-cycling
+      setStoreBlob(storeBlobData);
+
       // Active announcements
       const allAnnounce = Array.isArray(announceBlob) ? announceBlob : [];
       setActiveAnnouncements(allAnnounce.filter(a => a.active).slice(0, 3));
 
-      const empList = storeBlob?.daily?.[0]?.employees || [];
+      const empList = storeBlobData?.daily?.[0]?.employees || [];
       if (empList.length > 0) {
         setWorkers(empList.filter(e => e.hoursToday > 0).map(e => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
       }
@@ -12567,6 +12582,16 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     const t = setInterval(fetchAll, 10 * 60 * 1000);
     return () => clearInterval(t);
   }, [fetchAll]);
+  // Load cached hourly from localStorage when browsing historical days
+  useEffect(() => {
+    if (dayOffset === 0) { setHistHourly(null); return; }
+    try {
+      const d = new Date(); d.setDate(d.getDate() - dayOffset);
+      const dStr = d.toISOString().slice(0, 10);
+      const cached = localStorage.getItem(`embed_hourly_${pc}_${dStr}`);
+      setHistHourly(cached ? JSON.parse(cached) : null);
+    } catch { setHistHourly(null); }
+  }, [dayOffset, pc]);
 
   if (!pc) {
     return <div style={{ minHeight: "100vh", background: th.bg, color: th.muted, display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem", textAlign: "center" }}>No store is assigned to this manager account yet.</div>;
@@ -12574,15 +12599,29 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
 
   const storeLabor = labor?.today || null;
   const laborPct = storeLabor?.laborPct ?? null;
-  const laborColor = laborPct == null ? th.muted : laborPct <= 22.9 ? "#22c55e" : laborPct <= 25.9 ? "#f59e0b" : "#ef4444";
-  const laborLabel = laborPct == null ? "No Data" : laborPct <= 22.9 ? "On Target" : laborPct <= 25.9 ? "Watch" : "Over";
   const latestWeek = (salesWeeks || [])[0];
   const weekRow = latestWeek?.stores?.find(r => String(r.pc) === String(pc));
   const vsLW = weekRow?.diffSale ?? null;
   const vsLWPct = weekRow?.diffPct ?? null;
   const now = new Date();
+  // Day-cycling: derive display data for today (live) vs past days (blob history)
+  const isLive = dayOffset === 0;
+  const viewDate = (() => { const d = new Date(); d.setDate(d.getDate() - dayOffset); return d; })();
+  const viewDateStr = viewDate.toISOString().slice(0, 10);
+  const prevDateStr = (() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+  const histEntry = !isLive ? (storeBlob?.daily || []).find(e => e.date === viewDateStr) || null : null;
+  const histPrevEntry = !isLive ? (storeBlob?.daily || []).find(e => e.date === prevDateStr) || null : null;
+  const displaySalesAmt = isLive ? (sales?.netSales ?? null) : (histEntry?.sales ?? null);
+  const displayGuests = isLive ? (sales?.guests ?? null) : null;
+  const displayLaborPct = isLive ? laborPct : (histEntry?.laborPct ?? null);
+  const displayLaborDollars = isLive ? storeLabor?.laborDollars : histEntry?.laborCost;
+  const displayPaceTarget = isLive ? lwDaySales : (histPrevEntry?.sales || null);
+  const laborColor = displayLaborPct == null ? th.muted : displayLaborPct <= 22.9 ? "#22c55e" : displayLaborPct <= 25.9 ? "#f59e0b" : "#ef4444";
+  const laborLabel = displayLaborPct == null ? "No Data" : displayLaborPct <= 22.9 ? "On Target" : displayLaborPct <= 25.9 ? "Watch" : "Over";
   const currentHour = now.getHours();
-  const visibleHours = hourly ? hourly.filter(h => h.hour >= 5 && h.hour <= Math.max(5, currentHour)) : [];
+  const visibleHours = isLive
+    ? (hourly ? hourly.filter(h => h.hour >= 5 && h.hour <= Math.max(5, currentHour)) : [])
+    : (histHourly ? histHourly.filter(h => h.hour >= 5 && h.sales > 0) : []);
   const maxSales = Math.max(...visibleHours.map(h => h.sales), 1);
   const peakHour = visibleHours.length ? visibleHours.reduce((a, b) => b.sales > a.sales ? b : a, visibleHours[0]) : null;
   const fmt = n => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
@@ -12605,25 +12644,37 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       <div style={{ position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ height: 3, background: `linear-gradient(90deg, ${O} 0%, #ff9950 100%)` }} />
         <div style={{ background: dark ? "rgba(11,13,19,0.97)" : "rgba(255,255,255,0.97)", borderBottom: `1px solid ${th.headerBorder}`, padding: "0.65rem 0.85rem", backdropFilter: "blur(16px)" }}>
-          <div style={{ maxWidth: 380, margin: "0 auto", display: "grid", gridTemplateColumns: "auto 1fr auto", gap: "0.6rem", alignItems: "center" }}>
+          <div style={{ maxWidth: 380, margin: "0 auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: "0.6rem", alignItems: "center" }}>
             <img src={LOGOS[th.logoSeal]} alt="PCG" style={{ width: 30, height: 30, objectFit: "contain", flexShrink: 0 }} />
             <button onClick={() => setShowStoreInfo(true)} title="View store details" style={{ background: "none", border: "none", cursor: "pointer", color: th.text, padding: 0, textAlign: "left", minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.38rem", minWidth: 0 }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: loading ? "#f59e0b" : "#22c55e", boxShadow: `0 0 0 3px ${(loading ? "#f59e0b" : "#22c55e")}22`, flexShrink: 0 }} />
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: loading ? "#f59e0b" : isLive ? "#22c55e" : "#64748b", boxShadow: `0 0 0 3px ${(loading ? "#f59e0b" : isLive ? "#22c55e" : "#64748b")}22`, flexShrink: 0 }} />
                 <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.95rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name || `Store #${pc}`}</span>
               </div>
-              <div style={{ color: th.muted, fontSize: "0.58rem", marginTop: "0.1rem", paddingLeft: "0.95rem" }}>#{pc} · {now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · {loading ? "Syncing…" : "Live"}</div>
+              <div style={{ color: th.muted, fontSize: "0.58rem", marginTop: "0.1rem", paddingLeft: "0.95rem" }}>#{pc} · {isLive ? now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · {isLive ? (loading ? "Syncing…" : "Live") : "History"}</div>
             </button>
             <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
               <IconButton onClick={handleToggle} title={dark ? "Switch to light" : "Switch to dark"} btnRef={toggleBtnRef}>{dark ? ICONS.sun("#f59e0b") : ICONS.moon(th.muted)}</IconButton>
               <IconButton onClick={onLogout} title="Sign out">{ICONS.logout(th.muted)}</IconButton>
             </div>
           </div>
+          {/* Date navigation strip */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)", borderRadius: 8, padding: "3px 4px", marginTop: "0.38rem" }}>
+            <button onClick={() => setDayOffset(o => Math.min(o + 1, 29))} disabled={dayOffset >= 29} style={{ background: "none", border: "none", color: dayOffset >= 29 ? (dark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)") : (dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.7)"), fontSize: "1.1rem", lineHeight: 1, cursor: dayOffset >= 29 ? "default" : "pointer", padding: "2px 10px", borderRadius: 6 }}>‹</button>
+            <div style={{ textAlign: "center", flex: 1 }}>
+              <span style={{ color: dark ? "#fff" : "#111", fontSize: "0.7rem", fontWeight: 800 }}>
+                {dayOffset === 0 ? "Today" : dayOffset === 1 ? "Yesterday" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+              </span>
+            </div>
+            <button onClick={() => setDayOffset(o => Math.max(o - 1, 0))} disabled={dayOffset === 0} style={{ background: "none", border: "none", color: dayOffset === 0 ? (dark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)") : (dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.7)"), fontSize: "1.1rem", lineHeight: 1, cursor: dayOffset === 0 ? "default" : "pointer", padding: "2px 10px", borderRadius: 6 }}>›</button>
+          </div>
+          </div>
         </div>
       </div>
 
       <div className="fade-in" style={{ maxWidth: 380, margin: "0 auto", padding: "0.75rem 0.75rem 5.9rem", display: "grid", gap: "0.7rem" }}>
-        {laborPct != null && laborPct > 25.9 && (
+        {displayLaborPct != null && displayLaborPct > 25.9 && (
           <div style={{ background: dark ? "#f59e0b14" : "#fffbeb", border: `1px solid ${dark ? "#f59e0b55" : "#fcd34d"}`, borderLeft: "3px solid #f59e0b", borderRadius: 10, padding: "0.62rem 0.8rem", display: "flex", alignItems: "center", gap: "0.55rem" }}>
             <span style={{ fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}>⚠️</span>
             <div>
@@ -12634,30 +12685,33 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         )}
 
         <Card style={{ padding: "1rem", borderColor: `${O}55`, background: `linear-gradient(160deg, ${O}18 0%, ${th.card} 46%, ${th.card2} 100%)` }}>
-          <Label right={<Chip color={loading ? "#f59e0b" : "#22c55e"}>{loading ? "Syncing" : "Live"}</Chip>}>Today's Sales</Label>
-          {loading ? <div style={{ color: th.muted, fontSize: "0.82rem", textAlign: "center", padding: "0.75rem" }}>Loading...</div> : (
+          <Label right={<Chip color={isLive ? (loading ? "#f59e0b" : "#22c55e") : "#64748b"}>{isLive ? (loading ? "Syncing" : "Live") : "History"}</Chip>}>{isLive ? "Today's Sales" : (dayOffset === 1 ? "Yesterday's Sales" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))}</Label>
+          {isLive && loading ? <div style={{ color: th.muted, fontSize: "0.82rem", textAlign: "center", padding: "0.75rem" }}>Loading...</div> : (
             <>
-              <div style={{ color: O, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.1rem", lineHeight: 1, letterSpacing: 0 }}>{sales ? fmt(sales.netSales) : "--"}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.85rem" }}>
-                <MiniStat label="Guests" value={sales ? Math.round(sales.guests).toLocaleString() : "--"} color="#74c0fc" />
-                <MiniStat label="Avg Check" value={sales && sales.guests > 0 ? '$' + (sales.netSales / sales.guests).toFixed(2) : "--"} color="#fde047" />
-              </div>
+              <div style={{ color: O, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.1rem", lineHeight: 1, letterSpacing: 0 }}>{displaySalesAmt != null ? fmt(displaySalesAmt) : "--"}</div>
+              {isLive && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.85rem" }}>
+                  <MiniStat label="Guests" value={displayGuests != null ? Math.round(displayGuests).toLocaleString() : "--"} color="#74c0fc" />
+                  <MiniStat label="Avg Check" value={displayGuests > 0 ? '$' + (displaySalesAmt / displayGuests).toFixed(2) : "--"} color="#fde047" />
+                </div>
+              )}
             </>
           )}
-          {vsLW !== null && <><div style={{ height: 1, background: th.cardBorder, margin: "0.85rem 0 0.65rem" }} /><div style={{ color: th.muted, fontSize: "0.66rem" }}>vs last week: <span style={{ color: vsLW < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{vsLW < 0 ? "▼" : "▲"} {fmt(Math.abs(vsLW))} ({Math.abs(vsLWPct || 0).toFixed(0)}%)</span></div></>}
-          {!loading && sales && lwDaySales > 0 && (() => {
-            const pct = Math.min(Math.round((sales.netSales / lwDaySales) * 100), 150);
-            const paceColor = pct >= 100 ? "#22c55e" : pct >= 90 ? "#f59e0b" : "#ef4444";
+          {isLive && vsLW !== null && <><div style={{ height: 1, background: th.cardBorder, margin: "0.85rem 0 0.65rem" }} /><div style={{ color: th.muted, fontSize: "0.66rem" }}>vs last week: <span style={{ color: vsLW < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{vsLW < 0 ? "▼" : "▲"} {fmt(Math.abs(vsLW))} ({Math.abs(vsLWPct || 0).toFixed(0)}%)</span></div></>}
+          {!loading && displaySalesAmt != null && displayPaceTarget > 0 && (() => {
+            const pct = Math.min(Math.round((displaySalesAmt / displayPaceTarget) * 100), 150);
+            const pc2 = pct >= 100 ? "#22c55e" : pct >= 90 ? "#f59e0b" : "#ef4444";
+            const compareLabel = isLive ? `last ${now.toLocaleDateString("en-US", { weekday: "short" })}` : prevDateStr.slice(5).replace('-', '/');
             return (
               <div style={{ marginTop: "0.7rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
                   <span style={{ color: th.muted, fontSize: "0.58rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Sales Pace</span>
-                  <span style={{ color: paceColor, fontSize: "0.62rem", fontWeight: 900 }}>{pct}% of last {now.toLocaleDateString("en-US", { weekday: "short" })}</span>
+                  <span style={{ color: pc2, fontSize: "0.62rem", fontWeight: 900 }}>{pct}% of {compareLabel}</span>
                 </div>
                 <div style={{ height: 6, borderRadius: 99, background: dark ? "rgba(255,255,255,0.08)" : "#e5e7eb", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: Math.min(pct, 100) + "%", borderRadius: 99, background: `linear-gradient(90deg, ${paceColor}99, ${paceColor})`, transition: "width 0.6s ease" }} />
+                  <div style={{ height: "100%", width: Math.min(pct, 100) + "%", borderRadius: 99, background: `linear-gradient(90deg, ${pc2}99, ${pc2})`, transition: "width 0.6s ease" }} />
                 </div>
-                <div style={{ color: th.subtle, fontSize: "0.56rem", marginTop: "0.25rem" }}>Target: {fmt(lwDaySales)}</div>
+                <div style={{ color: th.subtle, fontSize: "0.56rem", marginTop: "0.25rem" }}>Prior: {fmt(displayPaceTarget)}</div>
               </div>
             );
           })()}
@@ -12666,10 +12720,25 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
 
         <Card accent={laborColor}>
           <Label right={<Chip color={laborColor}>{laborLabel}</Chip>}>Labor</Label>
-          <div style={{ color: laborColor, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.6rem", lineHeight: 1 }}>{loading ? "--" : laborPct != null ? laborPct.toFixed(1) + "%" : "--"}</div>
-          <div style={{ color: th.muted, fontSize: "0.6rem", lineHeight: 1.35, marginTop: "0.4rem" }}>
-            {storeLabor?.laborDollars ? `${fmt(storeLabor.laborDollars)} labor` : "Target 22.9%"}
-          </div>
+          {(() => {
+            const wtd = storeBlob?.weekly?.[0] || null;
+            const wtdColor = wtd ? (wtd.laborPct <= 22.9 ? "#22c55e" : wtd.laborPct <= 25.9 ? "#f59e0b" : "#ef4444") : th.muted;
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", alignItems: "end" }}>
+                <div>
+                  <div style={{ color: laborColor, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.6rem", lineHeight: 1 }}>{(isLive && loading) ? "--" : displayLaborPct != null ? displayLaborPct.toFixed(1) + "%" : "--"}</div>
+                  <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: "0.35rem" }}>{displayLaborDollars ? `${fmt(displayLaborDollars)} labor` : "Target 22.9%"}</div>
+                </div>
+                {wtd && (
+                  <div style={{ borderLeft: `1px solid ${dark ? "rgba(255,255,255,0.08)" : "#e5e7eb"}`, paddingLeft: "0.65rem" }}>
+                    <div style={{ color: th.muted, fontSize: "0.54rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.2rem" }}>WTD</div>
+                    <div style={{ color: wtdColor, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.25rem", lineHeight: 1 }}>{(wtd.laborPct || 0).toFixed(1)}%</div>
+                    <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: "0.35rem" }}>{fmt(wtd.laborDollars || 0)} labor</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </Card>
 
         {!loading && visibleHours.length > 0 && (
@@ -12684,7 +12753,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
               {/* Bars */}
               <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 2 }}>
                 {visibleHours.map(h => {
-                  const isCurrent = h.hour === currentHour;
+                  const isCurrent = isLive && h.hour === currentHour;
                   const isPeak = peakHour && h.hour === peakHour.hour;
                   const heightPct = Math.max(4, Math.round(h.sales / maxSales * 100));
                   const barBg = isCurrent
@@ -12704,13 +12773,16 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.3rem", paddingTop: "0.2rem", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"}` }}>
               <span style={{ color: th.subtle, fontSize: "0.54rem" }}>{hourLabel(visibleHours[0]?.hour ?? 5)}</span>
               <span style={{ color: th.subtle, fontSize: "0.54rem" }}>{hourLabel(visibleHours[Math.floor(visibleHours.length / 2)]?.hour ?? 5)}</span>
-              <span style={{ color: O, fontSize: "0.54rem", fontWeight: 800 }}>{hourLabel(currentHour)} now</span>
+              <span style={{ color: isLive ? O : th.subtle, fontSize: "0.54rem", fontWeight: 800 }}>{hourLabel(visibleHours[visibleHours.length - 1]?.hour ?? currentHour)}{isLive ? " now" : ""}</span>
             </div>
-            {/* Peak + current summary */}
+            {/* Peak + summary */}
             {peakHour && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.5rem" }}>
                 <div style={{ color: th.muted, fontSize: "0.62rem" }}>Peak <span style={{ color: O, fontWeight: 900 }}>{hourLabel(peakHour.hour)} · {fmt(peakHour.sales)}</span></div>
-                {hourly && hourly[currentHour]?.sales > 0 && <div style={{ color: th.muted, fontSize: "0.62rem" }}>Now <span style={{ color: O, fontWeight: 900 }}>{fmt(hourly[currentHour].sales)}</span></div>}
+                {isLive && hourly && hourly[currentHour]?.sales > 0
+                  ? <div style={{ color: th.muted, fontSize: "0.62rem" }}>Now <span style={{ color: O, fontWeight: 900 }}>{fmt(hourly[currentHour].sales)}</span></div>
+                  : !isLive && displaySalesAmt != null && <div style={{ color: th.muted, fontSize: "0.62rem" }}>Total <span style={{ color: O, fontWeight: 900 }}>{fmt(displaySalesAmt)}</span></div>
+                }
               </div>
             )}
           </Card>
@@ -12718,7 +12790,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
 
         {(() => {
           const carouselPages = [
-            { id: 'workers', show: workers.length > 0, content: (
+            { id: 'workers', show: isLive && workers.length > 0, content: (
               <>
                 <div style={{ display: "flex", alignItems: "center", marginBottom: "0.65rem" }}>
                   <div style={{ color: "#8b5cf6", fontSize: "0.58rem", fontWeight: 900, letterSpacing: 1.6, textTransform: "uppercase" }}>Who's Working <span style={{ color: th.muted, fontWeight: 700 }}>· {workers.length}</span></div>
@@ -12737,7 +12809,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
                 </div>
               </>
             )},
-            { id: 'orders', show: !loading, content: (
+            { id: 'orders', show: isLive && !loading, content: (
               <>
                 <Label>Order Types</Label>
                 {orderTypes.length > 0 ? (() => {
@@ -19475,7 +19547,7 @@ function PCGPortal() {
       if (dis && typeof dis === 'object' && dis !== null && Object.keys(dis).length > 0) setAnnouncementsDismissed(dis);
     }).catch(() => { cloudAnnouncementsLoaded.current = true; });
   }, []);
-  useEffect(() => { if (cloudAnnouncementsLoaded.current && announcements.length > 0) cloudSave('pcg_announcements_v1', announcements); }, [announcements]);
+  useEffect(() => { if (cloudAnnouncementsLoaded.current) cloudSave('pcg_announcements_v1', announcements); }, [announcements]);
   useEffect(() => { if (cloudAnnouncementsLoaded.current && Object.keys(announcementsDismissed).length > 0) cloudSave('pcg_announcements_dismissed_v1', announcementsDismissed); }, [announcementsDismissed]);
 
   // Register service worker for PWA push notifications
@@ -20239,7 +20311,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.81
+            v7.85
           </div>
         )}
         {/* Collapse toggle — desktop only */}
