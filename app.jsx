@@ -199,7 +199,16 @@ const INIT_LINKS = {
   ]
 };
 
-const O = "#FF671F", Od = "#cc4f12", W = "#fff";
+const BRAND_CONFIG = {
+  name: 'People Capital Group',
+  shortName: 'PCG',
+  portalName: 'PCG Company Portal',
+  portalUrl: 'https://pcg-ops.netlify.app',
+  primary: '#FF671F',
+  primaryDark: '#cc4f12',
+  googleDomain: '@peoplecapitalgroup.com',
+};
+const O = BRAND_CONFIG.primary, Od = BRAND_CONFIG.primaryDark, W = "#fff";
 
 // Fire-and-forget audit event from the client (PDF exports, sync, backup, errors)
 function logClientEvent(userId, userRole, event, meta) {
@@ -468,7 +477,7 @@ async function verifyTotp(secret, token, windowSteps = 1) {
 }
 
 function getTotpUri(user, secret) {
-  const issuer = "PCG Portal";
+  const issuer = BRAND_CONFIG.portalName;
   const account = user?.email || user?.username || "user";
   return `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`;
 }
@@ -759,7 +768,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
             const email = (profile.email || "").trim().toLowerCase();
             if (!profile.email_verified) { setErr("Google account email is not verified."); return; }
             const allowedGoogleDomain = GOOGLE_ALLOWED_DOMAINS.some(d => email.endsWith("@" + d.toLowerCase()));
-            if (!allowedGoogleDomain) { setErr("Use your People Capital Group or RGI Google account."); return; }
+            if (!allowedGoogleDomain) { setErr(`Use your ${BRAND_CONFIG.name} or RGI Google account.`); return; }
             const found = users.find(u => {
               const userEmail = (u.email || "").trim().toLowerCase();
               const username = (u.username || "").trim().toLowerCase();
@@ -934,7 +943,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
             <img
               ref={logoRef}
               src={LOGOS[th.logoSeal]}
-              alt="People Capital Group"
+              alt={BRAND_CONFIG.name}
               className={logoAnim ? "logo-transitioning" : ""}
               style={{
                 width: logoSize, height: logoSize,
@@ -1388,7 +1397,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
                 <span style={{ color: palette.textGhost }}> Contact IT to activate your account</span>
               </button>
               <div style={{ marginTop: "0.5rem", fontSize: "0.62rem", opacity: 0.7, color: palette.textGhost }}>
-                © {new Date().getFullYear()} People Capital Group · All rights reserved
+                © {new Date().getFullYear()} {BRAND_CONFIG.name} · All rights reserved
               </div>
             </div>
 
@@ -1421,7 +1430,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
                     }}>🛡️</div>
                     <div>
                       <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.1rem", color: palette.text, letterSpacing: -0.3 }}>IT Support</div>
-                      <div style={{ fontSize: "0.7rem", color: palette.textFaint, marginTop: "0.1rem" }}>People Capital Group</div>
+                      <div style={{ fontSize: "0.7rem", color: palette.textFaint, marginTop: "0.1rem" }}>{BRAND_CONFIG.name}</div>
                     </div>
                     <button onClick={() => setShowItModal(false)} style={{
                       marginLeft: "auto", background: "none", border: "none", cursor: "pointer",
@@ -2774,12 +2783,12 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
 
   const sendWelcomeEmail = async (newUser) => {
     if (!newUser.email) return;
-    const subject = "Welcome to the PCG Company Portal!";
+    const subject = `Welcome to the ${BRAND_CONFIG.portalName}!`;
     const htmlBody = `
       <h2 style="color:#333;margin-bottom:8px;">Welcome, ${newUser.name}! 👋</h2>
-      <p style="color:#555;font-size:15px;">Your account has been created on the <strong>PCG Company Portal</strong>.</p>
+      <p style="color:#555;font-size:15px;">Your account has been created on the <strong>${BRAND_CONFIG.portalName}</strong>.</p>
       <div style="background:#f8f8f8;border-radius:8px;padding:16px 20px;margin:16px 0;">
-        <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="https://pcg-ops.netlify.app/" style="color:#FF671F;">https://pcg-ops.netlify.app/</a></p>
+        <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="${BRAND_CONFIG.portalUrl}/" style="color:${BRAND_CONFIG.primary};">${BRAND_CONFIG.portalUrl}/</a></p>
         <p style="margin:4px 0;font-size:14px;"><strong>Username:</strong> ${newUser.username}</p>
         <p style="margin:4px 0;font-size:14px;"><strong>Password:</strong> ${newUser.password}</p>
       </div>
@@ -2816,12 +2825,12 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const sendPasswordReset = async (u) => {
     if (!u.email) { showAlert("error", "No email on file for " + u.name); return; }
     setEmailAction({ userId: u.id, type: "reset", status: "sending" });
-    const subject = "PCG Portal — Your Password Has Been Reset";
+    const subject = `${BRAND_CONFIG.portalName} — Your Password Has Been Reset`;
     const htmlBody = `
       <h2 style="color:#333;margin-bottom:8px;">Password Reset</h2>
-      <p style="color:#555;font-size:15px;">Hi ${u.name}, your password for the <strong>PCG Company Portal</strong> has been reset by an administrator.</p>
+      <p style="color:#555;font-size:15px;">Hi ${u.name}, your password for the <strong>${BRAND_CONFIG.portalName}</strong> has been reset by an administrator.</p>
       <div style="background:#f8f8f8;border-radius:8px;padding:16px 20px;margin:16px 0;">
-        <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="https://pcg-ops.netlify.app/" style="color:#FF671F;">https://pcg-ops.netlify.app/</a></p>
+        <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="${BRAND_CONFIG.portalUrl}/" style="color:${BRAND_CONFIG.primary};">${BRAND_CONFIG.portalUrl}/</a></p>
         <p style="margin:4px 0;font-size:14px;"><strong>Username:</strong> ${u.username}</p>
         <p style="margin:4px 0;font-size:14px;"><strong>New Password:</strong> ${u.password}</p>
       </div>
@@ -5363,7 +5372,7 @@ function stripDailyReportPhotos(r) {
 
 const SITE_URL = typeof window !== 'undefined' ? window.location.origin : 'https://pcgops.com';
 const projectEmailLink = (id, label) =>
-  `<div style="margin-top:16px"><a href="${SITE_URL}/?project=${id}" style="display:inline-block;padding:10px 24px;background:#FF671F;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">View Project: ${label}</a></div>`;
+  `<div style="margin-top:16px"><a href="${SITE_URL}/?project=${id}" style="display:inline-block;padding:10px 24px;background:${BRAND_CONFIG.primary};color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">View Project: ${label}</a></div>`;
 
 async function sendNotifyEmail(to, subject, htmlBody) {
   const res = await fetch('/.netlify/functions/notify', {
@@ -8766,7 +8775,8 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     const pageW = 8.5, pageH = 11;
     const margin = 0.5;
     const contentW = pageW - margin * 2; // 7.5"
-    const brandOrange = [255, 103, 31]; // #FF671F
+    const _hex = BRAND_CONFIG.primary.replace('#', '');
+    const brandOrange = [parseInt(_hex.slice(0,2),16), parseInt(_hex.slice(2,4),16), parseInt(_hex.slice(4,6),16)];
     const textDark = [17, 17, 17];
     const textMuted = [102, 102, 102];
     const textFaint = [153, 153, 153];
@@ -9213,7 +9223,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     for (let p = 1; p <= total; p++) {
       doc.setPage(p);
       setText(textFaint); doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
-      const footL = `Generated ${new Date().toLocaleDateString('en-US')} — PCG Portal`;
+      const footL = `Generated ${new Date().toLocaleDateString('en-US')} — ${BRAND_CONFIG.portalName}`;
       const footR = `Page ${p} of ${total}`;
       doc.text(footL, margin, pageH - 0.3);
       const fw = doc.getTextWidth(footR);
@@ -9226,8 +9236,8 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       doc.setProperties({
         title: `Daily Report - ${project.nickname || project.pc} - ${report.date}`,
         subject: 'Daily Construction Report',
-        author: report.preparedBy || 'PCG Portal',
-        creator: 'PCG Portal',
+        author: report.preparedBy || BRAND_CONFIG.portalName,
+        creator: BRAND_CONFIG.portalName,
         keywords: 'PCG_REPORT:' + encodeURIComponent(JSON.stringify(stripped)),
       });
     } catch {}
@@ -9322,7 +9332,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
             subject: emailSubject,
             body: `<p>Please find the Daily Construction Report summary for <strong>${project.nickname || project.pc}</strong> dated <strong>${r.date ? new Date(r.date + "T12:00:00").toLocaleDateString() : "N/A"}</strong>.</p>
               <p>Prepared by: ${r.preparedBy || "N/A"}</p>
-              <p><strong>Note:</strong> This report contains ${(r.workLogs||[]).reduce((s,w)=>s+(w.photos?.length||0),0)} photos and is too large to attach via email (${sizeMB.toFixed(1)}MB). Please view the full report with photos in the <a href="https://pcg-ops.netlify.app">PCG Portal</a> under Projects → ${project.nickname || project.pc} → Daily Reports.</p>
+              <p><strong>Note:</strong> This report contains ${(r.workLogs||[]).reduce((s,w)=>s+(w.photos?.length||0),0)} photos and is too large to attach via email (${sizeMB.toFixed(1)}MB). Please view the full report with photos in the <a href="${BRAND_CONFIG.portalUrl}">${BRAND_CONFIG.portalName}</a> under Projects → ${project.nickname || project.pc} → Daily Reports.</p>
               <hr>
               <h3>Report Summary</h3>
               <p><strong>Weather:</strong> ${(r.weather||[]).map(w => w.time + ': ' + (w.temp||'—') + ' ' + (w.conditions||'')).join(' | ')}</p>
@@ -10682,7 +10692,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             const digits = testPhone.replace(/\D/g, "");
             const res = await fetch('/.netlify/functions/sms', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ to: [digits], message: "PCG Portal Test: SMS notifications are working! 🎉" }),
+              body: JSON.stringify({ to: [digits], message: `${BRAND_CONFIG.portalName} Test: SMS notifications are working! 🎉` }),
             });
             const data = await res.json();
             if (res.ok) { setTestStatus("sms_ok"); showAlert("success", "Test SMS sent!"); }
@@ -10695,8 +10705,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           if (!testEmail) { showAlert("error", "Enter an email first"); return; }
           setTestStatus("sending_email");
           try {
-            await sendNotifyEmail([testEmail], "PCG Portal — Test Notification",
-              '<h3 style="color:#FF671F">Test Notification</h3><p>Email notifications are working correctly! 🎉</p><p style="color:#666;font-size:13px">This is a test from the PCG Company Portal settings page.</p>');
+            await sendNotifyEmail([testEmail], `${BRAND_CONFIG.portalName} — Test Notification`,
+              `<h3 style="color:${BRAND_CONFIG.primary}">Test Notification</h3><p>Email notifications are working correctly! 🎉</p><p style="color:#666;font-size:13px">This is a test from the ${BRAND_CONFIG.portalName} settings page.</p>`);
             setTestStatus("email_ok"); showAlert("success", "Test email sent!");
           } catch(e) { setTestStatus("email_fail"); showAlert("error", "Email error: " + e.message); }
           setTimeout(() => setTestStatus(null), 5000);
@@ -10764,7 +10774,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                               {isSafari && (<>
                                 <div style={{ fontWeight: 600, color: th.text, marginBottom: "0.25rem" }}>Reset in Safari:</div>
                                 <div>1. Go to <strong>Safari &gt; Settings &gt; Websites &gt; Notifications</strong></div>
-                                <div>2. Find <strong>pcg-ops.netlify.app</strong> and set to <strong>Allow</strong></div>
+                                <div>2. Find <strong>{BRAND_CONFIG.portalUrl.replace('https://', '')}</strong> and set to <strong>Allow</strong></div>
                                 <div>3. Reload this page</div>
                               </>)}
                               {isFirefox && (<>
@@ -10807,7 +10817,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                         try {
                           const res = await fetch('/.netlify/functions/push', {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'send', userIds: [user.id], title: 'PCG Portal Test', body: 'Push notifications are working! 🎉', url: '/', tag: 'test_push_' + Date.now() }),
+                            body: JSON.stringify({ action: 'send', userIds: [user.id], title: `${BRAND_CONFIG.shortName} Portal Test`, body: 'Push notifications are working! 🎉', url: '/', tag: 'test_push_' + Date.now() }),
                           });
                           const data = await res.json().catch(() => ({}));
                           if (res.ok) { setTestStatus("push_ok"); showAlert("success", "Test push sent! Check your notifications."); }
@@ -11242,7 +11252,6 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
 // ── Notification Log Section (rendered inside AdminSettings) ──────────────
 function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, setLogOpen, loadNotifyLog, users }) {
-  const O = '#FF671F';
   // Map user IDs to names
   const userName = (id) => {
     const u = (users || []).find(u => String(u.id) === String(id));
@@ -11326,7 +11335,6 @@ function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, 
 
 // ── Audit Log Section (rendered inside AdminSettings) ─────────────────────
 function AuditLogSection({ th, user, users }) {
-  const O = '#FF671F';
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [entries, setEntries] = React.useState(null);
@@ -11634,7 +11642,6 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
 
 // ── Tickets ────────────────────────────────────────────────────────────────
 function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }) {
-  const O = "#FF671F", W = "#fff";
   const isAdmin = user?.userType === "executive" || user?.userType === "it";
   const isDM      = user?.userType === "dm";
   const isManager = user?.userType === "manager";
@@ -11828,7 +11835,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     const html = `
       <div style="font-family:Arial,sans-serif;">
         <!-- header accent bar -->
-        <div style="background:linear-gradient(135deg,#FF671F,#ff8c4b);border-radius:10px 10px 0 0;padding:20px 24px;">
+        <div style="background:linear-gradient(135deg,${BRAND_CONFIG.primary},#ff8c4b);border-radius:10px 10px 0 0;padding:20px 24px;">
           <div style="display:flex;align-items:center;gap:10px;">
             <div style="background:rgba(255,255,255,0.2);border-radius:6px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;line-height:1;">🎫</div>
             <div>
@@ -11856,7 +11863,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
 
         <!-- CTA -->
         <div style="text-align:center;padding:24px 0 8px;">
-          <a href="https://pcg-ops.netlify.app" style="display:inline-block;background:#FF671F;color:#fff;padding:13px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal →</a>
+          <a href="${BRAND_CONFIG.portalUrl}" style="display:inline-block;background:${BRAND_CONFIG.primary};color:#fff;padding:13px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal →</a>
         </div>
       </div>
     `;
@@ -13956,7 +13963,7 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
                 const isChrome = /Chrome/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent);
                 const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
                 const msg = isSafari
-                  ? "Push is blocked. To fix:\n\n1. Go to Safari > Settings > Websites > Notifications\n2. Find pcg-ops.netlify.app\n3. Change to Allow\n4. Reload this page"
+                  ? `Push is blocked. To fix:\n\n1. Go to Safari > Settings > Websites > Notifications\n2. Find ${BRAND_CONFIG.portalUrl.replace('https://', '')}\n3. Change to Allow\n4. Reload this page`
                   : isChrome
                   ? "Push is blocked. To fix:\n\n1. Click the lock/tune icon in the address bar\n2. Find Notifications > Allow\n3. Reload this page"
                   : "Push is blocked. To fix:\n\n1. Open site settings in your browser\n2. Find Notifications > Allow\n3. Reload this page";
@@ -14188,7 +14195,6 @@ function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
 
 // ── Dashboard Component ─────────────────────────────────────────────────────
 function Dashboard({ user, th, links, todos, stores, projects, announcements, announcementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion }) {
-  const O = "#FF671F";
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = (user?.name || "").split(" ")[0];
@@ -15275,7 +15281,6 @@ function isBankClosed(dateStr) {
 }
 
 function CashManagement({ user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }) {
-  const O = "#FF671F";
   const G = "#22c55e";
   const R = "#ef4444";
   const Y = "#fbbf24";
@@ -17437,7 +17442,6 @@ function AdminLabor({ stores, districts, th, user }) {
 /** Render analyst markdown to React elements (lightweight, no library needed) */
 function renderAnalystMarkdown(text, th) {
   if (!text) return null;
-  const O = '#FF671F';
   const lines = text.split('\n');
   const elements = [];
   let tableRows = [];
@@ -17589,7 +17593,6 @@ function AskBar({ user, th, onNavigate }) {
   };
 
   if (!open) return null;
-  const O = '#FF671F';
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '12vh', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={(e) => { if (e.target === e.currentTarget) { setOpen(false); setAnswer(null); setQuery(''); setFeedback(null); } }}>
       <div style={{ width: '100%', maxWidth: 640, background: th.card, borderRadius: '1rem', border: `1px solid ${th.cardBorder}`, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
@@ -17640,7 +17643,6 @@ function TodayBrief({ user, th }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const O = '#FF671F';
 
   const fetchBrief = async (refresh) => {
     if (refresh) setRefreshing(true); else setLoading(true);
@@ -17700,8 +17702,7 @@ function BusinessCasesCard({ user, th, onViewCase, inline }) {
   const [totalOpp, setTotalOpp] = useState(0);
   const [byStatus, setByStatus] = useState({});
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(null); // expanded case id
-  const O = '#FF671F';
+  const [expanded, setExpanded] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -19195,7 +19196,7 @@ function PCGPortal() {
           const chName = ch ? (ch.type === "dm" ? "Direct Message" : ch.name || "Chat") : "Chat";
           dispatchNotifications(globalNotifyEmails,
             `PCG Chat: ${m.senderName} mentioned @${username}`,
-            `<h3 style="color:#FF671F">Chat Mention</h3>
+            `<h3 style="color:${BRAND_CONFIG.primary}">Chat Mention</h3>
             <p style="font-size:13px;color:#666">In <strong>${chName}</strong></p>
             <div style="margin:12px 0;padding:12px;background:#f8f8f8;border-radius:8px;font-size:14px">
               <strong>${m.senderName}:</strong> ${m.text}
@@ -19293,7 +19294,7 @@ function PCGPortal() {
         newNotifs.push({ id: mkId(), type: "project_added", projectId: p.id, projectName: projLabel, storePC: p.pc, district: p.district, message: `New project: ${projLabel}`, createdAt: now, read: false });
         if (recipients.length > 0) {
           dispatchNotifications(recipients, `New PCG Project: ${projLabel}`,
-            `<h3 style="color:#FF671F">New Project Added</h3>${projInfo}
+            `<h3 style="color:${BRAND_CONFIG.primary}">New Project Added</h3>${projInfo}
             <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px">
               <tr><td style="padding:6px 0;color:#666"><strong>Type:</strong></td><td>${p.type}</td></tr>
               <tr><td style="padding:6px 0;color:#666"><strong>Due Date:</strong></td><td>${p.dueDate || "TBD"}</td></tr>
@@ -19315,10 +19316,10 @@ function PCGPortal() {
             const oldPct = getOverallCompletion(old);
             const newPct = getOverallCompletion(p);
             dispatchNotifications(recipients, `PCG Phase Change: ${projLabel} → ${newPhase.label}`,
-              `<h3 style="color:#FF671F">Phase Change</h3>${projInfo}
+              `<h3 style="color:${BRAND_CONFIG.primary}">Phase Change</h3>${projInfo}
               <div style="margin:12px 0;padding:12px 16px;background:#f8f8f8;border-radius:8px;font-size:14px">
                 <span style="color:#999">${oldPhase.icon} ${oldPhase.label}</span>
-                <span style="margin:0 8px;color:#FF671F;font-weight:bold">→</span>
+                <span style="margin:0 8px;color:${BRAND_CONFIG.primary};font-weight:bold">→</span>
                 <span style="color:#111;font-weight:bold">${newPhase.icon} ${newPhase.label}</span>
               </div>
               <p style="font-size:13px;color:#666">Progress: ${oldPct}% → <strong>${newPct}%</strong></p>
@@ -19347,7 +19348,7 @@ function PCGPortal() {
           newNotifs.push({ id: mkId(), type: "checklist_update", projectId: p.id, projectName: projLabel, storePC: p.pc, district: p.district, message: `${projLabel}: ${changes.length} item${changes.length > 1 ? "s" : ""} updated`, createdAt: now, read: false });
           const newPct = getOverallCompletion(p);
           dispatchNotifications(recipients, `PCG Project Update: ${projLabel} (${newPct}% complete)`,
-            `<h3 style="color:#FF671F">Project Checklist Updated</h3>${projInfo}
+            `<h3 style="color:${BRAND_CONFIG.primary}">Project Checklist Updated</h3>${projInfo}
             <table style="width:100%;border-collapse:collapse;margin-top:12px;border:1px solid #eee;border-radius:8px">
               <tr style="background:#f4f4f4"><th style="padding:8px;text-align:left;font-size:12px;color:#666">Item</th><th style="padding:8px;text-align:left;font-size:12px;color:#666">Change</th></tr>
               ${changes.join("")}
@@ -19906,7 +19907,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.52
+            v7.7
           </div>
         )}
         {/* Collapse toggle — desktop only */}

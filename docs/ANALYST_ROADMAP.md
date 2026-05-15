@@ -47,9 +47,9 @@
 - [x] SOC 2-style audit trail, PII redaction on logs
 - [ ] Row-level security per location
 - [x] Embeddable mode (narrow mobile view for GMs)
-- [ ] Theme tokens for multi-brand white-labeling
+- [x] Theme tokens for multi-brand white-labeling
 - [ ] Franchisee portal mode (single-location operators, locked-down data)
-- [ ] MCP server: expose UOP as MCP endpoint for Claude Desktop / Claude Code
+- [x] MCP server: expose UOP as MCP endpoint for Claude Desktop / Claude Code
 - [ ] Notion, Google Drive, SharePoint, GitHub sync for KB
 
 ## Level-Up Ideas (Beyond Orion)
