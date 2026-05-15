@@ -12465,7 +12465,11 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const store = getManagerStore(stores, user) || {};
   const pc = store.pc;
   const todayStr = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
+  const yesterdayStr = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
+  const lastYearStr  = (() => { const d = new Date(); d.setDate(d.getDate() - 364); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
   const [sales, setSales] = useState(null);
+  const [salesYesterday, setSalesYesterday] = useState(null);
+  const [salesLastYear, setSalesLastYear] = useState(null);
   const [labor, setLabor] = useState(null);
   const [hourly, setHourly] = useState(null);
   const [workers, setWorkers] = useState([]);
@@ -12506,7 +12510,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra }),
       }).then(r => r.ok ? r.json() : null).catch(() => null);
 
-      const [opsRes, laborBlob, checkRes, storeBlobData, orderDims, orderTotals, announceBlob] = await Promise.all([
+      const [opsRes, laborBlob, checkRes, storeBlobData, orderDims, orderTotals, announceBlob, opsYestRes, opsLYRes] = await Promise.all([
         fetchOpsTotals(pc, todayStr).catch(() => null),
         cloudLoad('pcg_labor_v1').catch(() => null),
         pulsePost('getGuestChecks', { include: 'guestChecks' }),
@@ -12514,9 +12518,13 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         pulsePost('getOrderTypeDimensions'),
         pulsePost('getOrderTypeDailyTotals', { include: 'revenueCenters.orderTypes' }),
         cloudLoad('pcg_announcements_v1').catch(() => null),
+        fetchOpsTotals(pc, yesterdayStr).catch(() => null),
+        fetchOpsTotals(pc, lastYearStr).catch(() => null),
       ]);
 
       if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
+      if (opsYestRes?.revenueCenters) setSalesYesterday(sumRVC(opsYestRes.revenueCenters));
+      if (opsLYRes?.revenueCenters) setSalesLastYear(sumRVC(opsLYRes.revenueCenters));
       if (laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
 
       if (checkRes?.guestChecks) {
@@ -12611,7 +12619,11 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const prevDateStr = (() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
   const histEntry = !isLive ? (storeBlob?.daily || []).find(e => e.date === viewDateStr) || null : null;
   const histPrevEntry = !isLive ? (storeBlob?.daily || []).find(e => e.date === prevDateStr) || null : null;
-  const displaySalesAmt = isLive ? (sales?.netSales ?? null) : (histEntry?.sales ?? null);
+  const displaySalesAmt = isLive
+    ? (sales?.netSales ?? null)
+    : dayOffset === 1
+      ? (salesYesterday?.netSales ?? histEntry?.sales ?? null)
+      : (histEntry?.sales ?? null);
   const displayGuests = isLive ? (sales?.guests ?? null) : null;
   const displayLaborPct = isLive ? laborPct : (histEntry?.laborPct ?? null);
   const displayLaborDollars = isLive ? storeLabor?.laborDollars : histEntry?.laborCost;
@@ -12697,7 +12709,15 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
               )}
             </>
           )}
-          {isLive && vsLW !== null && <><div style={{ height: 1, background: th.cardBorder, margin: "0.85rem 0 0.65rem" }} /><div style={{ color: th.muted, fontSize: "0.66rem" }}>vs last week: <span style={{ color: vsLW < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{vsLW < 0 ? "▼" : "▲"} {fmt(Math.abs(vsLW))} ({Math.abs(vsLWPct || 0).toFixed(0)}%)</span></div></>}
+          {isLive && (vsLW !== null || salesLastYear) && <>
+            <div style={{ height: 1, background: th.cardBorder, margin: "0.85rem 0 0.65rem" }} />
+            {vsLW !== null && <div style={{ color: th.muted, fontSize: "0.66rem", marginBottom: salesLastYear ? "0.35rem" : 0 }}>vs last week: <span style={{ color: vsLW < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{vsLW < 0 ? "▼" : "▲"} {fmt(Math.abs(vsLW))} ({Math.abs(vsLWPct || 0).toFixed(0)}%)</span></div>}
+            {salesLastYear && displaySalesAmt != null && (() => {
+              const diff = displaySalesAmt - salesLastYear.netSales;
+              const pct = salesLastYear.netSales > 0 ? (diff / salesLastYear.netSales) * 100 : 0;
+              return <div style={{ color: th.muted, fontSize: "0.66rem" }}>vs last year: <span style={{ color: diff < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{diff < 0 ? "▼" : "▲"} {fmt(Math.abs(diff))} ({Math.abs(pct).toFixed(0)}%)</span></div>;
+            })()}
+          </>}
           {!loading && displaySalesAmt != null && displayPaceTarget > 0 && (() => {
             const pct = Math.min(Math.round((displaySalesAmt / displayPaceTarget) * 100), 150);
             const pc2 = pct >= 100 ? "#22c55e" : pct >= 90 ? "#f59e0b" : "#ef4444";
@@ -20311,7 +20331,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.85
+            v7.87
           </div>
         )}
         {/* Collapse toggle — desktop only */}
