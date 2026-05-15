@@ -21,8 +21,8 @@ Based on this data, generate a Business Case with EXACTLY this JSON structure:
 {
   "title": "short title (under 60 chars)",
   "summary": "one-line summary of the issue",
-  "dollarOpportunity": number (estimated annual $ impact, positive = savings/gain),
-  "dollarBasis": "how you estimated the $ figure (1 sentence)",
+  "dollarOpportunity": number (estimated 4-week projected $ impact if the issue persists, positive = savings/gain. Use realistic daily/weekly figures — do NOT annualize),
+  "dollarBasis": "how you estimated the $ figure, showing the math (e.g. '$X daily gap × 20 days')",
   "affectedLocations": ["store names"],
   "actions": ["action 1", "action 2", "action 3"],
   "suggestedOwner": "role (e.g. DM District 3, VP Operations)",

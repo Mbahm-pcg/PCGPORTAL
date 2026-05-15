@@ -29,8 +29,8 @@
 - [ ] Slide deck generation (reveal.js or PPTX, board-ready)
 - [ ] Scheduled reports: daily 7am DMO, weekly Monday exec, monthly P&L
 - [ ] Delivery: email, in-app inbox, Chat/Announcements
-- [ ] One-click "Send to Announcements" and "Send to a Location Manager"
-- [ ] PDF export for business cases and reports
+- [x] One-click "Send to Announcements" and "Send to a Location Manager"
+- [x] PDF export for business cases and reports
 
 ## Phase 4 — Connectors + Advanced Intelligence
 - [ ] Pluggable connectors: BigQuery, Snowflake, Postgres, QBO, GA, Meta

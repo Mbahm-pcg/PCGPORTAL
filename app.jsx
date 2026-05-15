@@ -2866,8 +2866,21 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
     const ini = form.initials || initials(form.name);
     const securedForm = { ...form, twoFactorRequired: isTwoFactorRequired(form) };
     if (editId) {
+      const old = users.find(u => u.id === editId) || {};
       setUsers(us => us.map(u => u.id === editId ? { ...u, ...securedForm, initials: ini } : u));
-      logClientEvent(currentUser?.id, currentUser?.userType, 'user_edited', { targetName: form.name, targetRole: form.userType });
+      // Log general edit
+      logClientEvent(currentUser?.id, currentUser?.userType, 'user_edited', { targetName: form.name, targetId: editId, targetRole: form.userType });
+      // Log specific sensitive field changes
+      if (form.password && form.password !== old.password)
+        logClientEvent(currentUser?.id, currentUser?.userType, 'user_password_changed', { targetName: form.name, targetId: editId });
+      if (form.username !== old.username)
+        logClientEvent(currentUser?.id, currentUser?.userType, 'user_username_changed', { targetName: form.name, targetId: editId, from: old.username, to: form.username });
+      if ((form.email || '') !== (old.email || ''))
+        logClientEvent(currentUser?.id, currentUser?.userType, 'user_email_changed', { targetName: form.name, targetId: editId, from: old.email || '', to: form.email || '' });
+      if (securedForm.twoFactorRequired !== old.twoFactorRequired)
+        logClientEvent(currentUser?.id, currentUser?.userType, securedForm.twoFactorRequired ? 'user_2fa_enabled' : 'user_2fa_disabled', { targetName: form.name, targetId: editId });
+      if (form.userType !== old.userType)
+        logClientEvent(currentUser?.id, currentUser?.userType, 'user_role_changed', { targetName: form.name, targetId: editId, from: old.userType, to: form.userType });
     } else {
       const newUser = { ...securedForm, id: nextId(), initials: ini, mustSetup: true };
       setUsers(us => [...us, newUser]);
@@ -11383,10 +11396,18 @@ function AuditLogSection({ th, user, users }) {
     login: '#22c55e', logout: '#94a3b8', session_timeout: '#f59e0b',
     user_created: '#a855f7', user_edited: '#6366f1', user_deleted: '#f44336',
     user_activated: '#22c55e', user_deactivated: '#f59e0b',
+    user_password_changed: '#ef4444', user_username_changed: '#f97316',
+    user_email_changed: '#f97316', user_role_changed: '#f59e0b',
+    user_2fa_enabled: '#22c55e', user_2fa_disabled: '#ef4444',
   };
+
+  const [showAll, setShowAll] = React.useState(false);
+  const PAGE = 50;
 
   const displayed = (entries || []).filter(e => !filterAction || e.action === filterAction);
   const uniqueActions = [...new Set((entries || []).map(e => e.action).filter(Boolean))].sort();
+  const reversed = [...displayed].reverse();
+  const visibleRows = showAll ? reversed : reversed.slice(0, PAGE);
 
   return (
     <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
@@ -11434,7 +11455,7 @@ function AuditLogSection({ th, user, users }) {
                   e.action || '',
                   e.district ? `D${e.district}` : 'Network',
                   e.statusCode || '',
-                  e.error || (e.meta?.filename || (e.meta?.backed != null ? `${e.meta.backed} reports` : (e.meta?.synced != null ? `${e.meta.synced} synced` : ''))) || '',
+                  e.error || (e.meta?.from != null && e.meta?.to != null ? `${e.meta.from} → ${e.meta.to}` : e.meta?.targetName || e.meta?.filename || (e.meta?.backed != null ? `${e.meta.backed} reports` : (e.meta?.synced != null ? `${e.meta.synced} synced` : ''))) || '',
                   e.latencyMs != null ? e.latencyMs : '',
                 ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
                 const csv = [headers.join(','), ...rows].join('\n');
@@ -11462,51 +11483,67 @@ function AuditLogSection({ th, user, users }) {
           )}
 
           {!loading && displayed.length > 0 && (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                <thead>
-                  <tr>
-                    {['Time', 'User', 'Role', 'Action', 'Scope', 'Status', 'Detail', 'ms'].map(h =>
-                      <th key={h} style={{ padding: '0.5rem 0.6rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...displayed].reverse().map((e, i) => {
-                    const dt = e.ts ? new Date(e.ts) : null;
-                    const isErr = e.statusCode >= 400;
-                    const actionColor = ACTION_COLORS[e.action] || th.muted;
-                    return (
-                      <tr key={i} style={{ borderBottom: `1px solid ${th.cardBorder}`, background: isErr ? '#f4433608' : 'transparent' }}>
-                        <td style={{ padding: '0.4rem 0.6rem', color: th.muted, whiteSpace: 'nowrap', fontSize: '0.75rem' }}>
-                          {dt ? dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }) : '—'}
-                        </td>
-                        <td style={{ padding: '0.4rem 0.6rem', color: th.text, fontWeight: 500 }}>{userName(e.userId)}</td>
-                        <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>{e.userRole || '—'}</td>
-                        <td style={{ padding: '0.4rem 0.6rem' }}>
-                          <span style={{ fontSize: '0.65rem', fontWeight: 700, color: actionColor, background: actionColor + '18', padding: '0.15rem 0.45rem', borderRadius: '0.2rem', whiteSpace: 'nowrap' }}>
-                            {e.action || '—'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>
-                          {e.district ? `D${e.district}` : 'Network'}
-                        </td>
-                        <td style={{ padding: '0.4rem 0.6rem' }}>
-                          <span style={{ fontSize: '0.65rem', fontWeight: 700, color: isErr ? '#f44336' : '#4caf50', background: isErr ? '#f4433618' : '#4caf5018', padding: '0.15rem 0.4rem', borderRadius: '0.2rem' }}>
-                            {e.statusCode || '—'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.4rem 0.6rem', color: isErr ? '#f44336' : th.muted, fontSize: '0.72rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {e.error ? e.error : e.meta ? (e.meta.filename || (e.meta.backed != null ? `${e.meta.backed} reports` : (e.meta.synced != null ? `${e.meta.synced} synced` : '')) || '') : '—'}
-                        </td>
-                        <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem', textAlign: 'right' }}>
-                          {e.latencyMs != null ? e.latencyMs : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div>
+              <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 420, borderRadius: '0.5rem', border: `1px solid ${th.cardBorder}` }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: th.card }}>
+                    <tr>
+                      {['Time', 'User', 'Role', 'Action', 'Scope', 'Status', 'Detail', 'ms'].map(h =>
+                        <th key={h} style={{ padding: '0.5rem 0.6rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRows.map((e, i) => {
+                      const dt = e.ts ? new Date(e.ts) : null;
+                      const isErr = e.statusCode >= 400;
+                      const actionColor = ACTION_COLORS[e.action] || th.muted;
+                      return (
+                        <tr key={i} style={{ borderBottom: `1px solid ${th.cardBorder}`, background: isErr ? '#f4433608' : 'transparent' }}>
+                          <td style={{ padding: '0.4rem 0.6rem', color: th.muted, whiteSpace: 'nowrap', fontSize: '0.75rem' }}>
+                            {dt ? dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }) : '—'}
+                          </td>
+                          <td style={{ padding: '0.4rem 0.6rem', color: th.text, fontWeight: 500 }}>{userName(e.userId)}</td>
+                          <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>{e.userRole || '—'}</td>
+                          <td style={{ padding: '0.4rem 0.6rem' }}>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: actionColor, background: actionColor + '18', padding: '0.15rem 0.45rem', borderRadius: '0.2rem', whiteSpace: 'nowrap' }}>
+                              {e.action || '—'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>
+                            {e.district ? `D${e.district}` : 'Network'}
+                          </td>
+                          <td style={{ padding: '0.4rem 0.6rem' }}>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: isErr ? '#f44336' : '#4caf50', background: isErr ? '#f4433618' : '#4caf5018', padding: '0.15rem 0.4rem', borderRadius: '0.2rem' }}>
+                              {e.statusCode || '—'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.4rem 0.6rem', color: isErr ? '#f44336' : th.muted, fontSize: '0.72rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {e.error ? e.error : e.meta ? (
+                            e.meta.from != null && e.meta.to != null ? `${e.meta.from} → ${e.meta.to}` :
+                            e.meta.targetName ? e.meta.targetName :
+                            e.meta.filename || (e.meta.backed != null ? `${e.meta.backed} reports` : (e.meta.synced != null ? `${e.meta.synced} synced` : '')) || ''
+                          ) : '—'}
+                          </td>
+                          <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem', textAlign: 'right' }}>
+                            {e.latencyMs != null ? e.latencyMs : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {displayed.length > PAGE && (
+                <div style={{ textAlign: 'center', marginTop: '0.75rem' }}>
+                  <button onClick={() => setShowAll(s => !s)} style={{ ...btn(th, { padding: '0.3rem 1rem', fontSize: '0.75rem' }) }}>
+                    {showAll ? `Show recent ${PAGE}` : `Show all ${displayed.length} events`}
+                  </button>
+                </div>
+              )}
+              <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.5rem', textAlign: 'right' }}>
+                Showing {visibleRows.length} of {displayed.length} event{displayed.length !== 1 ? 's' : ''}
+              </div>
             </div>
           )}
         </div>
@@ -14194,7 +14231,7 @@ function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
 }
 
 // ── Dashboard Component ─────────────────────────────────────────────────────
-function Dashboard({ user, th, links, todos, stores, projects, announcements, announcementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion }) {
+function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert }) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = (user?.name || "").split(" ")[0];
@@ -14689,7 +14726,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, an
 
       {/* ─── Today's Brief from Orion ─────────────────────────────────── */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
-        <TodayBrief user={user} th={th} />
+        <TodayBrief user={user} th={th} setAnnouncements={setAnnouncements} showAlert={showAlert} />
       )}
 
       {/* ─── Business Cases + Tickets — adaptive layout ──────────────────── */}
@@ -14705,7 +14742,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, an
           {/* Left: Business Cases */}
           {showBizCases && (
             <div style={{ ...card(th), padding:"1.1rem 1.15rem" }}>
-              <BusinessCasesCard user={user} th={th} inline={true} />
+              <BusinessCasesCard user={user} th={th} inline={true} stores={stores} setAnnouncements={setAnnouncements} showAlert={showAlert} />
             </div>
           )}
 
@@ -17637,12 +17674,225 @@ function AskBar({ user, th, onNavigate }) {
   );
 }
 
+// ── PDF export helpers (Brief + Business Cases) ───────────────────────────────
+
+function _pdfBrandRGB() {
+  const h = BRAND_CONFIG.primary.replace('#', '');
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+
+function _pdfHeader(doc, title, subtitle, pageW, margin) {
+  const br = _pdfBrandRGB();
+  doc.setFillColor(...br);
+  doc.rect(0, 0, pageW, 1.2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.setTextColor(255, 255, 255);
+  doc.text(title, margin, 0.55);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text(subtitle, margin, 0.85);
+}
+
+function _pdfFooters(doc, label, pageW, pageH, margin, contentW) {
+  const total = doc.getNumberOfPages();
+  for (let p = 1; p <= total; p++) {
+    doc.setPage(p);
+    doc.setFontSize(7);
+    doc.setTextColor(180, 180, 180);
+    doc.text(label, margin, pageH - 0.3);
+    doc.text(`Page ${p} of ${total}`, margin + contentW, pageH - 0.3, { align: 'right' });
+  }
+}
+
+function exportBriefPDF(brief, user) {
+  const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+  if (!JsPDFCtor) { alert('PDF library not available'); return; }
+  const doc = new JsPDFCtor({ unit: 'in', format: 'letter' });
+  const pageW = 8.5, pageH = 11, margin = 0.6, contentW = pageW - margin * 2;
+  const br = _pdfBrandRGB();
+
+  _pdfHeader(doc, "Today's Brief", `${brief.scope} · ${brief.role} · ${brief.date}`, pageW, margin);
+
+  let y = 1.55;
+  doc.setFontSize(8);
+  doc.setTextColor(160, 160, 160);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Generated ${new Date(brief.generatedAt).toLocaleString()} · Orion AI Analyst`, margin, y);
+  y += 0.35;
+
+  const lines = (brief.content || '').split('\n');
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { y += 0.08; continue; }
+
+    if (y > pageH - 1.2) { doc.addPage(); y = margin; }
+
+    if (line.startsWith('•') || line.startsWith('-')) {
+      const clean = line.replace(/^[•\-]\s*/, '').replace(/\*\*/g, '').replace(/[\u{1F300}-\u{1FFFF}]/gu, '').trim();
+      // Split on · to find action
+      const parts = clean.split('·');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(30, 30, 30);
+      // Bullet dot
+      doc.setFillColor(...br);
+      doc.circle(margin + 0.07, y - 0.04, 0.035, 'F');
+      const wrapped = doc.splitTextToSize(clean, contentW - 0.25);
+      if (y + wrapped.length * 0.175 > pageH - 1.2) { doc.addPage(); y = margin; }
+      doc.text(wrapped, margin + 0.2, y);
+      y += wrapped.length * 0.175 + 0.14;
+
+    } else if (line.toLowerCase().includes('watch today')) {
+      y += 0.08;
+      // Strip emoji and markdown bold markers — jsPDF Helvetica has no emoji support
+      const clean = line.replace(/\*\*/g, '').replace(/[\u{1F300}-\u{1FFFF}]/gu, '').replace(/^[^\w]*/, '').trim();
+      const label = clean.match(/^watch today/i) ? clean : 'Watch today: ' + clean;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      const wrapped = doc.splitTextToSize(label, contentW - 0.4);
+      const boxH = wrapped.length * 0.175 + 0.32;
+      if (y + boxH > pageH - 1.2) { doc.addPage(); y = margin; }
+      doc.setFillColor(255, 247, 230);
+      doc.setDrawColor(...br);
+      doc.setLineWidth(0.012);
+      doc.roundedRect(margin, y - 0.12, contentW, boxH, 0.07, 0.07, 'FD');
+      doc.setTextColor(...br);
+      doc.text(wrapped, margin + 0.18, y + 0.1);
+      y += boxH + 0.1;
+
+    } else {
+      // Plain text / heading
+      const clean = line.replace(/\*\*/g, '').replace(/[\u{1F300}-\u{1FFFF}]/gu, '').trim();
+      if (!clean) { y += 0.08; continue; }
+      doc.setFont('helvetica', clean.length < 60 ? 'bold' : 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(50, 50, 50);
+      const wrapped = doc.splitTextToSize(clean, contentW);
+      doc.text(wrapped, margin, y);
+      y += wrapped.length * 0.175 + 0.08;
+    }
+  }
+
+  _pdfFooters(doc, `${BRAND_CONFIG.portalName} · Orion AI · Confidential`, pageW, pageH, margin, contentW);
+  logClientEvent(user?.id, user?.userType, 'pdf_download', { type: 'brief', scope: brief.scope, date: brief.date });
+  doc.save(`orion_brief_${brief.date}.pdf`);
+}
+
+function exportCasesPDF(cases, totalOpp, scope, user) {
+  const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+  if (!JsPDFCtor) { alert('PDF library not available'); return; }
+  const doc = new JsPDFCtor({ unit: 'in', format: 'letter' });
+  const pageW = 8.5, pageH = 11, margin = 0.6, contentW = pageW - margin * 2;
+  const br = _pdfBrandRGB();
+  const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const STATUS_RGB = {
+    'New': [33,150,243], 'In Review': [255,152,0], 'Accepted': [76,175,80],
+    'In Progress': [156,39,176], 'Done': [96,125,139],
+  };
+  const SEV_RGB = { high: [244,67,54], medium: [255,152,0], low: [76,175,80] };
+
+  _pdfHeader(doc, 'Business Cases', `${scope} · ${today} · ${cases.length} case${cases.length !== 1 ? 's' : ''}`, pageW, margin);
+
+  let y = 1.55;
+  // Opportunity banner
+  doc.setFillColor(240, 250, 242);
+  doc.setDrawColor(76, 175, 80);
+  doc.setLineWidth(0.012);
+  doc.roundedRect(margin, y - 0.12, contentW, 0.42, 0.07, 0.07, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(46, 125, 50);
+  doc.text(`$${Math.round(totalOpp).toLocaleString()} total opportunity`, margin + 0.18, y + 0.16);
+  y += 0.55;
+
+  for (const c of cases) {
+    const sc = STATUS_RGB[c.status] || [100,100,100];
+    const sv = SEV_RGB[c.severity] || [100,100,100];
+    const titleW = doc.splitTextToSize(c.title || '—', contentW - 1.5);
+    const sumW = c.summary ? doc.splitTextToSize(c.summary, contentW) : [];
+    const estH = 0.3 + titleW.length * 0.175 + (sumW.length ? sumW.length * 0.145 + 0.1 : 0) + 0.3;
+
+    if (y + estH > pageH - 1.0) { doc.addPage(); y = margin; }
+
+    // Status badge
+    doc.setFillColor(...sc);
+    doc.roundedRect(margin, y - 0.03, 0.85, 0.21, 0.04, 0.04, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(255, 255, 255);
+    doc.text((c.status || '').toUpperCase(), margin + 0.08, y + 0.12);
+
+    // Severity badge
+    doc.setFillColor(...sv);
+    doc.roundedRect(margin + 0.9, y - 0.03, 0.6, 0.21, 0.04, 0.04, 'F');
+    doc.text((c.severity || '').toUpperCase(), margin + 0.98, y + 0.12);
+
+    // Dollar opp
+    if (c.dollarOpportunity > 0) {
+      doc.setTextColor(46, 125, 50);
+      doc.setFontSize(11);
+      doc.text(`$${Math.round(c.dollarOpportunity).toLocaleString()}`, margin + contentW, y + 0.12, { align: 'right' });
+    }
+    y += 0.3;
+
+    // Title
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(20, 20, 20);
+    doc.text(titleW, margin, y);
+    y += titleW.length * 0.175;
+
+    // Summary
+    if (sumW.length) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(80, 80, 80);
+      doc.text(sumW, margin, y + 0.05);
+      y += sumW.length * 0.145 + 0.1;
+    }
+
+    // Dollar basis
+    if (c.dollarBasis) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 150, 100);
+      const basisW = doc.splitTextToSize(`$ Basis: ${c.dollarBasis}`, contentW);
+      if (y + basisW.length * 0.14 > pageH - 1.0) { doc.addPage(); y = margin; }
+      doc.text(basisW, margin, y + 0.02);
+      y += basisW.length * 0.14 + 0.06;
+    }
+
+    // Meta line
+    const meta = [c.storeName && `Store: ${c.storeName}`, c.district && `D${c.district}`, c.createdAt && new Date(c.createdAt).toLocaleDateString()].filter(Boolean).join('  ·  ');
+    if (meta) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(meta, margin, y + 0.02);
+      y += 0.18;
+    }
+
+    // Divider
+    doc.setDrawColor(225, 225, 225);
+    doc.setLineWidth(0.008);
+    doc.line(margin, y + 0.06, margin + contentW, y + 0.06);
+    y += 0.24;
+  }
+
+  _pdfFooters(doc, `${BRAND_CONFIG.portalName} · Orion AI · Confidential`, pageW, pageH, margin, contentW);
+  logClientEvent(user?.id, user?.userType, 'pdf_download', { type: 'cases', scope, count: cases.length });
+  doc.save(`business_cases_${new Date().toISOString().slice(0,10)}.pdf`);
+}
+
 /** TodayBrief — "Today's Brief from Orion" band at top of dashboard */
-function TodayBrief({ user, th }) {
+function TodayBrief({ user, th, setAnnouncements, showAlert }) {
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [posting, setPosting] = useState(false);
 
   const fetchBrief = async (refresh) => {
     if (refresh) setRefreshing(true); else setLoading(true);
@@ -17679,6 +17929,25 @@ function TodayBrief({ user, th }) {
           <span style={{ fontSize: '0.6rem', color: th.muted, fontWeight: 500 }}>{brief.scope} · {timeAgo(brief.generatedAt)}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {setAnnouncements && (
+            <button onClick={(e) => {
+              e.stopPropagation();
+              if (posting) return;
+              setPosting(true);
+              // Extract first 3 bullets from brief content as the announcement message
+              const bullets = (brief.content || '').split('\n').filter(l => l.trim().startsWith('•')).slice(0, 3).map(l => l.trim()).join('\n');
+              const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: `Orion Brief — ${brief.scope} — ${brief.date}`, message: bullets || brief.content.slice(0, 300), createdAt: new Date().toISOString(), createdBy: user.name, active: true };
+              setAnnouncements(prev => [ann, ...prev]);
+              if (showAlert) showAlert('success', 'Brief posted to Announcements');
+              setTimeout(() => setPosting(false), 2000);
+            }} style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.2rem 0.5rem', color: posting ? '#4caf50' : O, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
+              {posting ? '✓ Posted' : '📢 Announce'}
+            </button>
+          )}
+          <button onClick={(e) => { e.stopPropagation(); exportBriefPDF(brief, user); }}
+            style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.2rem 0.5rem', color: O, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
+            ↓ PDF
+          </button>
           <button onClick={(e) => { e.stopPropagation(); fetchBrief(true); }}
             disabled={refreshing}
             style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.2rem 0.5rem', color: O, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', opacity: refreshing ? 0.5 : 1 }}>
@@ -17697,12 +17966,13 @@ function TodayBrief({ user, th }) {
 }
 
 /** BusinessCasesCard — Dashboard card showing auto-generated business cases */
-function BusinessCasesCard({ user, th, onViewCase, inline }) {
+function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnouncements, showAlert }) {
   const [cases, setCases] = useState([]);
   const [totalOpp, setTotalOpp] = useState(0);
   const [byStatus, setByStatus] = useState({});
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
+  const [caseAction, setCaseAction] = useState({}); // { [caseId]: 'announcing'|'announced'|'notifying'|'notified' }
 
   useEffect(() => {
     (async () => {
@@ -17749,10 +18019,14 @@ function BusinessCasesCard({ user, th, onViewCase, inline }) {
             ${Math.round(totalOpp).toLocaleString()} opportunity
           </span>
         </div>
-        <div style={{ display: 'flex', gap: '0.35rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           {Object.entries(byStatus).map(([s, n]) => (
             <span key={s} style={{ fontSize: '0.58rem', fontWeight: 700, color: statusColors[s] || th.muted, background: (statusColors[s] || '#888') + '18', padding: '0.15rem 0.4rem', borderRadius: '0.25rem' }}>{n} {s}</span>
           ))}
+          <button onClick={() => exportCasesPDF(cases, totalOpp, user.userType === 'dm' ? `District ${user.district}` : 'Network', user)}
+            style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.15rem 0.45rem', color: O, fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            ↓ PDF
+          </button>
         </div>
       </div>
 
@@ -17785,6 +18059,64 @@ function BusinessCasesCard({ user, th, onViewCase, inline }) {
               <div style={{ color: th.muted, lineHeight: 1.6 }}>
                 <strong>Store:</strong> {c.storeName || '—'} · <strong>District:</strong> {c.district || '—'} · <strong>Created:</strong> {timeAgo(c.createdAt)}
               </div>
+
+              {/* One-click actions */}
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem', flexWrap: 'wrap' }}>
+                {setAnnouncements && (
+                  <button onClick={() => {
+                    if (caseAction[c.id]) return;
+                    setCaseAction(a => ({ ...a, [c.id]: 'announcing' }));
+                    const msg = [c.summary, c.dollarOpportunity > 0 && `Estimated impact: $${Math.round(c.dollarOpportunity).toLocaleString()}`, c.storeName && `Store: ${c.storeName}`].filter(Boolean).join('\n');
+                    const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: c.title, message: msg, createdAt: new Date().toISOString(), createdBy: user.name, active: true };
+                    setAnnouncements(prev => [ann, ...prev]);
+                    if (showAlert) showAlert('success', `"${c.title}" posted to Announcements`);
+                    setCaseAction(a => ({ ...a, [c.id]: 'announced' }));
+                    setTimeout(() => setCaseAction(a => ({ ...a, [c.id]: null })), 3000);
+                  }} style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.25rem 0.6rem', borderRadius: '0.35rem', border: `1px solid ${caseAction[c.id] === 'announced' ? '#4caf50' : O + '55'}`, background: 'none', color: caseAction[c.id] === 'announced' ? '#4caf50' : O, cursor: 'pointer' }}>
+                    {caseAction[c.id] === 'announced' ? '✓ Posted' : '📢 Post to Announcements'}
+                  </button>
+                )}
+                {(() => {
+                  const store = (stores || []).find(s => (c.storePC && String(s.pc) === String(c.storePC)) || (c.storeName && s.name?.toLowerCase() === c.storeName.toLowerCase()));
+                  if (!store?.email) return null;
+                  const st = caseAction[c.id];
+                  return (
+                    <button onClick={async () => {
+                      if (st === 'notifying' || st === 'notified') return;
+                      setCaseAction(a => ({ ...a, [c.id]: 'notifying' }));
+                      try {
+                        const subject = `[Action Required] ${c.title}`;
+                        const html = `<div style="font-family:Arial,sans-serif;max-width:600px">
+                          <div style="background:${BRAND_CONFIG.primary};padding:16px 24px;border-radius:8px 8px 0 0">
+                            <div style="color:#fff;font-size:18px;font-weight:800">${c.title}</div>
+                            <div style="color:rgba(255,255,255,0.8);font-size:12px;margin-top:4px">${c.storeName || store.name} · District ${c.district}</div>
+                          </div>
+                          <div style="padding:20px 24px;border:1px solid #eee;border-top:none;border-radius:0 0 8px 8px">
+                            <p style="font-size:14px;color:#333">${c.summary || ''}</p>
+                            ${c.dollarOpportunity > 0 ? `<p style="font-size:13px;color:#4caf50;font-weight:700">Estimated impact: $${Math.round(c.dollarOpportunity).toLocaleString()}</p>` : ''}
+                            ${c.dollarBasis ? `<p style="font-size:12px;color:#888">Basis: ${c.dollarBasis}</p>` : ''}
+                            <hr style="border:none;border-top:1px solid #eee;margin:16px 0"/>
+                            <p style="font-size:12px;color:#999">Sent by ${user.name} via ${BRAND_CONFIG.portalName} · Orion AI Analyst</p>
+                          </div>
+                        </div>`;
+                        await sendNotifyEmail([store.email], subject, html);
+                        if (showAlert) showAlert('success', `Notification sent to ${store.mgr || store.name} manager`);
+                        setCaseAction(a => ({ ...a, [c.id]: 'notified' }));
+                        setTimeout(() => setCaseAction(a => ({ ...a, [c.id]: null })), 3000);
+                      } catch { setCaseAction(a => ({ ...a, [c.id]: null })); if (showAlert) showAlert('error', 'Failed to send notification'); }
+                    }} style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.25rem 0.6rem', borderRadius: '0.35rem', border: `1px solid ${st === 'notified' ? '#4caf5055' : '#3b82f655'}`, background: 'none', color: st === 'notified' ? '#4caf50' : '#3b82f6', cursor: 'pointer' }}>
+                      {st === 'notifying' ? '...' : st === 'notified' ? '✓ Sent' : `✉️ Notify ${store.mgr ? store.mgr.split(' ')[0] : 'Manager'}`}
+                    </button>
+                  );
+                })()}
+              </div>
+
+              {c.dollarBasis && (
+                <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'flex-start', gap: '0.4rem', background: '#4caf5010', border: '1px solid #4caf5030', borderRadius: '0.35rem', padding: '0.35rem 0.5rem' }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4caf50', whiteSpace: 'nowrap' }}>$ Basis</span>
+                  <span style={{ fontSize: '0.68rem', color: th.muted, lineHeight: 1.5 }}>{c.dollarBasis}</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -19907,7 +20239,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.7
+            v7.81
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -20255,7 +20587,7 @@ function PCGPortal() {
         )}
 
         <div className="main-content-padding" style={{ padding: "3vw 5vw" }}>
-          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} announcementsDismissed={announcementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} />}
+          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} />}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}

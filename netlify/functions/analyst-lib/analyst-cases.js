@@ -111,6 +111,7 @@ async function createCaseFromAnomaly(anomaly, dataContext) {
     severity: fullCase.severity,
     anomalyType: fullCase.anomalyType,
     storeName: anomaly.storeName,
+    storePC: anomaly.storePC || anomaly.pc || null,
     district: fullCase.district,
     createdAt: fullCase.createdAt,
   });
