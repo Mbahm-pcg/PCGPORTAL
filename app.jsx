@@ -12486,6 +12486,8 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [dayOffset, setDayOffset] = useState(0);
   const [storeBlob, setStoreBlob] = useState(null);
   const [histHourly, setHistHourly] = useState(null);
+  const [liveHistCache, setLiveHistCache] = useState({});
+  const [histLoading, setHistLoading] = useState(false);
   const toggleBtnRef = useRef(null);
 
   const handleToggle = useCallback(() => {
@@ -12590,15 +12592,53 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     const t = setInterval(fetchAll, 10 * 60 * 1000);
     return () => clearInterval(t);
   }, [fetchAll]);
-  // Load cached hourly from localStorage when browsing historical days
+  // Fetch live data for historical days on demand (days 2–30)
   useEffect(() => {
-    if (dayOffset === 0) { setHistHourly(null); return; }
-    try {
-      const d = new Date(); d.setDate(d.getDate() - dayOffset);
-      const dStr = d.toISOString().slice(0, 10);
-      const cached = localStorage.getItem(`embed_hourly_${pc}_${dStr}`);
-      setHistHourly(cached ? JSON.parse(cached) : null);
-    } catch { setHistHourly(null); }
+    if (dayOffset <= 1) { setHistHourly(null); return; }
+    const d = new Date(); d.setDate(d.getDate() - dayOffset);
+    const dStr = d.toISOString().slice(0, 10);
+
+    // Already cached — use immediately
+    if (liveHistCache[dStr]) {
+      setHistHourly(liveHistCache[dStr].hourly || null);
+      return;
+    }
+
+    setHistLoading(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: dStr, ...extra }),
+        }).then(r => r.ok ? r.json() : null).catch(() => null);
+
+        const [opsRes, checkRes] = await Promise.all([
+          fetchOpsTotals(pc, dStr).catch(() => null),
+          pulsePost('getGuestChecks', { include: 'guestChecks' }),
+        ]);
+
+        if (cancelled) return;
+
+        const salesData = opsRes?.revenueCenters ? sumRVC(opsRes.revenueCenters) : null;
+
+        let hourlyData = null;
+        if (checkRes?.guestChecks) {
+          const h = Array.from({ length: 24 }, (_, i) => ({ hour: i, sales: 0 }));
+          for (const ck of checkRes.guestChecks) {
+            const raw = ck.opnUTC || '';
+            const dt = raw ? new Date(raw.endsWith('Z') ? raw : raw + 'Z') : null;
+            if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += ck.chkTtl || ck.subTtl || 0;
+          }
+          hourlyData = h;
+        }
+
+        setLiveHistCache(prev => ({ ...prev, [dStr]: { sales: salesData, hourly: hourlyData } }));
+        setHistHourly(hourlyData);
+      } catch {}
+      if (!cancelled) setHistLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, [dayOffset, pc]);
 
   if (!pc) {
@@ -12619,12 +12659,17 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const prevDateStr = (() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
   const histEntry = !isLive ? (storeBlob?.daily || []).find(e => e.date === viewDateStr) || null : null;
   const histPrevEntry = !isLive ? (storeBlob?.daily || []).find(e => e.date === prevDateStr) || null : null;
+  const liveHist = !isLive && dayOffset > 1 ? liveHistCache[viewDateStr] ?? null : null;
   const displaySalesAmt = isLive
     ? (sales?.netSales ?? null)
     : dayOffset === 1
       ? (salesYesterday?.netSales ?? histEntry?.sales ?? null)
-      : (histEntry?.sales ?? null);
-  const displayGuests = isLive ? (sales?.guests ?? null) : null;
+      : (liveHist?.sales?.netSales ?? histEntry?.sales ?? null);
+  const displayGuests = isLive
+    ? (sales?.guests ?? null)
+    : dayOffset === 1
+      ? (salesYesterday?.guests ?? null)
+      : (liveHist?.sales?.guests ?? null);
   const displayLaborPct = isLive ? laborPct : (histEntry?.laborPct ?? null);
   const displayLaborDollars = isLive ? storeLabor?.laborDollars : histEntry?.laborCost;
   const displayPaceTarget = isLive ? lwDaySales : (histPrevEntry?.sales || null);
@@ -12698,10 +12743,10 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
 
         <Card style={{ padding: "1rem", borderColor: `${O}55`, background: `linear-gradient(160deg, ${O}18 0%, ${th.card} 46%, ${th.card2} 100%)` }}>
           <Label right={<Chip color={isLive ? (loading ? "#f59e0b" : "#22c55e") : "#64748b"}>{isLive ? (loading ? "Syncing" : "Live") : "History"}</Chip>}>{isLive ? "Today's Sales" : (dayOffset === 1 ? "Yesterday's Sales" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))}</Label>
-          {isLive && loading ? <div style={{ color: th.muted, fontSize: "0.82rem", textAlign: "center", padding: "0.75rem" }}>Loading...</div> : (
+          {(isLive && loading) || histLoading ? <div style={{ color: th.muted, fontSize: "0.82rem", textAlign: "center", padding: "0.75rem" }}>Loading...</div> : (
             <>
               <div style={{ color: O, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.1rem", lineHeight: 1, letterSpacing: 0 }}>{displaySalesAmt != null ? fmt(displaySalesAmt) : "--"}</div>
-              {isLive && (
+              {(isLive || displayGuests != null) && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.85rem" }}>
                   <MiniStat label="Guests" value={displayGuests != null ? Math.round(displayGuests).toLocaleString() : "--"} color="#74c0fc" />
                   <MiniStat label="Avg Check" value={displayGuests > 0 ? '$' + (displaySalesAmt / displayGuests).toFixed(2) : "--"} color="#fde047" />
@@ -20331,7 +20376,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.87
+            v7.88
           </div>
         )}
         {/* Collapse toggle — desktop only */}
