@@ -11833,22 +11833,53 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     reader.readAsDataURL(file);
   };
 
-  const startVoice = () => {
+  const voiceRecRef = React.useRef(null);
+  // Stop recording whenever the form closes
+  React.useEffect(() => {
+    if (!showForm && voiceRecRef.current) {
+      voiceRecRef.current.stop();
+      voiceRecRef.current = null;
+      setVoiceActive(false);
+    }
+  }, [showForm]);
+  const toggleVoice = () => {
+    // Stop if already active
+    if (voiceActive) {
+      voiceRecRef.current?.stop();
+      voiceRecRef.current = null;
+      setVoiceActive(false);
+      return;
+    }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { showAlert("error", "Voice input not supported in this browser"); return; }
+    if (!SR) { showAlert("error", "Voice input not supported in this browser. Try Chrome or Safari."); return; }
     const rec = new SR();
-    rec.continuous = false;
+    voiceRecRef.current = rec;
+    rec.continuous = true;
     rec.interimResults = false;
     rec.lang = "en-US";
-    setVoiceActive(true);
     rec.onresult = (e) => {
-      const transcript = e.results[0][0].transcript;
-      setForm(f => ({ ...f, notes: f.notes ? f.notes + " " + transcript : transcript }));
+      // Collect all new final results from this event
+      const newText = Array.from(e.results).slice(e.resultIndex).map(r => r[0].transcript.trim()).filter(Boolean).join(' ');
+      if (newText) setForm(f => ({ ...f, notes: f.notes ? f.notes + ' ' + newText : newText }));
+    };
+    rec.onerror = (e) => {
+      voiceRecRef.current = null;
+      setVoiceActive(false);
+      const msgs = { 'not-allowed': 'Microphone access denied — allow mic in your browser settings', 'audio-capture': 'No microphone found on this device', 'network': 'Network error during voice input', 'no-speech': null };
+      const msg = msgs[e.error];
+      if (msg !== null) showAlert("error", msg || `Voice error: ${e.error}`);
+    };
+    rec.onend = () => {
+      voiceRecRef.current = null;
       setVoiceActive(false);
     };
-    rec.onerror = () => setVoiceActive(false);
-    rec.onend = () => setVoiceActive(false);
-    rec.start();
+    try {
+      rec.start();
+      setVoiceActive(true);
+    } catch (err) {
+      voiceRecRef.current = null;
+      showAlert("error", "Could not start voice input — check microphone permissions");
+    }
   };
 
   const selectedTicket = tickets.find(t => t.id === selectedId) || null;
@@ -12422,12 +12453,12 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
               <div style={{ gridColumn:"span 2", display:"flex", flexDirection:"column", gap:"0.375rem" }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <span style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.5 }}>Additional Notes</span>
-                  <button type="button" onClick={startVoice}
+                  <button type="button" onClick={toggleVoice}
                     style={{ display:"flex", alignItems:"center", gap:"0.3rem", padding:"0.28rem 0.65rem", borderRadius:"1rem", border:`1px solid ${voiceActive?"#ef4444":th.cardBorder}`, background:voiceActive?"#ef444418":th.card2, color:voiceActive?"#ef4444":th.muted, fontSize:"0.72rem", fontWeight:600, cursor:"pointer", transition:"all .2s" }}>
-                    {voiceActive ? "🔴 Listening…" : "🎙 Voice"}
+                    {voiceActive ? "🔴 Tap to stop" : "🎙 Voice"}
                   </button>
                 </div>
-                <textarea style={{ ...inp(th), resize:"vertical" }} rows={3} placeholder={voiceActive ? "Listening… speak now" : "Type or tap 🎙 Voice to dictate…"} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
+                <textarea style={{ ...inp(th), resize:"vertical" }} rows={3} placeholder={voiceActive ? "Listening… speak now, tap stop when done" : "Type or tap 🎙 Voice to dictate…"} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
               </div>
             </div>
 
@@ -20539,7 +20570,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.93
+            v7.95
           </div>
         )}
         {/* Collapse toggle — desktop only */}

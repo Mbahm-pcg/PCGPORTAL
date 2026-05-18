@@ -7,7 +7,7 @@ const { buildBriefPrompt, buildAskPrompt, PERSONA } = require('./analyst-lib/ana
 const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { getCases, loadCase, updateCaseStatus } = require('./analyst-lib/analyst-cases');
 const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
-const { logFeedback, logAccessEvent } = require('./analyst-lib/analyst-audit');
+const { logFeedback, logAccessEvent, loadAccessEntries } = require('./analyst-lib/analyst-audit');
 const { loadReportSettings } = require('./analyst-lib/analyst-reports');
 
 const headers = {
@@ -265,7 +265,7 @@ exports.handler = async (event) => {
     if (action === 'audit-log') {
       const { date } = payload;
       const targetDate = date || new Date().toISOString().slice(0, 10);
-      const entries = (await cacheLoad(`analyst/access/${targetDate}`)) || [];
+      const entries = await loadAccessEntries(targetDate);
       return json(200, { date: targetDate, entries, count: entries.length });
     }
 

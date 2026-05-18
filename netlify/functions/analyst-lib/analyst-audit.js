@@ -1,17 +1,20 @@
 // analyst-audit.js — Audit logging for every LLM call, feedback, and action
-const { cacheSave, cacheLoad } = require('./analyst-cache');
+// Per-entry blob keys (analyst/audit/{date}/{ts}_{rand}) prevent concurrent-write race conditions
+const { cacheSave, cacheLoad, cacheList } = require('./analyst-cache');
 
-/** Log an audit entry (appended to daily JSONL blob) */
+/** Log an audit entry — one blob per event to avoid concurrent-write collisions */
 async function logAudit(entry) {
   const today = new Date().toISOString().slice(0, 10);
-  const key = `analyst/audit/${today}`;
-  const existing = await cacheLoad(key);
-  const lines = Array.isArray(existing) ? existing : [];
-  lines.push({
-    ts: new Date().toISOString(),
-    ...entry,
-  });
-  await cacheSave(key, lines);
+  const rand = Math.random().toString(36).slice(2, 7);
+  const key = `analyst/audit/${today}/${Date.now()}_${rand}`;
+  await cacheSave(key, { ts: new Date().toISOString(), ...entry });
+}
+
+/** Load all audit entries for a given date (aggregated from per-entry blobs) */
+async function loadAuditEntries(date) {
+  const keys = await cacheList(`analyst/audit/${date}/`);
+  const entries = await Promise.all(keys.map(k => cacheLoad(k)));
+  return entries.filter(Boolean).sort((a, b) => (a.ts > b.ts ? 1 : -1));
 }
 
 /** Log an LLM API call with token counts and cost */
@@ -37,29 +40,26 @@ async function logLLMCall({ model, action, inputTokens, outputTokens, latencyMs,
   });
 }
 
-/** Log user feedback (thumbs up/down) */
+/** Log user feedback (thumbs up/down) — one blob per event */
 async function logFeedback({ userId, messageId, rating, comment }) {
   const today = new Date().toISOString().slice(0, 10);
-  const key = `analyst/feedback/${today}`;
-  const existing = await cacheLoad(key);
-  const entries = Array.isArray(existing) ? existing : [];
-  entries.push({
+  const rand = Math.random().toString(36).slice(2, 7);
+  const key = `analyst/feedback/${today}/${Date.now()}_${rand}`;
+  await cacheSave(key, {
     ts: new Date().toISOString(),
     userId,
     messageId,
-    rating, // 'up' or 'down'
+    rating,
     comment: comment || null,
   });
-  await cacheSave(key, entries);
 }
 
-/** Log an API access event (who called what, when, and with what result) */
+/** Log an API access event — one blob per event to avoid concurrent-write collisions */
 async function logAccessEvent({ userId, userRole, action, district, statusCode, latencyMs, error, meta }) {
   const today = new Date().toISOString().slice(0, 10);
-  const key = `analyst/access/${today}`;
-  const existing = await cacheLoad(key);
-  const lines = Array.isArray(existing) ? existing : [];
-  lines.push({
+  const rand = Math.random().toString(36).slice(2, 7);
+  const key = `analyst/access/${today}/${Date.now()}_${rand}`;
+  await cacheSave(key, {
     ts: new Date().toISOString(),
     type: 'access',
     userId: userId || null,
@@ -71,7 +71,13 @@ async function logAccessEvent({ userId, userRole, action, district, statusCode, 
     error: error || null,
     meta: meta || null,
   });
-  await cacheSave(key, lines);
 }
 
-module.exports = { logAudit, logLLMCall, logFeedback, logAccessEvent };
+/** Load all access events for a given date (aggregated from per-entry blobs) */
+async function loadAccessEntries(date) {
+  const keys = await cacheList(`analyst/access/${date}/`);
+  const entries = await Promise.all(keys.map(k => cacheLoad(k)));
+  return entries.filter(Boolean).sort((a, b) => (a.ts > b.ts ? 1 : -1));
+}
+
+module.exports = { logAudit, loadAuditEntries, logLLMCall, logFeedback, logAccessEvent, loadAccessEntries };
