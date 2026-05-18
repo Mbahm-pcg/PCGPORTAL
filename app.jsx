@@ -5387,11 +5387,13 @@ const SITE_URL = typeof window !== 'undefined' ? window.location.origin : 'https
 const projectEmailLink = (id, label) =>
   `<div style="margin-top:16px"><a href="${SITE_URL}/?project=${id}" style="display:inline-block;padding:10px 24px;background:${BRAND_CONFIG.primary};color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">View Project: ${label}</a></div>`;
 
-async function sendNotifyEmail(to, subject, htmlBody) {
+async function sendNotifyEmail(to, subject, htmlBody, attachments) {
+  const payload = { to: Array.isArray(to) ? to : [to], subject, body: htmlBody };
+  if (attachments && attachments.length > 0) payload.attachments = attachments;
   const res = await fetch('/.netlify/functions/notify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ to: Array.isArray(to) ? to : [to], subject, body: htmlBody }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const err = await res.text().catch(() => 'Unknown error');
@@ -11796,20 +11798,57 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const [lightbox, setLightbox] = React.useState(null);
   const [issuePickerOpen, setIssuePickerOpen] = React.useState(false);
   const [showTemplates, setShowTemplates] = React.useState(false);
-  const EMPTY_FORM = { title:CATEGORIES[0], storePC: managerStore?.pc || "", category:CATEGORIES[0], priority:"Medium", selectedIssues:[], notes:"", ticketOwner: user?.name || "", attachments:[], dueDate:"" };
+  const [voiceActive, setVoiceActive] = React.useState(false);
+  const EMPTY_FORM = { title:CATEGORIES[0], storePC: managerStore?.pc || "", category:CATEGORIES[0], priority:"Medium", selectedIssues:[], notes:"", ticketOwner: user?.name || "", attachments:[], videoAttachment: null, dueDate: localDateISO(new Date(Date.now() + 3 * 86400000)) };
   const [form, setForm] = React.useState(EMPTY_FORM);
   const fileInputRef = React.useRef(null);
+  const videoInputRef = React.useRef(null);
 
-  const handleFiles = (files) => {
+  const handleImageFiles = (files) => {
+    const current = form.attachments.filter(a => a.type.startsWith("image/")).length;
+    const slots = 4 - current;
+    if (slots <= 0) { showAlert("error", "Maximum 4 photos allowed"); return; }
+    let added = 0;
     Array.from(files).forEach(file => {
-      if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) return;
+      if (!file.type.startsWith("image/")) return;
+      if (added >= slots) return;
       if (file.size > 20 * 1024 * 1024) { showAlert("error", `${file.name} exceeds 20 MB limit`); return; }
+      added++;
       const reader = new FileReader();
       reader.onload = (e) => {
         setForm(f => ({ ...f, attachments: [...f.attachments, { name: file.name, type: file.type, dataUrl: e.target.result, size: file.size }] }));
       };
       reader.readAsDataURL(file);
     });
+  };
+
+  const handleVideoFile = (files) => {
+    const file = Array.from(files).find(f => f.type.startsWith("video/"));
+    if (!file) return;
+    if (file.size > 100 * 1024 * 1024) { showAlert("error", "Video exceeds 100 MB limit"); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setForm(f => ({ ...f, videoAttachment: { name: file.name, type: file.type, dataUrl: e.target.result, size: file.size } }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const startVoice = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { showAlert("error", "Voice input not supported in this browser"); return; }
+    const rec = new SR();
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.lang = "en-US";
+    setVoiceActive(true);
+    rec.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
+      setForm(f => ({ ...f, notes: f.notes ? f.notes + " " + transcript : transcript }));
+      setVoiceActive(false);
+    };
+    rec.onerror = () => setVoiceActive(false);
+    rec.onend = () => setVoiceActive(false);
+    rec.start();
   };
 
   const selectedTicket = tickets.find(t => t.id === selectedId) || null;
@@ -11864,63 +11903,130 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     if (!emails.length) return;
     const prioColor = { High:"#ef4444", Medium:"#f59e0b", Low:"#22c55e" }[t.priority] || "#aaa";
     const prioBg    = { High:"#fef2f2", Medium:"#fffbeb", Low:"#f0fdf4" }[t.priority] || "#f9f9f9";
+
+    // Separate images from video for inline embedding
+    const photos = (t.attachments || []).filter(a => a.type?.startsWith("image/"));
+
+    // Build CID inline attachments for Resend (strip data URI prefix)
+    const cidAttachments = photos.map((a, i) => {
+      const base64 = (a.dataUrl || "").split(",")[1] || "";
+      const mimeType = a.type || "image/jpeg";
+      const ext = mimeType.split("/")[1]?.replace("jpeg","jpg") || "jpg";
+      return { filename: `photo-${i+1}.${ext}`, content: base64, content_type: mimeType, content_id: `ticket-photo-${i}`, content_disposition: "inline" };
+    });
+
     const row = (label, value) => `
       <tr>
-        <td style="padding:11px 16px;font-size:13px;font-weight:600;color:#666;white-space:nowrap;width:130px;border-bottom:1px solid #f0f0f0;">${label}</td>
-        <td style="padding:11px 16px;font-size:13px;color:#1a1a1a;border-bottom:1px solid #f0f0f0;">${value}</td>
+        <td style="padding:10px 16px;font-size:13px;font-weight:600;color:#666;white-space:nowrap;width:120px;border-bottom:1px solid #f0f0f0;vertical-align:top;">${label}</td>
+        <td style="padding:10px 16px;font-size:13px;color:#1a1a1a;border-bottom:1px solid #f0f0f0;">${value}</td>
       </tr>`;
+
+    // Description block — plain text of selected issues + notes
+    const rawDesc = (t.description || "").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const descBlock = rawDesc ? `
+      <!-- what's going on -->
+      <div style="margin:0;padding:18px 24px;background:#f9fafb;border-left:4px solid ${prioColor};">
+        <div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px;">What's Going On</div>
+        <p style="margin:0;font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap;">${rawDesc}</p>
+      </div>` : "";
+
+    // Photos grid — 2 per row using table for email-client compat
+    const photoRows = [];
+    for (let i = 0; i < photos.length; i += 2) {
+      const cells = photos.slice(i, i + 2).map((_, j) =>
+        `<td style="padding:4px;"><img src="cid:ticket-photo-${i+j}" width="240" height="180" style="width:240px;height:180px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb;display:block;" /></td>`
+      ).join("");
+      photoRows.push(`<tr>${cells}</tr>`);
+    }
+    const photosBlock = photos.length > 0 ? `
+      <!-- photos -->
+      <div style="padding:18px 24px 12px;border-top:1px solid #f0f0f0;">
+        <div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:12px;">Photos (${photos.length})</div>
+        <table cellpadding="0" cellspacing="0" border="0"><tbody>${photoRows.join("")}</tbody></table>
+      </div>` : "";
+
+    // Due date formatted
+    const dueFmt = t.dueDate ? new Date(t.dueDate + "T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : null;
+
     const html = `
-      <div style="font-family:Arial,sans-serif;">
-        <!-- header accent bar -->
-        <div style="background:linear-gradient(135deg,${BRAND_CONFIG.primary},#ff8c4b);border-radius:10px 10px 0 0;padding:20px 24px;">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div style="background:rgba(255,255,255,0.2);border-radius:6px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;line-height:1;">🎫</div>
-            <div>
-              <div style="color:rgba(255,255,255,0.75);font-size:11px;letter-spacing:1.2px;text-transform:uppercase;font-weight:600;">New Service Ticket</div>
-              <div style="color:#fff;font-size:20px;font-weight:800;letter-spacing:-0.3px;margin-top:2px;">${t.number} — ${t.title}</div>
-            </div>
-          </div>
+      <div style="font-family:Arial,sans-serif;max-width:600px;">
+        <!-- header -->
+        <div style="background:linear-gradient(135deg,${BRAND_CONFIG.primary},#ff8c4b);border-radius:10px 10px 0 0;padding:22px 24px;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+            <td width="44" style="vertical-align:middle;">
+              <div style="background:rgba(255,255,255,0.2);border-radius:8px;width:40px;height:40px;text-align:center;line-height:40px;font-size:20px;">🎫</div>
+            </td>
+            <td style="padding-left:12px;vertical-align:middle;">
+              <div style="color:rgba(255,255,255,0.8);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;">New Service Ticket</div>
+              <div style="color:#fff;font-size:19px;font-weight:800;margin-top:3px;letter-spacing:-0.3px;">${t.number} — ${t.title}</div>
+            </td>
+          </tr></table>
         </div>
 
-        <!-- badges row -->
-        <div style="background:#fff;border:1px solid #e8e8e8;border-top:none;padding:14px 24px;display:flex;gap:8px;flex-wrap:wrap;">
-          <span style="display:inline-block;background:${prioBg};color:${prioColor};border:1px solid ${prioColor}33;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:700;">${t.priority} Priority</span>
-          <span style="display:inline-block;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:700;">Open</span>
-          <span style="display:inline-block;background:#f9fafb;color:#6b7280;border:1px solid #e5e7eb;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600;">${t.category}</span>
+        <!-- badges -->
+        <div style="background:#fff;border:1px solid #e8e8e8;border-top:none;padding:12px 24px;">
+          <span style="display:inline-block;background:${prioBg};color:${prioColor};border:1px solid ${prioColor}44;border-radius:20px;padding:4px 13px;font-size:11px;font-weight:700;margin-right:6px;">${t.priority} Priority</span>
+          <span style="display:inline-block;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:20px;padding:4px 13px;font-size:11px;font-weight:700;margin-right:6px;">Open</span>
+          <span style="display:inline-block;background:#f9fafb;color:#6b7280;border:1px solid #e5e7eb;border-radius:20px;padding:4px 13px;font-size:11px;font-weight:600;">${t.category}</span>
         </div>
+
+        ${descBlock}
+
+        ${photosBlock}
 
         <!-- detail table -->
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;overflow:hidden;">
-          ${row("Store", `<strong>${t.storeName}</strong>${t.address ? `<br><span style="color:#9ca3af;font-size:12px;">${t.address}</span>` : ""}`)}
-          ${row("PC Number", `<span style="font-family:monospace;background:#f3f4f6;padding:2px 8px;border-radius:4px;font-size:13px;">${t.storePC}</span>`)}
-          ${row("Owner", t.ticketOwner)}
-          ${row("Submitted By", t.createdBy)}
-          ${t.description ? row("Details", `<span style="white-space:pre-wrap;line-height:1.6;">${t.description.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>`) : ""}
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e8e8e8;border-top:none;">
+          ${row("Store", `<strong>${t.storeName}</strong>${t.address ? `<br><span style="color:#9ca3af;font-size:11px;">${t.address}</span>` : ""}`)}
+          ${row("PC #", `<span style="font-family:monospace;background:#f3f4f6;padding:2px 8px;border-radius:4px;">${t.storePC}</span>`)}
+          ${row("Owner", t.ticketOwner || "—")}
+          ${row("Submitted By", t.createdBy || "—")}
+          ${dueFmt ? row("Due Date", `<strong style="color:${prioColor};">${dueFmt}</strong>`) : ""}
         </table>
 
         <!-- CTA -->
-        <div style="text-align:center;padding:24px 0 8px;">
-          <a href="${BRAND_CONFIG.portalUrl}" style="display:inline-block;background:${BRAND_CONFIG.primary};color:#fff;padding:13px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal →</a>
+        <div style="border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;text-align:center;padding:22px 24px;">
+          <a href="${BRAND_CONFIG.portalUrl}" style="display:inline-block;background:${BRAND_CONFIG.primary};color:#fff;padding:13px 34px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal →</a>
         </div>
       </div>
     `;
-    const subject = `[PCG Ticket ${t.number}] ${t.title}`;
-    const smsBody = `New ticket ${t.number}: ${t.title} | Store: ${t.storeName} | Priority: ${t.priority}`;
-    dispatchNotifications(emails, subject, html, smsBody, users || [], "/", `ticket_${t.id}`);
+
+    const subject = `[PCG Ticket ${t.number}] ${t.title} — ${t.storeName}`;
+    const smsBody = `New ticket ${t.number}: ${t.title} | ${t.storeName} | ${t.priority} priority`;
+
+    // Email sent directly so we can pass image attachments; SMS/push go through dispatchNotifications
+    const emailRecipients = emails.filter(email => {
+      const u = (users || []).find(usr => (usr.email || "").toLowerCase() === email.toLowerCase());
+      return !u || u.emailNotify !== false;
+    });
+    if (emailRecipients.length > 0) sendNotifyEmail(emailRecipients, subject, html, cidAttachments).catch(() => {});
+
+    // SMS + push (no image attachments needed)
+    const smsNumbers = [];
+    const pushIds = [];
+    for (const email of emails) {
+      const u = (users || []).find(usr => (usr.email || "").toLowerCase() === email.toLowerCase());
+      if (u && u.smsNotify && u.phone) { const d = u.phone.replace(/\D/g,""); if (d.length >= 10) smsNumbers.push(d); }
+      if (u && u.pushNotify && u.id) pushIds.push(u.id);
+    }
+    if (smsNumbers.length > 0) sendNotifySMS(smsNumbers, smsBody);
+    if (pushIds.length > 0) sendPushNotification(pushIds, subject, smsBody, "/", `ticket_${t.id}`);
   };
 
   const createTicket = () => {
     if (!form.title.trim()) { showAlert("error","Title is required"); return; }
     if (!form.storePC) { showAlert("error","Please select a store"); return; }
+    if (form.attachments.length === 0) { showAlert("error","At least 1 photo is required"); return; }
     const store = stores.find(s => s.pc === form.storePC);
     const now = new Date().toISOString();
     const issueLine = form.selectedIssues.length ? "Issues reported:\n• " + form.selectedIssues.join("\n• ") : "";
     const description = [issueLine, form.notes.trim()].filter(Boolean).join("\n\n");
-    const t = { id: Date.now(), number: nextNumber(), title: form.title, storePC: form.storePC, storeName: store?.name || "Unknown Store", address: store ? (store.address || "") : "", category: form.category, priority: form.priority, dueDate: form.dueDate, status: "Open", ticketOwner: form.ticketOwner || user?.name || "Unassigned", createdBy: user?.name || "Unknown", description, selectedIssues: form.selectedIssues, attachments: form.attachments || [], comments: [], createdAt: now, updatedAt: now };
+    const allAttachments = [...(form.attachments || []), ...(form.videoAttachment ? [form.videoAttachment] : [])];
+    const t = { id: Date.now(), number: nextNumber(), title: form.title, storePC: form.storePC, storeName: store?.name || "Unknown Store", address: store ? (store.address || "") : "", category: form.category, priority: form.priority, dueDate: form.dueDate, status: "Open", ticketOwner: form.ticketOwner || user?.name || "Unassigned", createdBy: user?.name || "Unknown", description, selectedIssues: form.selectedIssues, attachments: allAttachments, comments: [], createdAt: now, updatedAt: now };
     setTickets(ts => [t, ...ts]);
     setSelectedId(t.id);
     setShowForm(false);
     setIssuePickerOpen(false);
+    setVoiceActive(false);
     setForm(EMPTY_FORM);
     sendTicketNotification(t);
     if (setNotifications) {
@@ -12219,7 +12325,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                 const clr = tmpl.priority==="High" ? "#ef4444" : tmpl.priority==="Medium" ? "#f59e0b" : "#22c55e";
                 return (
                   <button key={tmpl.label} type="button"
-                    onClick={()=>{ setForm({ ...EMPTY_FORM, storePC:managerStore?.pc||"", category:tmpl.category, title:tmpl.label, priority:tmpl.priority, selectedIssues:tmpl.selectedIssues, notes:tmpl.notes }); setShowTemplates(false); setShowForm(true); }}
+                    onClick={()=>{ const tmplDays=tmpl.priority==="High"?2:tmpl.priority==="Medium"?3:5; setForm({ ...EMPTY_FORM, storePC:managerStore?.pc||"", category:tmpl.category, title:tmpl.label, priority:tmpl.priority, selectedIssues:tmpl.selectedIssues, notes:tmpl.notes, dueDate:localDateISO(new Date(Date.now()+tmplDays*86400000)) }); setShowTemplates(false); setShowForm(true); }}
                     style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", gap:"0.25rem", padding:"0.75rem", borderRadius:"0.75rem", border:`1.5px solid ${th.cardBorder}`, background:th.card2, cursor:"pointer", textAlign:"left", transition:"border-color .15s" }}
                     onMouseEnter={e=>e.currentTarget.style.borderColor=clr}
                     onMouseLeave={e=>e.currentTarget.style.borderColor=th.cardBorder}>
@@ -12263,18 +12369,26 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                 {["Low","Medium","High"].map(p => {
                   const sel = form.priority === p;
                   const clr = p==="High" ? "#ef4444" : p==="Medium" ? "#f59e0b" : "#22c55e";
+                  const days = p==="High" ? 2 : p==="Medium" ? 3 : 5;
+                  const hint = p==="High" ? "≤2d" : p==="Medium" ? "≤3d" : "≤5d";
                   return (
-                    <button key={p} type="button" onClick={()=>setForm(f=>({...f,priority:p}))}
-                      style={{ flex:1, padding:"0.45rem 0", borderRadius:"2rem", border:`2px solid ${sel?clr:th.cardBorder}`, background:sel?clr:"transparent", color:sel?"#fff":th.muted, fontSize:"0.8rem", fontWeight:700, cursor:"pointer", transition:"all .15s" }}>
-                      {p}
+                    <button key={p} type="button" onClick={()=>{ const d=new Date(Date.now()+days*86400000); setForm(f=>({...f,priority:p,dueDate:localDateISO(d)})); }}
+                      style={{ flex:1, padding:"0.45rem 0 0.25rem", borderRadius:"0.75rem", border:`2px solid ${sel?clr:th.cardBorder}`, background:sel?clr:"transparent", color:sel?"#fff":th.muted, fontSize:"0.8rem", fontWeight:700, cursor:"pointer", transition:"all .15s", display:"flex", flexDirection:"column", alignItems:"center", gap:"1px" }}>
+                      <span>{p}</span>
+                      <span style={{ fontSize:"0.6rem", fontWeight:500, opacity:0.8 }}>{hint}</span>
                     </button>
                   );
                 })}
               </div>
               <input style={{ ...inp(th), gridColumn:"span 2" }} placeholder="Ticket Owner (name)" value={form.ticketOwner} onChange={e=>setForm(f=>({...f,ticketOwner:e.target.value}))} />
               <div style={{ display:"flex", flexDirection:"column", gap:"0.2rem" }}>
-                <label style={{ fontSize:"0.65rem", color:th.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5 }}>Due Date (optional)</label>
-                <input type="date" style={inp(th)} value={form.dueDate} onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))} />
+                <label style={{ fontSize:"0.65rem", color:th.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5 }}>
+                  Due Date · {form.priority==="High" ? "max 2 days" : form.priority==="Medium" ? "max 3 days" : "max 5 days"}
+                </label>
+                <input type="date" style={inp(th)} value={form.dueDate}
+                  min={localDateISO(new Date(Date.now() + 86400000))}
+                  max={localDateISO(new Date(Date.now() + (form.priority==="High"?2:form.priority==="Medium"?3:5)*86400000))}
+                  onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))} />
               </div>
               {/* Issue picker button */}
               <div style={{ gridColumn:"span 2" }}>
@@ -12305,7 +12419,16 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                   <div style={{ ...inp(th), color:th.muted, fontSize:"0.875rem" }}>No predefined issues for this category</div>
                 )}
               </div>
-              <textarea style={{ ...inp(th), gridColumn:"span 2", resize:"vertical" }} rows={3} placeholder="Additional notes (optional)..." value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
+              <div style={{ gridColumn:"span 2", display:"flex", flexDirection:"column", gap:"0.375rem" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <span style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.5 }}>Additional Notes</span>
+                  <button type="button" onClick={startVoice}
+                    style={{ display:"flex", alignItems:"center", gap:"0.3rem", padding:"0.28rem 0.65rem", borderRadius:"1rem", border:`1px solid ${voiceActive?"#ef4444":th.cardBorder}`, background:voiceActive?"#ef444418":th.card2, color:voiceActive?"#ef4444":th.muted, fontSize:"0.72rem", fontWeight:600, cursor:"pointer", transition:"all .2s" }}>
+                    {voiceActive ? "🔴 Listening…" : "🎙 Voice"}
+                  </button>
+                </div>
+                <textarea style={{ ...inp(th), resize:"vertical" }} rows={3} placeholder={voiceActive ? "Listening… speak now" : "Type or tap 🎙 Voice to dictate…"} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
+              </div>
             </div>
 
             {/* Issue picker popup sheet */}
@@ -12335,36 +12458,70 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
               </div>
             )}
 
-            {/* Attachments */}
+            {/* Photos (required, 1-4) */}
             <div style={{ marginTop:"1rem" }}>
-              <div style={{ fontSize:"0.72rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.8, marginBottom:"0.5rem" }}>Photos &amp; Videos</div>
-              <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple style={{ display:"none" }}
-                onChange={e=>{ handleFiles(e.target.files); e.target.value=""; }} />
-              <div
-                onClick={()=>fileInputRef.current?.click()}
-                onDragOver={e=>e.preventDefault()}
-                onDrop={e=>{ e.preventDefault(); handleFiles(e.dataTransfer.files); }}
-                style={{ border:`2px dashed ${th.cardBorder}`, borderRadius:"0.75rem", padding:"1rem", textAlign:"center", cursor:"pointer", background:th.card2, transition:"border-color .15s" }}
-              >
-                <div style={{ fontSize:"1.5rem", marginBottom:"0.25rem" }}>📎</div>
-                <div style={{ fontSize:"0.8rem", color:th.muted }}>Click to add or drag &amp; drop photos/videos</div>
-                <div style={{ fontSize:"0.72rem", color:th.muted, marginTop:"0.2rem" }}>Images &amp; videos up to 20 MB each</div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.5rem" }}>
+                <div style={{ fontSize:"0.72rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.8 }}>
+                  📷 Photos <span style={{ color:"#ef4444" }}>*</span>
+                </div>
+                <span style={{ fontSize:"0.7rem", color: form.attachments.length === 0 ? "#ef4444" : th.muted, fontWeight:600 }}>{form.attachments.length}/4</span>
               </div>
+              <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display:"none" }}
+                onChange={e=>{ handleImageFiles(e.target.files); e.target.value=""; }} />
+              {form.attachments.length < 4 && (
+                <div
+                  onClick={()=>fileInputRef.current?.click()}
+                  onDragOver={e=>e.preventDefault()}
+                  onDrop={e=>{ e.preventDefault(); handleImageFiles(e.dataTransfer.files); }}
+                  style={{ border:`2px dashed ${form.attachments.length===0?"#ef444466":th.cardBorder}`, borderRadius:"0.75rem", padding:"0.875rem", textAlign:"center", cursor:"pointer", background:th.card2, transition:"border-color .15s" }}>
+                  <div style={{ fontSize:"1.5rem", marginBottom:"0.2rem" }}>📷</div>
+                  <div style={{ fontSize:"0.8rem", color: form.attachments.length===0?"#ef4444":th.muted, fontWeight: form.attachments.length===0?600:400 }}>
+                    {form.attachments.length===0 ? "Add at least 1 photo (required)" : "Add more photos"}
+                  </div>
+                  <div style={{ fontSize:"0.7rem", color:th.muted, marginTop:"0.15rem" }}>Tap to open camera or photo library · up to 20 MB each</div>
+                </div>
+              )}
               {form.attachments.length > 0 && (
-                <div style={{ display:"flex", flexWrap:"wrap", gap:"0.625rem", marginTop:"0.75rem" }}>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:"0.5rem", marginTop:"0.625rem" }}>
                   {form.attachments.map((a, i) => (
                     <div key={i} style={{ position:"relative", width:88, height:72, borderRadius:"0.5rem", overflow:"hidden", border:`1px solid ${th.cardBorder}`, background:th.card3, flexShrink:0 }}>
-                      {a.type.startsWith("image/")
-                        ? <img src={a.dataUrl} alt={a.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
-                        : <div style={{ width:"100%", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:4 }}>
-                            <span style={{ fontSize:"1.5rem" }}>🎥</span>
-                            <span style={{ fontSize:"0.6rem", color:th.muted, textAlign:"center", padding:"0 4px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", width:"100%" }}>{a.name}</span>
-                          </div>
-                      }
+                      <img src={a.dataUrl} alt={a.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
                       <button onClick={()=>setForm(f=>({...f,attachments:f.attachments.filter((_,j)=>j!==i)}))}
                         style={{ position:"absolute", top:3, right:3, width:18, height:18, borderRadius:"50%", background:"rgba(0,0,0,0.6)", color:"#fff", border:"none", cursor:"pointer", fontSize:"0.65rem", lineHeight:1, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
                     </div>
                   ))}
+                  {form.attachments.length < 4 && (
+                    <div onClick={()=>fileInputRef.current?.click()} style={{ width:88, height:72, borderRadius:"0.5rem", border:`2px dashed ${th.cardBorder}`, background:th.card2, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", gap:"0.15rem", flexShrink:0 }}>
+                      <span style={{ fontSize:"1.25rem", color:th.muted, lineHeight:1 }}>+</span>
+                      <span style={{ fontSize:"0.62rem", color:th.muted }}>Add photo</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Video (optional, max 1) */}
+            <div style={{ marginTop:"0.875rem" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.5rem" }}>
+                <div style={{ fontSize:"0.72rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.8 }}>
+                  🎥 Video <span style={{ fontWeight:400, fontSize:"0.68rem" }}>(optional)</span>
+                </div>
+              </div>
+              <input ref={videoInputRef} type="file" accept="video/*" style={{ display:"none" }}
+                onChange={e=>{ handleVideoFile(e.target.files); e.target.value=""; }} />
+              {!form.videoAttachment ? (
+                <div onClick={()=>videoInputRef.current?.click()}
+                  style={{ border:`2px dashed ${th.cardBorder}`, borderRadius:"0.75rem", padding:"0.75rem", textAlign:"center", cursor:"pointer", background:th.card2, transition:"border-color .15s" }}>
+                  <div style={{ fontSize:"1.25rem", marginBottom:"0.15rem" }}>🎥</div>
+                  <div style={{ fontSize:"0.78rem", color:th.muted }}>Add a short video clip (optional)</div>
+                  <div style={{ fontSize:"0.7rem", color:th.muted, marginTop:"0.1rem" }}>Up to 100 MB</div>
+                </div>
+              ) : (
+                <div style={{ position:"relative", borderRadius:"0.625rem", overflow:"hidden", border:`1px solid ${th.cardBorder}`, background:th.card3 }}>
+                  <video src={form.videoAttachment.dataUrl} controls style={{ width:"100%", maxHeight:160, display:"block" }} />
+                  <button onClick={()=>setForm(f=>({...f,videoAttachment:null}))}
+                    style={{ position:"absolute", top:6, right:6, width:22, height:22, borderRadius:"50%", background:"rgba(0,0,0,0.7)", color:"#fff", border:"none", cursor:"pointer", fontSize:"0.7rem", lineHeight:1, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+                  <div style={{ padding:"0.35rem 0.625rem", fontSize:"0.68rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{form.videoAttachment.name}</div>
                 </div>
               )}
             </div>
@@ -18843,6 +19000,7 @@ function PCGPortal() {
       if (document.hidden) {
         hiddenAt.t = Date.now();
       } else if (hiddenAt.t && Date.now() - hiddenAt.t > TIMEOUT_MS) {
+        if (user?.userType?.startsWith('kiosk')) return;
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'background_tab', name: user?.name });
         setUser(null);
         setTab("dashboard");
@@ -18853,6 +19011,7 @@ function PCGPortal() {
     // BFCache restore (browser back/forward) — always reset
     const onPageShow = (e) => {
       if (e.persisted) {
+        if (user?.userType?.startsWith('kiosk')) return;
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'bfcache_restore', name: user?.name });
         setUser(null);
         setTab("dashboard");
@@ -18866,11 +19025,11 @@ function PCGPortal() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onPageShow);
     };
-  }, []);
+  }, [user]);
 
   // Inactivity session timeout — 5 min total (4min45s idle → 15s warning → logout)
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.userType?.startsWith('kiosk')) return;
     const WARN_AFTER = 4 * 60 * 1000 + 45 * 1000;
     const LOGOUT_AFTER = 5 * 60 * 1000;
 
@@ -19586,6 +19745,7 @@ function PCGPortal() {
 
   // Cloud sync chat data
   const chatPollRef = useRef(null);
+  const chatPollActive = useRef(false);
   useEffect(() => {
     Promise.all([
       cloudLoad('pcg_chat_channels_v1'),
@@ -19598,9 +19758,9 @@ function PCGPortal() {
       if (rd && typeof rd === 'object' && rd !== null && Object.keys(rd).length > 0) setChatReadState(rd);
     }).catch(() => { cloudChatLoaded.current = true; });
   }, []);
-  useEffect(() => { if (cloudChatLoaded.current && chatChannels.length > 0) cloudSave('pcg_chat_channels_v1', chatChannels); }, [chatChannels]);
-  useEffect(() => { if (cloudChatLoaded.current && chatMessages.length > 0) cloudSave('pcg_chat_messages_v1', chatMessages); }, [chatMessages]);
-  useEffect(() => { if (cloudChatLoaded.current && Object.keys(chatReadState).length > 0) cloudSave('pcg_chat_read_v1', chatReadState); }, [chatReadState]);
+  useEffect(() => { if (chatPollActive.current || !cloudChatLoaded.current || chatChannels.length === 0) return; cloudSave('pcg_chat_channels_v1', chatChannels); }, [chatChannels]);
+  useEffect(() => { if (chatPollActive.current || !cloudChatLoaded.current || chatMessages.length === 0) return; cloudSave('pcg_chat_messages_v1', chatMessages); }, [chatMessages]);
+  useEffect(() => { if (chatPollActive.current || !cloudChatLoaded.current || Object.keys(chatReadState).length === 0) return; cloudSave('pcg_chat_read_v1', chatReadState); }, [chatReadState]);
   // Cloud sync announcements
   useEffect(() => {
     Promise.all([
@@ -19612,8 +19772,8 @@ function PCGPortal() {
       if (dis && typeof dis === 'object' && dis !== null && Object.keys(dis).length > 0) setAnnouncementsDismissed(dis);
     }).catch(() => { cloudAnnouncementsLoaded.current = true; });
   }, []);
-  useEffect(() => { if (cloudAnnouncementsLoaded.current) cloudSave('pcg_announcements_v1', announcements); }, [announcements]);
-  useEffect(() => { if (cloudAnnouncementsLoaded.current && Object.keys(announcementsDismissed).length > 0) cloudSave('pcg_announcements_dismissed_v1', announcementsDismissed); }, [announcementsDismissed]);
+  useEffect(() => { if (chatPollActive.current || !cloudAnnouncementsLoaded.current) return; cloudSave('pcg_announcements_v1', announcements); }, [announcements]);
+  useEffect(() => { if (chatPollActive.current || !cloudAnnouncementsLoaded.current || Object.keys(announcementsDismissed).length === 0) return; cloudSave('pcg_announcements_dismissed_v1', announcementsDismissed); }, [announcementsDismissed]);
 
   // Register service worker for PWA push notifications
   useEffect(() => { registerServiceWorker(); }, []);
@@ -19634,11 +19794,14 @@ function PCGPortal() {
           cloudLoad('pcg_announcements_v1'),
           cloudLoad('pcg_announcements_dismissed_v1'),
         ]);
+        chatPollActive.current = true;
         if (ch && Array.isArray(ch)) setChatChannels(ch);
         if (ms && Array.isArray(ms)) setChatMessages(ms);
         if (rd && typeof rd === 'object' && rd !== null) setChatReadState(rd);
         if (ann && Array.isArray(ann)) setAnnouncements(ann);
         if (dis && typeof dis === 'object' && dis !== null) setAnnouncementsDismissed(dis);
+        // Reset after effects have flushed (setTimeout runs after useEffect)
+        setTimeout(() => { chatPollActive.current = false; }, 0);
       } catch {}
     }, 12000);
     return () => clearInterval(chatPollRef.current);
@@ -20376,7 +20539,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.88
+            v7.93
           </div>
         )}
         {/* Collapse toggle — desktop only */}

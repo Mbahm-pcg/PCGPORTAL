@@ -49,10 +49,13 @@ exports.handler = async (event) => {
   };
 
   if (attachments && Array.isArray(attachments) && attachments.length > 0) {
-    emailPayload.attachments = attachments.map(a => ({
-      filename: a.filename,
-      content: a.content,
-    }));
+    emailPayload.attachments = attachments.map(a => {
+      const att = { filename: a.filename, content: a.content };
+      if (a.content_type) att.content_type = a.content_type;
+      if (a.content_id) att.content_id = a.content_id;
+      if (a.content_disposition) att.content_disposition = a.content_disposition;
+      return att;
+    });
   }
 
   const emailData = JSON.stringify(emailPayload);
