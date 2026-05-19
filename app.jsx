@@ -10590,10 +10590,35 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
     showAlert("success", "Email removed from ticket list");
   };
 
+  const [settingsTab, setSettingsTab] = React.useState('notifications');
+
+  const settingsTabs = [
+    { id: 'notifications', label: '📬 Notifications', color: O },
+    { id: 'orion', label: '🔮 Orion', color: '#7C3AED' },
+    { id: 'admin', label: '🛠️ Admin Tools', color: '#0EA5E9' },
+  ];
+
   return (
     <div className="fade-in">
       <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: th.text, marginBottom: "0.25rem" }}>⚙️ Settings</div>
-      <div style={{ color: th.muted, fontSize: "0.8125rem", marginBottom: "1.5rem" }}>System configuration and notification settings.</div>
+      <div style={{ color: th.muted, fontSize: "0.8125rem", marginBottom: "1.25rem" }}>System configuration and notification settings.</div>
+
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1.5rem', background: th.card2, borderRadius: '0.75rem', padding: '0.3rem' }}>
+        {settingsTabs.map(t => (
+          <button key={t.id} onClick={() => setSettingsTab(t.id)} style={{
+            flex: 1, padding: '0.55rem 0.5rem', border: 'none', borderRadius: '0.5rem', cursor: 'pointer',
+            fontFamily: "'Raleway'", fontWeight: settingsTab === t.id ? 800 : 600, fontSize: '0.8rem',
+            background: settingsTab === t.id ? th.card : 'transparent',
+            color: settingsTab === t.id ? t.color : th.muted,
+            boxShadow: settingsTab === t.id ? '0 1px 4px #00000018' : 'none',
+            transition: 'all 0.18s',
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── Tab: Notifications ── */}
+      {settingsTab === 'notifications' && <>
 
       {/* Info card */}
       <div style={{ ...card(th), borderLeft: `3px solid ${O}`, marginBottom: "1.25rem" }}>
@@ -11046,8 +11071,13 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         );
       })()}
 
+      </> /* end notifications tab */}
+
+      {/* ── Tab: Orion ── */}
+      {settingsTab === 'orion' && <>
+
       {/* Orion Report Settings */}
-      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', marginTop: '1.5rem' }}>
+      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', borderLeft: '3px solid #7C3AED' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reportOpen ? '1rem' : 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontSize: '1.125rem' }}>🔮</span>
@@ -11146,76 +11176,42 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
             {/* Exec Report CC */}
             <div style={{ marginBottom: '1rem' }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>
-                Additional CC — Exec Reports
-              </div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>Additional CC — Exec Reports</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '0.5rem' }}>
                 {(reportSettings.execReportCC || []).map((email, i) => (
                   <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: '999px', padding: '0.2rem 0.6rem', fontSize: '0.75rem', color: th.text }}>
                     {email}
-                    <button onClick={() => {
-                      const updated = (reportSettings.execReportCC || []).filter((_, j) => j !== i);
-                      updateReportSetting({ execReportCC: updated });
-                    }} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginLeft: 2 }}>✕</button>
+                    <button onClick={() => { const updated = (reportSettings.execReportCC || []).filter((_, j) => j !== i); updateReportSetting({ execReportCC: updated }); }} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginLeft: 2 }}>✕</button>
                   </span>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input style={inp(th)} placeholder="Add email address" value={newReportCC}
-                  onChange={e => setNewReportCC(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && newReportCC.includes('@')) {
-                      const updated = [...(reportSettings.execReportCC || []), newReportCC.trim()];
-                      updateReportSetting({ execReportCC: updated });
-                      setNewReportCC('');
-                    }
-                  }} />
-                <button onClick={() => {
-                  if (!newReportCC.includes('@')) { showAlert('error', 'Enter a valid email'); return; }
-                  const updated = [...(reportSettings.execReportCC || []), newReportCC.trim()];
-                  updateReportSetting({ execReportCC: updated });
-                  setNewReportCC('');
-                }} style={btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem' })}>Add</button>
+                <input style={inp(th)} placeholder="Add email address" value={newReportCC} onChange={e => setNewReportCC(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && newReportCC.includes('@')) { updateReportSetting({ execReportCC: [...(reportSettings.execReportCC || []), newReportCC.trim()] }); setNewReportCC(''); } }} />
+                <button onClick={() => { if (!newReportCC.includes('@')) { showAlert('error', 'Enter a valid email'); return; } updateReportSetting({ execReportCC: [...(reportSettings.execReportCC || []), newReportCC.trim()] }); setNewReportCC(''); }} style={btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem' })}>Add</button>
               </div>
             </div>
 
             {/* DM Brief CC */}
             <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>
-                Additional CC — DM Daily Briefs
-              </div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>Additional CC — DM Daily Briefs</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '0.5rem' }}>
                 {(reportSettings.dmBriefCC || []).map((email, i) => (
                   <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: '999px', padding: '0.2rem 0.6rem', fontSize: '0.75rem', color: th.text }}>
                     {email}
-                    <button onClick={() => {
-                      const updated = (reportSettings.dmBriefCC || []).filter((_, j) => j !== i);
-                      updateReportSetting({ dmBriefCC: updated });
-                    }} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginLeft: 2 }}>✕</button>
+                    <button onClick={() => { const updated = (reportSettings.dmBriefCC || []).filter((_, j) => j !== i); updateReportSetting({ dmBriefCC: updated }); }} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginLeft: 2 }}>✕</button>
                   </span>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input style={inp(th)} placeholder="Add email address" value={newReportCC}
-                  onChange={e => setNewReportCC(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && newReportCC.includes('@')) {
-                      const updated = [...(reportSettings.dmBriefCC || []), newReportCC.trim()];
-                      updateReportSetting({ dmBriefCC: updated });
-                      setNewReportCC('');
-                    }
-                  }} />
-                <button onClick={() => {
-                  if (!newReportCC.includes('@')) { showAlert('error', 'Enter a valid email'); return; }
-                  const updated = [...(reportSettings.dmBriefCC || []), newReportCC.trim()];
-                  updateReportSetting({ dmBriefCC: updated });
-                  setNewReportCC('');
-                }} style={btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem' })}>Add</button>
+                <input style={inp(th)} placeholder="Add email address" value={newReportCC} onChange={e => setNewReportCC(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && newReportCC.includes('@')) { updateReportSetting({ dmBriefCC: [...(reportSettings.dmBriefCC || []), newReportCC.trim()] }); setNewReportCC(''); } }} />
+                <button onClick={() => { if (!newReportCC.includes('@')) { showAlert('error', 'Enter a valid email'); return; } updateReportSetting({ dmBriefCC: [...(reportSettings.dmBriefCC || []), newReportCC.trim()] }); setNewReportCC(''); }} style={btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem' })}>Add</button>
               </div>
             </div>
 
             <div style={{ marginTop: '1rem', fontSize: '0.7rem', color: th.muted, lineHeight: 1.5 }}>
-              <strong>Schedule:</strong> DM briefs daily at 7:00 AM ET. Exec reports: Sunday 10:00 AM ET (preliminary — labor may be inaccurate until DM adjustments by Monday 1 PM) + Tuesday 10:00 AM ET (post-adjustment, final figures).
+              <strong>Schedule:</strong> DM briefs daily at 7:00 AM ET. Exec reports: Sunday 10:00 AM ET (preliminary) + Tuesday 10:00 AM ET (post-adjustment, final figures).
             </div>
 
             {/* Send Now Buttons */}
@@ -11235,11 +11231,10 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ reportType: r.type, userId: user.id, ...(r.extra || {}) }),
                       });
-                      // Poll for completion
                       let attempts = 0;
                       const poll = setInterval(async () => {
                         attempts++;
-                        if (attempts > 60) { clearInterval(poll); return; } // 5 min max
+                        if (attempts > 60) { clearInterval(poll); return; }
                         try {
                           const status = await cloudLoad('analyst/report-last-send');
                           if (status && new Date(status.at) > new Date(Date.now() - 300000)) {
@@ -11250,8 +11245,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                         } catch {}
                       }, 5000);
                     } catch (e) { showAlert('error', 'Failed to start: ' + e.message); }
-                  }} style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.75rem', background: r.color })}
-                    title={r.desc}>
+                  }} style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.75rem', background: r.color })} title={r.desc}>
                     {r.label}
                   </button>
                 ))}
@@ -11261,25 +11255,32 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         )}
       </div>
 
+      {/* KB Management — IT only, in Orion section */}
+      {user?.userType === 'it' && (
+        <KBManagementSection th={th} showAlert={showAlert} />
+      )}
+
+      </> /* end orion tab */}
+
+      {/* ── Tab: Admin Tools ── */}
+      {settingsTab === 'admin' && <>
+
       {/* Notification Log */}
-      <div style={{ marginTop: "1.5rem" }}>
-        <NotificationLogSection th={th} notifyLog={notifyLog} pushSubs={pushSubs} logLoading={logLoading} logOpen={logOpen} setLogOpen={setLogOpen} loadNotifyLog={loadNotifyLog} users={users || []} />
+      <div style={{ marginTop: 0 }}>
+        <NotificationLogSection th={th} notifyLog={notifyLog} pushSubs={pushSubs} logLoading={logLoading} logOpen={logOpen} setLogOpen={setLogOpen} loadNotifyLog={loadNotifyLog} users={users || []} accent="#0EA5E9" />
       </div>
 
       {/* Audit Log */}
       <div style={{ marginTop: "1.25rem" }}>
-        <AuditLogSection th={th} user={user} users={users || []} />
+        <AuditLogSection th={th} user={user} users={users || []} accent="#0EA5E9" />
       </div>
 
       {/* Leaderboard Preview — IT only */}
       {user?.userType === 'it' && (
-        <LeaderboardPreviewSection th={th} user={user} showAlert={showAlert} />
+        <LeaderboardPreviewSection th={th} user={user} showAlert={showAlert} accent="#0EA5E9" />
       )}
 
-      {/* KB Management — IT only */}
-      {user?.userType === 'it' && (
-        <KBManagementSection th={th} showAlert={showAlert} />
-      )}
+      </> /* end admin tab */}
     </div>
   );
 }
@@ -11337,6 +11338,7 @@ function KBManagementSection({ th, showAlert }) {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '0.85rem 1.1rem', background: th.card, border: `1px solid ${th.cardBorder}`,
         borderRadius: open ? '0.75rem 0.75rem 0 0' : '0.75rem', cursor: 'pointer',
+        borderLeft: '3px solid #7C3AED',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <span style={{ fontSize: '1.1rem' }}>🧠</span>
@@ -11394,7 +11396,7 @@ function KBManagementSection({ th, showAlert }) {
 }
 
 // ── Leaderboard Preview Section (IT admin only) ───────────────────────────
-function LeaderboardPreviewSection({ th, user, showAlert }) {
+function LeaderboardPreviewSection({ th, user, showAlert, accent }) {
   const [open, setOpen] = React.useState(false);
   const [data, setData] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
@@ -11449,6 +11451,7 @@ function LeaderboardPreviewSection({ th, user, showAlert }) {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '0.85rem 1.1rem', background: th.card, border: `1px solid ${th.cardBorder}`,
         borderRadius: open ? '0.75rem 0.75rem 0 0' : '0.75rem', cursor: 'pointer',
+        ...(accent ? { borderLeft: `3px solid ${accent}` } : {}),
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <span style={{ fontSize: '1.1rem' }}>🏆</span>
@@ -11502,7 +11505,7 @@ function LeaderboardPreviewSection({ th, user, showAlert }) {
 }
 
 // ── Notification Log Section (rendered inside AdminSettings) ──────────────
-function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, setLogOpen, loadNotifyLog, users }) {
+function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, setLogOpen, loadNotifyLog, users, accent }) {
   // Map user IDs to names
   const userName = (id) => {
     const u = (users || []).find(u => String(u.id) === String(id));
@@ -11510,7 +11513,7 @@ function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, 
   };
 
   return (
-    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', ...(accent ? { borderLeft: `3px solid ${accent}` } : {}) }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: logOpen ? '1rem' : 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontSize: '1.125rem' }}>📋</span>
@@ -11585,7 +11588,7 @@ function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, 
 }
 
 // ── Audit Log Section (rendered inside AdminSettings) ─────────────────────
-function AuditLogSection({ th, user, users }) {
+function AuditLogSection({ th, user, users, accent }) {
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [entries, setEntries] = React.useState(null);
@@ -11648,7 +11651,7 @@ function AuditLogSection({ th, user, users }) {
   const visibleRows = showAll ? reversed : reversed.slice(0, PAGE);
 
   return (
-    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', ...(accent ? { borderLeft: `3px solid ${accent}` } : {}) }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: open ? '1rem' : 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontSize: '1.125rem' }}>🔍</span>
@@ -20956,7 +20959,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.3
+            v8.33
           </div>
         )}
         {/* Collapse toggle — desktop only */}
