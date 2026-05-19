@@ -2753,6 +2753,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const [search, setSearch] = useState("");
   const [welcomeSent, setWelcomeSent] = useState(null);
   const [saveFlash, setSaveFlash] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const savedScrollY = React.useRef(0);
 
   const nextId = () => Math.max(0, ...users.map(u => u.id)) + 1;
@@ -3009,15 +3010,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
                   <select style={inp(th)} value={form.userType||"manager"} onChange={e=>setForm(f=>({...f,userType:e.target.value}))}>
                     {USERTYPE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
                   </select>
-                  <select style={inp(th)} value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
-                    {ROLE_OPTIONS.map(r=><option key={r}>{r}</option>)}
-                  </select>
-                  <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
-                    <input type="checkbox" checked={form.isAdmin} onChange={e=>setForm(f=>({...f,isAdmin:e.target.checked}))} style={{ accentColor:rc, width:15, height:15 }} /> Admin Access
-                  </label>
-                  <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
-                    <input type="checkbox" checked={!!form.darkMode} onChange={e=>setForm(f=>({...f,darkMode:e.target.checked}))} style={{ accentColor:"#888", width:15, height:15 }} /> Dark Mode
-                  </label>
+                  <input style={inp(th)} placeholder="Job title (e.g. Store Manager)" value={form.role||""} onChange={e=>setForm(f=>({...f,role:e.target.value}))} />
                   <label title={formTwoFactorLocked ? formTwoFactorLockedReason : "Require this user to use an authenticator code at login"} style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:formTwoFactorLocked?"not-allowed":"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem", gridColumn:"1 / -1", opacity:formTwoFactorLocked?0.82:1 }}>
                     <input type="checkbox" checked={formTwoFactorLocked && isAhmed(form) ? true : !!form.twoFactorRequired} disabled={formTwoFactorLocked} onChange={e=>setForm(f=>({...f,twoFactorRequired:e.target.checked}))} style={{ accentColor:"#FF671F", width:15, height:15 }} /> Require 2FA{formTwoFactorLocked ? ` (${isAhmed(form) ? "always on" : "IT admin only"})` : ""}
                   </label>
@@ -3127,25 +3120,25 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
               {/* Card actions */}
               <div style={{ padding:"0.625rem 1rem", borderTop:`1px solid ${th.cardBorder}`, display:"flex", gap:"0.4rem", flexWrap:"wrap", background:th.card2 }}>
                 {canManageUser(currentUser, u) && (
-                  <button onClick={() => startEdit(u)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", flex:1 }) }}>Edit</button>
+                  <button onClick={() => startEdit(u)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", flex:1 }) }}>✏️ Edit</button>
                 )}
                 {canManageUser(currentUser, u) && (
                   <button onClick={() => toggleActive(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>
-                    {isInactive ? "Enable" : "Disable"}
+                    {isInactive ? "✅ Enable" : "⏸ Disable"}
                   </button>
                 )}
                 {isFullAdmin(currentUser) && (
                   <button onClick={() => sendPasswordReset(u)} disabled={!u.email || (emailAction?.userId===u.id && emailAction?.status==="sending")}
-                    title={u.email ? "Reset password" : "No email on file"}
+                    title={u.email ? "Send password reset email" : "No email on file"}
                     style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#3b82f618", color:"#3b82f6", opacity:u.email?1:0.35 }) }}>
-                    {emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="sending"?"⏳":emailAction.status==="ok"?"✅":"❌") : "🔑"}
+                    {emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"✅ Sent":"❌ Failed") : "🔑 Reset PW"}
                   </button>
                 )}
                 {isFullAdmin(currentUser) && !u.lastLogin && (
                   <button onClick={() => resendWelcome(u)} disabled={!u.email || (emailAction?.userId===u.id && emailAction?.status==="sending")}
                     title={u.email ? "Resend welcome email" : "No email on file"}
                     style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#10b98118", color:"#10b981", opacity:u.email?1:0.35 }) }}>
-                    {emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"⏳":emailAction.status==="ok"?"✅":"❌") : "📧"}
+                    {emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"✅ Sent":"❌ Failed") : "📧 Welcome"}
                   </button>
                 )}
                 {isFullAdmin(currentUser) && isTwoFactorRequired(u) && (
@@ -3154,11 +3147,17 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
                     disabled={revokeAction?.userId === u.id && revokeAction?.status === "revoking"}
                     title="Revoke trusted devices — forces 2FA re-verification on next login"
                     style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#f9731618", color:"#f97316", opacity: revokeAction?.userId === u.id && revokeAction?.status === "revoking" ? 0.5 : 1 }) }}>
-                    {revokeAction?.userId === u.id ? (revokeAction.status === "revoking" ? "⏳" : revokeAction.status === "ok" ? "✅" : "❌") : "🔐"}
+                    {revokeAction?.userId === u.id ? (revokeAction.status === "revoking" ? "Revoking…" : revokeAction.status === "ok" ? "✅ Revoked" : "❌ Failed") : "🔐 Revoke 2FA"}
                   </button>
                 )}
                 {isFullAdmin(currentUser) && (
-                  <button onClick={() => del(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#ef444418", color:"#ef4444" }) }}>✕</button>
+                  confirmDeleteId === u.id
+                    ? <div style={{ display:"flex", gap:"0.3rem", alignItems:"center" }}>
+                        <span style={{ fontSize:"0.7rem", color:"#ef4444", fontWeight:600 }}>Delete?</span>
+                        <button onClick={() => { del(u.id); setConfirmDeleteId(null); }} style={{ ...btn(th, { padding:"0.3rem 0.6rem", fontSize:"0.72rem", background:"#ef4444", color:"#fff", border:"none" }) }}>Yes</button>
+                        <button onClick={() => setConfirmDeleteId(null)} style={{ ...btn(th, { padding:"0.3rem 0.6rem", fontSize:"0.72rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>No</button>
+                      </div>
+                    : <button onClick={() => setConfirmDeleteId(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#ef444418", color:"#ef4444" }) }}>🗑 Delete</button>
                 )}
               </div>
             </div>
@@ -10516,6 +10515,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [logOpen, setLogOpen] = useState(false);
   const [pushSubs, setPushSubs] = useState(null);
   const [notifyInfoOpen, setNotifyInfoOpen] = useState(false);
+  const [globalNotifyOpen, setGlobalNotifyOpen] = useState(true);
+  const [ticketNotifyOpen, setTicketNotifyOpen] = useState(true);
 
   // ── Orion Report Settings ──────────────────────────────────────────
   const [reportSettings, setReportSettings] = useState(null);
@@ -10627,71 +10628,79 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
       {/* Global Notify List */}
       <div style={{ ...card(th), padding: "1.5rem", marginBottom: "1.25rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-          <span style={{ fontSize: "1.125rem" }}>📧</span>
-          <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Global Project Notifications</span>
+        <div onClick={() => setGlobalNotifyOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: globalNotifyOpen ? "0.25rem" : 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "1.125rem" }}>📧</span>
+            <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Global Project Notifications</span>
+            <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({globalNotifyEmails.length})</span>
+          </div>
+          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{globalNotifyOpen ? "▲" : "▼"}</span>
         </div>
-        <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
-          These email addresses receive notifications for <strong>all projects</strong> — phase changes, new projects, deadline alerts, and checklist updates.
-          Individual projects can also have their own additional notify emails.
-        </p>
-
-        {/* Current list */}
-        <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
-          {globalNotifyEmails.length === 0 && (
-            <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No global notify emails configured.</div>
-          )}
-          {globalNotifyEmails.map((email, idx) => (
-            <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
-                  {email.charAt(0).toUpperCase()}
-                </span>
-                <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
+        {globalNotifyOpen && <>
+          <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
+            These email addresses receive notifications for <strong>all projects</strong> — phase changes, new projects, deadline alerts, and checklist updates.
+            Individual projects can also have their own additional notify emails.
+          </p>
+          <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+            {globalNotifyEmails.length === 0 && (
+              <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No global notify emails configured.</div>
+            )}
+            {globalNotifyEmails.map((email, idx) => (
+              <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
+                    {email.charAt(0).toUpperCase()}
+                  </span>
+                  <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
+                </div>
+                <button onClick={() => removeEmail(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
               </div>
-              <button onClick={() => removeEmail(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
-            </div>
-          ))}
-        </div>
-
-        {/* Add new */}
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") addEmail(); }} />
-          <button onClick={addEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-        </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") addEmail(); }} />
+            <button onClick={addEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
+          </div>
+        </>}
       </div>
 
       {/* Ticket Notify List */}
       <div style={{ ...card(th), padding: "1.5rem", marginBottom: "1.25rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-          <span style={{ fontSize: "1.125rem" }}>🎫</span>
-          <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Ticket Notifications</span>
+        <div onClick={() => setTicketNotifyOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: ticketNotifyOpen ? "0.25rem" : 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "1.125rem" }}>🎫</span>
+            <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Ticket Notifications</span>
+            <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(ticketNotifyEmails || []).length})</span>
+          </div>
+          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{ticketNotifyOpen ? "▲" : "▼"}</span>
         </div>
-        <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
-          These email addresses receive notifications when a new service ticket is created. Separate from the global project list — add or remove anyone here.
-        </p>
-        <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
-          {(ticketNotifyEmails || []).length === 0 && (
-            <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No ticket notify emails configured.</div>
-          )}
-          {(ticketNotifyEmails || []).map((email, idx) => (
-            <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
-                  {email.charAt(0).toUpperCase()}
-                </span>
-                <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
+        {ticketNotifyOpen && <>
+          <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
+            These email addresses receive notifications when a new service ticket is created. Separate from the global project list — add or remove anyone here.
+          </p>
+          <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+            {(ticketNotifyEmails || []).length === 0 && (
+              <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No ticket notify emails configured.</div>
+            )}
+            {(ticketNotifyEmails || []).map((email, idx) => (
+              <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
+                    {email.charAt(0).toUpperCase()}
+                  </span>
+                  <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
+                </div>
+                <button onClick={() => removeTicketEmail(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
               </div>
-              <button onClick={() => removeTicketEmail(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newTicketEmail} onChange={e => setNewTicketEmail(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") addTicketEmail(); }} />
-          <button onClick={addTicketEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-        </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newTicketEmail} onChange={e => setNewTicketEmail(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") addTicketEmail(); }} />
+            <button onClick={addTicketEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
+          </div>
+        </>}
       </div>
 
       {/* Test Notifications */}
@@ -12089,20 +12098,26 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
 
       {/* Left: status sidebar — collapses to scrollable filter bar on mobile */}
       {isMobile && !selectedTicket ? (
-        <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", overflowX:"auto", paddingBottom:"0.25rem", flexShrink:0 }}>
-          {[
-            { key:"all", label:"All", count:counts.all, dot:"#aaa" },
-            { key:"open", label:"Open", count:counts.open, dot:"#3b82f6" },
-            { key:"in_progress", label:"In Prog.", count:counts.in_progress, dot:O },
-            { key:"closed", label:"Closed", count:counts.closed, dot:"#6b7280" },
-          ].map(item => (
-            <button key={item.key} onClick={() => setStatusFilter(item.key)} style={{ display:"flex", alignItems:"center", gap:"0.35rem", padding:"0.4rem 0.75rem", borderRadius:"2rem", border:`1px solid ${statusFilter===item.key ? item.dot : th.cardBorder}`, background: statusFilter===item.key ? item.dot+"18" : th.card, cursor:"pointer", fontSize:"0.75rem", fontWeight:600, color: statusFilter===item.key ? item.dot : th.muted, flexShrink:0, transition:"all .15s", whiteSpace:"nowrap" }}>
-              <span style={{ width:6, height:6, borderRadius:"50%", background:item.dot }} />
-              {item.label} <span style={{ fontWeight:800 }}>{item.count}</span>
-            </button>
-          ))}
-          <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "" }); setShowForm(true); }} style={{ ...btn(th, { padding:"0.4rem 0.875rem", fontSize:"0.75rem", flexShrink:0, whiteSpace:"nowrap" }) }}>+ New</button>
-          <button onClick={() => setShowTemplates(true)} style={{ ...btn(th, { padding:"0.4rem 0.75rem", fontSize:"0.75rem", flexShrink:0, whiteSpace:"nowrap", background:th.card2, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>⚡</button>
+        <div style={{ display:"flex", flexDirection:"column", gap:"0.5rem", flexShrink:0 }}>
+          {/* Action buttons row — always visible, no scroll */}
+          <div style={{ display:"flex", gap:"0.5rem" }}>
+            <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "" }); setShowForm(true); }} style={{ ...btn(th, { padding:"0.5rem 1rem", fontSize:"0.8rem", flex:1, whiteSpace:"nowrap" }) }}>+ New Ticket</button>
+            <button onClick={() => setShowTemplates(true)} style={{ ...btn(th, { padding:"0.5rem 1rem", fontSize:"0.8rem", whiteSpace:"nowrap", background:th.card2, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>⚡ Templates</button>
+          </div>
+          {/* Filter pills row — scrollable */}
+          <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", overflowX:"auto", paddingBottom:"0.25rem" }}>
+            {[
+              { key:"all", label:"All", count:counts.all, dot:"#aaa" },
+              { key:"open", label:"Open", count:counts.open, dot:"#3b82f6" },
+              { key:"in_progress", label:"In Prog.", count:counts.in_progress, dot:O },
+              { key:"closed", label:"Closed", count:counts.closed, dot:"#6b7280" },
+            ].map(item => (
+              <button key={item.key} onClick={() => setStatusFilter(item.key)} style={{ display:"flex", alignItems:"center", gap:"0.35rem", padding:"0.4rem 0.75rem", borderRadius:"2rem", border:`1px solid ${statusFilter===item.key ? item.dot : th.cardBorder}`, background: statusFilter===item.key ? item.dot+"18" : th.card, cursor:"pointer", fontSize:"0.75rem", fontWeight:600, color: statusFilter===item.key ? item.dot : th.muted, flexShrink:0, transition:"all .15s", whiteSpace:"nowrap" }}>
+                <span style={{ width:6, height:6, borderRadius:"50%", background:item.dot }} />
+                {item.label} <span style={{ fontWeight:800 }}>{item.count}</span>
+              </button>
+            ))}
+          </div>
         </div>
       ) : !isMobile ? (
       <div style={{ ...card(th), width:230, flexShrink:0, padding:"1.25rem 0", display:"flex", flexDirection:"column", overflow:"hidden", transition:"width .2s" }}>
@@ -18254,21 +18269,6 @@ function TodayBrief({ user, th, setAnnouncements, showAlert }) {
           <span style={{ fontSize: '0.6rem', color: th.muted, fontWeight: 500 }}>{brief.scope} · {timeAgo(brief.generatedAt)}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          {setAnnouncements && (
-            <button onClick={(e) => {
-              e.stopPropagation();
-              if (posting) return;
-              setPosting(true);
-              // Extract first 3 bullets from brief content as the announcement message
-              const bullets = (brief.content || '').split('\n').filter(l => l.trim().startsWith('•')).slice(0, 3).map(l => l.trim()).join('\n');
-              const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: `Orion Brief — ${brief.scope} — ${brief.date}`, message: bullets || brief.content.slice(0, 300), createdAt: new Date().toISOString(), createdBy: user.name, active: true };
-              setAnnouncements(prev => [ann, ...prev]);
-              if (showAlert) showAlert('success', 'Brief posted to Announcements');
-              setTimeout(() => setPosting(false), 2000);
-            }} style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.2rem 0.5rem', color: posting ? '#4caf50' : O, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
-              {posting ? '✓ Posted' : '📢 Announce'}
-            </button>
-          )}
           <button onClick={(e) => { e.stopPropagation(); exportBriefPDF(brief, user); }}
             style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.2rem 0.5rem', color: O, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
             ↓ PDF
@@ -18297,7 +18297,10 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
   const [byStatus, setByStatus] = useState({});
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
-  const [caseAction, setCaseAction] = useState({}); // { [caseId]: 'announcing'|'announced'|'notifying'|'notified' }
+  const [caseAction, setCaseAction] = useState({}); // { [caseId]: 'notifying'|'notified' }
+  const [reasonPrompt, setReasonPrompt] = useState(null); // { caseId, status, text }
+  const [decisionLog, setDecisionLog] = useState([]);
+  const [showDecisionLog, setShowDecisionLog] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -18316,13 +18319,40 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
     })();
   }, []);
 
-  const updateStatus = async (caseId, status) => {
+  const DECISION_STATUSES = ['Accepted', 'In Progress', 'Done'];
+
+  const updateStatus = async (caseId, status, reason) => {
     try {
       await fetch('/.netlify/functions/analyst', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'case-update', caseId, status, userId: user.id }),
+        body: JSON.stringify({ action: 'case-update', caseId, status, reason: reason || null, userId: user.id }),
       });
       setCases(prev => prev.map(c => c.id === caseId ? { ...c, status } : c));
+    } catch {}
+  };
+
+  const handleStatusClick = (caseId, status) => {
+    if (DECISION_STATUSES.includes(status)) {
+      setReasonPrompt({ caseId, status, text: '' });
+    } else {
+      updateStatus(caseId, status);
+    }
+  };
+
+  const confirmStatus = async () => {
+    if (!reasonPrompt) return;
+    await updateStatus(reasonPrompt.caseId, reasonPrompt.status, reasonPrompt.text);
+    setReasonPrompt(null);
+  };
+
+  const loadDecisionLog = async () => {
+    try {
+      const res = await fetch('/.netlify/functions/analyst', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'decision-log', userId: user.id, days: 30 }),
+      });
+      const data = await res.json();
+      setDecisionLog(data.entries || []);
     } catch {}
   };
 
@@ -18375,32 +18405,37 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
             <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: th.card2, borderRadius: '0.5rem', fontSize: '0.75rem' }}>
               <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
                 {['New', 'In Review', 'Accepted', 'In Progress', 'Done'].map(s => (
-                  <button key={s} onClick={() => updateStatus(c.id, s)}
+                  <button key={s} onClick={() => handleStatusClick(c.id, s)}
                     style={{ background: c.status === s ? (statusColors[s] || '#888') : th.card3, border: `1px solid ${c.status === s ? statusColors[s] : th.cardBorder}`, borderRadius: '0.3rem', padding: '0.2rem 0.5rem', fontSize: '0.6rem', fontWeight: 700, color: c.status === s ? '#fff' : th.muted, cursor: 'pointer' }}>
                     {s}
                   </button>
                 ))}
               </div>
+              {/* Reason prompt — shown when moving to a decision status */}
+              {reasonPrompt?.caseId === c.id && (
+                <div style={{ marginBottom: '0.5rem', padding: '0.5rem', background: th.card, border: `1px solid ${statusColors[reasonPrompt.status] || O}44`, borderRadius: '0.4rem' }}>
+                  <div style={{ fontSize: '0.65rem', fontWeight: 700, color: statusColors[reasonPrompt.status], marginBottom: '0.35rem' }}>
+                    Moving to "{reasonPrompt.status}" — add a reason? (optional)
+                  </div>
+                  <textarea
+                    value={reasonPrompt.text}
+                    onChange={e => setReasonPrompt(r => ({ ...r, text: e.target.value }))}
+                    placeholder="e.g. Confirmed with DM, scheduling fix in place..."
+                    rows={2}
+                    style={{ width: '100%', padding: '0.35rem 0.5rem', fontSize: '0.7rem', borderRadius: '0.3rem', border: `1px solid ${th.cardBorder}`, background: th.inputBg, color: th.text, resize: 'none', boxSizing: 'border-box' }}
+                  />
+                  <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.35rem', justifyContent: 'flex-end' }}>
+                    <button onClick={() => setReasonPrompt(null)} style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', borderRadius: '0.3rem', border: `1px solid ${th.cardBorder}`, background: th.card3, color: th.muted, cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={confirmStatus} style={{ fontSize: '0.65rem', padding: '0.2rem 0.6rem', borderRadius: '0.3rem', border: 'none', background: statusColors[reasonPrompt.status] || O, color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Confirm</button>
+                  </div>
+                </div>
+              )}
               <div style={{ color: th.muted, lineHeight: 1.6 }}>
                 <strong>Store:</strong> {c.storeName || '—'} · <strong>District:</strong> {c.district || '—'} · <strong>Created:</strong> {timeAgo(c.createdAt)}
               </div>
 
               {/* One-click actions */}
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem', flexWrap: 'wrap' }}>
-                {setAnnouncements && (
-                  <button onClick={() => {
-                    if (caseAction[c.id]) return;
-                    setCaseAction(a => ({ ...a, [c.id]: 'announcing' }));
-                    const msg = [c.summary, c.dollarOpportunity > 0 && `Estimated impact: $${Math.round(c.dollarOpportunity).toLocaleString()}`, c.storeName && `Store: ${c.storeName}`].filter(Boolean).join('\n');
-                    const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: c.title, message: msg, createdAt: new Date().toISOString(), createdBy: user.name, active: true };
-                    setAnnouncements(prev => [ann, ...prev]);
-                    if (showAlert) showAlert('success', `"${c.title}" posted to Announcements`);
-                    setCaseAction(a => ({ ...a, [c.id]: 'announced' }));
-                    setTimeout(() => setCaseAction(a => ({ ...a, [c.id]: null })), 3000);
-                  }} style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.25rem 0.6rem', borderRadius: '0.35rem', border: `1px solid ${caseAction[c.id] === 'announced' ? '#4caf50' : O + '55'}`, background: 'none', color: caseAction[c.id] === 'announced' ? '#4caf50' : O, cursor: 'pointer' }}>
-                    {caseAction[c.id] === 'announced' ? '✓ Posted' : '📢 Post to Announcements'}
-                  </button>
-                )}
                 {(() => {
                   const store = (stores || []).find(s => (c.storePC && String(s.pc) === String(c.storePC)) || (c.storeName && s.name?.toLowerCase() === c.storeName.toLowerCase()));
                   if (!store?.email) return null;
@@ -18446,6 +18481,40 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
           )}
         </div>
       ))}
+
+      {/* Decision Log toggle */}
+      <div style={{ marginTop: '0.75rem', borderTop: `1px solid ${th.cardBorder}`, paddingTop: '0.6rem' }}>
+        <button onClick={async () => { if (!showDecisionLog) await loadDecisionLog(); setShowDecisionLog(o => !o); }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, color: th.muted, display: 'flex', alignItems: 'center', gap: '0.35rem', padding: 0 }}>
+          📊 Decision Log {showDecisionLog ? '▲' : '▼'}
+        </button>
+        {showDecisionLog && (
+          <div style={{ marginTop: '0.5rem' }}>
+            {decisionLog.length === 0 ? (
+              <div style={{ fontSize: '0.7rem', color: th.muted, fontStyle: 'italic' }}>No decisions logged yet. Accept or move cases to track them here.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                {decisionLog.slice(0, 15).map((d, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.4rem 0.5rem', background: th.card2, borderRadius: '0.35rem', borderLeft: `3px solid ${statusColors[d.decision] || '#888'}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.6rem', fontWeight: 700, color: statusColors[d.decision] || th.muted, background: (statusColors[d.decision] || '#888') + '20', padding: '0.1rem 0.35rem', borderRadius: '0.2rem' }}>{d.decision}</span>
+                        <span style={{ fontSize: '0.68rem', fontWeight: 600, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</span>
+                        {d.dollarOpportunity > 0 && <span style={{ fontSize: '0.6rem', color: '#4caf50', fontWeight: 700 }}>${Math.round(d.dollarOpportunity).toLocaleString()}</span>}
+                      </div>
+                      {d.reason && <div style={{ fontSize: '0.65rem', color: th.muted, marginTop: '0.15rem', fontStyle: 'italic' }}>"{d.reason}"</div>}
+                      <div style={{ fontSize: '0.58rem', color: th.muted, marginTop: '0.1rem' }}>
+                        {d.decidedBy ? `by ${d.decidedBy} · ` : ''}{d.ts ? new Date(d.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                        {d.district ? ` · District ${d.district}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -20570,7 +20639,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v7.95
+            v8.0
           </div>
         )}
         {/* Collapse toggle — desktop only */}

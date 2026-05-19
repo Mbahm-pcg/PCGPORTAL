@@ -5,7 +5,7 @@ const { askAnalyst } = require('./analyst-lib/analyst-claude');
 const { buildDataContext, buildKPISnapshot } = require('./analyst-lib/analyst-data');
 const { buildBriefPrompt, buildAskPrompt, PERSONA } = require('./analyst-lib/analyst-prompts');
 const { generateStructured } = require('./analyst-lib/analyst-claude');
-const { getCases, loadCase, updateCaseStatus } = require('./analyst-lib/analyst-cases');
+const { getCases, loadCase, updateCaseStatus, loadDecisionLog } = require('./analyst-lib/analyst-cases');
 const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
 const { logFeedback, logAccessEvent, loadAccessEntries } = require('./analyst-lib/analyst-audit');
 const { loadReportSettings } = require('./analyst-lib/analyst-reports');
@@ -189,13 +189,28 @@ exports.handler = async (event) => {
 
     // ── Case Status Update ───────────────────────────────────────────────
     if (action === 'case-update') {
-      const { caseId, status } = payload;
+      const { caseId, status, reason } = payload;
       if (!caseId || !status) return respond(400, { error: 'Missing caseId or status' });
       const valid = ['New', 'In Review', 'Accepted', 'In Progress', 'Done'];
       if (!valid.includes(status)) return respond(400, { error: `Invalid status. Must be: ${valid.join(', ')}` });
-      const updated = await updateCaseStatus(caseId, status, userId);
+      const updated = await updateCaseStatus(caseId, status, userId, reason);
       if (!updated) return respond(404, { error: 'Case not found' });
       return respond(200, { case: updated });
+    }
+
+    // ── Decision Log ─────────────────────────────────────────────────────
+    if (action === 'decision-log') {
+      const { days } = payload;
+      const entries = await loadDecisionLog({ days: days || 30 });
+      const accepted = entries.filter(e => ['Accepted', 'In Progress', 'Done'].includes(e.decision));
+      const byAnomaly = {};
+      const byDistrict = {};
+      entries.forEach(e => {
+        byAnomaly[e.anomalyType] = (byAnomaly[e.anomalyType] || 0) + 1;
+        if (e.district) byDistrict[e.district] = (byDistrict[e.district] || 0) + 1;
+      });
+      const totalOpportunity = accepted.reduce((s, e) => s + (e.dollarOpportunity || 0), 0);
+      return respond(200, { entries, count: entries.length, acceptedCount: accepted.length, totalOpportunity, byAnomaly, byDistrict });
     }
 
     // ── Feedback (thumbs up/down) ────────────────────────────────────────

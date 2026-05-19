@@ -67,10 +67,21 @@ function buildBriefPrompt(role, date, dataSnapshot) {
     .replace('{data}', JSON.stringify(dataSnapshot, null, 2));
 }
 
-/** Build the business case prompt */
-function buildCasePrompt(anomalyDescription, dataContext) {
+/** Build the business case prompt, optionally injecting recent decision history */
+function buildCasePrompt(anomalyDescription, dataContext, decisionHistory) {
+  let decisionSection = '';
+  if (decisionHistory && decisionHistory.length > 0) {
+    const recent = decisionHistory.slice(0, 20);
+    const accepted = recent.filter(d => ['Accepted', 'In Progress', 'Done'].includes(d.decision));
+    const lines = accepted.map(d =>
+      `- ${d.decision}: "${d.title}" (${d.anomalyType}, District ${d.district}, $${Math.round(d.dollarOpportunity || 0).toLocaleString()} opp)${d.reason ? ` — Reason: ${d.reason}` : ''}`
+    ).join('\n');
+    if (lines) {
+      decisionSection = `\n\nRecent decisions by this team (use to calibrate confidence and dollar thresholds):\n${lines}`;
+    }
+  }
   return BUSINESS_CASE_TEMPLATE
-    .replace('{anomalyDescription}', anomalyDescription)
+    .replace('{anomalyDescription}', anomalyDescription + decisionSection)
     .replace('{data}', JSON.stringify(dataContext, null, 2));
 }
 

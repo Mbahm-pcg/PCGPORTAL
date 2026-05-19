@@ -1,7 +1,45 @@
 // analyst-cases.js — Business Case CRUD (stored in Netlify Blobs)
-const { cacheSave, cacheLoad } = require('./analyst-cache');
+const { cacheSave, cacheLoad, cacheList } = require('./analyst-cache');
 const { generateStructured } = require('./analyst-claude');
 const { PERSONA, buildCasePrompt } = require('./analyst-prompts');
+
+const DECISION_STATUSES = new Set(['Accepted', 'In Progress', 'Done']);
+
+/** Log a decision entry when a case moves to a meaningful status */
+async function logDecision(caseData, newStatus, userId, reason) {
+  const today = new Date().toISOString().slice(0, 10);
+  const rand = Math.random().toString(36).slice(2, 7);
+  const key = `analyst/decision-log/${today}/${Date.now()}_${rand}`;
+  await cacheSave(key, {
+    ts: new Date().toISOString(),
+    caseId: caseData.id,
+    title: caseData.title,
+    summary: caseData.summary,
+    anomalyType: caseData.anomalyType,
+    severity: caseData.severity,
+    district: caseData.district,
+    storeName: caseData.storeName || null,
+    dollarOpportunity: caseData.dollarOpportunity || 0,
+    decision: newStatus,
+    reason: reason || null,
+    decidedBy: userId || null,
+  });
+}
+
+/** Load decision log entries for a date range (defaults to last 30 days) */
+async function loadDecisionLog({ days = 30 } = {}) {
+  const dates = Array.from({ length: days }, (_, i) =>
+    new Date(Date.now() - i * 86400000).toISOString().slice(0, 10)
+  );
+  const perDay = await Promise.all(
+    dates.map(async d => {
+      const keys = await cacheList(`analyst/decision-log/${d}/`);
+      const items = await Promise.all(keys.map(k => cacheLoad(k)));
+      return items.filter(Boolean);
+    })
+  );
+  return perDay.flat().sort((a, b) => (b.ts > a.ts ? 1 : -1));
+}
 
 const CASES_INDEX_KEY = 'analyst/cases-index';
 
@@ -37,10 +75,15 @@ async function saveCase(id, caseData) {
  */
 async function createCaseFromAnomaly(anomaly, dataContext) {
   const id = caseId();
+
+  // Load recent decisions to inject as RL context into the prompt
+  let recentDecisions = [];
+  try { recentDecisions = await loadDecisionLog({ days: 14 }); } catch {}
+
   const prompt = buildCasePrompt(anomaly.description, {
     anomaly,
     dataContext: typeof dataContext === 'string' ? dataContext : JSON.stringify(dataContext),
-  });
+  }, recentDecisions);
 
   let caseBody;
   try {
@@ -124,17 +167,22 @@ async function createCaseFromAnomaly(anomaly, dataContext) {
 }
 
 /**
- * Update a case's status.
+ * Update a case's status. Optionally logs a decision with a reason.
  */
-async function updateCaseStatus(id, newStatus, userId) {
+async function updateCaseStatus(id, newStatus, userId, reason) {
   const c = await loadCase(id);
   if (!c) return null;
 
   c.status = newStatus;
   c.updatedAt = new Date().toISOString();
-  c.statusHistory.push({ status: newStatus, at: c.updatedAt, by: userId });
+  c.statusHistory.push({ status: newStatus, at: c.updatedAt, by: userId, reason: reason || null });
 
   await saveCase(id, c);
+
+  // Log decision for RL feedback when case moves to a meaningful status
+  if (DECISION_STATUSES.has(newStatus)) {
+    logDecision(c, newStatus, userId, reason).catch(() => {});
+  }
 
   // Update index
   const index = await loadCasesIndex();
@@ -159,4 +207,4 @@ async function getCases({ status, district, severity, limit } = {}) {
   return index;
 }
 
-module.exports = { createCaseFromAnomaly, updateCaseStatus, getCases, loadCase, loadCasesIndex };
+module.exports = { createCaseFromAnomaly, updateCaseStatus, getCases, loadCase, loadCasesIndex, loadDecisionLog };
