@@ -11275,6 +11275,120 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       {user?.userType === 'it' && (
         <LeaderboardPreviewSection th={th} user={user} showAlert={showAlert} />
       )}
+
+      {/* KB Management — IT only */}
+      {user?.userType === 'it' && (
+        <KBManagementSection th={th} showAlert={showAlert} />
+      )}
+    </div>
+  );
+}
+
+// ── KB Management Section (IT admin only) ─────────────────────────────────
+function KBManagementSection({ th, showAlert }) {
+  const [open, setOpen] = React.useState(false);
+  const [index, setIndex] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [syncing, setSyncing] = React.useState(false);
+
+  async function loadIndex() {
+    setLoading(true);
+    try {
+      const d = await cloudLoad('analyst/kb/index');
+      setIndex(d);
+    } catch { setIndex(null); }
+    setLoading(false);
+  }
+
+  React.useEffect(() => { if (open && !index) loadIndex(); }, [open]);
+
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      const r = await fetch('/.netlify/functions/kb-sync', { method: 'POST' });
+      const text = await r.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch {}
+      if (r.ok && json?.ok) {
+        if (json.total === 0) {
+          showAlert('error', `No files found in Drive folder. Check folder sharing permissions.`);
+        } else {
+          showAlert('success', `KB synced — ${json.synced} of ${json.total} Drive file(s) imported`);
+          await loadIndex();
+        }
+      } else {
+        showAlert('error', 'Sync failed: ' + (json?.error || text?.slice(0, 120) || 'unknown'));
+      }
+    } catch (e) { showAlert('error', e.message); }
+    setSyncing(false);
+  }
+
+  const mimeIcon = mime => {
+    if (mime?.includes('document')) return '📝';
+    if (mime?.includes('spreadsheet')) return '📊';
+    if (mime?.includes('presentation')) return '📋';
+    if (mime?.includes('pdf')) return '📄';
+    return '📃';
+  };
+
+  return (
+    <div style={{ marginTop: '1.25rem' }}>
+      <div onClick={() => setOpen(o => !o)} style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0.85rem 1.1rem', background: th.card, border: `1px solid ${th.cardBorder}`,
+        borderRadius: open ? '0.75rem 0.75rem 0 0' : '0.75rem', cursor: 'pointer',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <span style={{ fontSize: '1.1rem' }}>🧠</span>
+          <span style={{ fontWeight: 700, fontSize: '0.9rem', color: th.text }}>Orion Knowledge Base</span>
+          {index && <span style={{ fontSize: '0.65rem', color: th.muted }}>{index.fileCount} file(s) · synced {new Date(index.syncedAt).toLocaleString()}</span>}
+        </div>
+        <span style={{ color: th.muted, fontSize: '0.8rem' }}>{open ? '▲ Hide' : '▼ Show'}</span>
+      </div>
+
+      {open && (
+        <div style={{ border: `1px solid ${th.cardBorder}`, borderTop: 'none', borderRadius: '0 0 0.75rem 0.75rem', padding: '1rem 1.1rem', background: th.card }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '0.75rem', color: th.muted, flex: 1 }}>
+              📁 <strong style={{ color: th.text }}>PCG - KB</strong> (Google Drive) — files are synced weekly on Monday 6 AM ET
+            </div>
+            <button onClick={loadIndex} disabled={loading} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem' })}>
+              {loading ? 'Loading…' : 'Refresh'}
+            </button>
+            <button onClick={syncNow} disabled={syncing} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem', background: '#6366f1' })}>
+              {syncing ? 'Syncing…' : 'Sync Now'}
+            </button>
+          </div>
+
+          {loading && <div style={{ color: th.muted, fontSize: '0.8rem' }}>Loading…</div>}
+          {!loading && !index && (
+            <div style={{ color: th.muted, fontSize: '0.8rem' }}>No KB data yet. Click "Sync Now" to import files from Google Drive.</div>
+          )}
+
+          {!loading && index?.files && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              {index.files.map(f => (
+                <div key={f.fileId} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '0.45rem 0.75rem', background: th.card2, borderRadius: '0.45rem',
+                  border: `1px solid ${th.cardBorder}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.9rem' }}>{mimeIcon(f.mimeType)}</span>
+                    <span style={{ fontSize: '0.78rem', color: f.status === 'synced' ? th.text : th.muted, fontWeight: f.status === 'synced' ? 600 : 400 }}>{f.name}</span>
+                    {f.status !== 'synced' && <span style={{ fontSize: '0.65rem', color: '#f87171' }}>({f.reason || 'skipped'})</span>}
+                  </div>
+                  {f.charCount > 0 && (
+                    <span style={{ fontSize: '0.65rem', color: th.muted, whiteSpace: 'nowrap' }}>
+                      {f.charCount.toLocaleString()} chars
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -20842,7 +20956,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.18
+            v8.3
           </div>
         )}
         {/* Collapse toggle — desktop only */}

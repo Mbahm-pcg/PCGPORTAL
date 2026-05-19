@@ -8,6 +8,7 @@ const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { getCases, loadCase, updateCaseStatus, loadDecisionLog } = require('./analyst-lib/analyst-cases');
 const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
 const { logFeedback, logAccessEvent, loadAccessEntries } = require('./analyst-lib/analyst-audit');
+const { loadKBContent, buildKBContext } = require('./analyst-lib/analyst-kb');
 const { loadReportSettings } = require('./analyst-lib/analyst-reports');
 
 const headers = {
@@ -55,7 +56,10 @@ exports.handler = async (event) => {
       const scope = district ? `District ${district}` : 'Network';
       const dataContext = await buildDataContext({ district: district || null, includeStoreDetail: true });
 
-      const prompt = buildAskPrompt(question, userRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext);
+      const [kbFiles] = await Promise.all([loadKBContent({ district: district || null, userId, userRole })]);
+      const kbContext = buildKBContext(kbFiles);
+
+      const prompt = buildAskPrompt(question, userRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext);
 
       // Load conversation history from blob if channelId provided and no inline history
       let chatHistory = history || null;

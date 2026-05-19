@@ -4,7 +4,9 @@
     "@netlify/blobs": "^10.7.2",
     "@netlify/database": "^1.0.0",
     "drizzle-orm": "^1.0.0-beta.22",
+    "googleapis": "^144.0.0",
     "minimalistic-assert": "^1.0.1",
+    "pdf-parse": "^1.1.1",
     "sharp": "^0.34.5",
     "web-push": "^3.6.7"
   },

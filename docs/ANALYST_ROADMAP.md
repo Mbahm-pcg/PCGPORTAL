@@ -27,8 +27,8 @@
 ## Phase 3 — Data Stories + Scheduled Reports
 - [ ] Auto-generated interactive dashboards (save/share)
 - [ ] Slide deck generation (reveal.js or PPTX, board-ready)
-- [ ] Scheduled reports: daily 7am DMO, weekly Monday exec, monthly P&L
-- [ ] Delivery: email, in-app inbox, Chat/Announcements
+- [x] Scheduled reports: daily 7am DMO, weekly exec (Sun + Tue) — monthly P&L pending
+- [x] Delivery: email (Resend) — in-app inbox + Chat delivery pending
 - [x] One-click "Send to Announcements" and "Send to a Location Manager"
 - [x] PDF export for business cases and reports
 
@@ -50,12 +50,12 @@
 - [x] Theme tokens for multi-brand white-labeling
 - [ ] Franchisee portal mode (single-location operators, locked-down data)
 - [x] MCP server: expose UOP as MCP endpoint for Claude Desktop / Claude Code
-- [ ] Notion, Google Drive, SharePoint, GitHub sync for KB
+- [x] Notion, Google Drive, SharePoint, GitHub sync for KB
 
 ## Level-Up Ideas (Beyond Orion)
 - [ ] Voice-first "Walk-the-floor" mode for GMs (speak → 30-second action list)
 - [x] Location leaderboards + gamification (weekly rankings with auto shout-outs)
 - [x] "Decision log" — Accept/Reject on cases becomes reinforcement learning data
-- [ ] "Ask the archive" — index all past Announcements, Notes, Chat into KB
+- [x] "Ask the archive" — index all past Announcements, Notes, Chat into KB
 - [ ] Compliance/audit: auto-generate monthly board-ready deck + food-safety readiness report
 - [ ] Mobile/PWA-first Analyst experience

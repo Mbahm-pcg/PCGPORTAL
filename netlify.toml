@@ -25,6 +25,10 @@
 [functions.reports-backup]
   schedule = "59 4 * * *"
 
+# KB sync — Monday 6:00 AM ET (Monday 10:00 UTC) — weekly Google Drive sync
+[functions.kb-sync-background]
+  schedule = "0 10 * * 1"
+
 # Leaderboard research — Saturday 11:58 PM ET (Sunday 3:58 AM UTC) — captures full Sun–Sat week
 [functions.leaderboard-cron]
   schedule = "58 3 * * 0"
