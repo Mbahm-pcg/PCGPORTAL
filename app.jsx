@@ -10515,8 +10515,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [logOpen, setLogOpen] = useState(false);
   const [pushSubs, setPushSubs] = useState(null);
   const [notifyInfoOpen, setNotifyInfoOpen] = useState(false);
-  const [globalNotifyOpen, setGlobalNotifyOpen] = useState(true);
-  const [ticketNotifyOpen, setTicketNotifyOpen] = useState(true);
+  const [globalNotifyOpen, setGlobalNotifyOpen] = useState(false);
+  const [ticketNotifyOpen, setTicketNotifyOpen] = useState(false);
 
   // ── Orion Report Settings ──────────────────────────────────────────
   const [reportSettings, setReportSettings] = useState(null);
@@ -10634,7 +10634,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Global Project Notifications</span>
             <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({globalNotifyEmails.length})</span>
           </div>
-          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{globalNotifyOpen ? "▲" : "▼"}</span>
+          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{globalNotifyOpen ? "▲ Hide" : "▼ Show"}</span>
         </div>
         {globalNotifyOpen && <>
           <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
@@ -10673,7 +10673,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Ticket Notifications</span>
             <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(ticketNotifyEmails || []).length})</span>
           </div>
-          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{ticketNotifyOpen ? "▲" : "▼"}</span>
+          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{ticketNotifyOpen ? "▲ Hide" : "▼ Show"}</span>
         </div>
         {ticketNotifyOpen && <>
           <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
@@ -11270,6 +11270,119 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       <div style={{ marginTop: "1.25rem" }}>
         <AuditLogSection th={th} user={user} users={users || []} />
       </div>
+
+      {/* Leaderboard Preview — IT only */}
+      {user?.userType === 'it' && (
+        <LeaderboardPreviewSection th={th} user={user} showAlert={showAlert} />
+      )}
+    </div>
+  );
+}
+
+// ── Leaderboard Preview Section (IT admin only) ───────────────────────────
+function LeaderboardPreviewSection({ th, user, showAlert }) {
+  const [open, setOpen] = React.useState(false);
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [running, setRunning] = React.useState(false);
+  const [posting, setPosting] = React.useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const d = await cloudLoad('pcg_leaderboard_latest');
+      setData(d);
+    } catch { setData(null); }
+    setLoading(false);
+  }
+
+  React.useEffect(() => { if (open && !data) load(); }, [open]);
+
+  async function safeFetch(url) {
+    const r = await fetch(url, { method: 'POST' });
+    const text = await r.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch {}
+    return { ok: r.ok, status: r.status, json, text };
+  }
+
+  async function runNow() {
+    setRunning(true);
+    try {
+      const { ok, json, text } = await safeFetch('/.netlify/functions/leaderboard-cron-manual');
+      if (ok && json?.weekOf) { showAlert('success', `Rankings computed for week of ${json.weekOf}`); await load(); }
+      else showAlert('error', 'leaderboard-cron failed: ' + (json?.body || text?.slice(0, 120) || 'unknown'));
+    } catch (e) { showAlert('error', e.message); }
+    setRunning(false);
+  }
+
+  async function postNow() {
+    setPosting(true);
+    try {
+      const { ok, json, text } = await safeFetch('/.netlify/functions/leaderboard-announce-manual');
+      if (ok && json?.weekOf) showAlert('success', `Posted ${json.count} announcements for week of ${json.weekOf}`);
+      else showAlert('error', 'announce-cron failed: ' + (json?.body || text?.slice(0, 120) || 'unknown'));
+    } catch (e) { showAlert('error', e.message); }
+    setPosting(false);
+  }
+
+  const fmtSales = n => '$' + Math.round(n || 0).toLocaleString('en-US');
+  const rankEmoji = r => r === 1 ? '🥇' : r === 2 ? '🥈' : '🥉';
+
+  return (
+    <div style={{ marginTop: '1.25rem' }}>
+      <div onClick={() => setOpen(o => !o)} style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0.85rem 1.1rem', background: th.card, border: `1px solid ${th.cardBorder}`,
+        borderRadius: open ? '0.75rem 0.75rem 0 0' : '0.75rem', cursor: 'pointer',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <span style={{ fontSize: '1.1rem' }}>🏆</span>
+          <span style={{ fontWeight: 700, fontSize: '0.9rem', color: th.text }}>Leaderboard Preview</span>
+          {data && <span style={{ fontSize: '0.65rem', color: th.muted }}>Week of {data.weekLabel} · computed {new Date(data.computedAt).toLocaleString()}</span>}
+        </div>
+        <span style={{ color: th.muted, fontSize: '0.8rem' }}>{open ? '▲' : '▼'}</span>
+      </div>
+
+      {open && (
+        <div style={{ border: `1px solid ${th.cardBorder}`, borderTop: 'none', borderRadius: '0 0 0.75rem 0.75rem', padding: '1rem 1.1rem', background: th.card }}>
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <button onClick={load} disabled={loading} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem' })}>
+              {loading ? 'Loading…' : 'Refresh Data'}
+            </button>
+            <button onClick={runNow} disabled={running} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem', background: '#f59e0b' })}>
+              {running ? 'Running…' : 'Run Research Now'}
+            </button>
+            <button onClick={postNow} disabled={posting} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem', background: '#22c55e' })}>
+              {posting ? 'Posting…' : 'Post Announcements Now'}
+            </button>
+          </div>
+
+          {loading && <div style={{ color: th.muted, fontSize: '0.8rem' }}>Loading…</div>}
+          {!loading && !data && <div style={{ color: th.muted, fontSize: '0.8rem' }}>No leaderboard data yet. Click "Run Research Now" to generate.</div>}
+
+          {!loading && data?.districts && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' }}>
+              {Object.entries(data.districts).sort(([a], [b]) => Number(a) - Number(b)).map(([dist, stores]) => (
+                <div key={dist} style={{ background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: '0.6rem', padding: '0.75rem' }}>
+                  <div style={{ fontWeight: 800, fontSize: '0.75rem', color: '#f59e0b', marginBottom: '0.5rem', letterSpacing: 0.5 }}>
+                    DISTRICT {dist}
+                  </div>
+                  {stores.map(s => (
+                    <div key={s.pc} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.3rem 0', borderBottom: `1px solid ${th.cardBorder}` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span style={{ fontSize: '0.9rem' }}>{rankEmoji(s.rank)}</span>
+                        <span style={{ fontSize: '0.78rem', color: th.text, fontWeight: 600 }}>{s.name}</span>
+                      </div>
+                      <span style={{ fontSize: '0.78rem', color: '#22c55e', fontWeight: 700 }}>{fmtSales(s.wtdSales)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -11572,7 +11685,15 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
   const [newMsg, setNewMsg] = useState("");
 
   const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
-  const sorted = [...announcements].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const myDist = user?.district ? Number(user.district) : null;
+  const visibleAnnouncements = canManage ? announcements : announcements.filter(a => {
+    if (!a.targets) return true;
+    const { roles, districts } = a.targets;
+    if (roles?.includes(user?.userType)) return true;
+    if (myDist && districts?.includes(myDist)) return true;
+    return false;
+  });
+  const sorted = [...visibleAnnouncements].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   const postAnnouncement = () => {
     if (!newTitle.trim() || !newMsg.trim()) { showAlert("error", "Title and message required"); return; }
@@ -11593,7 +11714,7 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
   const toggleActive = (id) => setAnnouncements(prev => prev.map(a => a.id === id ? { ...a, active: !a.active } : a));
   const remove = (id) => { setAnnouncements(prev => prev.filter(a => a.id !== id)); showAlert("success", "Announcement removed"); };
 
-  const activeCount = announcements.filter(a => a.active).length;
+  const activeCount = visibleAnnouncements.filter(a => a.active).length;
 
   return (
     <div className="fade-in">
@@ -12679,6 +12800,8 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [orderTypes, setOrderTypes] = useState([]);
   const [lwDaySales, setLwDaySales] = useState(null);
   const [activeAnnouncements, setActiveAnnouncements] = useState([]);
+  const [leaderboardBanners, setLeaderboardBanners] = useState([]);
+  const [dismissedLbIds, setDismissedLbIds] = useState({});
   const [carouselPage, setCarouselPage] = useState(0);
   const touchStartX = useRef(null);
   const carouselInnerRef = useRef(null);
@@ -12776,9 +12899,18 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       // Save store blob for day-cycling
       setStoreBlob(storeBlobData);
 
-      // Active announcements
+      // Active announcements — separate leaderboard from regular, filter by targets
       const allAnnounce = Array.isArray(announceBlob) ? announceBlob : [];
-      setActiveAnnouncements(allAnnounce.filter(a => a.active).slice(0, 3));
+      const myStoreDist = Number(store?.district || 0);
+      const isTargeted = (a) => {
+        if (!a.targets) return true;
+        const { roles, districts } = a.targets;
+        if (roles?.includes('manager')) return true;
+        if (myStoreDist && districts?.includes(myStoreDist)) return true;
+        return false;
+      };
+      setLeaderboardBanners(allAnnounce.filter(a => a.active && a.type === 'leaderboard' && isTargeted(a)));
+      setActiveAnnouncements(allAnnounce.filter(a => a.active && a.type !== 'leaderboard' && isTargeted(a)).slice(0, 3));
 
       const empList = storeBlobData?.daily?.[0]?.employees || [];
       if (empList.length > 0) {
@@ -12943,6 +13075,19 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
             </div>
           </div>
         )}
+
+        {leaderboardBanners.filter(a => !dismissedLbIds[a.id]).map(a => (
+          <div key={a.id} style={{ background: dark ? "#f59e0b14" : "#fffdf0", border: `1px solid ${dark ? "#f59e0b55" : "#fcd34d"}`, borderLeft: "3px solid #f59e0b", borderRadius: 10, padding: "0.62rem 0.8rem" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.45rem" }}>
+              <span style={{ fontSize: "1rem", lineHeight: 1.2, flexShrink: 0 }}>🏆</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: dark ? "#f59e0b" : "#92400e", fontSize: "0.64rem", fontWeight: 900, letterSpacing: 0.3, marginBottom: "0.18rem" }}>Weekly Leaderboard</div>
+                <div style={{ color: dark ? "#fcd34d" : "#b45309", fontSize: "0.62rem", lineHeight: 1.5, whiteSpace: "pre-line" }}>{a.message}</div>
+              </div>
+              <button onClick={() => setDismissedLbIds(p => ({ ...p, [a.id]: true }))} style={{ background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "0.9rem", padding: "0 0.1rem", lineHeight: 1, flexShrink: 0 }}>✕</button>
+            </div>
+          </div>
+        ))}
 
         <Card style={{ padding: "1rem", borderColor: `${O}55`, background: `linear-gradient(160deg, ${O}18 0%, ${th.card} 46%, ${th.card2} 100%)` }}>
           <Label right={<Chip color={isLive ? (loading ? "#f59e0b" : "#22c55e") : "#64748b"}>{isLive ? (loading ? "Syncing" : "Live") : "History"}</Chip>}>{isLive ? "Today's Sales" : (dayOffset === 1 ? "Yesterday's Sales" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))}</Label>
@@ -14571,7 +14716,7 @@ function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
 }
 
 // ── Dashboard Component ─────────────────────────────────────────────────────
-function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert }) {
+function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert }) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = (user?.name || "").split(" ")[0];
@@ -14681,7 +14826,30 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
   });
   const activeProjects = (projects || []).filter(p => !p.completed);
   const myStores = isDM ? (stores || []).filter(s => s.district === user?.district) : stores || [];
-  const unreadAnnouncements = (announcements || []).filter(a => a.active && !announcementsDismissed?.[`${user?.id}_${a.id}`]);
+  const userDistrict = user?.district ? Number(user.district) : null;
+  const userStoreDistrict = user?.storePC
+    ? Number((stores || []).find(s => String(s.pc) === String(user.storePC))?.district || 0)
+    : null;
+
+  function announcementIsTargetedToMe(a) {
+    if (!a.targets) return true;
+    const { roles, districts } = a.targets;
+    if (roles?.includes(user?.userType)) return true;
+    const myDist = userDistrict || userStoreDistrict;
+    if (myDist && districts?.includes(myDist)) return true;
+    return false;
+  }
+
+  const leaderboardAnnouncements = (announcements || []).filter(a =>
+    a.active && a.type === 'leaderboard' &&
+    !announcementsDismissed?.[`${user?.id}_${a.id}`] &&
+    announcementIsTargetedToMe(a)
+  );
+  const unreadAnnouncements = (announcements || []).filter(a =>
+    a.active && a.type !== 'leaderboard' &&
+    !announcementsDismissed?.[`${user?.id}_${a.id}`] &&
+    announcementIsTargetedToMe(a)
+  );
 
   // KPI cards based on role
   const kpis = [];
@@ -14875,6 +15043,33 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
           )}
         </div>
       </div>
+
+      {/* Leaderboard Announcements — trophy banner, directly dismissible */}
+      {leaderboardAnnouncements.map(a => (
+        <div key={a.id} style={{
+          position: "relative", overflow: "hidden",
+          background: `linear-gradient(135deg, #f59e0b18 0%, ${th.card} 65%)`,
+          border: `1px solid #f59e0b44`,
+          borderRadius: "0.875rem",
+          padding: isMobile ? "0.875rem 1rem" : "1rem 1.25rem",
+          marginBottom: "1rem",
+          boxShadow: `0 2px 12px #f59e0b18`,
+        }}>
+          <div aria-hidden="true" style={{ position: "absolute", top: -30, left: -20, width: 120, height: 120, borderRadius: "50%", background: "radial-gradient(circle, #f59e0b22 0%, transparent 70%)", pointerEvents: "none", filter: "blur(8px)" }} />
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "0.875rem" }}>
+            <div style={{ width: 38, height: 38, borderRadius: "0.6rem", background: "#f59e0b22", border: "1px solid #f59e0b44", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "1.25rem" }}>🏆</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "#f59e0b", textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.2rem" }}>Weekly Leaderboard</div>
+              <div style={{ fontSize: "0.9rem", fontWeight: 700, color: th.text, marginBottom: "0.35rem" }}>{a.title}</div>
+              <div style={{ fontSize: "0.78rem", color: th.muted, whiteSpace: "pre-line", lineHeight: 1.6 }}>{a.message}</div>
+            </div>
+            <button onClick={() => {
+              const key = `${user?.id}_${a.id}`;
+              setAnnouncementsDismissed(prev => ({ ...prev, [key]: true }));
+            }} style={{ background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "1.1rem", padding: "0.1rem 0.25rem", flexShrink: 0, lineHeight: 1 }} title="Dismiss">✕</button>
+          </div>
+        </div>
+      ))}
 
       {/* Unread Announcements — shown at top so they're never missed */}
       {unreadAnnouncements.length > 0 && (
@@ -20524,7 +20719,15 @@ function PCGPortal() {
           let badge = null;
           if (t.id === "chat" && chatUnreadCount > 0) badge = chatUnreadCount;
           if (t.id === "announcements") {
-            const unread = announcements.filter(a => a.active && !announcementsDismissed[`${user.id}_${a.id}`]).length;
+            const myDist = user.district ? Number(user.district) : null;
+            const unread = announcements.filter(a => {
+              if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
+              if (!a.targets) return true;
+              const { roles, districts } = a.targets;
+              if (roles?.includes(user.userType)) return true;
+              if (myDist && districts?.includes(myDist)) return true;
+              return false;
+            }).length;
             if (unread > 0) badge = unread;
           }
           return (
@@ -20639,7 +20842,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.0
+            v8.18
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -20987,7 +21190,7 @@ function PCGPortal() {
         )}
 
         <div className="main-content-padding" style={{ padding: "3vw 5vw" }}>
-          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} />}
+          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} />}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}

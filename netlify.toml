@@ -10,6 +10,10 @@
 [functions.labor-cron]
   schedule = "0 11,16,21 * * *"
 
+# Saturday 11:45 PM ET labor warmup (Sunday 03:45 UTC) — fresh Sun–Sat WTD before leaderboard runs
+[functions.labor-cron-warmup]
+  schedule = "45 3 * * 0"
+
 # Scheduled Analyst — 7am, 10am, 12:15pm, 5:15pm ET (11, 14, 16:15, 21:15 UTC)
 # 11 UTC (7am ET) = DM briefs + anomalies daily
 # 14 UTC (10am ET) = exec reports on Sun/Tue, anomalies other days
@@ -20,6 +24,14 @@
 # Daily reports backup — 11:59 PM ET (4:59 AM UTC). Keeps 7 days of rolling backups.
 [functions.reports-backup]
   schedule = "59 4 * * *"
+
+# Leaderboard research — Saturday 11:58 PM ET (Sunday 3:58 AM UTC) — captures full Sun–Sat week
+[functions.leaderboard-cron]
+  schedule = "58 3 * * 0"
+
+# Leaderboard announcements — Monday 12:00 AM ET (Monday 4:00 AM UTC)
+[functions.leaderboard-announce-cron]
+  schedule = "0 4 * * 1"
 
 [[headers]]
   for = "/*"

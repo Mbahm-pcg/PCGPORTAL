@@ -54,7 +54,7 @@
 
 ## Level-Up Ideas (Beyond Orion)
 - [ ] Voice-first "Walk-the-floor" mode for GMs (speak → 30-second action list)
-- [ ] Location leaderboards + gamification (weekly rankings with auto shout-outs)
+- [x] Location leaderboards + gamification (weekly rankings with auto shout-outs)
 - [x] "Decision log" — Accept/Reject on cases becomes reinforcement learning data
 - [ ] "Ask the archive" — index all past Announcements, Notes, Chat into KB
 - [ ] Compliance/audit: auto-generate monthly board-ready deck + food-safety readiness report
