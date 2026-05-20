@@ -111,7 +111,7 @@ const USERS_SEED = [
   // ── IT Team ─────────────────────────────────────────────────────────────────
   { id:2,  username:"it.admin",           password:"Hr0#8AtQ!f", name:"IT Admin",               role:"IT Administrator",  initials:"IT", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false },
   { id:3,  username:"hr.admin",           password:"!19uPAs@iV", name:"HR Admin",               role:"HR / IT Staff",     initials:"HR", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false },
-  { id:92, username:"ahmed@peoplecapitalgroup.com", password:"", name:"Ahmed Bhuiyan",          role:"IT Administrator",  initials:"AB", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false, region:"All", email:"ahmed@peoplecapitalgroup.com", phone:"", twoFactorRequired:true },
+  { id:92, username:"ahmed@peoplecapitalgroup.com", password:"", name:"Ahmed Bhuiyan",          role:"IT Administrator",  initials:"AB", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false, region:"All", email:"ahmed@peoplecapitalgroup.com", phone:"" },
   // ── Office Staff ────────────────────────────────────────────────────────────
   { id:4,  username:"office.staff",       password:"w@!O7Z5vJq", name:"Office Staff",           role:"Office Staff",      initials:"OS", isAdmin:false, userType:"office_staff", district:null, active:true,  darkMode:false },
   // ── District Managers ───────────────────────────────────────────────────────
@@ -199,24 +199,7 @@ const INIT_LINKS = {
   ]
 };
 
-const BRAND_CONFIG = {
-  name: 'People Capital Group',
-  shortName: 'PCG',
-  portalName: 'PCG Company Portal',
-  portalUrl: 'https://pcg-ops.netlify.app',
-  primary: '#FF671F',
-  primaryDark: '#cc4f12',
-  googleDomain: '@peoplecapitalgroup.com',
-};
-const O = BRAND_CONFIG.primary, Od = BRAND_CONFIG.primaryDark, W = "#fff";
-
-// Fire-and-forget audit event from the client (PDF exports, sync, backup, errors)
-function logClientEvent(userId, userRole, event, meta) {
-  fetch('/.netlify/functions/analyst', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'log-event', userId, userRole, event, meta }),
-  }).catch(() => {});
-}
+const O = "#FF671F", Od = "#cc4f12", W = "#fff";
 
 // Theme definitions
 const DARK = {
@@ -420,120 +403,6 @@ function getOverallCompletion(project) {
 }
 const canEditProjects = (u) => u && (u.userType === "executive" || u.userType === "it" || u.userType === "office_staff" || u.userType === "construction");
 const canViewProjects = (u) => u && u.userType !== "manager";
-const ADMIN_2FA_TYPES = [];
-const isAdminTwoFactorLocked = (u) => !!u && ADMIN_2FA_TYPES.includes(u.userType);
-const isTwoFactorRequired = (u) => !!u && (isAdminTwoFactorLocked(u) || u.twoFactorRequired === true);
-const TRUSTED_DEVICE_TOKEN_PREFIX = "pcg_device_token_v2_";
-const TRUSTED_2FA_MS = 7 * 24 * 60 * 60 * 1000;
-const TOTP_BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-
-function createTotpSecret(length = 20) {
-  const bytes = new Uint8Array(length);
-  if (window.crypto?.getRandomValues) {
-    window.crypto.getRandomValues(bytes);
-  } else {
-    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
-  }
-  let bits = "";
-  bytes.forEach(b => { bits += b.toString(2).padStart(8, "0"); });
-  let secret = "";
-  for (let i = 0; i < bits.length; i += 5) {
-    secret += TOTP_BASE32_ALPHABET[parseInt(bits.slice(i, i + 5).padEnd(5, "0"), 2)];
-  }
-  return secret;
-}
-
-function base32ToBytes(secret) {
-  const clean = String(secret || "").replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
-  let bits = "";
-  for (const char of clean) {
-    const value = TOTP_BASE32_ALPHABET.indexOf(char);
-    if (value >= 0) bits += value.toString(2).padStart(5, "0");
-  }
-  const bytes = [];
-  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(parseInt(bits.slice(i, i + 8), 2));
-  return new Uint8Array(bytes);
-}
-
-async function hotp(secret, counter) {
-  if (!window.crypto?.subtle) throw new Error("Secure browser crypto is required for 2FA.");
-  const key = await window.crypto.subtle.importKey("raw", base32ToBytes(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
-  const counterBytes = new ArrayBuffer(8);
-  new DataView(counterBytes).setUint32(4, counter, false);
-  const hmac = new Uint8Array(await window.crypto.subtle.sign("HMAC", key, counterBytes));
-  const offset = hmac[hmac.length - 1] & 0xf;
-  const binary = ((hmac[offset] & 0x7f) << 24) | ((hmac[offset + 1] & 0xff) << 16) | ((hmac[offset + 2] & 0xff) << 8) | (hmac[offset + 3] & 0xff);
-  return String(binary % 1000000).padStart(6, "0");
-}
-
-async function verifyTotp(secret, token, windowSteps = 1) {
-  const cleanToken = String(token || "").replace(/\s+/g, "");
-  if (!/^\d{6}$/.test(cleanToken) || !secret) return false;
-  const counter = Math.floor(Date.now() / 30000);
-  for (let offset = -windowSteps; offset <= windowSteps; offset++) {
-    if (await hotp(secret, counter + offset) === cleanToken) return true;
-  }
-  return false;
-}
-
-function getTotpUri(user, secret) {
-  const issuer = BRAND_CONFIG.portalName;
-  const account = user?.email || user?.username || "user";
-  return `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`;
-}
-
-function getTotpQrUrl(user, secret) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&data=${encodeURIComponent(getTotpUri(user, secret))}`;
-}
-
-function getTrustedDeviceStorageKey(user) {
-  return TRUSTED_DEVICE_TOKEN_PREFIX + String(user?.id ?? user?.username ?? "unknown");
-}
-
-function generateDeviceToken() {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, c => ({ "+": "-", "/": "_", "=": "" }[c]));
-}
-
-async function isTwoFactorDeviceTrusted(user) {
-  if (!user?.twoFactorSecret) return false;
-  const token = localStorage.getItem(getTrustedDeviceStorageKey(user));
-  if (!token) return false;
-  try {
-    const userId = String(user?.id ?? user?.username ?? "unknown");
-    const res = await fetch("/.netlify/functions/trusted-devices", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "check", userId, token }),
-    });
-    const json = await res.json();
-    return json.trusted === true;
-  } catch {
-    return false;
-  }
-}
-
-async function trustTwoFactorDevice(user) {
-  const userId = String(user?.id ?? user?.username ?? "unknown");
-  const token = generateDeviceToken();
-  const expiresAt = Date.now() + TRUSTED_2FA_MS;
-  try {
-    const res = await fetch("/.netlify/functions/trusted-devices", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "trust", userId, token, expiresAt }),
-    });
-    if ((await res.json()).ok) {
-      localStorage.setItem(getTrustedDeviceStorageKey(user), token);
-    }
-  } catch {
-    // non-fatal — user just gets prompted for 2FA again next time
-  }
-}
-
-const shouldPromptTwoFactor = async (u) => isTwoFactorRequired(u) && !(await isTwoFactorDeviceTrusted(u));
-
 const normalizePersonName = (v) => (v || "").toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 const isManagersStore = (store, user) => {
   const managerName = normalizePersonName(store?.mgr);
@@ -542,14 +411,6 @@ const isManagersStore = (store, user) => {
     .map(normalizePersonName)
     .filter(Boolean)
     .includes(managerName);
-};
-const getManagerStore = (stores, user) => {
-  if (!stores || !user || user.userType !== "manager") return null;
-  if (user.storePC) {
-    const store = stores.find(s => String(s.pc) === String(user.storePC));
-    if (store) return store;
-  }
-  return stores.find(s => isManagersStore(s, user)) || null;
 };
 const isDistrictManagersStore = (store, user) => {
   if (user?.userType !== "dm") return false;
@@ -609,12 +470,6 @@ function spawnTransitionFX(cx, cy, newDark) {
 function Login({ onLogin, dark, toggleDark, users }) {
   const th = getTheme(dark);
   const [form, setForm] = useState({ u: "", p: "" });
-  const [authStage, setAuthStage] = useState("password");
-  const [pendingUser, setPendingUser] = useState(null);
-  const [twoFactorCode, setTwoFactorCode] = useState("");
-  const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState("");
-  const [twoFactorSetupReady, setTwoFactorSetupReady] = useState(false);
-  const [trustDevice, setTrustDevice] = useState(false);
   const [err, setErr] = useState("");
   const [show, setShow] = useState(false);
   const [logoAnim, setLogoAnim] = useState(false);
@@ -674,16 +529,25 @@ function Login({ onLogin, dark, toggleDark, users }) {
     }
   }, [dark, toggleDark]);
 
-  const beginTwoFactor = useCallback((found) => {
-    setPendingUser(found);
-    setTwoFactorSetupSecret(found.twoFactorSecret ? "" : createTotpSecret());
-    setTwoFactorSetupReady(false);
-    setTrustDevice(false);
-    setTwoFactorCode("");
-    setAuthStage("2fa");
-    setLoading(false);
-    setErr("");
-  }, []);
+  const submit = () => {
+    if (loading) return;
+    console.log("[DEBUG] Login attempt:", form.u, form.p);
+    console.log("[DEBUG] Users in state:", users.map(u => ({ id: u.id, username: u.username, hasPassword: !!u.password })));
+    const found = users.find(u => u.username === form.u && u.password === form.p && u.active !== false);
+    if (found) {
+      setLoading(true);
+      // Brief spinner, then trigger exit animation, then hand off to dashboard
+      setTimeout(() => {
+        setLoading(false);
+        setExiting(true);
+        setTimeout(() => onLogin(found), 700);
+      }, 400);
+    } else {
+      setErr("Invalid credentials. Try again.");
+      setShake(true);
+      setTimeout(() => setShake(false), 520);
+    }
+  };
 
   const finishLogin = useCallback((found) => {
     setLoading(true);
@@ -694,58 +558,6 @@ function Login({ onLogin, dark, toggleDark, users }) {
       setTimeout(() => onLogin(found), 700);
     }, 400);
   }, [onLogin]);
-
-  const verifyTwoFactorAndLogin = async () => {
-    if (loading || !pendingUser) return;
-    const secret = pendingUser.twoFactorSecret || twoFactorSetupSecret;
-    setLoading(true);
-    try {
-      const ok = await verifyTotp(secret, twoFactorCode);
-      if (!ok) {
-        setErr("Invalid 2FA code. Check Google Authenticator and try again.");
-        setShake(true);
-        setLoading(false);
-        setTimeout(() => setShake(false), 520);
-        return;
-      }
-      const updates = pendingUser.twoFactorSecret ? {} : {
-        twoFactorSecret: secret,
-        twoFactorEnabled: true,
-        twoFactorRequired: true,
-      };
-      const verifiedUser = { ...pendingUser, ...updates };
-      if (trustDevice) await trustTwoFactorDevice(verifiedUser);
-      finishLogin(verifiedUser);
-    } catch (e) {
-      setErr(e.message || "Could not verify 2FA code.");
-      setLoading(false);
-    }
-  };
-
-  const submit = async () => {
-    if (loading) return;
-    if (authStage === "2fa") {
-      if (twoFactorSetupSecret && !twoFactorSetupReady) {
-        setTwoFactorSetupReady(true);
-        setErr("");
-        return;
-      }
-      await verifyTwoFactorAndLogin();
-      return;
-    }
-    const found = users.find(u => u.username === form.u && u.password === form.p && u.active !== false);
-    if (found) {
-      if (await shouldPromptTwoFactor(found)) {
-        beginTwoFactor(found);
-      } else {
-        finishLogin(found);
-      }
-    } else {
-      setErr("Invalid credentials. Try again.");
-      setShake(true);
-      setTimeout(() => setShake(false), 520);
-    }
-  };
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
@@ -767,22 +579,21 @@ function Login({ onLogin, dark, toggleDark, users }) {
             const profile = await res.json();
             const email = (profile.email || "").trim().toLowerCase();
             if (!profile.email_verified) { setErr("Google account email is not verified."); return; }
-            const allowedGoogleDomain = GOOGLE_ALLOWED_DOMAINS.some(d => email.endsWith("@" + d.toLowerCase()));
-            if (!allowedGoogleDomain) { setErr(`Use your ${BRAND_CONFIG.name} or RGI Google account.`); return; }
+            const allowedGoogleDomain = GOOGLE_ALLOWED_DOMAINS.some(d => email.endsWith("@" + d));
+            if (!allowedGoogleDomain) { setErr("Use your People Capital Group or RGI Google account."); return; }
             const found = users.find(u => {
               const userEmail = (u.email || "").trim().toLowerCase();
               const username = (u.username || "").trim().toLowerCase();
               return u.active !== false && (userEmail === email || username === email);
             });
             if (!found) { setErr("Google login worked, but this email is not active in the portal users list."); return; }
-            if (await shouldPromptTwoFactor(found)) beginTwoFactor(found);
-            else finishLogin(found);
+            finishLogin(found);
           } catch (e) { setErr(e.message || "Google sign-in failed."); }
         }
       });
     };
     init();
-  }, [beginTwoFactor, finishLogin, users]);
+  }, [finishLogin, users]);
 
   const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -943,7 +754,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
             <img
               ref={logoRef}
               src={LOGOS[th.logoSeal]}
-              alt={BRAND_CONFIG.name}
+              alt="People Capital Group"
               className={logoAnim ? "logo-transitioning" : ""}
               style={{
                 width: logoSize, height: logoSize,
@@ -1072,8 +883,6 @@ function Login({ onLogin, dark, toggleDark, users }) {
             </div>
 
             {/* Username — floating label */}
-            {authStage === "password" ? (
-              <>
             <div className="login-input-wrap" style={{ position: "relative", marginBottom: "1.1rem" }}>
               <input
                 id="login-user"
@@ -1170,110 +979,6 @@ function Login({ onLogin, dark, toggleDark, users }) {
                 {show ? "Hide" : "Show"}
               </button>
             </div>
-              </>
-            ) : (
-              <>
-                <div style={{
-                  background: dark ? "rgba(255, 103, 31, 0.12)" : "rgba(255, 103, 31, 0.08)",
-                  border: "1px solid rgba(255, 103, 31, 0.35)",
-                  borderRadius: "0.75rem",
-                  padding: "0.85rem 0.95rem",
-                  marginBottom: "1rem",
-                  color: palette.text,
-                  fontSize: "0.8rem",
-                  lineHeight: 1.45,
-                }}>
-                  <div style={{ fontWeight: 800, marginBottom: "0.25rem", color: "#FF671F" }}>
-                    {twoFactorSetupSecret && !twoFactorSetupReady ? "Set up Google Authenticator" : "Two-factor verification"}
-                  </div>
-                  {twoFactorSetupSecret && !twoFactorSetupReady ? (
-                    <>
-                      <div style={{ color: palette.textDim, marginBottom: "0.55rem" }}>
-                        Scan this QR code in Google Authenticator, or enter the setup key manually.
-                      </div>
-                      <div style={{ display:"flex", justifyContent:"center", margin:"0.75rem 0" }}>
-                        <img
-                          src={getTotpQrUrl(pendingUser, twoFactorSetupSecret)}
-                          alt="Google Authenticator setup QR code"
-                          style={{ width:180, height:180, borderRadius:"0.75rem", background:"#fff", padding:8, border:`1px solid ${palette.inputBorder}` }}
-                        />
-                      </div>
-                      <div style={{ fontSize:"0.68rem", fontWeight:800, color:palette.textGhost, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.35rem" }}>
-                        Setup key
-                      </div>
-                      <div style={{ fontFamily: "monospace", fontSize: "0.9rem", fontWeight: 800, color: palette.text, wordBreak: "break-all", padding: "0.55rem", borderRadius: "0.5rem", background: palette.inputBg, border: `1px solid ${palette.inputBorder}` }}>
-                        {twoFactorSetupSecret}
-                      </div>
-                    </>
-                  ) : (
-                    <div style={{ color: palette.textDim }}>
-                      Enter the 6-digit code from Google Authenticator for {pendingUser?.name || pendingUser?.username}.
-                    </div>
-                  )}
-                </div>
-                {(!twoFactorSetupSecret || twoFactorSetupReady) && (
-                <>
-                <div className="login-input-wrap" style={{ position: "relative", marginBottom: "1.1rem" }}>
-                  <input
-                    id="login-2fa"
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    placeholder=" "
-                    value={twoFactorCode}
-                    onChange={e => { setTwoFactorCode(e.target.value.replace(/\D/g, "").slice(0, 6)); if (err) setErr(""); }}
-                    onFocus={() => setFocusField("2fa")}
-                    onBlur={() => setFocusField(null)}
-                    onKeyDown={e => e.key === "Enter" && submit()}
-                    autoComplete="one-time-code"
-                    style={{
-                      width: "100%",
-                      padding: "1.1rem 1rem 0.55rem",
-                      background: palette.inputBg,
-                      border: `1px solid ${focusField === "2fa" ? "#FF671F" : palette.inputBorder}`,
-                      borderRadius: "0.625rem",
-                      color: palette.text,
-                      fontSize: "20px",
-                      fontFamily: "'Source Sans 3'",
-                      fontWeight: 800,
-                      letterSpacing: 4,
-                      outline: "none",
-                      transition: "border-color .2s, background .2s, box-shadow .2s",
-                      boxShadow: focusField === "2fa" ? "0 0 0 3px rgba(255, 103, 31, 0.18)" : "none",
-                      WebkitAppearance: "none",
-                    }}
-                  />
-                  <label htmlFor="login-2fa" style={{
-                    position: "absolute", left: 16, top: 17,
-                    fontSize: "0.9rem", color: palette.inputLabel, fontWeight: 500,
-                    pointerEvents: "none",
-                    transformOrigin: "left top",
-                    transition: "transform .2s ease, color .2s ease, letter-spacing .2s ease",
-                  }}>
-                    Authenticator Code
-                  </label>
-                </div>
-                <label style={{ display:"flex", alignItems:"center", gap:"0.55rem", cursor:"pointer", fontSize:"0.78rem", color:palette.textDim, margin:"-0.35rem 0 1rem", userSelect:"none" }}>
-                  <input
-                    type="checkbox"
-                    checked={trustDevice}
-                    onChange={e => setTrustDevice(e.target.checked)}
-                    style={{ accentColor:"#FF671F", width:15, height:15 }}
-                  />
-                  Trust this device for 7 days
-                </label>
-                </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => { setAuthStage("password"); setPendingUser(null); setTwoFactorSetupSecret(""); setTwoFactorSetupReady(false); setTwoFactorCode(""); setTrustDevice(false); setErr(""); }}
-                  style={{ background: "none", border: "none", color: palette.textGhost, cursor: "pointer", fontSize: "0.75rem", marginBottom: "1rem", padding: 0, fontFamily: "'Source Sans 3'" }}
-                >
-                  Use a different account
-                </button>
-              </>
-            )}
 
             {/* Error */}
             {err && (
@@ -1324,16 +1029,14 @@ function Login({ onLogin, dark, toggleDark, users }) {
               {loading ? (
                 <>
                   <span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid #ffffff66", borderTopColor: "#fff", borderRadius: "50%", animation: "loginMeshShift 0.8s linear infinite" }} />
-                  {authStage === "2fa" ? "Verifying..." : "Signing In..."}
+                  Signing In…
                 </>
               ) : (
-                <>{authStage === "2fa" ? (twoFactorSetupSecret && !twoFactorSetupReady ? "I added it" : "Verify Code") : "Sign In"} <span style={{ fontSize: "1rem" }}>→</span></>
+                <>Sign In <span style={{ fontSize: "1rem" }}>→</span></>
               )}
             </button>
 
             {/* Google Workspace sign-in */}
-            {authStage === "password" && (
-            <>
             <div style={{
               display: "flex", alignItems: "center", gap: "0.75rem",
               margin: "1.25rem 0 1.1rem",
@@ -1374,11 +1077,9 @@ function Login({ onLogin, dark, toggleDark, users }) {
                       <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                     </svg>
                     Sign in with Google
-                </div>
+                  </div>
               )}
             </div>
-            </>
-            )}
 
             {/* Footer */}
             <div style={{
@@ -1397,7 +1098,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
                 <span style={{ color: palette.textGhost }}> Contact IT to activate your account</span>
               </button>
               <div style={{ marginTop: "0.5rem", fontSize: "0.62rem", opacity: 0.7, color: palette.textGhost }}>
-                © {new Date().getFullYear()} {BRAND_CONFIG.name} · All rights reserved
+                © {new Date().getFullYear()} People Capital Group · All rights reserved
               </div>
             </div>
 
@@ -1430,7 +1131,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
                     }}>🛡️</div>
                     <div>
                       <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.1rem", color: palette.text, letterSpacing: -0.3 }}>IT Support</div>
-                      <div style={{ fontSize: "0.7rem", color: palette.textFaint, marginTop: "0.1rem" }}>{BRAND_CONFIG.name}</div>
+                      <div style={{ fontSize: "0.7rem", color: palette.textFaint, marginTop: "0.1rem" }}>People Capital Group</div>
                     </div>
                     <button onClick={() => setShowItModal(false)} style={{
                       marginLeft: "auto", background: "none", border: "none", cursor: "pointer",
@@ -2749,47 +2450,25 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const [view, setView] = useState('list'); // 'list' | 'edit'
   const [editId, setEditId] = useState(null);
   const [showPw, setShowPw]   = useState(false);
-  const [form, setForm] = useState({ username:"", password:"", name:"", role:"Manager", initials:"", isAdmin:false, region:"PA", active:true, email:"", phone:"", twoFactorRequired:false });
+  const [form, setForm] = useState({ username:"", password:"", name:"", role:"Manager", initials:"", isAdmin:false, region:"PA", active:true, email:"", phone:"" });
   const [search, setSearch] = useState("");
   const [welcomeSent, setWelcomeSent] = useState(null);
   const [saveFlash, setSaveFlash] = useState(false);
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const savedScrollY = React.useRef(0);
 
   const nextId = () => Math.max(0, ...users.map(u => u.id)) + 1;
   const initials = (name) => name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0,2);
 
   const [emailAction, setEmailAction] = useState(null); // { userId, type, status }
-  const [revokeAction, setRevokeAction] = useState(null); // { userId, status }
-
-  const revokeTrustedDevices = async (u) => {
-    setRevokeAction({ userId: u.id, status: "revoking" });
-    try {
-      const userId = String(u.id ?? u.username ?? "unknown");
-      const res = await fetch("/.netlify/functions/trusted-devices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "revoke", userId }),
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error("Revoke failed");
-      setRevokeAction({ userId: u.id, status: "ok" });
-      showAlert("success", `Trusted devices revoked for ${u.name}. They will need to re-verify 2FA on next login.`);
-    } catch {
-      setRevokeAction({ userId: u.id, status: "fail" });
-      showAlert("error", "Failed to revoke trusted devices");
-    }
-    setTimeout(() => setRevokeAction(null), 3000);
-  };
 
   const sendWelcomeEmail = async (newUser) => {
     if (!newUser.email) return;
-    const subject = `Welcome to the ${BRAND_CONFIG.portalName}!`;
+    const subject = "Welcome to the PCG Company Portal!";
     const htmlBody = `
       <h2 style="color:#333;margin-bottom:8px;">Welcome, ${newUser.name}! 👋</h2>
-      <p style="color:#555;font-size:15px;">Your account has been created on the <strong>${BRAND_CONFIG.portalName}</strong>.</p>
+      <p style="color:#555;font-size:15px;">Your account has been created on the <strong>PCG Company Portal</strong>.</p>
       <div style="background:#f8f8f8;border-radius:8px;padding:16px 20px;margin:16px 0;">
-        <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="${BRAND_CONFIG.portalUrl}/" style="color:${BRAND_CONFIG.primary};">${BRAND_CONFIG.portalUrl}/</a></p>
+        <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="https://pcg-ops.netlify.app/" style="color:#FF671F;">https://pcg-ops.netlify.app/</a></p>
         <p style="margin:4px 0;font-size:14px;"><strong>Username:</strong> ${newUser.username}</p>
         <p style="margin:4px 0;font-size:14px;"><strong>Password:</strong> ${newUser.password}</p>
       </div>
@@ -2826,12 +2505,12 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const sendPasswordReset = async (u) => {
     if (!u.email) { showAlert("error", "No email on file for " + u.name); return; }
     setEmailAction({ userId: u.id, type: "reset", status: "sending" });
-    const subject = `${BRAND_CONFIG.portalName} — Your Password Has Been Reset`;
+    const subject = "PCG Portal — Your Password Has Been Reset";
     const htmlBody = `
       <h2 style="color:#333;margin-bottom:8px;">Password Reset</h2>
-      <p style="color:#555;font-size:15px;">Hi ${u.name}, your password for the <strong>${BRAND_CONFIG.portalName}</strong> has been reset by an administrator.</p>
+      <p style="color:#555;font-size:15px;">Hi ${u.name}, your password for the <strong>PCG Company Portal</strong> has been reset by an administrator.</p>
       <div style="background:#f8f8f8;border-radius:8px;padding:16px 20px;margin:16px 0;">
-        <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="${BRAND_CONFIG.portalUrl}/" style="color:${BRAND_CONFIG.primary};">${BRAND_CONFIG.portalUrl}/</a></p>
+        <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="https://pcg-ops.netlify.app/" style="color:#FF671F;">https://pcg-ops.netlify.app/</a></p>
         <p style="margin:4px 0;font-size:14px;"><strong>Username:</strong> ${u.username}</p>
         <p style="margin:4px 0;font-size:14px;"><strong>New Password:</strong> ${u.password}</p>
       </div>
@@ -2852,7 +2531,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const openEditPage = (u = null) => {
     savedScrollY.current = window.scrollY;
     setEditId(u ? u.id : null);
-    setForm(u ? { ...u } : { username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
+    setForm(u ? { ...u } : { username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"" });
     setView('edit');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -2865,46 +2544,24 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const save = () => {
     if (!form.username || !form.name) return;
     const ini = form.initials || initials(form.name);
-    const securedForm = { ...form, twoFactorRequired: isTwoFactorRequired(form) };
     if (editId) {
-      const old = users.find(u => u.id === editId) || {};
-      setUsers(us => us.map(u => u.id === editId ? { ...u, ...securedForm, initials: ini } : u));
-      // Log general edit
-      logClientEvent(currentUser?.id, currentUser?.userType, 'user_edited', { targetName: form.name, targetId: editId, targetRole: form.userType });
-      // Log specific sensitive field changes
-      if (form.password && form.password !== old.password)
-        logClientEvent(currentUser?.id, currentUser?.userType, 'user_password_changed', { targetName: form.name, targetId: editId });
-      if (form.username !== old.username)
-        logClientEvent(currentUser?.id, currentUser?.userType, 'user_username_changed', { targetName: form.name, targetId: editId, from: old.username, to: form.username });
-      if ((form.email || '') !== (old.email || ''))
-        logClientEvent(currentUser?.id, currentUser?.userType, 'user_email_changed', { targetName: form.name, targetId: editId, from: old.email || '', to: form.email || '' });
-      if (securedForm.twoFactorRequired !== old.twoFactorRequired)
-        logClientEvent(currentUser?.id, currentUser?.userType, securedForm.twoFactorRequired ? 'user_2fa_enabled' : 'user_2fa_disabled', { targetName: form.name, targetId: editId });
-      if (form.userType !== old.userType)
-        logClientEvent(currentUser?.id, currentUser?.userType, 'user_role_changed', { targetName: form.name, targetId: editId, from: old.userType, to: form.userType });
+      setUsers(us => us.map(u => u.id === editId ? { ...u, ...form, initials: ini } : u));
     } else {
-      const newUser = { ...securedForm, id: nextId(), initials: ini, mustSetup: true };
+      const newUser = { ...form, id: nextId(), initials: ini, mustSetup: true };
       setUsers(us => [...us, newUser]);
       sendWelcomeEmail(newUser);
-      logClientEvent(currentUser?.id, currentUser?.userType, 'user_created', { targetName: form.name, targetRole: form.userType });
     }
-    setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
+    setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"" });
     setSaveFlash(true);
     setTimeout(() => { setSaveFlash(false); closeEditPage(); }, 450);
   };
 
   const startEdit = (u) => openEditPage(u);
-  const toggleActive = (id) => {
-    const target = users.find(u => u.id === id);
-    const newActive = !target?.active;
-    setUsers(us => us.map(u => u.id === id ? { ...u, active: newActive } : u));
-    logClientEvent(currentUser?.id, currentUser?.userType, newActive ? 'user_activated' : 'user_deactivated', { targetName: target?.name, targetRole: target?.userType });
-  };
+  const toggleActive = (id) => setUsers(us => us.map(u => u.id === id ? { ...u, active: !u.active } : u));
   const del = (id) => {
     const target = users.find(u => u.id === id);
     if (!canManageUser(currentUser, target)) return;
     setUsers(us => us.filter(u => u.id !== id));
-    logClientEvent(currentUser?.id, currentUser?.userType, 'user_deleted', { targetName: target?.name, targetRole: target?.userType });
   };
 
   const filtered = users.filter(u => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
@@ -2930,10 +2587,6 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
     .sort((a,b) => (b.active===false ? 1 : 0) - (a.active===false ? 1 : 0));
 
   const rc = roleColor(form.userType || "manager");
-  const AHMED_EMAIL = "ahmed@peoplecapitalgroup.com";
-  const isAhmed = (u) => u?.id === 92 || (u?.email || "").toLowerCase() === AHMED_EMAIL || (u?.username || "").toLowerCase() === AHMED_EMAIL;
-  const formTwoFactorLocked = isAdminTwoFactorLocked(form) || isAhmed(form) || !isAhmed(currentUser);
-  const formTwoFactorLockedReason = isAhmed(form) ? "Your 2FA cannot be disabled" : !isAhmed(currentUser) ? "Only the IT admin can manage 2FA settings" : "Executive and IT users always require 2FA";
 
   // ── Edit page view (blurred users list as background) ─────────────────────
   if (view === 'edit') {
@@ -3010,9 +2663,14 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
                   <select style={inp(th)} value={form.userType||"manager"} onChange={e=>setForm(f=>({...f,userType:e.target.value}))}>
                     {USERTYPE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
                   </select>
-                  <input style={inp(th)} placeholder="Job title (e.g. Store Manager)" value={form.role||""} onChange={e=>setForm(f=>({...f,role:e.target.value}))} />
-                  <label title={formTwoFactorLocked ? formTwoFactorLockedReason : "Require this user to use an authenticator code at login"} style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:formTwoFactorLocked?"not-allowed":"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem", gridColumn:"1 / -1", opacity:formTwoFactorLocked?0.82:1 }}>
-                    <input type="checkbox" checked={formTwoFactorLocked && isAhmed(form) ? true : !!form.twoFactorRequired} disabled={formTwoFactorLocked} onChange={e=>setForm(f=>({...f,twoFactorRequired:e.target.checked}))} style={{ accentColor:"#FF671F", width:15, height:15 }} /> Require 2FA{formTwoFactorLocked ? ` (${isAhmed(form) ? "always on" : "IT admin only"})` : ""}
+                  <select style={inp(th)} value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+                    {ROLE_OPTIONS.map(r=><option key={r}>{r}</option>)}
+                  </select>
+                  <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
+                    <input type="checkbox" checked={form.isAdmin} onChange={e=>setForm(f=>({...f,isAdmin:e.target.checked}))} style={{ accentColor:rc, width:15, height:15 }} /> Admin Access
+                  </label>
+                  <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem" }}>
+                    <input type="checkbox" checked={!!form.darkMode} onChange={e=>setForm(f=>({...f,darkMode:e.target.checked}))} style={{ accentColor:"#888", width:15, height:15 }} /> Dark Mode
                   </label>
                 </div>
                 {/* Contact section */}
@@ -3110,54 +2768,34 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
                   <span>{u.darkMode ? "🌙 Dark" : "☀️ Light"} · {u.region||"PA"}</span>
                   <span>{u.lastLogin ? new Date(u.lastLogin).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "Never logged in"}</span>
                 </div>
-                {isTwoFactorRequired(u) && (
-                  <div style={{ fontSize:"0.68rem", color:"#FF671F", fontWeight:800, marginTop:"0.15rem" }}>
-                    2FA required{u.twoFactorSecret ? " and set up" : " - setup pending"}
-                  </div>
-                )}
               </div>
 
               {/* Card actions */}
               <div style={{ padding:"0.625rem 1rem", borderTop:`1px solid ${th.cardBorder}`, display:"flex", gap:"0.4rem", flexWrap:"wrap", background:th.card2 }}>
                 {canManageUser(currentUser, u) && (
-                  <button onClick={() => startEdit(u)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", flex:1 }) }}>✏️ Edit</button>
+                  <button onClick={() => startEdit(u)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", flex:1 }) }}>Edit</button>
                 )}
                 {canManageUser(currentUser, u) && (
                   <button onClick={() => toggleActive(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>
-                    {isInactive ? "✅ Enable" : "⏸ Disable"}
+                    {isInactive ? "Enable" : "Disable"}
                   </button>
                 )}
                 {isFullAdmin(currentUser) && (
                   <button onClick={() => sendPasswordReset(u)} disabled={!u.email || (emailAction?.userId===u.id && emailAction?.status==="sending")}
-                    title={u.email ? "Send password reset email" : "No email on file"}
+                    title={u.email ? "Reset password" : "No email on file"}
                     style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#3b82f618", color:"#3b82f6", opacity:u.email?1:0.35 }) }}>
-                    {emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"✅ Sent":"❌ Failed") : "🔑 Reset PW"}
+                    {emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="sending"?"⏳":emailAction.status==="ok"?"✅":"❌") : "🔑"}
                   </button>
                 )}
                 {isFullAdmin(currentUser) && !u.lastLogin && (
                   <button onClick={() => resendWelcome(u)} disabled={!u.email || (emailAction?.userId===u.id && emailAction?.status==="sending")}
                     title={u.email ? "Resend welcome email" : "No email on file"}
                     style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#10b98118", color:"#10b981", opacity:u.email?1:0.35 }) }}>
-                    {emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"✅ Sent":"❌ Failed") : "📧 Welcome"}
-                  </button>
-                )}
-                {isFullAdmin(currentUser) && isTwoFactorRequired(u) && (
-                  <button
-                    onClick={() => revokeTrustedDevices(u)}
-                    disabled={revokeAction?.userId === u.id && revokeAction?.status === "revoking"}
-                    title="Revoke trusted devices — forces 2FA re-verification on next login"
-                    style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#f9731618", color:"#f97316", opacity: revokeAction?.userId === u.id && revokeAction?.status === "revoking" ? 0.5 : 1 }) }}>
-                    {revokeAction?.userId === u.id ? (revokeAction.status === "revoking" ? "Revoking…" : revokeAction.status === "ok" ? "✅ Revoked" : "❌ Failed") : "🔐 Revoke 2FA"}
+                    {emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"⏳":emailAction.status==="ok"?"✅":"❌") : "📧"}
                   </button>
                 )}
                 {isFullAdmin(currentUser) && (
-                  confirmDeleteId === u.id
-                    ? <div style={{ display:"flex", gap:"0.3rem", alignItems:"center" }}>
-                        <span style={{ fontSize:"0.7rem", color:"#ef4444", fontWeight:600 }}>Delete?</span>
-                        <button onClick={() => { del(u.id); setConfirmDeleteId(null); }} style={{ ...btn(th, { padding:"0.3rem 0.6rem", fontSize:"0.72rem", background:"#ef4444", color:"#fff", border:"none" }) }}>Yes</button>
-                        <button onClick={() => setConfirmDeleteId(null)} style={{ ...btn(th, { padding:"0.3rem 0.6rem", fontSize:"0.72rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>No</button>
-                      </div>
-                    : <button onClick={() => setConfirmDeleteId(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#ef444418", color:"#ef4444" }) }}>🗑 Delete</button>
+                  <button onClick={() => del(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#ef444418", color:"#ef4444" }) }}>✕</button>
                 )}
               </div>
             </div>
@@ -5301,56 +4939,24 @@ async function cloudDelete(key) {
 }
 
 // ─── Per-report cloud helpers ─────────────────────────────────────
-// Reports are stored as TWO blobs per report to stay well under the 6 MB
-// Netlify Lambda request-body limit:
-//   pcg_dr_{id}        — report metadata + workLog text (no photo data)
-//   pcg_dr_{id}_photos — photo arrays keyed by workLog index
-// An index blob (pcg_daily_reports_index_v1) holds lightweight metadata
-// so we can list reports without downloading any of them.
-// On load the two blobs are recombined transparently — the UI sees a normal
-// report object with photos exactly as before.
-const DR_KEY_PREFIX   = 'pcg_dr_';
-const DR_PHOTOS_SUFFIX = '_photos';
-const DR_INDEX_KEY    = 'pcg_daily_reports_index_v1';
-const drKey       = (id) => `${DR_KEY_PREFIX}${id}`;
-const drPhotosKey = (id) => `${DR_KEY_PREFIX}${id}${DR_PHOTOS_SUFFIX}`;
+// Daily reports are stored as ONE BLOB PER REPORT to stay under the ~6 MB
+// Netlify Lambda payload limit. An index blob holds lightweight metadata
+// so we can list reports without downloading every one.
+const DR_KEY_PREFIX = 'pcg_dr_';
+const DR_INDEX_KEY  = 'pcg_daily_reports_index_v1';
+const drKey = (id) => `${DR_KEY_PREFIX}${id}`;
 
 async function cloudSaveReport(report) {
   if (!report || report.id == null) return false;
-  // Split: strip photo data out of the report, save separately
-  const photoMap = {};
-  const slimReport = {
-    ...report,
-    workLogs: (report.workLogs || []).map((w, i) => {
-      if (w.photos && w.photos.length > 0) photoMap[i] = w.photos;
-      return { ...w, photos: [] };
-    }),
-  };
-  const [reportOk, photosOk] = await Promise.all([
-    cloudSave(drKey(report.id), slimReport),
-    cloudSave(drPhotosKey(report.id), photoMap),
-  ]);
-  return reportOk && photosOk;
+  return cloudSave(drKey(report.id), report);
 }
 async function cloudLoadReport(id) {
   if (id == null) return null;
-  const [report, photoMap] = await Promise.all([
-    cloudLoad(drKey(id)),
-    cloudLoad(drPhotosKey(id)),
-  ]);
-  if (!report) return null;
-  // Recombine photos back into workLogs
-  if (photoMap && typeof photoMap === 'object') {
-    report.workLogs = (report.workLogs || []).map((w, i) => ({
-      ...w,
-      photos: photoMap[i] || w.photos || [],
-    }));
-  }
-  return report;
+  return cloudLoad(drKey(id));
 }
 async function cloudDeleteReport(id) {
   if (id == null) return;
-  await Promise.all([cloudDelete(drKey(id)), cloudDelete(drPhotosKey(id))]);
+  return cloudDelete(drKey(id));
 }
 function makeDailyReportIndexEntry(r) {
   return {
@@ -5384,15 +4990,13 @@ function stripDailyReportPhotos(r) {
 
 const SITE_URL = typeof window !== 'undefined' ? window.location.origin : 'https://pcgops.com';
 const projectEmailLink = (id, label) =>
-  `<div style="margin-top:16px"><a href="${SITE_URL}/?project=${id}" style="display:inline-block;padding:10px 24px;background:${BRAND_CONFIG.primary};color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">View Project: ${label}</a></div>`;
+  `<div style="margin-top:16px"><a href="${SITE_URL}/?project=${id}" style="display:inline-block;padding:10px 24px;background:#FF671F;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">View Project: ${label}</a></div>`;
 
-async function sendNotifyEmail(to, subject, htmlBody, attachments) {
-  const payload = { to: Array.isArray(to) ? to : [to], subject, body: htmlBody };
-  if (attachments && attachments.length > 0) payload.attachments = attachments;
+async function sendNotifyEmail(to, subject, htmlBody) {
   const res = await fetch('/.netlify/functions/notify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ to: Array.isArray(to) ? to : [to], subject, body: htmlBody }),
   });
   if (!res.ok) {
     const err = await res.text().catch(() => 'Unknown error');
@@ -8602,44 +8206,6 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
   const [pdfImporting, setPdfImporting] = useState(false);
   const [forceSyncState, setForceSyncState] = useState('idle'); // 'idle' | 'syncing' | 'success' | 'error'
   const [forceSyncMsg, setForceSyncMsg] = useState('');
-  const [backupState, setBackupState] = useState('idle'); // 'idle' | 'running' | 'done' | 'error'
-  const [lastBackupTime, setLastBackupTime] = useState(null);
-
-  // On mount, check today's backup blob for a savedAt timestamp
-  useEffect(() => {
-    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    cloudLoad(`pcg_daily_reports_backup_${date}`).then(data => {
-      if (data?.[0] || Array.isArray(data)) {
-        // blob exists — pull savedAt from the raw wrapper via a direct fetch
-        fetch('/.netlify/functions/storage', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'load', key: `pcg_daily_reports_backup_${date}` }),
-        }).then(r => r.ok ? r.json() : null).then(j => {
-          if (j?.savedAt) setLastBackupTime(new Date(j.savedAt));
-        }).catch(() => {});
-      }
-    }).catch(() => {});
-  }, []);
-
-  const backupAllReports = async () => {
-    if (backupState === 'running') return;
-    setBackupState('running');
-    try {
-      // Trigger server-side backup — reads blobs directly, bypasses the 6MB Lambda limit
-      const res = await fetch('/.netlify/functions/reports-backup', { method: 'POST' });
-      const j = res.ok ? await res.json() : null;
-      const ok = res.ok && j?.ok;
-      if (ok && j?.savedAt) setLastBackupTime(new Date(j.savedAt));
-      setBackupState(ok ? 'done' : 'error');
-      showAlert && showAlert(ok ? 'success' : 'error', ok ? `Backup saved (${j.backed} reports)` : 'Backup failed. Check your connection.');
-      logClientEvent(user?.id, user?.userType, ok ? 'backup' : 'backup_error', { backed: j?.backed, savedAt: j?.savedAt, error: ok ? null : 'Backup failed' });
-    } catch (e) {
-      setBackupState('error');
-      showAlert && showAlert('error', 'Backup failed unexpectedly.');
-      logClientEvent(user?.id, user?.userType, 'backup_error', { error: e?.message || 'Unexpected error' });
-    }
-    setTimeout(() => setBackupState('idle'), 4000);
-  };
 
   // Re-upload EVERY local report to the cloud, plus refresh the index and
   // the legacy backup blob. Use this when a report shows up on one device
@@ -8652,11 +8218,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     let ok = 0, fail = 0;
     for (const r of toSync) {
       try {
-        // Local state has photos stripped after a page load. Hydrate from cloud
-        // first so we re-upload the real photos, not empty placeholders.
-        const localHasStripped = (r.workLogs || []).some(w => (w.photos || []).some(p => p._photoStripped));
-        const full = localHasStripped ? (await cloudLoadReport(r.id) || r) : r;
-        const result = await cloudSaveReport(full);
+        const result = await cloudSaveReport(r);
         if (result) ok++; else fail++;
       } catch { fail++; }
     }
@@ -8674,12 +8236,10 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       setForceSyncState('success');
       setForceSyncMsg(`Synced ${ok} report${ok !== 1 ? 's' : ''} to cloud.`);
       showAlert && showAlert('success', `Synced ${ok} daily report${ok !== 1 ? 's' : ''} to cloud.`);
-      logClientEvent(user?.id, user?.userType, 'force_sync', { synced: ok, failed: 0, store: project.pc });
     } else {
       setForceSyncState('error');
       setForceSyncMsg(`${ok} synced, ${fail} failed.`);
       showAlert && showAlert('error', `Sync partial: ${ok} succeeded, ${fail} failed. Check your connection and try again.`);
-      logClientEvent(user?.id, user?.userType, 'force_sync_error', { synced: ok, failed: fail, store: project.pc, error: `${fail} report(s) failed` });
     }
     setTimeout(() => setForceSyncState('idle'), 3500);
   };
@@ -8789,8 +8349,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     const pageW = 8.5, pageH = 11;
     const margin = 0.5;
     const contentW = pageW - margin * 2; // 7.5"
-    const _hex = BRAND_CONFIG.primary.replace('#', '');
-    const brandOrange = [parseInt(_hex.slice(0,2),16), parseInt(_hex.slice(2,4),16), parseInt(_hex.slice(4,6),16)];
+    const brandOrange = [255, 103, 31]; // #FF671F
     const textDark = [17, 17, 17];
     const textMuted = [102, 102, 102];
     const textFaint = [153, 153, 153];
@@ -9237,7 +8796,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     for (let p = 1; p <= total; p++) {
       doc.setPage(p);
       setText(textFaint); doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
-      const footL = `Generated ${new Date().toLocaleDateString('en-US')} — ${BRAND_CONFIG.portalName}`;
+      const footL = `Generated ${new Date().toLocaleDateString('en-US')} — PCG Portal`;
       const footR = `Page ${p} of ${total}`;
       doc.text(footL, margin, pageH - 0.3);
       const fw = doc.getTextWidth(footR);
@@ -9250,8 +8809,8 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       doc.setProperties({
         title: `Daily Report - ${project.nickname || project.pc} - ${report.date}`,
         subject: 'Daily Construction Report',
-        author: report.preparedBy || BRAND_CONFIG.portalName,
-        creator: BRAND_CONFIG.portalName,
+        author: report.preparedBy || 'PCG Portal',
+        creator: 'PCG Portal',
         keywords: 'PCG_REPORT:' + encodeURIComponent(JSON.stringify(stripped)),
       });
     } catch {}
@@ -9269,12 +8828,10 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       setPdfLoading(false);
       if (download) {
         doc.save(filename);
-        logClientEvent(user?.id, user?.userType, 'pdf_download', { filename, reportDate: reportData.date, store: project.pc });
         return null;
       }
       return doc.output('blob');
     } catch(e) {
-      logClientEvent(user?.id, user?.userType, 'pdf_error', { error: e.message, reportId, store: project.pc });
       showAlert && showAlert("error", "PDF generation failed: " + e.message);
       setPdfLoading(false);
       return null;
@@ -9346,7 +8903,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
             subject: emailSubject,
             body: `<p>Please find the Daily Construction Report summary for <strong>${project.nickname || project.pc}</strong> dated <strong>${r.date ? new Date(r.date + "T12:00:00").toLocaleDateString() : "N/A"}</strong>.</p>
               <p>Prepared by: ${r.preparedBy || "N/A"}</p>
-              <p><strong>Note:</strong> This report contains ${(r.workLogs||[]).reduce((s,w)=>s+(w.photos?.length||0),0)} photos and is too large to attach via email (${sizeMB.toFixed(1)}MB). Please view the full report with photos in the <a href="${BRAND_CONFIG.portalUrl}">${BRAND_CONFIG.portalName}</a> under Projects → ${project.nickname || project.pc} → Daily Reports.</p>
+              <p><strong>Note:</strong> This report contains ${(r.workLogs||[]).reduce((s,w)=>s+(w.photos?.length||0),0)} photos and is too large to attach via email (${sizeMB.toFixed(1)}MB). Please view the full report with photos in the <a href="https://pcg-ops.netlify.app">PCG Portal</a> under Projects → ${project.nickname || project.pc} → Daily Reports.</p>
               <hr>
               <h3>Report Summary</h3>
               <p><strong>Weather:</strong> ${(r.weather||[]).map(w => w.time + ': ' + (w.temp||'—') + ' ' + (w.conditions||'')).join(' | ')}</p>
@@ -9799,26 +9356,6 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
              forceSyncState === 'success' ? '✓ Synced' :
              forceSyncState === 'error' ? '⚠ Partial' :
              '☁ Force Sync'}
-          </button>
-          <button
-            onClick={backupAllReports}
-            disabled={backupState === 'running' || dailyReports.length === 0}
-            title="Snapshot all reports (with photos) into a dated backup blob. Safe to run anytime."
-            style={btn(th, {
-              padding: "0.4rem 1rem",
-              fontSize: "0.8125rem",
-              background: backupState === 'done' ? '#22c55e' : backupState === 'error' ? '#ef4444' : backupState === 'running' ? '#f59e0b' : th.card3,
-              color: backupState === 'idle' ? th.muted : '#fff',
-              border: `1px solid ${backupState === 'done' ? '#22c55e' : backupState === 'error' ? '#ef4444' : backupState === 'running' ? '#f59e0b' : th.cardBorder}`,
-              opacity: (backupState === 'running' || dailyReports.length === 0) ? 0.7 : 1,
-              cursor: backupState === 'running' ? 'wait' : 'pointer',
-              transition: 'all .15s',
-            })}
-          >
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.1rem", lineHeight: 1.2 }}>
-              <span>{backupState === 'running' ? '⏳ Backing up…' : backupState === 'done' ? '✓ Backed Up' : backupState === 'error' ? '⚠ Failed' : '🗄 Backup Reports'}</span>
-              {backupState === 'idle' && lastBackupTime && <span style={{ fontSize: "0.6rem", opacity: 0.7 }}>Last: {lastBackupTime.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>}
-            </div>
           </button>
         </div>}
       </div>
@@ -10515,8 +10052,6 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [logOpen, setLogOpen] = useState(false);
   const [pushSubs, setPushSubs] = useState(null);
   const [notifyInfoOpen, setNotifyInfoOpen] = useState(false);
-  const [globalNotifyOpen, setGlobalNotifyOpen] = useState(false);
-  const [ticketNotifyOpen, setTicketNotifyOpen] = useState(false);
 
   // ── Orion Report Settings ──────────────────────────────────────────
   const [reportSettings, setReportSettings] = useState(null);
@@ -10590,35 +10125,10 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
     showAlert("success", "Email removed from ticket list");
   };
 
-  const [settingsTab, setSettingsTab] = React.useState('notifications');
-
-  const settingsTabs = [
-    { id: 'notifications', label: '📬 Notifications', color: O },
-    { id: 'orion', label: '🔮 Orion', color: '#7C3AED' },
-    { id: 'admin', label: '🛠️ Admin Tools', color: '#0EA5E9' },
-  ];
-
   return (
     <div className="fade-in">
       <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: th.text, marginBottom: "0.25rem" }}>⚙️ Settings</div>
-      <div style={{ color: th.muted, fontSize: "0.8125rem", marginBottom: "1.25rem" }}>System configuration and notification settings.</div>
-
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1.5rem', background: th.card2, borderRadius: '0.75rem', padding: '0.3rem' }}>
-        {settingsTabs.map(t => (
-          <button key={t.id} onClick={() => setSettingsTab(t.id)} style={{
-            flex: 1, padding: '0.55rem 0.5rem', border: 'none', borderRadius: '0.5rem', cursor: 'pointer',
-            fontFamily: "'Raleway'", fontWeight: settingsTab === t.id ? 800 : 600, fontSize: '0.8rem',
-            background: settingsTab === t.id ? th.card : 'transparent',
-            color: settingsTab === t.id ? t.color : th.muted,
-            boxShadow: settingsTab === t.id ? '0 1px 4px #00000018' : 'none',
-            transition: 'all 0.18s',
-          }}>{t.label}</button>
-        ))}
-      </div>
-
-      {/* ── Tab: Notifications ── */}
-      {settingsTab === 'notifications' && <>
+      <div style={{ color: th.muted, fontSize: "0.8125rem", marginBottom: "1.5rem" }}>System configuration and notification settings.</div>
 
       {/* Info card */}
       <div style={{ ...card(th), borderLeft: `3px solid ${O}`, marginBottom: "1.25rem" }}>
@@ -10653,79 +10163,71 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
       {/* Global Notify List */}
       <div style={{ ...card(th), padding: "1.5rem", marginBottom: "1.25rem" }}>
-        <div onClick={() => setGlobalNotifyOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: globalNotifyOpen ? "0.25rem" : 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ fontSize: "1.125rem" }}>📧</span>
-            <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Global Project Notifications</span>
-            <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({globalNotifyEmails.length})</span>
-          </div>
-          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{globalNotifyOpen ? "▲ Hide" : "▼ Show"}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+          <span style={{ fontSize: "1.125rem" }}>📧</span>
+          <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Global Project Notifications</span>
         </div>
-        {globalNotifyOpen && <>
-          <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
-            These email addresses receive notifications for <strong>all projects</strong> — phase changes, new projects, deadline alerts, and checklist updates.
-            Individual projects can also have their own additional notify emails.
-          </p>
-          <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
-            {globalNotifyEmails.length === 0 && (
-              <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No global notify emails configured.</div>
-            )}
-            {globalNotifyEmails.map((email, idx) => (
-              <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
-                    {email.charAt(0).toUpperCase()}
-                  </span>
-                  <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
-                </div>
-                <button onClick={() => removeEmail(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
+        <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
+          These email addresses receive notifications for <strong>all projects</strong> — phase changes, new projects, deadline alerts, and checklist updates.
+          Individual projects can also have their own additional notify emails.
+        </p>
+
+        {/* Current list */}
+        <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+          {globalNotifyEmails.length === 0 && (
+            <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No global notify emails configured.</div>
+          )}
+          {globalNotifyEmails.map((email, idx) => (
+            <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
+                  {email.charAt(0).toUpperCase()}
+                </span>
+                <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
               </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") addEmail(); }} />
-            <button onClick={addEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-          </div>
-        </>}
+              <button onClick={() => removeEmail(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
+            </div>
+          ))}
+        </div>
+
+        {/* Add new */}
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addEmail(); }} />
+          <button onClick={addEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
+        </div>
       </div>
 
       {/* Ticket Notify List */}
       <div style={{ ...card(th), padding: "1.5rem", marginBottom: "1.25rem" }}>
-        <div onClick={() => setTicketNotifyOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: ticketNotifyOpen ? "0.25rem" : 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ fontSize: "1.125rem" }}>🎫</span>
-            <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Ticket Notifications</span>
-            <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(ticketNotifyEmails || []).length})</span>
-          </div>
-          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{ticketNotifyOpen ? "▲ Hide" : "▼ Show"}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+          <span style={{ fontSize: "1.125rem" }}>🎫</span>
+          <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Ticket Notifications</span>
         </div>
-        {ticketNotifyOpen && <>
-          <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
-            These email addresses receive notifications when a new service ticket is created. Separate from the global project list — add or remove anyone here.
-          </p>
-          <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
-            {(ticketNotifyEmails || []).length === 0 && (
-              <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No ticket notify emails configured.</div>
-            )}
-            {(ticketNotifyEmails || []).map((email, idx) => (
-              <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
-                    {email.charAt(0).toUpperCase()}
-                  </span>
-                  <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
-                </div>
-                <button onClick={() => removeTicketEmail(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
+        <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
+          These email addresses receive notifications when a new service ticket is created. Separate from the global project list — add or remove anyone here.
+        </p>
+        <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+          {(ticketNotifyEmails || []).length === 0 && (
+            <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No ticket notify emails configured.</div>
+          )}
+          {(ticketNotifyEmails || []).map((email, idx) => (
+            <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
+                  {email.charAt(0).toUpperCase()}
+                </span>
+                <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
               </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newTicketEmail} onChange={e => setNewTicketEmail(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") addTicketEmail(); }} />
-            <button onClick={addTicketEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-          </div>
-        </>}
+              <button onClick={() => removeTicketEmail(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newTicketEmail} onChange={e => setNewTicketEmail(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addTicketEmail(); }} />
+          <button onClick={addTicketEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
+        </div>
       </div>
 
       {/* Test Notifications */}
@@ -10741,7 +10243,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             const digits = testPhone.replace(/\D/g, "");
             const res = await fetch('/.netlify/functions/sms', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ to: [digits], message: `${BRAND_CONFIG.portalName} Test: SMS notifications are working! 🎉` }),
+              body: JSON.stringify({ to: [digits], message: "PCG Portal Test: SMS notifications are working! 🎉" }),
             });
             const data = await res.json();
             if (res.ok) { setTestStatus("sms_ok"); showAlert("success", "Test SMS sent!"); }
@@ -10754,8 +10256,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           if (!testEmail) { showAlert("error", "Enter an email first"); return; }
           setTestStatus("sending_email");
           try {
-            await sendNotifyEmail([testEmail], `${BRAND_CONFIG.portalName} — Test Notification`,
-              `<h3 style="color:${BRAND_CONFIG.primary}">Test Notification</h3><p>Email notifications are working correctly! 🎉</p><p style="color:#666;font-size:13px">This is a test from the ${BRAND_CONFIG.portalName} settings page.</p>`);
+            await sendNotifyEmail([testEmail], "PCG Portal — Test Notification",
+              '<h3 style="color:#FF671F">Test Notification</h3><p>Email notifications are working correctly! 🎉</p><p style="color:#666;font-size:13px">This is a test from the PCG Company Portal settings page.</p>');
             setTestStatus("email_ok"); showAlert("success", "Test email sent!");
           } catch(e) { setTestStatus("email_fail"); showAlert("error", "Email error: " + e.message); }
           setTimeout(() => setTestStatus(null), 5000);
@@ -10823,7 +10325,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                               {isSafari && (<>
                                 <div style={{ fontWeight: 600, color: th.text, marginBottom: "0.25rem" }}>Reset in Safari:</div>
                                 <div>1. Go to <strong>Safari &gt; Settings &gt; Websites &gt; Notifications</strong></div>
-                                <div>2. Find <strong>{BRAND_CONFIG.portalUrl.replace('https://', '')}</strong> and set to <strong>Allow</strong></div>
+                                <div>2. Find <strong>pcg-ops.netlify.app</strong> and set to <strong>Allow</strong></div>
                                 <div>3. Reload this page</div>
                               </>)}
                               {isFirefox && (<>
@@ -10866,7 +10368,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                         try {
                           const res = await fetch('/.netlify/functions/push', {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'send', userIds: [user.id], title: `${BRAND_CONFIG.shortName} Portal Test`, body: 'Push notifications are working! 🎉', url: '/', tag: 'test_push_' + Date.now() }),
+                            body: JSON.stringify({ action: 'send', userIds: [user.id], title: 'PCG Portal Test', body: 'Push notifications are working! 🎉', url: '/', tag: 'test_push_' + Date.now() }),
                           });
                           const data = await res.json().catch(() => ({}));
                           if (res.ok) { setTestStatus("push_ok"); showAlert("success", "Test push sent! Check your notifications."); }
@@ -11071,13 +10573,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         );
       })()}
 
-      </> /* end notifications tab */}
-
-      {/* ── Tab: Orion ── */}
-      {settingsTab === 'orion' && <>
-
       {/* Orion Report Settings */}
-      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', borderLeft: '3px solid #7C3AED' }}>
+      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', marginTop: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reportOpen ? '1rem' : 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontSize: '1.125rem' }}>🔮</span>
@@ -11176,42 +10673,76 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
             {/* Exec Report CC */}
             <div style={{ marginBottom: '1rem' }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>Additional CC — Exec Reports</div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>
+                Additional CC — Exec Reports
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '0.5rem' }}>
                 {(reportSettings.execReportCC || []).map((email, i) => (
                   <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: '999px', padding: '0.2rem 0.6rem', fontSize: '0.75rem', color: th.text }}>
                     {email}
-                    <button onClick={() => { const updated = (reportSettings.execReportCC || []).filter((_, j) => j !== i); updateReportSetting({ execReportCC: updated }); }} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginLeft: 2 }}>✕</button>
+                    <button onClick={() => {
+                      const updated = (reportSettings.execReportCC || []).filter((_, j) => j !== i);
+                      updateReportSetting({ execReportCC: updated });
+                    }} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginLeft: 2 }}>✕</button>
                   </span>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input style={inp(th)} placeholder="Add email address" value={newReportCC} onChange={e => setNewReportCC(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && newReportCC.includes('@')) { updateReportSetting({ execReportCC: [...(reportSettings.execReportCC || []), newReportCC.trim()] }); setNewReportCC(''); } }} />
-                <button onClick={() => { if (!newReportCC.includes('@')) { showAlert('error', 'Enter a valid email'); return; } updateReportSetting({ execReportCC: [...(reportSettings.execReportCC || []), newReportCC.trim()] }); setNewReportCC(''); }} style={btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem' })}>Add</button>
+                <input style={inp(th)} placeholder="Add email address" value={newReportCC}
+                  onChange={e => setNewReportCC(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && newReportCC.includes('@')) {
+                      const updated = [...(reportSettings.execReportCC || []), newReportCC.trim()];
+                      updateReportSetting({ execReportCC: updated });
+                      setNewReportCC('');
+                    }
+                  }} />
+                <button onClick={() => {
+                  if (!newReportCC.includes('@')) { showAlert('error', 'Enter a valid email'); return; }
+                  const updated = [...(reportSettings.execReportCC || []), newReportCC.trim()];
+                  updateReportSetting({ execReportCC: updated });
+                  setNewReportCC('');
+                }} style={btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem' })}>Add</button>
               </div>
             </div>
 
             {/* DM Brief CC */}
             <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>Additional CC — DM Daily Briefs</div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>
+                Additional CC — DM Daily Briefs
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '0.5rem' }}>
                 {(reportSettings.dmBriefCC || []).map((email, i) => (
                   <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: '999px', padding: '0.2rem 0.6rem', fontSize: '0.75rem', color: th.text }}>
                     {email}
-                    <button onClick={() => { const updated = (reportSettings.dmBriefCC || []).filter((_, j) => j !== i); updateReportSetting({ dmBriefCC: updated }); }} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginLeft: 2 }}>✕</button>
+                    <button onClick={() => {
+                      const updated = (reportSettings.dmBriefCC || []).filter((_, j) => j !== i);
+                      updateReportSetting({ dmBriefCC: updated });
+                    }} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginLeft: 2 }}>✕</button>
                   </span>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input style={inp(th)} placeholder="Add email address" value={newReportCC} onChange={e => setNewReportCC(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && newReportCC.includes('@')) { updateReportSetting({ dmBriefCC: [...(reportSettings.dmBriefCC || []), newReportCC.trim()] }); setNewReportCC(''); } }} />
-                <button onClick={() => { if (!newReportCC.includes('@')) { showAlert('error', 'Enter a valid email'); return; } updateReportSetting({ dmBriefCC: [...(reportSettings.dmBriefCC || []), newReportCC.trim()] }); setNewReportCC(''); }} style={btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem' })}>Add</button>
+                <input style={inp(th)} placeholder="Add email address" value={newReportCC}
+                  onChange={e => setNewReportCC(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && newReportCC.includes('@')) {
+                      const updated = [...(reportSettings.dmBriefCC || []), newReportCC.trim()];
+                      updateReportSetting({ dmBriefCC: updated });
+                      setNewReportCC('');
+                    }
+                  }} />
+                <button onClick={() => {
+                  if (!newReportCC.includes('@')) { showAlert('error', 'Enter a valid email'); return; }
+                  const updated = [...(reportSettings.dmBriefCC || []), newReportCC.trim()];
+                  updateReportSetting({ dmBriefCC: updated });
+                  setNewReportCC('');
+                }} style={btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem' })}>Add</button>
               </div>
             </div>
 
             <div style={{ marginTop: '1rem', fontSize: '0.7rem', color: th.muted, lineHeight: 1.5 }}>
-              <strong>Schedule:</strong> DM briefs daily at 7:00 AM ET. Exec reports: Sunday 10:00 AM ET (preliminary) + Tuesday 10:00 AM ET (post-adjustment, final figures).
+              <strong>Schedule:</strong> DM briefs daily at 7:00 AM ET. Exec reports: Sunday 10:00 AM ET (preliminary — labor may be inaccurate until DM adjustments by Monday 1 PM) + Tuesday 10:00 AM ET (post-adjustment, final figures).
             </div>
 
             {/* Send Now Buttons */}
@@ -11231,10 +10762,11 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ reportType: r.type, userId: user.id, ...(r.extra || {}) }),
                       });
+                      // Poll for completion
                       let attempts = 0;
                       const poll = setInterval(async () => {
                         attempts++;
-                        if (attempts > 60) { clearInterval(poll); return; }
+                        if (attempts > 60) { clearInterval(poll); return; } // 5 min max
                         try {
                           const status = await cloudLoad('analyst/report-last-send');
                           if (status && new Date(status.at) > new Date(Date.now() - 300000)) {
@@ -11245,7 +10777,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                         } catch {}
                       }, 5000);
                     } catch (e) { showAlert('error', 'Failed to start: ' + e.message); }
-                  }} style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.75rem', background: r.color })} title={r.desc}>
+                  }} style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.75rem', background: r.color })}
+                    title={r.desc}>
                     {r.label}
                   </button>
                 ))}
@@ -11255,257 +10788,17 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         )}
       </div>
 
-      {/* KB Management — IT only, in Orion section */}
-      {user?.userType === 'it' && (
-        <KBManagementSection th={th} showAlert={showAlert} />
-      )}
-
-      </> /* end orion tab */}
-
-      {/* ── Tab: Admin Tools ── */}
-      {settingsTab === 'admin' && <>
-
       {/* Notification Log */}
-      <div style={{ marginTop: 0 }}>
-        <NotificationLogSection th={th} notifyLog={notifyLog} pushSubs={pushSubs} logLoading={logLoading} logOpen={logOpen} setLogOpen={setLogOpen} loadNotifyLog={loadNotifyLog} users={users || []} accent="#0EA5E9" />
+      <div style={{ marginTop: "1.5rem" }}>
+        <NotificationLogSection th={th} notifyLog={notifyLog} pushSubs={pushSubs} logLoading={logLoading} logOpen={logOpen} setLogOpen={setLogOpen} loadNotifyLog={loadNotifyLog} users={users || []} />
       </div>
-
-      {/* Audit Log */}
-      <div style={{ marginTop: "1.25rem" }}>
-        <AuditLogSection th={th} user={user} users={users || []} accent="#0EA5E9" />
-      </div>
-
-      {/* Leaderboard Preview — IT only */}
-      {user?.userType === 'it' && (
-        <LeaderboardPreviewSection th={th} user={user} showAlert={showAlert} accent="#0EA5E9" />
-      )}
-
-      </> /* end admin tab */}
-    </div>
-  );
-}
-
-// ── KB Management Section (IT admin only) ─────────────────────────────────
-function KBManagementSection({ th, showAlert }) {
-  const [open, setOpen] = React.useState(false);
-  const [index, setIndex] = React.useState(null);
-  const [loading, setLoading] = React.useState(false);
-  const [syncing, setSyncing] = React.useState(false);
-
-  async function loadIndex() {
-    setLoading(true);
-    try {
-      const d = await cloudLoad('analyst/kb/index');
-      setIndex(d);
-    } catch { setIndex(null); }
-    setLoading(false);
-  }
-
-  React.useEffect(() => { if (open && !index) loadIndex(); }, [open]);
-
-  async function syncNow() {
-    setSyncing(true);
-    try {
-      const r = await fetch('/.netlify/functions/kb-sync', { method: 'POST' });
-      const text = await r.text();
-      let json = null;
-      try { json = JSON.parse(text); } catch {}
-      if (r.ok && json?.ok) {
-        if (json.total === 0) {
-          showAlert('error', `No files found in Drive folder. Check folder sharing permissions.`);
-        } else {
-          showAlert('success', `KB synced — ${json.synced} of ${json.total} Drive file(s) imported`);
-          await loadIndex();
-        }
-      } else {
-        showAlert('error', 'Sync failed: ' + (json?.error || text?.slice(0, 120) || 'unknown'));
-      }
-    } catch (e) { showAlert('error', e.message); }
-    setSyncing(false);
-  }
-
-  const mimeIcon = mime => {
-    if (mime?.includes('document')) return '📝';
-    if (mime?.includes('spreadsheet')) return '📊';
-    if (mime?.includes('presentation')) return '📋';
-    if (mime?.includes('pdf')) return '📄';
-    return '📃';
-  };
-
-  return (
-    <div style={{ marginTop: '1.25rem' }}>
-      <div onClick={() => setOpen(o => !o)} style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0.85rem 1.1rem', background: th.card, border: `1px solid ${th.cardBorder}`,
-        borderRadius: open ? '0.75rem 0.75rem 0 0' : '0.75rem', cursor: 'pointer',
-        borderLeft: '3px solid #7C3AED',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <span style={{ fontSize: '1.1rem' }}>🧠</span>
-          <span style={{ fontWeight: 700, fontSize: '0.9rem', color: th.text }}>Orion Knowledge Base</span>
-          {index && <span style={{ fontSize: '0.65rem', color: th.muted }}>{index.fileCount} file(s) · synced {new Date(index.syncedAt).toLocaleString()}</span>}
-        </div>
-        <span style={{ color: th.muted, fontSize: '0.8rem' }}>{open ? '▲ Hide' : '▼ Show'}</span>
-      </div>
-
-      {open && (
-        <div style={{ border: `1px solid ${th.cardBorder}`, borderTop: 'none', borderRadius: '0 0 0.75rem 0.75rem', padding: '1rem 1.1rem', background: th.card }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem', flexWrap: 'wrap' }}>
-            <div style={{ fontSize: '0.75rem', color: th.muted, flex: 1 }}>
-              📁 <strong style={{ color: th.text }}>PCG - KB</strong> (Google Drive) — files are synced weekly on Monday 6 AM ET
-            </div>
-            <button onClick={loadIndex} disabled={loading} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem' })}>
-              {loading ? 'Loading…' : 'Refresh'}
-            </button>
-            <button onClick={syncNow} disabled={syncing} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem', background: '#6366f1' })}>
-              {syncing ? 'Syncing…' : 'Sync Now'}
-            </button>
-          </div>
-
-          {loading && <div style={{ color: th.muted, fontSize: '0.8rem' }}>Loading…</div>}
-          {!loading && !index && (
-            <div style={{ color: th.muted, fontSize: '0.8rem' }}>No KB data yet. Click "Sync Now" to import files from Google Drive.</div>
-          )}
-
-          {!loading && index?.files && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-              {index.files.map(f => (
-                <div key={f.fileId} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '0.45rem 0.75rem', background: th.card2, borderRadius: '0.45rem',
-                  border: `1px solid ${th.cardBorder}`,
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{ fontSize: '0.9rem' }}>{mimeIcon(f.mimeType)}</span>
-                    <span style={{ fontSize: '0.78rem', color: f.status === 'synced' ? th.text : th.muted, fontWeight: f.status === 'synced' ? 600 : 400 }}>{f.name}</span>
-                    {f.status !== 'synced' && <span style={{ fontSize: '0.65rem', color: '#f87171' }}>({f.reason || 'skipped'})</span>}
-                  </div>
-                  {f.charCount > 0 && (
-                    <span style={{ fontSize: '0.65rem', color: th.muted, whiteSpace: 'nowrap' }}>
-                      {f.charCount.toLocaleString()} chars
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Leaderboard Preview Section (IT admin only) ───────────────────────────
-function LeaderboardPreviewSection({ th, user, showAlert, accent }) {
-  const [open, setOpen] = React.useState(false);
-  const [data, setData] = React.useState(null);
-  const [loading, setLoading] = React.useState(false);
-  const [running, setRunning] = React.useState(false);
-  const [posting, setPosting] = React.useState(false);
-
-  async function load() {
-    setLoading(true);
-    try {
-      const d = await cloudLoad('pcg_leaderboard_latest');
-      setData(d);
-    } catch { setData(null); }
-    setLoading(false);
-  }
-
-  React.useEffect(() => { if (open && !data) load(); }, [open]);
-
-  async function safeFetch(url) {
-    const r = await fetch(url, { method: 'POST' });
-    const text = await r.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch {}
-    return { ok: r.ok, status: r.status, json, text };
-  }
-
-  async function runNow() {
-    setRunning(true);
-    try {
-      const { ok, json, text } = await safeFetch('/.netlify/functions/leaderboard-cron-manual');
-      if (ok && json?.weekOf) { showAlert('success', `Rankings computed for week of ${json.weekOf}`); await load(); }
-      else showAlert('error', 'leaderboard-cron failed: ' + (json?.body || text?.slice(0, 120) || 'unknown'));
-    } catch (e) { showAlert('error', e.message); }
-    setRunning(false);
-  }
-
-  async function postNow() {
-    setPosting(true);
-    try {
-      const { ok, json, text } = await safeFetch('/.netlify/functions/leaderboard-announce-manual');
-      if (ok && json?.weekOf) showAlert('success', `Posted ${json.count} announcements for week of ${json.weekOf}`);
-      else showAlert('error', 'announce-cron failed: ' + (json?.body || text?.slice(0, 120) || 'unknown'));
-    } catch (e) { showAlert('error', e.message); }
-    setPosting(false);
-  }
-
-  const fmtSales = n => '$' + Math.round(n || 0).toLocaleString('en-US');
-  const rankEmoji = r => r === 1 ? '🥇' : r === 2 ? '🥈' : '🥉';
-
-  return (
-    <div style={{ marginTop: '1.25rem' }}>
-      <div onClick={() => setOpen(o => !o)} style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0.85rem 1.1rem', background: th.card, border: `1px solid ${th.cardBorder}`,
-        borderRadius: open ? '0.75rem 0.75rem 0 0' : '0.75rem', cursor: 'pointer',
-        ...(accent ? { borderLeft: `3px solid ${accent}` } : {}),
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <span style={{ fontSize: '1.1rem' }}>🏆</span>
-          <span style={{ fontWeight: 700, fontSize: '0.9rem', color: th.text }}>Leaderboard Preview</span>
-          {data && <span style={{ fontSize: '0.65rem', color: th.muted }}>Week of {data.weekLabel} · computed {new Date(data.computedAt).toLocaleString()}</span>}
-        </div>
-        <span style={{ color: th.muted, fontSize: '0.8rem' }}>{open ? '▲' : '▼'}</span>
-      </div>
-
-      {open && (
-        <div style={{ border: `1px solid ${th.cardBorder}`, borderTop: 'none', borderRadius: '0 0 0.75rem 0.75rem', padding: '1rem 1.1rem', background: th.card }}>
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-            <button onClick={load} disabled={loading} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem' })}>
-              {loading ? 'Loading…' : 'Refresh Data'}
-            </button>
-            <button onClick={runNow} disabled={running} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem', background: '#f59e0b' })}>
-              {running ? 'Running…' : 'Run Research Now'}
-            </button>
-            <button onClick={postNow} disabled={posting} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem', background: '#22c55e' })}>
-              {posting ? 'Posting…' : 'Post Announcements Now'}
-            </button>
-          </div>
-
-          {loading && <div style={{ color: th.muted, fontSize: '0.8rem' }}>Loading…</div>}
-          {!loading && !data && <div style={{ color: th.muted, fontSize: '0.8rem' }}>No leaderboard data yet. Click "Run Research Now" to generate.</div>}
-
-          {!loading && data?.districts && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' }}>
-              {Object.entries(data.districts).sort(([a], [b]) => Number(a) - Number(b)).map(([dist, stores]) => (
-                <div key={dist} style={{ background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: '0.6rem', padding: '0.75rem' }}>
-                  <div style={{ fontWeight: 800, fontSize: '0.75rem', color: '#f59e0b', marginBottom: '0.5rem', letterSpacing: 0.5 }}>
-                    DISTRICT {dist}
-                  </div>
-                  {stores.map(s => (
-                    <div key={s.pc} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.3rem 0', borderBottom: `1px solid ${th.cardBorder}` }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <span style={{ fontSize: '0.9rem' }}>{rankEmoji(s.rank)}</span>
-                        <span style={{ fontSize: '0.78rem', color: th.text, fontWeight: 600 }}>{s.name}</span>
-                      </div>
-                      <span style={{ fontSize: '0.78rem', color: '#22c55e', fontWeight: 700 }}>{fmtSales(s.wtdSales)}</span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
 // ── Notification Log Section (rendered inside AdminSettings) ──────────────
-function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, setLogOpen, loadNotifyLog, users, accent }) {
+function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, setLogOpen, loadNotifyLog, users }) {
+  const O = '#FF671F';
   // Map user IDs to names
   const userName = (id) => {
     const u = (users || []).find(u => String(u.id) === String(id));
@@ -11513,7 +10806,7 @@ function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, 
   };
 
   return (
-    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', ...(accent ? { borderLeft: `3px solid ${accent}` } : {}) }}>
+    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: logOpen ? '1rem' : 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontSize: '1.125rem' }}>📋</span>
@@ -11587,212 +10880,6 @@ function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, 
   );
 }
 
-// ── Audit Log Section (rendered inside AdminSettings) ─────────────────────
-function AuditLogSection({ th, user, users, accent }) {
-  const [open, setOpen] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
-  const [entries, setEntries] = React.useState(null);
-  const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
-  const [filterAction, setFilterAction] = React.useState('');
-
-  const userName = (id) => {
-    if (!id) return '—';
-    const u = (users || []).find(u => String(u.id) === String(id));
-    return u ? u.name : `User #${id}`;
-  };
-
-  const load = async (d) => {
-    setLoading(true);
-    try {
-      const res = await fetch('/.netlify/functions/analyst', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'audit-log', userId: user.id, date: d }),
-      });
-      const data = await res.json();
-      setEntries(Array.isArray(data.entries) ? data.entries : []);
-    } catch { setEntries([]); }
-    setLoading(false);
-  };
-
-  const handleToggle = () => {
-    setOpen(o => {
-      if (!o && entries === null) load(date);
-      return !o;
-    });
-  };
-
-  const handleDateChange = (d) => {
-    setDate(d);
-    if (open) load(d);
-  };
-
-  const ACTION_COLORS = {
-    ask: '#6366f1', brief: '#0ea5e9', 'brief-refresh': '#0ea5e9',
-    'case-list': '#8b5cf6', 'case-detail': '#8b5cf6', 'case-update': '#f59e0b',
-    feedback: '#10b981', snapshot: '#64748b', 'report-settings': '#64748b',
-    'send-report': '#f97316',
-    pdf_download: '#06b6d4', pdf_error: '#f44336',
-    force_sync: '#22c55e', force_sync_error: '#f44336',
-    backup: '#3b82f6', backup_error: '#f44336',
-    login: '#22c55e', logout: '#94a3b8', session_timeout: '#f59e0b',
-    user_created: '#a855f7', user_edited: '#6366f1', user_deleted: '#f44336',
-    user_activated: '#22c55e', user_deactivated: '#f59e0b',
-    user_password_changed: '#ef4444', user_username_changed: '#f97316',
-    user_email_changed: '#f97316', user_role_changed: '#f59e0b',
-    user_2fa_enabled: '#22c55e', user_2fa_disabled: '#ef4444',
-  };
-
-  const [showAll, setShowAll] = React.useState(false);
-  const PAGE = 50;
-
-  const displayed = (entries || []).filter(e => !filterAction || e.action === filterAction);
-  const uniqueActions = [...new Set((entries || []).map(e => e.action).filter(Boolean))].sort();
-  const reversed = [...displayed].reverse();
-  const visibleRows = showAll ? reversed : reversed.slice(0, PAGE);
-
-  return (
-    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', ...(accent ? { borderLeft: `3px solid ${accent}` } : {}) }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: open ? '1rem' : 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ fontSize: '1.125rem' }}>🔍</span>
-          <span style={{ fontWeight: 700, fontSize: '1rem', color: th.text }}>Audit Log</span>
-          {entries !== null && !loading && (
-            <span style={{ fontSize: '0.7rem', color: th.muted, background: th.card2, padding: '0.1rem 0.5rem', borderRadius: '0.9rem', fontWeight: 600 }}>
-              {entries.length} event{entries.length !== 1 ? 's' : ''} today
-            </span>
-          )}
-        </div>
-        <button onClick={handleToggle} style={{ ...btn(th, { padding: '0.35rem 0.75rem', fontSize: '0.75rem' }) }}>
-          {open ? 'Hide' : 'View Log'}
-        </button>
-      </div>
-
-      {open && (
-        <div>
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span style={{ fontSize: '0.75rem', color: th.muted, fontWeight: 600 }}>Date</span>
-              <input type="date" value={date} onChange={e => handleDateChange(e.target.value)}
-                style={{ ...inp(th), padding: '0.3rem 0.6rem', fontSize: '0.8rem', width: 'auto' }} />
-            </div>
-            {uniqueActions.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ fontSize: '0.75rem', color: th.muted, fontWeight: 600 }}>Action</span>
-                <select value={filterAction} onChange={e => setFilterAction(e.target.value)}
-                  style={{ ...inp(th), padding: '0.3rem 0.6rem', fontSize: '0.8rem', width: 'auto' }}>
-                  <option value="">All</option>
-                  {uniqueActions.map(a => <option key={a} value={a}>{a}</option>)}
-                </select>
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: '0.5rem', marginLeft: 'auto' }}>
-              <button onClick={() => {
-                if (!displayed.length) return;
-                const headers = ['Time', 'User', 'Role', 'Action', 'Scope', 'Status', 'Detail', 'Latency(ms)'];
-                const rows = [...displayed].reverse().map(e => [
-                  e.ts ? new Date(e.ts).toLocaleString() : '',
-                  userName(e.userId),
-                  e.userRole || '',
-                  e.action || '',
-                  e.district ? `D${e.district}` : 'Network',
-                  e.statusCode || '',
-                  e.error || (e.meta?.from != null && e.meta?.to != null ? `${e.meta.from} → ${e.meta.to}` : e.meta?.targetName || e.meta?.filename || (e.meta?.backed != null ? `${e.meta.backed} reports` : (e.meta?.synced != null ? `${e.meta.synced} synced` : ''))) || '',
-                  e.latencyMs != null ? e.latencyMs : '',
-                ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
-                const csv = [headers.join(','), ...rows].join('\n');
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `audit_log_${date}.csv`;
-                a.click();
-                URL.revokeObjectURL(a.href);
-              }} style={{ ...btn(th, { padding: '0.3rem 0.75rem', fontSize: '0.75rem' }) }}>
-                ↓ CSV
-              </button>
-              <button onClick={() => load(date)} style={{ ...btn(th, { padding: '0.3rem 0.75rem', fontSize: '0.75rem' }) }}>
-                ↻ Refresh
-              </button>
-            </div>
-          </div>
-
-          {loading && <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0' }}>Loading...</div>}
-
-          {!loading && displayed.length === 0 && (
-            <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0', textAlign: 'center' }}>
-              No audit events recorded for {date}.
-            </div>
-          )}
-
-          {!loading && displayed.length > 0 && (
-            <div>
-              <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 420, borderRadius: '0.5rem', border: `1px solid ${th.cardBorder}` }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                  <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: th.card }}>
-                    <tr>
-                      {['Time', 'User', 'Role', 'Action', 'Scope', 'Status', 'Detail', 'ms'].map(h =>
-                        <th key={h} style={{ padding: '0.5rem 0.6rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleRows.map((e, i) => {
-                      const dt = e.ts ? new Date(e.ts) : null;
-                      const isErr = e.statusCode >= 400;
-                      const actionColor = ACTION_COLORS[e.action] || th.muted;
-                      return (
-                        <tr key={i} style={{ borderBottom: `1px solid ${th.cardBorder}`, background: isErr ? '#f4433608' : 'transparent' }}>
-                          <td style={{ padding: '0.4rem 0.6rem', color: th.muted, whiteSpace: 'nowrap', fontSize: '0.75rem' }}>
-                            {dt ? dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }) : '—'}
-                          </td>
-                          <td style={{ padding: '0.4rem 0.6rem', color: th.text, fontWeight: 500 }}>{userName(e.userId)}</td>
-                          <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>{e.userRole || '—'}</td>
-                          <td style={{ padding: '0.4rem 0.6rem' }}>
-                            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: actionColor, background: actionColor + '18', padding: '0.15rem 0.45rem', borderRadius: '0.2rem', whiteSpace: 'nowrap' }}>
-                              {e.action || '—'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>
-                            {e.district ? `D${e.district}` : 'Network'}
-                          </td>
-                          <td style={{ padding: '0.4rem 0.6rem' }}>
-                            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: isErr ? '#f44336' : '#4caf50', background: isErr ? '#f4433618' : '#4caf5018', padding: '0.15rem 0.4rem', borderRadius: '0.2rem' }}>
-                              {e.statusCode || '—'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '0.4rem 0.6rem', color: isErr ? '#f44336' : th.muted, fontSize: '0.72rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {e.error ? e.error : e.meta ? (
-                            e.meta.from != null && e.meta.to != null ? `${e.meta.from} → ${e.meta.to}` :
-                            e.meta.targetName ? e.meta.targetName :
-                            e.meta.filename || (e.meta.backed != null ? `${e.meta.backed} reports` : (e.meta.synced != null ? `${e.meta.synced} synced` : '')) || ''
-                          ) : '—'}
-                          </td>
-                          <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem', textAlign: 'right' }}>
-                            {e.latencyMs != null ? e.latencyMs : '—'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              {displayed.length > PAGE && (
-                <div style={{ textAlign: 'center', marginTop: '0.75rem' }}>
-                  <button onClick={() => setShowAll(s => !s)} style={{ ...btn(th, { padding: '0.3rem 1rem', fontSize: '0.75rem' }) }}>
-                    {showAll ? `Show recent ${PAGE}` : `Show all ${displayed.length} events`}
-                  </button>
-                </div>
-              )}
-              <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.5rem', textAlign: 'right' }}>
-                Showing {visibleRows.length} of {displayed.length} event{displayed.length !== 1 ? 's' : ''}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Announcements Page ────────────────────────────────────────────────────
 function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert }) {
   const [editingId, setEditingId] = useState(null);
@@ -11802,15 +10889,7 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
   const [newMsg, setNewMsg] = useState("");
 
   const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
-  const myDist = user?.district ? Number(user.district) : null;
-  const visibleAnnouncements = canManage ? announcements : announcements.filter(a => {
-    if (!a.targets) return true;
-    const { roles, districts } = a.targets;
-    if (roles?.includes(user?.userType)) return true;
-    if (myDist && districts?.includes(myDist)) return true;
-    return false;
-  });
-  const sorted = [...visibleAnnouncements].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const sorted = [...announcements].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   const postAnnouncement = () => {
     if (!newTitle.trim() || !newMsg.trim()) { showAlert("error", "Title and message required"); return; }
@@ -11831,7 +10910,7 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
   const toggleActive = (id) => setAnnouncements(prev => prev.map(a => a.id === id ? { ...a, active: !a.active } : a));
   const remove = (id) => { setAnnouncements(prev => prev.filter(a => a.id !== id)); showAlert("success", "Announcement removed"); };
 
-  const activeCount = visibleAnnouncements.filter(a => a.active).length;
+  const activeCount = announcements.filter(a => a.active).length;
 
   return (
     <div className="fade-in">
@@ -11928,6 +11007,7 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
 
 // ── Tickets ────────────────────────────────────────────────────────────────
 function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }) {
+  const O = "#FF671F", W = "#fff";
   const isAdmin = user?.userType === "executive" || user?.userType === "it";
   const isDM      = user?.userType === "dm";
   const isManager = user?.userType === "manager";
@@ -12045,88 +11125,20 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const [lightbox, setLightbox] = React.useState(null);
   const [issuePickerOpen, setIssuePickerOpen] = React.useState(false);
   const [showTemplates, setShowTemplates] = React.useState(false);
-  const [voiceActive, setVoiceActive] = React.useState(false);
-  const EMPTY_FORM = { title:CATEGORIES[0], storePC: managerStore?.pc || "", category:CATEGORIES[0], priority:"Medium", selectedIssues:[], notes:"", ticketOwner: user?.name || "", attachments:[], videoAttachment: null, dueDate: localDateISO(new Date(Date.now() + 3 * 86400000)) };
+  const EMPTY_FORM = { title:CATEGORIES[0], storePC: managerStore?.pc || "", category:CATEGORIES[0], priority:"Medium", selectedIssues:[], notes:"", ticketOwner: user?.name || "", attachments:[], dueDate:"" };
   const [form, setForm] = React.useState(EMPTY_FORM);
   const fileInputRef = React.useRef(null);
-  const videoInputRef = React.useRef(null);
 
-  const handleImageFiles = (files) => {
-    const current = form.attachments.filter(a => a.type.startsWith("image/")).length;
-    const slots = 4 - current;
-    if (slots <= 0) { showAlert("error", "Maximum 4 photos allowed"); return; }
-    let added = 0;
+  const handleFiles = (files) => {
     Array.from(files).forEach(file => {
-      if (!file.type.startsWith("image/")) return;
-      if (added >= slots) return;
+      if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) return;
       if (file.size > 20 * 1024 * 1024) { showAlert("error", `${file.name} exceeds 20 MB limit`); return; }
-      added++;
       const reader = new FileReader();
       reader.onload = (e) => {
         setForm(f => ({ ...f, attachments: [...f.attachments, { name: file.name, type: file.type, dataUrl: e.target.result, size: file.size }] }));
       };
       reader.readAsDataURL(file);
     });
-  };
-
-  const handleVideoFile = (files) => {
-    const file = Array.from(files).find(f => f.type.startsWith("video/"));
-    if (!file) return;
-    if (file.size > 100 * 1024 * 1024) { showAlert("error", "Video exceeds 100 MB limit"); return; }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setForm(f => ({ ...f, videoAttachment: { name: file.name, type: file.type, dataUrl: e.target.result, size: file.size } }));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const voiceRecRef = React.useRef(null);
-  // Stop recording whenever the form closes
-  React.useEffect(() => {
-    if (!showForm && voiceRecRef.current) {
-      voiceRecRef.current.stop();
-      voiceRecRef.current = null;
-      setVoiceActive(false);
-    }
-  }, [showForm]);
-  const toggleVoice = () => {
-    // Stop if already active
-    if (voiceActive) {
-      voiceRecRef.current?.stop();
-      voiceRecRef.current = null;
-      setVoiceActive(false);
-      return;
-    }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { showAlert("error", "Voice input not supported in this browser. Try Chrome or Safari."); return; }
-    const rec = new SR();
-    voiceRecRef.current = rec;
-    rec.continuous = true;
-    rec.interimResults = false;
-    rec.lang = "en-US";
-    rec.onresult = (e) => {
-      // Collect all new final results from this event
-      const newText = Array.from(e.results).slice(e.resultIndex).map(r => r[0].transcript.trim()).filter(Boolean).join(' ');
-      if (newText) setForm(f => ({ ...f, notes: f.notes ? f.notes + ' ' + newText : newText }));
-    };
-    rec.onerror = (e) => {
-      voiceRecRef.current = null;
-      setVoiceActive(false);
-      const msgs = { 'not-allowed': 'Microphone access denied — allow mic in your browser settings', 'audio-capture': 'No microphone found on this device', 'network': 'Network error during voice input', 'no-speech': null };
-      const msg = msgs[e.error];
-      if (msg !== null) showAlert("error", msg || `Voice error: ${e.error}`);
-    };
-    rec.onend = () => {
-      voiceRecRef.current = null;
-      setVoiceActive(false);
-    };
-    try {
-      rec.start();
-      setVoiceActive(true);
-    } catch (err) {
-      voiceRecRef.current = null;
-      showAlert("error", "Could not start voice input — check microphone permissions");
-    }
   };
 
   const selectedTicket = tickets.find(t => t.id === selectedId) || null;
@@ -12181,130 +11193,63 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     if (!emails.length) return;
     const prioColor = { High:"#ef4444", Medium:"#f59e0b", Low:"#22c55e" }[t.priority] || "#aaa";
     const prioBg    = { High:"#fef2f2", Medium:"#fffbeb", Low:"#f0fdf4" }[t.priority] || "#f9f9f9";
-
-    // Separate images from video for inline embedding
-    const photos = (t.attachments || []).filter(a => a.type?.startsWith("image/"));
-
-    // Build CID inline attachments for Resend (strip data URI prefix)
-    const cidAttachments = photos.map((a, i) => {
-      const base64 = (a.dataUrl || "").split(",")[1] || "";
-      const mimeType = a.type || "image/jpeg";
-      const ext = mimeType.split("/")[1]?.replace("jpeg","jpg") || "jpg";
-      return { filename: `photo-${i+1}.${ext}`, content: base64, content_type: mimeType, content_id: `ticket-photo-${i}`, content_disposition: "inline" };
-    });
-
     const row = (label, value) => `
       <tr>
-        <td style="padding:10px 16px;font-size:13px;font-weight:600;color:#666;white-space:nowrap;width:120px;border-bottom:1px solid #f0f0f0;vertical-align:top;">${label}</td>
-        <td style="padding:10px 16px;font-size:13px;color:#1a1a1a;border-bottom:1px solid #f0f0f0;">${value}</td>
+        <td style="padding:11px 16px;font-size:13px;font-weight:600;color:#666;white-space:nowrap;width:130px;border-bottom:1px solid #f0f0f0;">${label}</td>
+        <td style="padding:11px 16px;font-size:13px;color:#1a1a1a;border-bottom:1px solid #f0f0f0;">${value}</td>
       </tr>`;
-
-    // Description block — plain text of selected issues + notes
-    const rawDesc = (t.description || "").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    const descBlock = rawDesc ? `
-      <!-- what's going on -->
-      <div style="margin:0;padding:18px 24px;background:#f9fafb;border-left:4px solid ${prioColor};">
-        <div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px;">What's Going On</div>
-        <p style="margin:0;font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap;">${rawDesc}</p>
-      </div>` : "";
-
-    // Photos grid — 2 per row using table for email-client compat
-    const photoRows = [];
-    for (let i = 0; i < photos.length; i += 2) {
-      const cells = photos.slice(i, i + 2).map((_, j) =>
-        `<td style="padding:4px;"><img src="cid:ticket-photo-${i+j}" width="240" height="180" style="width:240px;height:180px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb;display:block;" /></td>`
-      ).join("");
-      photoRows.push(`<tr>${cells}</tr>`);
-    }
-    const photosBlock = photos.length > 0 ? `
-      <!-- photos -->
-      <div style="padding:18px 24px 12px;border-top:1px solid #f0f0f0;">
-        <div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:12px;">Photos (${photos.length})</div>
-        <table cellpadding="0" cellspacing="0" border="0"><tbody>${photoRows.join("")}</tbody></table>
-      </div>` : "";
-
-    // Due date formatted
-    const dueFmt = t.dueDate ? new Date(t.dueDate + "T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : null;
-
     const html = `
-      <div style="font-family:Arial,sans-serif;max-width:600px;">
-        <!-- header -->
-        <div style="background:linear-gradient(135deg,${BRAND_CONFIG.primary},#ff8c4b);border-radius:10px 10px 0 0;padding:22px 24px;">
-          <table cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
-            <td width="44" style="vertical-align:middle;">
-              <div style="background:rgba(255,255,255,0.2);border-radius:8px;width:40px;height:40px;text-align:center;line-height:40px;font-size:20px;">🎫</div>
-            </td>
-            <td style="padding-left:12px;vertical-align:middle;">
-              <div style="color:rgba(255,255,255,0.8);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;">New Service Ticket</div>
-              <div style="color:#fff;font-size:19px;font-weight:800;margin-top:3px;letter-spacing:-0.3px;">${t.number} — ${t.title}</div>
-            </td>
-          </tr></table>
+      <div style="font-family:Arial,sans-serif;">
+        <!-- header accent bar -->
+        <div style="background:linear-gradient(135deg,#FF671F,#ff8c4b);border-radius:10px 10px 0 0;padding:20px 24px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="background:rgba(255,255,255,0.2);border-radius:6px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;line-height:1;">🎫</div>
+            <div>
+              <div style="color:rgba(255,255,255,0.75);font-size:11px;letter-spacing:1.2px;text-transform:uppercase;font-weight:600;">New Service Ticket</div>
+              <div style="color:#fff;font-size:20px;font-weight:800;letter-spacing:-0.3px;margin-top:2px;">${t.number} — ${t.title}</div>
+            </div>
+          </div>
         </div>
 
-        <!-- badges -->
-        <div style="background:#fff;border:1px solid #e8e8e8;border-top:none;padding:12px 24px;">
-          <span style="display:inline-block;background:${prioBg};color:${prioColor};border:1px solid ${prioColor}44;border-radius:20px;padding:4px 13px;font-size:11px;font-weight:700;margin-right:6px;">${t.priority} Priority</span>
-          <span style="display:inline-block;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:20px;padding:4px 13px;font-size:11px;font-weight:700;margin-right:6px;">Open</span>
-          <span style="display:inline-block;background:#f9fafb;color:#6b7280;border:1px solid #e5e7eb;border-radius:20px;padding:4px 13px;font-size:11px;font-weight:600;">${t.category}</span>
+        <!-- badges row -->
+        <div style="background:#fff;border:1px solid #e8e8e8;border-top:none;padding:14px 24px;display:flex;gap:8px;flex-wrap:wrap;">
+          <span style="display:inline-block;background:${prioBg};color:${prioColor};border:1px solid ${prioColor}33;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:700;">${t.priority} Priority</span>
+          <span style="display:inline-block;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:700;">Open</span>
+          <span style="display:inline-block;background:#f9fafb;color:#6b7280;border:1px solid #e5e7eb;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600;">${t.category}</span>
         </div>
-
-        ${descBlock}
-
-        ${photosBlock}
 
         <!-- detail table -->
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e8e8e8;border-top:none;">
-          ${row("Store", `<strong>${t.storeName}</strong>${t.address ? `<br><span style="color:#9ca3af;font-size:11px;">${t.address}</span>` : ""}`)}
-          ${row("PC #", `<span style="font-family:monospace;background:#f3f4f6;padding:2px 8px;border-radius:4px;">${t.storePC}</span>`)}
-          ${row("Owner", t.ticketOwner || "—")}
-          ${row("Submitted By", t.createdBy || "—")}
-          ${dueFmt ? row("Due Date", `<strong style="color:${prioColor};">${dueFmt}</strong>`) : ""}
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;overflow:hidden;">
+          ${row("Store", `<strong>${t.storeName}</strong>${t.address ? `<br><span style="color:#9ca3af;font-size:12px;">${t.address}</span>` : ""}`)}
+          ${row("PC Number", `<span style="font-family:monospace;background:#f3f4f6;padding:2px 8px;border-radius:4px;font-size:13px;">${t.storePC}</span>`)}
+          ${row("Owner", t.ticketOwner)}
+          ${row("Submitted By", t.createdBy)}
+          ${t.description ? row("Details", `<span style="white-space:pre-wrap;line-height:1.6;">${t.description.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>`) : ""}
         </table>
 
         <!-- CTA -->
-        <div style="border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;text-align:center;padding:22px 24px;">
-          <a href="${BRAND_CONFIG.portalUrl}" style="display:inline-block;background:${BRAND_CONFIG.primary};color:#fff;padding:13px 34px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal →</a>
+        <div style="text-align:center;padding:24px 0 8px;">
+          <a href="https://pcg-ops.netlify.app" style="display:inline-block;background:#FF671F;color:#fff;padding:13px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal →</a>
         </div>
       </div>
     `;
-
-    const subject = `[PCG Ticket ${t.number}] ${t.title} — ${t.storeName}`;
-    const smsBody = `New ticket ${t.number}: ${t.title} | ${t.storeName} | ${t.priority} priority`;
-
-    // Email sent directly so we can pass image attachments; SMS/push go through dispatchNotifications
-    const emailRecipients = emails.filter(email => {
-      const u = (users || []).find(usr => (usr.email || "").toLowerCase() === email.toLowerCase());
-      return !u || u.emailNotify !== false;
-    });
-    if (emailRecipients.length > 0) sendNotifyEmail(emailRecipients, subject, html, cidAttachments).catch(() => {});
-
-    // SMS + push (no image attachments needed)
-    const smsNumbers = [];
-    const pushIds = [];
-    for (const email of emails) {
-      const u = (users || []).find(usr => (usr.email || "").toLowerCase() === email.toLowerCase());
-      if (u && u.smsNotify && u.phone) { const d = u.phone.replace(/\D/g,""); if (d.length >= 10) smsNumbers.push(d); }
-      if (u && u.pushNotify && u.id) pushIds.push(u.id);
-    }
-    if (smsNumbers.length > 0) sendNotifySMS(smsNumbers, smsBody);
-    if (pushIds.length > 0) sendPushNotification(pushIds, subject, smsBody, "/", `ticket_${t.id}`);
+    const subject = `[PCG Ticket ${t.number}] ${t.title}`;
+    const smsBody = `New ticket ${t.number}: ${t.title} | Store: ${t.storeName} | Priority: ${t.priority}`;
+    dispatchNotifications(emails, subject, html, smsBody, users || [], "/", `ticket_${t.id}`);
   };
 
   const createTicket = () => {
     if (!form.title.trim()) { showAlert("error","Title is required"); return; }
     if (!form.storePC) { showAlert("error","Please select a store"); return; }
-    if (form.attachments.length === 0) { showAlert("error","At least 1 photo is required"); return; }
     const store = stores.find(s => s.pc === form.storePC);
     const now = new Date().toISOString();
     const issueLine = form.selectedIssues.length ? "Issues reported:\n• " + form.selectedIssues.join("\n• ") : "";
     const description = [issueLine, form.notes.trim()].filter(Boolean).join("\n\n");
-    const allAttachments = [...(form.attachments || []), ...(form.videoAttachment ? [form.videoAttachment] : [])];
-    const t = { id: Date.now(), number: nextNumber(), title: form.title, storePC: form.storePC, storeName: store?.name || "Unknown Store", address: store ? (store.address || "") : "", category: form.category, priority: form.priority, dueDate: form.dueDate, status: "Open", ticketOwner: form.ticketOwner || user?.name || "Unassigned", createdBy: user?.name || "Unknown", description, selectedIssues: form.selectedIssues, attachments: allAttachments, comments: [], createdAt: now, updatedAt: now };
+    const t = { id: Date.now(), number: nextNumber(), title: form.title, storePC: form.storePC, storeName: store?.name || "Unknown Store", address: store ? (store.address || "") : "", category: form.category, priority: form.priority, dueDate: form.dueDate, status: "Open", ticketOwner: form.ticketOwner || user?.name || "Unassigned", createdBy: user?.name || "Unknown", description, selectedIssues: form.selectedIssues, attachments: form.attachments || [], comments: [], createdAt: now, updatedAt: now };
     setTickets(ts => [t, ...ts]);
     setSelectedId(t.id);
     setShowForm(false);
     setIssuePickerOpen(false);
-    setVoiceActive(false);
     setForm(EMPTY_FORM);
     sendTicketNotification(t);
     if (setNotifications) {
@@ -12336,26 +11281,20 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
 
       {/* Left: status sidebar — collapses to scrollable filter bar on mobile */}
       {isMobile && !selectedTicket ? (
-        <div style={{ display:"flex", flexDirection:"column", gap:"0.5rem", flexShrink:0 }}>
-          {/* Action buttons row — always visible, no scroll */}
-          <div style={{ display:"flex", gap:"0.5rem" }}>
-            <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "" }); setShowForm(true); }} style={{ ...btn(th, { padding:"0.5rem 1rem", fontSize:"0.8rem", flex:1, whiteSpace:"nowrap" }) }}>+ New Ticket</button>
-            <button onClick={() => setShowTemplates(true)} style={{ ...btn(th, { padding:"0.5rem 1rem", fontSize:"0.8rem", whiteSpace:"nowrap", background:th.card2, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>⚡ Templates</button>
-          </div>
-          {/* Filter pills row — scrollable */}
-          <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", overflowX:"auto", paddingBottom:"0.25rem" }}>
-            {[
-              { key:"all", label:"All", count:counts.all, dot:"#aaa" },
-              { key:"open", label:"Open", count:counts.open, dot:"#3b82f6" },
-              { key:"in_progress", label:"In Prog.", count:counts.in_progress, dot:O },
-              { key:"closed", label:"Closed", count:counts.closed, dot:"#6b7280" },
-            ].map(item => (
-              <button key={item.key} onClick={() => setStatusFilter(item.key)} style={{ display:"flex", alignItems:"center", gap:"0.35rem", padding:"0.4rem 0.75rem", borderRadius:"2rem", border:`1px solid ${statusFilter===item.key ? item.dot : th.cardBorder}`, background: statusFilter===item.key ? item.dot+"18" : th.card, cursor:"pointer", fontSize:"0.75rem", fontWeight:600, color: statusFilter===item.key ? item.dot : th.muted, flexShrink:0, transition:"all .15s", whiteSpace:"nowrap" }}>
-                <span style={{ width:6, height:6, borderRadius:"50%", background:item.dot }} />
-                {item.label} <span style={{ fontWeight:800 }}>{item.count}</span>
-              </button>
-            ))}
-          </div>
+        <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", overflowX:"auto", paddingBottom:"0.25rem", flexShrink:0 }}>
+          {[
+            { key:"all", label:"All", count:counts.all, dot:"#aaa" },
+            { key:"open", label:"Open", count:counts.open, dot:"#3b82f6" },
+            { key:"in_progress", label:"In Prog.", count:counts.in_progress, dot:O },
+            { key:"closed", label:"Closed", count:counts.closed, dot:"#6b7280" },
+          ].map(item => (
+            <button key={item.key} onClick={() => setStatusFilter(item.key)} style={{ display:"flex", alignItems:"center", gap:"0.35rem", padding:"0.4rem 0.75rem", borderRadius:"2rem", border:`1px solid ${statusFilter===item.key ? item.dot : th.cardBorder}`, background: statusFilter===item.key ? item.dot+"18" : th.card, cursor:"pointer", fontSize:"0.75rem", fontWeight:600, color: statusFilter===item.key ? item.dot : th.muted, flexShrink:0, transition:"all .15s", whiteSpace:"nowrap" }}>
+              <span style={{ width:6, height:6, borderRadius:"50%", background:item.dot }} />
+              {item.label} <span style={{ fontWeight:800 }}>{item.count}</span>
+            </button>
+          ))}
+          <button onClick={() => { setForm({ ...EMPTY_FORM, storePC: managerStore?.pc || "" }); setShowForm(true); }} style={{ ...btn(th, { padding:"0.4rem 0.875rem", fontSize:"0.75rem", flexShrink:0, whiteSpace:"nowrap" }) }}>+ New</button>
+          <button onClick={() => setShowTemplates(true)} style={{ ...btn(th, { padding:"0.4rem 0.75rem", fontSize:"0.75rem", flexShrink:0, whiteSpace:"nowrap", background:th.card2, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>⚡</button>
         </div>
       ) : !isMobile ? (
       <div style={{ ...card(th), width:230, flexShrink:0, padding:"1.25rem 0", display:"flex", flexDirection:"column", overflow:"hidden", transition:"width .2s" }}>
@@ -12609,7 +11548,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                 const clr = tmpl.priority==="High" ? "#ef4444" : tmpl.priority==="Medium" ? "#f59e0b" : "#22c55e";
                 return (
                   <button key={tmpl.label} type="button"
-                    onClick={()=>{ const tmplDays=tmpl.priority==="High"?2:tmpl.priority==="Medium"?3:5; setForm({ ...EMPTY_FORM, storePC:managerStore?.pc||"", category:tmpl.category, title:tmpl.label, priority:tmpl.priority, selectedIssues:tmpl.selectedIssues, notes:tmpl.notes, dueDate:localDateISO(new Date(Date.now()+tmplDays*86400000)) }); setShowTemplates(false); setShowForm(true); }}
+                    onClick={()=>{ setForm({ ...EMPTY_FORM, storePC:managerStore?.pc||"", category:tmpl.category, title:tmpl.label, priority:tmpl.priority, selectedIssues:tmpl.selectedIssues, notes:tmpl.notes }); setShowTemplates(false); setShowForm(true); }}
                     style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", gap:"0.25rem", padding:"0.75rem", borderRadius:"0.75rem", border:`1.5px solid ${th.cardBorder}`, background:th.card2, cursor:"pointer", textAlign:"left", transition:"border-color .15s" }}
                     onMouseEnter={e=>e.currentTarget.style.borderColor=clr}
                     onMouseLeave={e=>e.currentTarget.style.borderColor=th.cardBorder}>
@@ -12653,26 +11592,18 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                 {["Low","Medium","High"].map(p => {
                   const sel = form.priority === p;
                   const clr = p==="High" ? "#ef4444" : p==="Medium" ? "#f59e0b" : "#22c55e";
-                  const days = p==="High" ? 2 : p==="Medium" ? 3 : 5;
-                  const hint = p==="High" ? "≤2d" : p==="Medium" ? "≤3d" : "≤5d";
                   return (
-                    <button key={p} type="button" onClick={()=>{ const d=new Date(Date.now()+days*86400000); setForm(f=>({...f,priority:p,dueDate:localDateISO(d)})); }}
-                      style={{ flex:1, padding:"0.45rem 0 0.25rem", borderRadius:"0.75rem", border:`2px solid ${sel?clr:th.cardBorder}`, background:sel?clr:"transparent", color:sel?"#fff":th.muted, fontSize:"0.8rem", fontWeight:700, cursor:"pointer", transition:"all .15s", display:"flex", flexDirection:"column", alignItems:"center", gap:"1px" }}>
-                      <span>{p}</span>
-                      <span style={{ fontSize:"0.6rem", fontWeight:500, opacity:0.8 }}>{hint}</span>
+                    <button key={p} type="button" onClick={()=>setForm(f=>({...f,priority:p}))}
+                      style={{ flex:1, padding:"0.45rem 0", borderRadius:"2rem", border:`2px solid ${sel?clr:th.cardBorder}`, background:sel?clr:"transparent", color:sel?"#fff":th.muted, fontSize:"0.8rem", fontWeight:700, cursor:"pointer", transition:"all .15s" }}>
+                      {p}
                     </button>
                   );
                 })}
               </div>
               <input style={{ ...inp(th), gridColumn:"span 2" }} placeholder="Ticket Owner (name)" value={form.ticketOwner} onChange={e=>setForm(f=>({...f,ticketOwner:e.target.value}))} />
               <div style={{ display:"flex", flexDirection:"column", gap:"0.2rem" }}>
-                <label style={{ fontSize:"0.65rem", color:th.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5 }}>
-                  Due Date · {form.priority==="High" ? "max 2 days" : form.priority==="Medium" ? "max 3 days" : "max 5 days"}
-                </label>
-                <input type="date" style={inp(th)} value={form.dueDate}
-                  min={localDateISO(new Date(Date.now() + 86400000))}
-                  max={localDateISO(new Date(Date.now() + (form.priority==="High"?2:form.priority==="Medium"?3:5)*86400000))}
-                  onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))} />
+                <label style={{ fontSize:"0.65rem", color:th.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5 }}>Due Date (optional)</label>
+                <input type="date" style={inp(th)} value={form.dueDate} onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))} />
               </div>
               {/* Issue picker button */}
               <div style={{ gridColumn:"span 2" }}>
@@ -12703,16 +11634,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                   <div style={{ ...inp(th), color:th.muted, fontSize:"0.875rem" }}>No predefined issues for this category</div>
                 )}
               </div>
-              <div style={{ gridColumn:"span 2", display:"flex", flexDirection:"column", gap:"0.375rem" }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <span style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.5 }}>Additional Notes</span>
-                  <button type="button" onClick={toggleVoice}
-                    style={{ display:"flex", alignItems:"center", gap:"0.3rem", padding:"0.28rem 0.65rem", borderRadius:"1rem", border:`1px solid ${voiceActive?"#ef4444":th.cardBorder}`, background:voiceActive?"#ef444418":th.card2, color:voiceActive?"#ef4444":th.muted, fontSize:"0.72rem", fontWeight:600, cursor:"pointer", transition:"all .2s" }}>
-                    {voiceActive ? "🔴 Tap to stop" : "🎙 Voice"}
-                  </button>
-                </div>
-                <textarea style={{ ...inp(th), resize:"vertical" }} rows={3} placeholder={voiceActive ? "Listening… speak now, tap stop when done" : "Type or tap 🎙 Voice to dictate…"} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
-              </div>
+              <textarea style={{ ...inp(th), gridColumn:"span 2", resize:"vertical" }} rows={3} placeholder="Additional notes (optional)..." value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
             </div>
 
             {/* Issue picker popup sheet */}
@@ -12742,70 +11664,36 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
               </div>
             )}
 
-            {/* Photos (required, 1-4) */}
+            {/* Attachments */}
             <div style={{ marginTop:"1rem" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.5rem" }}>
-                <div style={{ fontSize:"0.72rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.8 }}>
-                  📷 Photos <span style={{ color:"#ef4444" }}>*</span>
-                </div>
-                <span style={{ fontSize:"0.7rem", color: form.attachments.length === 0 ? "#ef4444" : th.muted, fontWeight:600 }}>{form.attachments.length}/4</span>
+              <div style={{ fontSize:"0.72rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.8, marginBottom:"0.5rem" }}>Photos &amp; Videos</div>
+              <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple style={{ display:"none" }}
+                onChange={e=>{ handleFiles(e.target.files); e.target.value=""; }} />
+              <div
+                onClick={()=>fileInputRef.current?.click()}
+                onDragOver={e=>e.preventDefault()}
+                onDrop={e=>{ e.preventDefault(); handleFiles(e.dataTransfer.files); }}
+                style={{ border:`2px dashed ${th.cardBorder}`, borderRadius:"0.75rem", padding:"1rem", textAlign:"center", cursor:"pointer", background:th.card2, transition:"border-color .15s" }}
+              >
+                <div style={{ fontSize:"1.5rem", marginBottom:"0.25rem" }}>📎</div>
+                <div style={{ fontSize:"0.8rem", color:th.muted }}>Click to add or drag &amp; drop photos/videos</div>
+                <div style={{ fontSize:"0.72rem", color:th.muted, marginTop:"0.2rem" }}>Images &amp; videos up to 20 MB each</div>
               </div>
-              <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display:"none" }}
-                onChange={e=>{ handleImageFiles(e.target.files); e.target.value=""; }} />
-              {form.attachments.length < 4 && (
-                <div
-                  onClick={()=>fileInputRef.current?.click()}
-                  onDragOver={e=>e.preventDefault()}
-                  onDrop={e=>{ e.preventDefault(); handleImageFiles(e.dataTransfer.files); }}
-                  style={{ border:`2px dashed ${form.attachments.length===0?"#ef444466":th.cardBorder}`, borderRadius:"0.75rem", padding:"0.875rem", textAlign:"center", cursor:"pointer", background:th.card2, transition:"border-color .15s" }}>
-                  <div style={{ fontSize:"1.5rem", marginBottom:"0.2rem" }}>📷</div>
-                  <div style={{ fontSize:"0.8rem", color: form.attachments.length===0?"#ef4444":th.muted, fontWeight: form.attachments.length===0?600:400 }}>
-                    {form.attachments.length===0 ? "Add at least 1 photo (required)" : "Add more photos"}
-                  </div>
-                  <div style={{ fontSize:"0.7rem", color:th.muted, marginTop:"0.15rem" }}>Tap to open camera or photo library · up to 20 MB each</div>
-                </div>
-              )}
               {form.attachments.length > 0 && (
-                <div style={{ display:"flex", flexWrap:"wrap", gap:"0.5rem", marginTop:"0.625rem" }}>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:"0.625rem", marginTop:"0.75rem" }}>
                   {form.attachments.map((a, i) => (
                     <div key={i} style={{ position:"relative", width:88, height:72, borderRadius:"0.5rem", overflow:"hidden", border:`1px solid ${th.cardBorder}`, background:th.card3, flexShrink:0 }}>
-                      <img src={a.dataUrl} alt={a.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                      {a.type.startsWith("image/")
+                        ? <img src={a.dataUrl} alt={a.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                        : <div style={{ width:"100%", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:4 }}>
+                            <span style={{ fontSize:"1.5rem" }}>🎥</span>
+                            <span style={{ fontSize:"0.6rem", color:th.muted, textAlign:"center", padding:"0 4px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", width:"100%" }}>{a.name}</span>
+                          </div>
+                      }
                       <button onClick={()=>setForm(f=>({...f,attachments:f.attachments.filter((_,j)=>j!==i)}))}
                         style={{ position:"absolute", top:3, right:3, width:18, height:18, borderRadius:"50%", background:"rgba(0,0,0,0.6)", color:"#fff", border:"none", cursor:"pointer", fontSize:"0.65rem", lineHeight:1, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
                     </div>
                   ))}
-                  {form.attachments.length < 4 && (
-                    <div onClick={()=>fileInputRef.current?.click()} style={{ width:88, height:72, borderRadius:"0.5rem", border:`2px dashed ${th.cardBorder}`, background:th.card2, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", gap:"0.15rem", flexShrink:0 }}>
-                      <span style={{ fontSize:"1.25rem", color:th.muted, lineHeight:1 }}>+</span>
-                      <span style={{ fontSize:"0.62rem", color:th.muted }}>Add photo</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Video (optional, max 1) */}
-            <div style={{ marginTop:"0.875rem" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.5rem" }}>
-                <div style={{ fontSize:"0.72rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.8 }}>
-                  🎥 Video <span style={{ fontWeight:400, fontSize:"0.68rem" }}>(optional)</span>
-                </div>
-              </div>
-              <input ref={videoInputRef} type="file" accept="video/*" style={{ display:"none" }}
-                onChange={e=>{ handleVideoFile(e.target.files); e.target.value=""; }} />
-              {!form.videoAttachment ? (
-                <div onClick={()=>videoInputRef.current?.click()}
-                  style={{ border:`2px dashed ${th.cardBorder}`, borderRadius:"0.75rem", padding:"0.75rem", textAlign:"center", cursor:"pointer", background:th.card2, transition:"border-color .15s" }}>
-                  <div style={{ fontSize:"1.25rem", marginBottom:"0.15rem" }}>🎥</div>
-                  <div style={{ fontSize:"0.78rem", color:th.muted }}>Add a short video clip (optional)</div>
-                  <div style={{ fontSize:"0.7rem", color:th.muted, marginTop:"0.1rem" }}>Up to 100 MB</div>
-                </div>
-              ) : (
-                <div style={{ position:"relative", borderRadius:"0.625rem", overflow:"hidden", border:`1px solid ${th.cardBorder}`, background:th.card3 }}>
-                  <video src={form.videoAttachment.dataUrl} controls style={{ width:"100%", maxHeight:160, display:"block" }} />
-                  <button onClick={()=>setForm(f=>({...f,videoAttachment:null}))}
-                    style={{ position:"absolute", top:6, right:6, width:22, height:22, borderRadius:"50%", background:"rgba(0,0,0,0.7)", color:"#fff", border:"none", cursor:"pointer", fontSize:"0.7rem", lineHeight:1, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
-                  <div style={{ padding:"0.35rem 0.625rem", fontSize:"0.68rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{form.videoAttachment.name}</div>
                 </div>
               )}
             </div>
@@ -12848,6 +11736,7 @@ const getTabs = (user) => {
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",        icon: (c) => ICONS.users(c) },
+    { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
     { id: "settings",  label: "Settings",     icon: (c) => ICONS.settings(c) },
   ];
   // Office Staff → all tabs but no admin destructive powers
@@ -12901,600 +11790,6 @@ const filterNotifsByRole = (notifs, user) => {
   if (user.userType === 'manager') return notifs.filter(n => !n.storePC || String(n.storePC) === String(user.storePC));
   return notifs;
 };
-
-function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onOrion, onLogout }) {
-  const store = getManagerStore(stores, user) || {};
-  const pc = store.pc;
-  const todayStr = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
-  const yesterdayStr = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
-  const lastYearStr  = (() => { const d = new Date(); d.setDate(d.getDate() - 364); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
-  const [sales, setSales] = useState(null);
-  const [salesYesterday, setSalesYesterday] = useState(null);
-  const [salesLastYear, setSalesLastYear] = useState(null);
-  const [labor, setLabor] = useState(null);
-  const [hourly, setHourly] = useState(null);
-  const [workers, setWorkers] = useState([]);
-  const [orderTypes, setOrderTypes] = useState([]);
-  const [lwDaySales, setLwDaySales] = useState(null);
-  const [activeAnnouncements, setActiveAnnouncements] = useState([]);
-  const [leaderboardBanners, setLeaderboardBanners] = useState([]);
-  const [dismissedLbIds, setDismissedLbIds] = useState({});
-  const [carouselPage, setCarouselPage] = useState(0);
-  const touchStartX = useRef(null);
-  const carouselInnerRef = useRef(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(null);
-  const [showStoreInfo, setShowStoreInfo] = useState(false);
-  const [dayOffset, setDayOffset] = useState(0);
-  const [storeBlob, setStoreBlob] = useState(null);
-  const [histHourly, setHistHourly] = useState(null);
-  const [liveHistCache, setLiveHistCache] = useState({});
-  const [histLoading, setHistLoading] = useState(false);
-  const toggleBtnRef = useRef(null);
-
-  const handleToggle = useCallback(() => {
-    const btn = toggleBtnRef.current;
-    if (btn) {
-      const rect = btn.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const overlay = spawnTransitionFX(cx, cy, !dark);
-      setTimeout(() => { toggleDark(); overlay.remove(); }, 350);
-    } else {
-      toggleDark();
-    }
-  }, [dark, toggleDark]);
-
-  const fetchAll = useCallback(async () => {
-    if (!pc) { setLoading(false); return; }
-    setRefreshing(true);
-    try {
-      const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra }),
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
-
-      const [opsRes, laborBlob, checkRes, storeBlobData, orderDims, orderTotals, announceBlob, opsYestRes, opsLYRes] = await Promise.all([
-        fetchOpsTotals(pc, todayStr).catch(() => null),
-        cloudLoad('pcg_labor_v1').catch(() => null),
-        pulsePost('getGuestChecks', { include: 'guestChecks' }),
-        cloudLoad(`pcg_labor_store_${pc}`).catch(() => null),
-        pulsePost('getOrderTypeDimensions'),
-        pulsePost('getOrderTypeDailyTotals', { include: 'revenueCenters.orderTypes' }),
-        cloudLoad('pcg_announcements_v1').catch(() => null),
-        fetchOpsTotals(pc, yesterdayStr).catch(() => null),
-        fetchOpsTotals(pc, lastYearStr).catch(() => null),
-      ]);
-
-      if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
-      if (opsYestRes?.revenueCenters) setSalesYesterday(sumRVC(opsYestRes.revenueCenters));
-      if (opsLYRes?.revenueCenters) setSalesLastYear(sumRVC(opsLYRes.revenueCenters));
-      if (laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
-
-      if (checkRes?.guestChecks) {
-        const h = Array.from({ length: 24 }, (_, i) => ({ hour: i, sales: 0 }));
-        for (const ck of checkRes.guestChecks) {
-          const raw = ck.opnUTC || '';
-          const dt = raw ? new Date(raw.endsWith('Z') ? raw : raw + 'Z') : null;
-          if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += ck.chkTtl || ck.subTtl || 0;
-        }
-        setHourly(h);
-        // Cache hourly so historical days can show the chart
-        try {
-          localStorage.setItem(`embed_hourly_${pc}_${todayStr}`, JSON.stringify(h));
-          const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 31);
-          const cutoffStr = cutoff.toISOString().slice(0, 10);
-          for (const k of Object.keys(localStorage)) {
-            if (k.startsWith('embed_hourly_') && k.length >= 10 && k.slice(-10) < cutoffStr) localStorage.removeItem(k);
-          }
-        } catch {}
-      }
-
-      // Order type breakdown
-      if (orderTotals?.revenueCenters) {
-        const nameMap = {};
-        for (const o of (orderDims?.orderTypes || [])) nameMap[o.num] = o.name;
-        const agg = {};
-        for (const rc of orderTotals.revenueCenters) {
-          for (const ot of (rc.orderTypes || [])) {
-            if (!agg[ot.otNum]) agg[ot.otNum] = { name: nameMap[ot.otNum] || `Type ${ot.otNum}`, sales: 0, checks: 0 };
-            agg[ot.otNum].sales += ot.netSlsTtl || 0;
-            agg[ot.otNum].checks += ot.chkCnt || 0;
-          }
-        }
-        setOrderTypes(Object.values(agg).filter(o => o.sales > 0).sort((a, b) => b.sales - a.sales));
-      }
-
-      // Last week same-day sales from store blob history
-      const daily = storeBlobData?.daily || [];
-      const lw = new Date(); lw.setDate(lw.getDate() - 7);
-      const lwStr = lw.toISOString().slice(0, 10);
-      const lwEntry = daily.find(d => d.date === lwStr);
-      if (lwEntry?.sales > 0) setLwDaySales(lwEntry.sales);
-
-      // Save store blob for day-cycling
-      setStoreBlob(storeBlobData);
-
-      // Active announcements — separate leaderboard from regular, filter by targets
-      const allAnnounce = Array.isArray(announceBlob) ? announceBlob : [];
-      const myStoreDist = Number(store?.district || 0);
-      const isTargeted = (a) => {
-        if (!a.targets) return true;
-        const { roles, districts } = a.targets;
-        if (roles?.includes('manager')) return true;
-        if (myStoreDist && districts?.includes(myStoreDist)) return true;
-        return false;
-      };
-      setLeaderboardBanners(allAnnounce.filter(a => a.active && a.type === 'leaderboard' && isTargeted(a)));
-      setActiveAnnouncements(allAnnounce.filter(a => a.active && a.type !== 'leaderboard' && isTargeted(a)).slice(0, 3));
-
-      const empList = storeBlobData?.daily?.[0]?.employees || [];
-      if (empList.length > 0) {
-        setWorkers(empList.filter(e => e.hoursToday > 0).map(e => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
-      }
-    } catch {}
-    setLoading(false);
-    setRefreshing(false);
-    setLastRefresh(new Date());
-  }, [pc, todayStr]);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-  useEffect(() => {
-    const t = setInterval(fetchAll, 10 * 60 * 1000);
-    return () => clearInterval(t);
-  }, [fetchAll]);
-  // Fetch live data for historical days on demand (days 2–30)
-  useEffect(() => {
-    if (dayOffset <= 1) { setHistHourly(null); return; }
-    const d = new Date(); d.setDate(d.getDate() - dayOffset);
-    const dStr = d.toISOString().slice(0, 10);
-
-    // Already cached — use immediately
-    if (liveHistCache[dStr]) {
-      setHistHourly(liveHistCache[dStr].hourly || null);
-      return;
-    }
-
-    setHistLoading(true);
-    let cancelled = false;
-    (async () => {
-      try {
-        const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: dStr, ...extra }),
-        }).then(r => r.ok ? r.json() : null).catch(() => null);
-
-        const [opsRes, checkRes] = await Promise.all([
-          fetchOpsTotals(pc, dStr).catch(() => null),
-          pulsePost('getGuestChecks', { include: 'guestChecks' }),
-        ]);
-
-        if (cancelled) return;
-
-        const salesData = opsRes?.revenueCenters ? sumRVC(opsRes.revenueCenters) : null;
-
-        let hourlyData = null;
-        if (checkRes?.guestChecks) {
-          const h = Array.from({ length: 24 }, (_, i) => ({ hour: i, sales: 0 }));
-          for (const ck of checkRes.guestChecks) {
-            const raw = ck.opnUTC || '';
-            const dt = raw ? new Date(raw.endsWith('Z') ? raw : raw + 'Z') : null;
-            if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += ck.chkTtl || ck.subTtl || 0;
-          }
-          hourlyData = h;
-        }
-
-        setLiveHistCache(prev => ({ ...prev, [dStr]: { sales: salesData, hourly: hourlyData } }));
-        setHistHourly(hourlyData);
-      } catch {}
-      if (!cancelled) setHistLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [dayOffset, pc]);
-
-  if (!pc) {
-    return <div style={{ minHeight: "100vh", background: th.bg, color: th.muted, display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem", textAlign: "center" }}>No store is assigned to this manager account yet.</div>;
-  }
-
-  const storeLabor = labor?.today || null;
-  const laborPct = storeLabor?.laborPct ?? null;
-  const latestWeek = (salesWeeks || [])[0];
-  const weekRow = latestWeek?.stores?.find(r => String(r.pc) === String(pc));
-  const vsLW = weekRow?.diffSale ?? null;
-  const vsLWPct = weekRow?.diffPct ?? null;
-  const now = new Date();
-  // Day-cycling: derive display data for today (live) vs past days (blob history)
-  const isLive = dayOffset === 0;
-  const viewDate = (() => { const d = new Date(); d.setDate(d.getDate() - dayOffset); return d; })();
-  const viewDateStr = viewDate.toISOString().slice(0, 10);
-  const prevDateStr = (() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
-  const histEntry = !isLive ? (storeBlob?.daily || []).find(e => e.date === viewDateStr) || null : null;
-  const histPrevEntry = !isLive ? (storeBlob?.daily || []).find(e => e.date === prevDateStr) || null : null;
-  const liveHist = !isLive && dayOffset > 1 ? liveHistCache[viewDateStr] ?? null : null;
-  const displaySalesAmt = isLive
-    ? (sales?.netSales ?? null)
-    : dayOffset === 1
-      ? (salesYesterday?.netSales ?? histEntry?.sales ?? null)
-      : (liveHist?.sales?.netSales ?? histEntry?.sales ?? null);
-  const displayGuests = isLive
-    ? (sales?.guests ?? null)
-    : dayOffset === 1
-      ? (salesYesterday?.guests ?? null)
-      : (liveHist?.sales?.guests ?? null);
-  const displayLaborPct = isLive ? laborPct : (histEntry?.laborPct ?? null);
-  const displayLaborDollars = isLive ? storeLabor?.laborDollars : histEntry?.laborCost;
-  const displayPaceTarget = isLive ? lwDaySales : (histPrevEntry?.sales || null);
-  const laborColor = displayLaborPct == null ? th.muted : displayLaborPct <= 22.9 ? "#22c55e" : displayLaborPct <= 25.9 ? "#f59e0b" : "#ef4444";
-  const laborLabel = displayLaborPct == null ? "No Data" : displayLaborPct <= 22.9 ? "On Target" : displayLaborPct <= 25.9 ? "Watch" : "Over";
-  const currentHour = now.getHours();
-  const visibleHours = isLive
-    ? (hourly ? hourly.filter(h => h.hour >= 5 && h.hour <= Math.max(5, currentHour)) : [])
-    : (histHourly ? histHourly.filter(h => h.hour >= 5 && h.sales > 0) : []);
-  const maxSales = Math.max(...visibleHours.map(h => h.sales), 1);
-  const peakHour = visibleHours.length ? visibleHours.reduce((a, b) => b.sales > a.sales ? b : a, visibleHours[0]) : null;
-  const fmt = n => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
-  const hourLabel = h => h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
-  const assetLabel = { DT: 'Drive-Thru', IL: 'Inline', FS: 'Freestanding', GS: 'Gas Station' }[store.baseAsset] || store.baseAsset || 'Unknown';
-  const cardBase = {
-    background: dark ? `linear-gradient(180deg, ${th.card} 0%, ${th.card2} 100%)` : "#ffffff",
-    border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`,
-    borderRadius: 10,
-    boxShadow: dark ? "0 12px 28px rgba(0,0,0,0.22)" : "0 2px 8px rgba(0,0,0,0.07), 0 8px 24px rgba(0,0,0,0.06)",
-  };
-  const Card = ({ children, accent, style }) => <div style={{ ...cardBase, borderLeft: accent ? `3px solid ${accent}` : `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, padding: "0.9rem", ...style }}>{children}</div>;
-  const Label = ({ children, color, right }) => <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.65rem" }}><div style={{ color: color || th.muted, fontSize: "0.58rem", fontWeight: 900, letterSpacing: 1.4, textTransform: "uppercase" }}>{children}</div>{right}</div>;
-  const Chip = ({ children, color = th.muted }) => <span style={{ color, background: `${color}18`, border: `1px solid ${color}55`, borderRadius: 999, padding: "0.12rem 0.42rem", fontSize: "0.56rem", fontWeight: 900, textTransform: "uppercase", whiteSpace: "nowrap" }}>{children}</span>;
-  const MiniStat = ({ label, value, color }) => <div style={{ minWidth: 0 }}><div style={{ color: color || th.text, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</div><div style={{ color: th.muted, fontSize: "0.6rem", marginTop: "0.18rem" }}>{label}</div></div>;
-  const IconButton = ({ children, onClick, title, btnRef }) => <button ref={btnRef} onClick={onClick} title={title} aria-label={title} style={{ width: 34, height: 34, borderRadius: 8, background: dark ? th.card : "#ffffff", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, boxShadow: dark ? "none" : "0 1px 4px rgba(0,0,0,0.08)", color: th.text, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>{children}</button>;
-
-  return (
-    <div style={{ minHeight: "100vh", background: dark ? "#0b0d13" : "#f1f3f7", color: th.text }}>
-      <div style={{ position: "sticky", top: 0, zIndex: 10 }}>
-        <div style={{ height: 3, background: `linear-gradient(90deg, ${O} 0%, #ff9950 100%)` }} />
-        <div style={{ background: dark ? "rgba(11,13,19,0.97)" : "rgba(255,255,255,0.97)", borderBottom: `1px solid ${th.headerBorder}`, padding: "0.65rem 0.85rem", backdropFilter: "blur(16px)" }}>
-          <div style={{ maxWidth: 380, margin: "0 auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: "0.6rem", alignItems: "center" }}>
-            <img src={LOGOS[th.logoSeal]} alt="PCG" style={{ width: 30, height: 30, objectFit: "contain", flexShrink: 0 }} />
-            <button onClick={() => setShowStoreInfo(true)} title="View store details" style={{ background: "none", border: "none", cursor: "pointer", color: th.text, padding: 0, textAlign: "left", minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.38rem", minWidth: 0 }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: loading ? "#f59e0b" : isLive ? "#22c55e" : "#64748b", boxShadow: `0 0 0 3px ${(loading ? "#f59e0b" : isLive ? "#22c55e" : "#64748b")}22`, flexShrink: 0 }} />
-                <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.95rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name || `Store #${pc}`}</span>
-              </div>
-              <div style={{ color: th.muted, fontSize: "0.58rem", marginTop: "0.1rem", paddingLeft: "0.95rem" }}>#{pc} · {isLive ? now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · {isLive ? (loading ? "Syncing…" : "Live") : "History"}</div>
-            </button>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-              <IconButton onClick={handleToggle} title={dark ? "Switch to light" : "Switch to dark"} btnRef={toggleBtnRef}>{dark ? ICONS.sun("#f59e0b") : ICONS.moon(th.muted)}</IconButton>
-              <IconButton onClick={onLogout} title="Sign out">{ICONS.logout(th.muted)}</IconButton>
-            </div>
-          </div>
-          {/* Date navigation strip */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)", borderRadius: 8, padding: "3px 4px", marginTop: "0.38rem" }}>
-            <button onClick={() => setDayOffset(o => Math.min(o + 1, 29))} disabled={dayOffset >= 29} style={{ background: "none", border: "none", color: dayOffset >= 29 ? (dark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)") : (dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.7)"), fontSize: "1.1rem", lineHeight: 1, cursor: dayOffset >= 29 ? "default" : "pointer", padding: "2px 10px", borderRadius: 6 }}>‹</button>
-            <div style={{ textAlign: "center", flex: 1 }}>
-              <span style={{ color: dark ? "#fff" : "#111", fontSize: "0.7rem", fontWeight: 800 }}>
-                {dayOffset === 0 ? "Today" : dayOffset === 1 ? "Yesterday" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-              </span>
-            </div>
-            <button onClick={() => setDayOffset(o => Math.max(o - 1, 0))} disabled={dayOffset === 0} style={{ background: "none", border: "none", color: dayOffset === 0 ? (dark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)") : (dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.7)"), fontSize: "1.1rem", lineHeight: 1, cursor: dayOffset === 0 ? "default" : "pointer", padding: "2px 10px", borderRadius: 6 }}>›</button>
-          </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="fade-in" style={{ maxWidth: 380, margin: "0 auto", padding: "0.75rem 0.75rem 5.9rem", display: "grid", gap: "0.7rem" }}>
-        {displayLaborPct != null && displayLaborPct > 25.9 && (
-          <div style={{ background: dark ? "#f59e0b14" : "#fffbeb", border: `1px solid ${dark ? "#f59e0b55" : "#fcd34d"}`, borderLeft: "3px solid #f59e0b", borderRadius: 10, padding: "0.62rem 0.8rem", display: "flex", alignItems: "center", gap: "0.55rem" }}>
-            <span style={{ fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}>⚠️</span>
-            <div>
-              <div style={{ color: dark ? "#f59e0b" : "#92400e", fontSize: "0.68rem", fontWeight: 900, letterSpacing: 0.3 }}>Action Needed</div>
-              <div style={{ color: dark ? "#fcd34d" : "#b45309", fontSize: "0.62rem", marginTop: "0.1rem" }}>Labor is over target — review staffing.</div>
-            </div>
-          </div>
-        )}
-
-        {leaderboardBanners.filter(a => !dismissedLbIds[a.id]).map(a => (
-          <div key={a.id} style={{ background: dark ? "#f59e0b14" : "#fffdf0", border: `1px solid ${dark ? "#f59e0b55" : "#fcd34d"}`, borderLeft: "3px solid #f59e0b", borderRadius: 10, padding: "0.62rem 0.8rem" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.45rem" }}>
-              <span style={{ fontSize: "1rem", lineHeight: 1.2, flexShrink: 0 }}>🏆</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: dark ? "#f59e0b" : "#92400e", fontSize: "0.64rem", fontWeight: 900, letterSpacing: 0.3, marginBottom: "0.18rem" }}>Weekly Leaderboard</div>
-                <div style={{ color: dark ? "#fcd34d" : "#b45309", fontSize: "0.62rem", lineHeight: 1.5, whiteSpace: "pre-line" }}>{a.message}</div>
-              </div>
-              <button onClick={() => setDismissedLbIds(p => ({ ...p, [a.id]: true }))} style={{ background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "0.9rem", padding: "0 0.1rem", lineHeight: 1, flexShrink: 0 }}>✕</button>
-            </div>
-          </div>
-        ))}
-
-        <Card style={{ padding: "1rem", borderColor: `${O}55`, background: `linear-gradient(160deg, ${O}18 0%, ${th.card} 46%, ${th.card2} 100%)` }}>
-          <Label right={<Chip color={isLive ? (loading ? "#f59e0b" : "#22c55e") : "#64748b"}>{isLive ? (loading ? "Syncing" : "Live") : "History"}</Chip>}>{isLive ? "Today's Sales" : (dayOffset === 1 ? "Yesterday's Sales" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))}</Label>
-          {(isLive && loading) || histLoading ? <div style={{ color: th.muted, fontSize: "0.82rem", textAlign: "center", padding: "0.75rem" }}>Loading...</div> : (
-            <>
-              <div style={{ color: O, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.1rem", lineHeight: 1, letterSpacing: 0 }}>{displaySalesAmt != null ? fmt(displaySalesAmt) : "--"}</div>
-              {(isLive || displayGuests != null) && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.85rem" }}>
-                  <MiniStat label="Guests" value={displayGuests != null ? Math.round(displayGuests).toLocaleString() : "--"} color="#74c0fc" />
-                  <MiniStat label="Avg Check" value={displayGuests > 0 ? '$' + (displaySalesAmt / displayGuests).toFixed(2) : "--"} color="#fde047" />
-                </div>
-              )}
-            </>
-          )}
-          {isLive && (vsLW !== null || salesLastYear) && <>
-            <div style={{ height: 1, background: th.cardBorder, margin: "0.85rem 0 0.65rem" }} />
-            {vsLW !== null && <div style={{ color: th.muted, fontSize: "0.66rem", marginBottom: salesLastYear ? "0.35rem" : 0 }}>vs last week: <span style={{ color: vsLW < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{vsLW < 0 ? "▼" : "▲"} {fmt(Math.abs(vsLW))} ({Math.abs(vsLWPct || 0).toFixed(0)}%)</span></div>}
-            {salesLastYear && displaySalesAmt != null && (() => {
-              const diff = displaySalesAmt - salesLastYear.netSales;
-              const pct = salesLastYear.netSales > 0 ? (diff / salesLastYear.netSales) * 100 : 0;
-              return <div style={{ color: th.muted, fontSize: "0.66rem" }}>vs last year: <span style={{ color: diff < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{diff < 0 ? "▼" : "▲"} {fmt(Math.abs(diff))} ({Math.abs(pct).toFixed(0)}%)</span></div>;
-            })()}
-          </>}
-          {!loading && displaySalesAmt != null && displayPaceTarget > 0 && (() => {
-            const pct = Math.min(Math.round((displaySalesAmt / displayPaceTarget) * 100), 150);
-            const pc2 = pct >= 100 ? "#22c55e" : pct >= 90 ? "#f59e0b" : "#ef4444";
-            const compareLabel = isLive ? `last ${now.toLocaleDateString("en-US", { weekday: "short" })}` : prevDateStr.slice(5).replace('-', '/');
-            return (
-              <div style={{ marginTop: "0.7rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
-                  <span style={{ color: th.muted, fontSize: "0.58rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Sales Pace</span>
-                  <span style={{ color: pc2, fontSize: "0.62rem", fontWeight: 900 }}>{pct}% of {compareLabel}</span>
-                </div>
-                <div style={{ height: 6, borderRadius: 99, background: dark ? "rgba(255,255,255,0.08)" : "#e5e7eb", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: Math.min(pct, 100) + "%", borderRadius: 99, background: `linear-gradient(90deg, ${pc2}99, ${pc2})`, transition: "width 0.6s ease" }} />
-                </div>
-                <div style={{ color: th.subtle, fontSize: "0.56rem", marginTop: "0.25rem" }}>Prior: {fmt(displayPaceTarget)}</div>
-              </div>
-            );
-          })()}
-        </Card>
-
-
-        <Card accent={laborColor}>
-          <Label right={<Chip color={laborColor}>{laborLabel}</Chip>}>Labor</Label>
-          {(() => {
-            const wtd = storeBlob?.weekly?.[0] || null;
-            const wtdColor = wtd ? (wtd.laborPct <= 22.9 ? "#22c55e" : wtd.laborPct <= 25.9 ? "#f59e0b" : "#ef4444") : th.muted;
-            return (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", alignItems: "end" }}>
-                <div>
-                  <div style={{ color: laborColor, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.6rem", lineHeight: 1 }}>{(isLive && loading) ? "--" : displayLaborPct != null ? displayLaborPct.toFixed(1) + "%" : "--"}</div>
-                  <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: "0.35rem" }}>{displayLaborDollars ? `${fmt(displayLaborDollars)} labor` : "Target 22.9%"}</div>
-                </div>
-                {wtd && (
-                  <div style={{ borderLeft: `1px solid ${dark ? "rgba(255,255,255,0.08)" : "#e5e7eb"}`, paddingLeft: "0.65rem" }}>
-                    <div style={{ color: th.muted, fontSize: "0.54rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.2rem" }}>WTD</div>
-                    <div style={{ color: wtdColor, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.25rem", lineHeight: 1 }}>{(wtd.laborPct || 0).toFixed(1)}%</div>
-                    <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: "0.35rem" }}>{fmt(wtd.laborDollars || 0)} labor</div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </Card>
-
-        {!loading && visibleHours.length > 0 && (
-          <Card style={{ padding: "0.9rem 0.9rem 0.75rem" }}>
-            <Label right={peakHour && <Chip color={O}>Peak {hourLabel(peakHour.hour)}</Chip>}>Sales By Hour</Label>
-            {/* Chart area */}
-            <div style={{ position: "relative", height: 110, marginTop: 4 }}>
-              {/* Subtle grid lines */}
-              {[33, 66].map(pct => (
-                <div key={pct} style={{ position: "absolute", left: 0, right: 0, bottom: pct + "%", height: 1, background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)", pointerEvents: "none" }} />
-              ))}
-              {/* Bars */}
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 2 }}>
-                {visibleHours.map(h => {
-                  const isCurrent = isLive && h.hour === currentHour;
-                  const isPeak = peakHour && h.hour === peakHour.hour;
-                  const heightPct = Math.max(4, Math.round(h.sales / maxSales * 100));
-                  const barBg = isCurrent
-                    ? `linear-gradient(180deg, ${O} 0%, #c94d0a 100%)`
-                    : isPeak
-                    ? `linear-gradient(180deg, #ff9950 0%, #c94d0a 100%)`
-                    : h.sales > 0
-                    ? dark ? `linear-gradient(180deg, #a0522d88 0%, #6b321855 100%)` : `linear-gradient(180deg, #fdba7488 0%, #f9731644 100%)`
-                    : dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.05)";
-                  return (
-                    <div key={h.hour} title={`${hourLabel(h.hour)}: ${fmt(h.sales)}`} style={{ flex: 1, height: heightPct + "%", background: barBg, borderRadius: "4px 4px 0 0", boxShadow: isCurrent ? `0 0 8px ${O}55` : "none", transition: "height 0.4s ease" }} />
-                  );
-                })}
-              </div>
-            </div>
-            {/* X-axis labels */}
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.3rem", paddingTop: "0.2rem", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"}` }}>
-              <span style={{ color: th.subtle, fontSize: "0.54rem" }}>{hourLabel(visibleHours[0]?.hour ?? 5)}</span>
-              <span style={{ color: th.subtle, fontSize: "0.54rem" }}>{hourLabel(visibleHours[Math.floor(visibleHours.length / 2)]?.hour ?? 5)}</span>
-              <span style={{ color: isLive ? O : th.subtle, fontSize: "0.54rem", fontWeight: 800 }}>{hourLabel(visibleHours[visibleHours.length - 1]?.hour ?? currentHour)}{isLive ? " now" : ""}</span>
-            </div>
-            {/* Peak + summary */}
-            {peakHour && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.5rem" }}>
-                <div style={{ color: th.muted, fontSize: "0.62rem" }}>Peak <span style={{ color: O, fontWeight: 900 }}>{hourLabel(peakHour.hour)} · {fmt(peakHour.sales)}</span></div>
-                {isLive && hourly && hourly[currentHour]?.sales > 0
-                  ? <div style={{ color: th.muted, fontSize: "0.62rem" }}>Now <span style={{ color: O, fontWeight: 900 }}>{fmt(hourly[currentHour].sales)}</span></div>
-                  : !isLive && displaySalesAmt != null && <div style={{ color: th.muted, fontSize: "0.62rem" }}>Total <span style={{ color: O, fontWeight: 900 }}>{fmt(displaySalesAmt)}</span></div>
-                }
-              </div>
-            )}
-          </Card>
-        )}
-
-        {(() => {
-          const carouselPages = [
-            { id: 'workers', show: isLive && workers.length > 0, content: (
-              <>
-                <div style={{ display: "flex", alignItems: "center", marginBottom: "0.65rem" }}>
-                  <div style={{ color: "#8b5cf6", fontSize: "0.58rem", fontWeight: 900, letterSpacing: 1.6, textTransform: "uppercase" }}>Who's Working <span style={{ color: th.muted, fontWeight: 700 }}>· {workers.length}</span></div>
-                </div>
-                <div style={{ display: "grid", gap: "0.45rem" }}>
-                  {workers.slice(0, 5).map((w, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 }}>
-                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
-                        <span style={{ color: th.text, fontWeight: 600, fontSize: "0.8rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</span>
-                      </div>
-                      <span style={{ color: th.muted, fontSize: "0.65rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>{w.hoursToday.toFixed(1)}h</span>
-                    </div>
-                  ))}
-                  {workers.length > 5 && <div style={{ color: th.muted, fontSize: "0.62rem", textAlign: "center", marginTop: "0.2rem" }}>+{workers.length - 5} more in full portal</div>}
-                </div>
-              </>
-            )},
-            { id: 'orders', show: isLive && !loading, content: (
-              <>
-                <Label>Order Types</Label>
-                {orderTypes.length > 0 ? (() => {
-                  const total = orderTypes.reduce((s, o) => s + o.sales, 0);
-                  return (
-                    <div style={{ display: "grid", gap: "0.5rem" }}>
-                      {orderTypes.map((o, i) => {
-                        const pct = total > 0 ? Math.round((o.sales / total) * 100) : 0;
-                        const colors = [O, "#8b5cf6", "#74c0fc", "#f59e0b"];
-                        const c = colors[i % colors.length];
-                        return (
-                          <div key={o.name}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
-                              <span style={{ color: th.text, fontSize: "0.72rem", fontWeight: 600 }}>{o.name}</span>
-                              <span style={{ color: th.muted, fontSize: "0.65rem" }}>{fmt(o.sales)} <span style={{ color: c, fontWeight: 800 }}>{pct}%</span></span>
-                            </div>
-                            <div style={{ height: 5, borderRadius: 99, background: dark ? "rgba(255,255,255,0.07)" : "#e5e7eb" }}>
-                              <div style={{ height: "100%", width: pct + "%", borderRadius: 99, background: c, opacity: 0.85, transition: "width 0.5s ease" }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })() : <div style={{ color: th.muted, fontSize: "0.72rem" }}>No order type data yet.</div>}
-              </>
-            )},
-            { id: 'announce', show: activeAnnouncements.length > 0, content: (
-              <>
-                <Label right={<span style={{ background: `${O}22`, color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: "0.08rem 0.38rem", fontSize: "0.54rem", fontWeight: 900 }}>{activeAnnouncements.length}</span>}>Announcements</Label>
-                <div style={{ display: "grid", gap: "0.55rem" }}>
-                  {activeAnnouncements.map((a, i) => (
-                    <div key={a.id || i} style={{ paddingLeft: "0.6rem", borderLeft: `2px solid ${O}66` }}>
-                      <div style={{ color: th.text, fontSize: "0.76rem", fontWeight: 700, lineHeight: 1.3 }}>{a.title}</div>
-                      <div style={{ color: th.muted, fontSize: "0.65rem", marginTop: "0.18rem", lineHeight: 1.4 }}>{a.message}</div>
-                    </div>
-                  ))}
-                </div>
-                <button onClick={onFullPortal} style={{ marginTop: "0.65rem", background: "none", border: "none", color: O, fontSize: "0.62rem", fontWeight: 800, cursor: "pointer", padding: 0, fontFamily: "'Source Sans 3'" }}>View all in portal →</button>
-              </>
-            )},
-          ].filter(p => p.show);
-
-          if (carouselPages.length === 0) return null;
-          const page = Math.min(carouselPage, carouselPages.length - 1);
-
-          const onTouchStart = e => { touchStartX.current = e.touches[0].clientX; };
-          const onTouchMove = e => {
-            if (touchStartX.current === null || !carouselInnerRef.current) return;
-            const dx = e.touches[0].clientX - touchStartX.current;
-            carouselInnerRef.current.style.transition = 'none';
-            carouselInnerRef.current.style.transform = `translateX(calc(-${page * 100}% + ${dx}px))`;
-          };
-          const onTouchEnd = e => {
-            if (touchStartX.current === null) return;
-            const dx = e.changedTouches[0].clientX - touchStartX.current;
-            const newPage = Math.abs(dx) > 44
-              ? Math.max(0, Math.min(carouselPages.length - 1, page + (dx < 0 ? 1 : -1)))
-              : page;
-            if (carouselInnerRef.current) {
-              carouselInnerRef.current.style.transition = 'transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)';
-              carouselInnerRef.current.style.transform = `translateX(-${newPage * 100}%)`;
-            }
-            setCarouselPage(newPage);
-            touchStartX.current = null;
-          };
-
-          return (
-            <Card style={{ userSelect: "none", overflow: "hidden", padding: "0.9rem 0.9rem 0.75rem" }}>
-              {/* Sliding strip */}
-              <div style={{ overflow: "hidden" }}>
-                <div ref={carouselInnerRef} style={{ display: "flex", transform: `translateX(-${page * 100}%)`, transition: "transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)", willChange: "transform" }}
-                  onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
-                >
-                  {carouselPages.map(p => (
-                    <div key={p.id} style={{ minWidth: "100%", width: "100%", flexShrink: 0 }}>
-                      {p.content}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {/* Dot indicators */}
-              {carouselPages.length > 1 && (
-                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.35rem", marginTop: "0.85rem", paddingTop: "0.6rem", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"}` }}>
-                  {carouselPages.map((p, i) => (
-                    <button key={p.id} onClick={() => {
-                      if (carouselInnerRef.current) {
-                        carouselInnerRef.current.style.transition = 'transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)';
-                        carouselInnerRef.current.style.transform = `translateX(-${i * 100}%)`;
-                      }
-                      setCarouselPage(i);
-                    }} style={{ width: i === page ? 20 : 7, height: 7, borderRadius: 99, background: i === page ? "#22c55e" : (dark ? "rgba(255,255,255,0.2)" : "#d1d5db"), border: "none", cursor: "pointer", padding: 0, transition: "all 0.25s ease" }} />
-                  ))}
-                </div>
-              )}
-            </Card>
-          );
-        })()}
-
-        {lastRefresh && <div style={{ textAlign: "center", fontSize: "0.58rem", color: th.subtle, opacity: 0.7 }}>Updated {lastRefresh.toLocaleTimeString()}</div>}
-      </div>
-
-      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
-        <button onClick={fetchAll} disabled={refreshing} title="Refresh" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text }}>
-          <span style={{ fontSize: "1.15rem", lineHeight: 1 }}>{refreshing ? "·" : "↻"}</span>
-          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Refresh</span>
-        </button>
-        <button onClick={onOrion} title="Ask Orion" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: "#8b5cf6" }}>
-          <span style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>{ICONS.chat("#8b5cf6")}</span>
-          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Orion</span>
-        </button>
-        <button onClick={onFullPortal} title="Full Portal" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O }}>
-          <span style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>{ICONS.dashboard(O)}</span>
-          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Full Portal</span>
-        </button>
-      </div>
-
-      {showStoreInfo && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setShowStoreInfo(false)}>
-          <div style={{ background: th.card, borderRadius: "1.25rem 1.25rem 0 0", width: "100%", maxWidth: 480, padding: "1.4rem 1.25rem 2.5rem", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 -8px 40px rgba(0,0,0,0.28)" }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" }}>
-              <div>
-                <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: th.text, lineHeight: 1.1 }}>{store.name || `Store #${pc}`}</div>
-                {store.legal && <div style={{ color: th.muted, fontSize: "0.78rem", marginTop: "0.2rem" }}>{store.legal}</div>}
-              </div>
-              <button onClick={() => setShowStoreInfo(false)} style={{ background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", color: th.muted, padding: "0.25rem 0.55rem", cursor: "pointer", fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}>×</button>
-            </div>
-            <div style={{ height: 1, background: th.cardBorder, marginBottom: "1.1rem" }} />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginBottom: "1rem" }}>
-              <InfoCell label="PC Number" value={store.pc} color={O} th={th} />
-              <InfoCell label="Paycor Client ID" value={store.paycor || "—"} th={th} />
-              <InfoCell label="Asset Type" value={assetLabel} color="#8b5cf6" th={th} />
-              <InfoCell label="District" value={`District ${store.district || "—"}${store.dmName ? " - " + store.dmName : ""}`} th={th} />
-            </div>
-            <InfoCell label="Address" value={`${store.address || ""}${store.city ? ", " + store.city : ""}${store.state ? ", " + store.state : ""}${store.zip ? " " + store.zip : ""}`} th={th} />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginTop: "1rem" }}>
-              <InfoCell label="Store Manager" value={store.mgr || "—"} th={th} />
-              <InfoCell label="Store Email" value={store.email || "—"} th={th} />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function InfoCell({ label, value, color, th }) {
-  return (
-    <div>
-      <div style={{ fontSize: "0.57rem", fontWeight: 900, letterSpacing: 1.2, textTransform: "uppercase", color: th.muted, marginBottom: "0.2rem" }}>{label}</div>
-      <div style={{ color: color || th.text, fontWeight: color ? 700 : 500, fontSize: "0.86rem", wordBreak: "break-word" }}>{value}</div>
-    </div>
-  );
-}
-
 // Cash admins can edit/delete deposits and upload history. Full admins + anyone with role "Cash Admin".
 const isCashAdmin = (u) => {
   if (!u) return false;
@@ -14602,7 +12897,7 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
                 const isChrome = /Chrome/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent);
                 const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
                 const msg = isSafari
-                  ? `Push is blocked. To fix:\n\n1. Go to Safari > Settings > Websites > Notifications\n2. Find ${BRAND_CONFIG.portalUrl.replace('https://', '')}\n3. Change to Allow\n4. Reload this page`
+                  ? "Push is blocked. To fix:\n\n1. Go to Safari > Settings > Websites > Notifications\n2. Find pcg-ops.netlify.app\n3. Change to Allow\n4. Reload this page"
                   : isChrome
                   ? "Push is blocked. To fix:\n\n1. Click the lock/tune icon in the address bar\n2. Find Notifications > Allow\n3. Reload this page"
                   : "Push is blocked. To fix:\n\n1. Open site settings in your browser\n2. Find Notifications > Allow\n3. Reload this page";
@@ -14833,7 +13128,8 @@ function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
 }
 
 // ── Dashboard Component ─────────────────────────────────────────────────────
-function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert }) {
+function Dashboard({ user, th, links, todos, stores, projects, announcements, announcementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion }) {
+  const O = "#FF671F";
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = (user?.name || "").split(" ")[0];
@@ -14943,30 +13239,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
   });
   const activeProjects = (projects || []).filter(p => !p.completed);
   const myStores = isDM ? (stores || []).filter(s => s.district === user?.district) : stores || [];
-  const userDistrict = user?.district ? Number(user.district) : null;
-  const userStoreDistrict = user?.storePC
-    ? Number((stores || []).find(s => String(s.pc) === String(user.storePC))?.district || 0)
-    : null;
-
-  function announcementIsTargetedToMe(a) {
-    if (!a.targets) return true;
-    const { roles, districts } = a.targets;
-    if (roles?.includes(user?.userType)) return true;
-    const myDist = userDistrict || userStoreDistrict;
-    if (myDist && districts?.includes(myDist)) return true;
-    return false;
-  }
-
-  const leaderboardAnnouncements = (announcements || []).filter(a =>
-    a.active && a.type === 'leaderboard' &&
-    !announcementsDismissed?.[`${user?.id}_${a.id}`] &&
-    announcementIsTargetedToMe(a)
-  );
-  const unreadAnnouncements = (announcements || []).filter(a =>
-    a.active && a.type !== 'leaderboard' &&
-    !announcementsDismissed?.[`${user?.id}_${a.id}`] &&
-    announcementIsTargetedToMe(a)
-  );
+  const unreadAnnouncements = (announcements || []).filter(a => a.active && !announcementsDismissed?.[`${user?.id}_${a.id}`]);
 
   // KPI cards based on role
   const kpis = [];
@@ -15161,33 +13434,6 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
         </div>
       </div>
 
-      {/* Leaderboard Announcements — trophy banner, directly dismissible */}
-      {leaderboardAnnouncements.map(a => (
-        <div key={a.id} style={{
-          position: "relative", overflow: "hidden",
-          background: `linear-gradient(135deg, #f59e0b18 0%, ${th.card} 65%)`,
-          border: `1px solid #f59e0b44`,
-          borderRadius: "0.875rem",
-          padding: isMobile ? "0.875rem 1rem" : "1rem 1.25rem",
-          marginBottom: "1rem",
-          boxShadow: `0 2px 12px #f59e0b18`,
-        }}>
-          <div aria-hidden="true" style={{ position: "absolute", top: -30, left: -20, width: 120, height: 120, borderRadius: "50%", background: "radial-gradient(circle, #f59e0b22 0%, transparent 70%)", pointerEvents: "none", filter: "blur(8px)" }} />
-          <div style={{ display: "flex", alignItems: "flex-start", gap: "0.875rem" }}>
-            <div style={{ width: 38, height: 38, borderRadius: "0.6rem", background: "#f59e0b22", border: "1px solid #f59e0b44", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "1.25rem" }}>🏆</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "#f59e0b", textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.2rem" }}>Weekly Leaderboard</div>
-              <div style={{ fontSize: "0.9rem", fontWeight: 700, color: th.text, marginBottom: "0.35rem" }}>{a.title}</div>
-              <div style={{ fontSize: "0.78rem", color: th.muted, whiteSpace: "pre-line", lineHeight: 1.6 }}>{a.message}</div>
-            </div>
-            <button onClick={() => {
-              const key = `${user?.id}_${a.id}`;
-              setAnnouncementsDismissed(prev => ({ ...prev, [key]: true }));
-            }} style={{ background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "1.1rem", padding: "0.1rem 0.25rem", flexShrink: 0, lineHeight: 1 }} title="Dismiss">✕</button>
-          </div>
-        </div>
-      ))}
-
       {/* Unread Announcements — shown at top so they're never missed */}
       {unreadAnnouncements.length > 0 && (
         <div onClick={() => setTab("announcements")} style={{
@@ -15378,7 +13624,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
 
       {/* ─── Today's Brief from Orion ─────────────────────────────────── */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
-        <TodayBrief user={user} th={th} setAnnouncements={setAnnouncements} showAlert={showAlert} />
+        <TodayBrief user={user} th={th} />
       )}
 
       {/* ─── Business Cases + Tickets — adaptive layout ──────────────────── */}
@@ -15394,7 +13640,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
           {/* Left: Business Cases */}
           {showBizCases && (
             <div style={{ ...card(th), padding:"1.1rem 1.15rem" }}>
-              <BusinessCasesCard user={user} th={th} inline={true} stores={stores} setAnnouncements={setAnnouncements} showAlert={showAlert} />
+              <BusinessCasesCard user={user} th={th} inline={true} />
             </div>
           )}
 
@@ -15970,6 +14216,7 @@ function isBankClosed(dateStr) {
 }
 
 function CashManagement({ user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }) {
+  const O = "#FF671F";
   const G = "#22c55e";
   const R = "#ef4444";
   const Y = "#fbbf24";
@@ -18131,6 +16378,7 @@ function AdminLabor({ stores, districts, th, user }) {
 /** Render analyst markdown to React elements (lightweight, no library needed) */
 function renderAnalystMarkdown(text, th) {
   if (!text) return null;
+  const O = '#FF671F';
   const lines = text.split('\n');
   const elements = [];
   let tableRows = [];
@@ -18282,6 +16530,7 @@ function AskBar({ user, th, onNavigate }) {
   };
 
   if (!open) return null;
+  const O = '#FF671F';
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '12vh', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={(e) => { if (e.target === e.currentTarget) { setOpen(false); setAnswer(null); setQuery(''); setFeedback(null); } }}>
       <div style={{ width: '100%', maxWidth: 640, background: th.card, borderRadius: '1rem', border: `1px solid ${th.cardBorder}`, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
@@ -18326,225 +16575,13 @@ function AskBar({ user, th, onNavigate }) {
   );
 }
 
-// ── PDF export helpers (Brief + Business Cases) ───────────────────────────────
-
-function _pdfBrandRGB() {
-  const h = BRAND_CONFIG.primary.replace('#', '');
-  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
-}
-
-function _pdfHeader(doc, title, subtitle, pageW, margin) {
-  const br = _pdfBrandRGB();
-  doc.setFillColor(...br);
-  doc.rect(0, 0, pageW, 1.2, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(20);
-  doc.setTextColor(255, 255, 255);
-  doc.text(title, margin, 0.55);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text(subtitle, margin, 0.85);
-}
-
-function _pdfFooters(doc, label, pageW, pageH, margin, contentW) {
-  const total = doc.getNumberOfPages();
-  for (let p = 1; p <= total; p++) {
-    doc.setPage(p);
-    doc.setFontSize(7);
-    doc.setTextColor(180, 180, 180);
-    doc.text(label, margin, pageH - 0.3);
-    doc.text(`Page ${p} of ${total}`, margin + contentW, pageH - 0.3, { align: 'right' });
-  }
-}
-
-function exportBriefPDF(brief, user) {
-  const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
-  if (!JsPDFCtor) { alert('PDF library not available'); return; }
-  const doc = new JsPDFCtor({ unit: 'in', format: 'letter' });
-  const pageW = 8.5, pageH = 11, margin = 0.6, contentW = pageW - margin * 2;
-  const br = _pdfBrandRGB();
-
-  _pdfHeader(doc, "Today's Brief", `${brief.scope} · ${brief.role} · ${brief.date}`, pageW, margin);
-
-  let y = 1.55;
-  doc.setFontSize(8);
-  doc.setTextColor(160, 160, 160);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Generated ${new Date(brief.generatedAt).toLocaleString()} · Orion AI Analyst`, margin, y);
-  y += 0.35;
-
-  const lines = (brief.content || '').split('\n');
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) { y += 0.08; continue; }
-
-    if (y > pageH - 1.2) { doc.addPage(); y = margin; }
-
-    if (line.startsWith('•') || line.startsWith('-')) {
-      const clean = line.replace(/^[•\-]\s*/, '').replace(/\*\*/g, '').replace(/[\u{1F300}-\u{1FFFF}]/gu, '').trim();
-      // Split on · to find action
-      const parts = clean.split('·');
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(30, 30, 30);
-      // Bullet dot
-      doc.setFillColor(...br);
-      doc.circle(margin + 0.07, y - 0.04, 0.035, 'F');
-      const wrapped = doc.splitTextToSize(clean, contentW - 0.25);
-      if (y + wrapped.length * 0.175 > pageH - 1.2) { doc.addPage(); y = margin; }
-      doc.text(wrapped, margin + 0.2, y);
-      y += wrapped.length * 0.175 + 0.14;
-
-    } else if (line.toLowerCase().includes('watch today')) {
-      y += 0.08;
-      // Strip emoji and markdown bold markers — jsPDF Helvetica has no emoji support
-      const clean = line.replace(/\*\*/g, '').replace(/[\u{1F300}-\u{1FFFF}]/gu, '').replace(/^[^\w]*/, '').trim();
-      const label = clean.match(/^watch today/i) ? clean : 'Watch today: ' + clean;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      const wrapped = doc.splitTextToSize(label, contentW - 0.4);
-      const boxH = wrapped.length * 0.175 + 0.32;
-      if (y + boxH > pageH - 1.2) { doc.addPage(); y = margin; }
-      doc.setFillColor(255, 247, 230);
-      doc.setDrawColor(...br);
-      doc.setLineWidth(0.012);
-      doc.roundedRect(margin, y - 0.12, contentW, boxH, 0.07, 0.07, 'FD');
-      doc.setTextColor(...br);
-      doc.text(wrapped, margin + 0.18, y + 0.1);
-      y += boxH + 0.1;
-
-    } else {
-      // Plain text / heading
-      const clean = line.replace(/\*\*/g, '').replace(/[\u{1F300}-\u{1FFFF}]/gu, '').trim();
-      if (!clean) { y += 0.08; continue; }
-      doc.setFont('helvetica', clean.length < 60 ? 'bold' : 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(50, 50, 50);
-      const wrapped = doc.splitTextToSize(clean, contentW);
-      doc.text(wrapped, margin, y);
-      y += wrapped.length * 0.175 + 0.08;
-    }
-  }
-
-  _pdfFooters(doc, `${BRAND_CONFIG.portalName} · Orion AI · Confidential`, pageW, pageH, margin, contentW);
-  logClientEvent(user?.id, user?.userType, 'pdf_download', { type: 'brief', scope: brief.scope, date: brief.date });
-  doc.save(`orion_brief_${brief.date}.pdf`);
-}
-
-function exportCasesPDF(cases, totalOpp, scope, user) {
-  const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
-  if (!JsPDFCtor) { alert('PDF library not available'); return; }
-  const doc = new JsPDFCtor({ unit: 'in', format: 'letter' });
-  const pageW = 8.5, pageH = 11, margin = 0.6, contentW = pageW - margin * 2;
-  const br = _pdfBrandRGB();
-  const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-
-  const STATUS_RGB = {
-    'New': [33,150,243], 'In Review': [255,152,0], 'Accepted': [76,175,80],
-    'In Progress': [156,39,176], 'Done': [96,125,139],
-  };
-  const SEV_RGB = { high: [244,67,54], medium: [255,152,0], low: [76,175,80] };
-
-  _pdfHeader(doc, 'Business Cases', `${scope} · ${today} · ${cases.length} case${cases.length !== 1 ? 's' : ''}`, pageW, margin);
-
-  let y = 1.55;
-  // Opportunity banner
-  doc.setFillColor(240, 250, 242);
-  doc.setDrawColor(76, 175, 80);
-  doc.setLineWidth(0.012);
-  doc.roundedRect(margin, y - 0.12, contentW, 0.42, 0.07, 0.07, 'FD');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(46, 125, 50);
-  doc.text(`$${Math.round(totalOpp).toLocaleString()} total opportunity`, margin + 0.18, y + 0.16);
-  y += 0.55;
-
-  for (const c of cases) {
-    const sc = STATUS_RGB[c.status] || [100,100,100];
-    const sv = SEV_RGB[c.severity] || [100,100,100];
-    const titleW = doc.splitTextToSize(c.title || '—', contentW - 1.5);
-    const sumW = c.summary ? doc.splitTextToSize(c.summary, contentW) : [];
-    const estH = 0.3 + titleW.length * 0.175 + (sumW.length ? sumW.length * 0.145 + 0.1 : 0) + 0.3;
-
-    if (y + estH > pageH - 1.0) { doc.addPage(); y = margin; }
-
-    // Status badge
-    doc.setFillColor(...sc);
-    doc.roundedRect(margin, y - 0.03, 0.85, 0.21, 0.04, 0.04, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(255, 255, 255);
-    doc.text((c.status || '').toUpperCase(), margin + 0.08, y + 0.12);
-
-    // Severity badge
-    doc.setFillColor(...sv);
-    doc.roundedRect(margin + 0.9, y - 0.03, 0.6, 0.21, 0.04, 0.04, 'F');
-    doc.text((c.severity || '').toUpperCase(), margin + 0.98, y + 0.12);
-
-    // Dollar opp
-    if (c.dollarOpportunity > 0) {
-      doc.setTextColor(46, 125, 50);
-      doc.setFontSize(11);
-      doc.text(`$${Math.round(c.dollarOpportunity).toLocaleString()}`, margin + contentW, y + 0.12, { align: 'right' });
-    }
-    y += 0.3;
-
-    // Title
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(20, 20, 20);
-    doc.text(titleW, margin, y);
-    y += titleW.length * 0.175;
-
-    // Summary
-    if (sumW.length) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(80, 80, 80);
-      doc.text(sumW, margin, y + 0.05);
-      y += sumW.length * 0.145 + 0.1;
-    }
-
-    // Dollar basis
-    if (c.dollarBasis) {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(8);
-      doc.setTextColor(100, 150, 100);
-      const basisW = doc.splitTextToSize(`$ Basis: ${c.dollarBasis}`, contentW);
-      if (y + basisW.length * 0.14 > pageH - 1.0) { doc.addPage(); y = margin; }
-      doc.text(basisW, margin, y + 0.02);
-      y += basisW.length * 0.14 + 0.06;
-    }
-
-    // Meta line
-    const meta = [c.storeName && `Store: ${c.storeName}`, c.district && `D${c.district}`, c.createdAt && new Date(c.createdAt).toLocaleDateString()].filter(Boolean).join('  ·  ');
-    if (meta) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(150, 150, 150);
-      doc.text(meta, margin, y + 0.02);
-      y += 0.18;
-    }
-
-    // Divider
-    doc.setDrawColor(225, 225, 225);
-    doc.setLineWidth(0.008);
-    doc.line(margin, y + 0.06, margin + contentW, y + 0.06);
-    y += 0.24;
-  }
-
-  _pdfFooters(doc, `${BRAND_CONFIG.portalName} · Orion AI · Confidential`, pageW, pageH, margin, contentW);
-  logClientEvent(user?.id, user?.userType, 'pdf_download', { type: 'cases', scope, count: cases.length });
-  doc.save(`business_cases_${new Date().toISOString().slice(0,10)}.pdf`);
-}
-
 /** TodayBrief — "Today's Brief from Orion" band at top of dashboard */
-function TodayBrief({ user, th, setAnnouncements, showAlert }) {
+function TodayBrief({ user, th }) {
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [posting, setPosting] = useState(false);
+  const O = '#FF671F';
 
   const fetchBrief = async (refresh) => {
     if (refresh) setRefreshing(true); else setLoading(true);
@@ -18581,10 +16618,6 @@ function TodayBrief({ user, th, setAnnouncements, showAlert }) {
           <span style={{ fontSize: '0.6rem', color: th.muted, fontWeight: 500 }}>{brief.scope} · {timeAgo(brief.generatedAt)}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <button onClick={(e) => { e.stopPropagation(); exportBriefPDF(brief, user); }}
-            style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.2rem 0.5rem', color: O, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
-            ↓ PDF
-          </button>
           <button onClick={(e) => { e.stopPropagation(); fetchBrief(true); }}
             disabled={refreshing}
             style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.2rem 0.5rem', color: O, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', opacity: refreshing ? 0.5 : 1 }}>
@@ -18603,16 +16636,13 @@ function TodayBrief({ user, th, setAnnouncements, showAlert }) {
 }
 
 /** BusinessCasesCard — Dashboard card showing auto-generated business cases */
-function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnouncements, showAlert }) {
+function BusinessCasesCard({ user, th, onViewCase, inline }) {
   const [cases, setCases] = useState([]);
   const [totalOpp, setTotalOpp] = useState(0);
   const [byStatus, setByStatus] = useState({});
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(null);
-  const [caseAction, setCaseAction] = useState({}); // { [caseId]: 'notifying'|'notified' }
-  const [reasonPrompt, setReasonPrompt] = useState(null); // { caseId, status, text }
-  const [decisionLog, setDecisionLog] = useState([]);
-  const [showDecisionLog, setShowDecisionLog] = useState(false);
+  const [expanded, setExpanded] = useState(null); // expanded case id
+  const O = '#FF671F';
 
   useEffect(() => {
     (async () => {
@@ -18631,40 +16661,13 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
     })();
   }, []);
 
-  const DECISION_STATUSES = ['Accepted', 'In Progress', 'Done'];
-
-  const updateStatus = async (caseId, status, reason) => {
+  const updateStatus = async (caseId, status) => {
     try {
       await fetch('/.netlify/functions/analyst', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'case-update', caseId, status, reason: reason || null, userId: user.id }),
+        body: JSON.stringify({ action: 'case-update', caseId, status, userId: user.id }),
       });
       setCases(prev => prev.map(c => c.id === caseId ? { ...c, status } : c));
-    } catch {}
-  };
-
-  const handleStatusClick = (caseId, status) => {
-    if (DECISION_STATUSES.includes(status)) {
-      setReasonPrompt({ caseId, status, text: '' });
-    } else {
-      updateStatus(caseId, status);
-    }
-  };
-
-  const confirmStatus = async () => {
-    if (!reasonPrompt) return;
-    await updateStatus(reasonPrompt.caseId, reasonPrompt.status, reasonPrompt.text);
-    setReasonPrompt(null);
-  };
-
-  const loadDecisionLog = async () => {
-    try {
-      const res = await fetch('/.netlify/functions/analyst', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'decision-log', userId: user.id, days: 30 }),
-      });
-      const data = await res.json();
-      setDecisionLog(data.entries || []);
     } catch {}
   };
 
@@ -18686,14 +16689,10 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
             ${Math.round(totalOpp).toLocaleString()} opportunity
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <div style={{ display: 'flex', gap: '0.35rem' }}>
           {Object.entries(byStatus).map(([s, n]) => (
             <span key={s} style={{ fontSize: '0.58rem', fontWeight: 700, color: statusColors[s] || th.muted, background: (statusColors[s] || '#888') + '18', padding: '0.15rem 0.4rem', borderRadius: '0.25rem' }}>{n} {s}</span>
           ))}
-          <button onClick={() => exportCasesPDF(cases, totalOpp, user.userType === 'dm' ? `District ${user.district}` : 'Network', user)}
-            style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.15rem 0.45rem', color: O, fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            ↓ PDF
-          </button>
         </div>
       </div>
 
@@ -18717,116 +16716,19 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
             <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: th.card2, borderRadius: '0.5rem', fontSize: '0.75rem' }}>
               <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
                 {['New', 'In Review', 'Accepted', 'In Progress', 'Done'].map(s => (
-                  <button key={s} onClick={() => handleStatusClick(c.id, s)}
+                  <button key={s} onClick={() => updateStatus(c.id, s)}
                     style={{ background: c.status === s ? (statusColors[s] || '#888') : th.card3, border: `1px solid ${c.status === s ? statusColors[s] : th.cardBorder}`, borderRadius: '0.3rem', padding: '0.2rem 0.5rem', fontSize: '0.6rem', fontWeight: 700, color: c.status === s ? '#fff' : th.muted, cursor: 'pointer' }}>
                     {s}
                   </button>
                 ))}
               </div>
-              {/* Reason prompt — shown when moving to a decision status */}
-              {reasonPrompt?.caseId === c.id && (
-                <div style={{ marginBottom: '0.5rem', padding: '0.5rem', background: th.card, border: `1px solid ${statusColors[reasonPrompt.status] || O}44`, borderRadius: '0.4rem' }}>
-                  <div style={{ fontSize: '0.65rem', fontWeight: 700, color: statusColors[reasonPrompt.status], marginBottom: '0.35rem' }}>
-                    Moving to "{reasonPrompt.status}" — add a reason? (optional)
-                  </div>
-                  <textarea
-                    value={reasonPrompt.text}
-                    onChange={e => setReasonPrompt(r => ({ ...r, text: e.target.value }))}
-                    placeholder="e.g. Confirmed with DM, scheduling fix in place..."
-                    rows={2}
-                    style={{ width: '100%', padding: '0.35rem 0.5rem', fontSize: '0.7rem', borderRadius: '0.3rem', border: `1px solid ${th.cardBorder}`, background: th.inputBg, color: th.text, resize: 'none', boxSizing: 'border-box' }}
-                  />
-                  <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.35rem', justifyContent: 'flex-end' }}>
-                    <button onClick={() => setReasonPrompt(null)} style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', borderRadius: '0.3rem', border: `1px solid ${th.cardBorder}`, background: th.card3, color: th.muted, cursor: 'pointer' }}>Cancel</button>
-                    <button onClick={confirmStatus} style={{ fontSize: '0.65rem', padding: '0.2rem 0.6rem', borderRadius: '0.3rem', border: 'none', background: statusColors[reasonPrompt.status] || O, color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Confirm</button>
-                  </div>
-                </div>
-              )}
               <div style={{ color: th.muted, lineHeight: 1.6 }}>
                 <strong>Store:</strong> {c.storeName || '—'} · <strong>District:</strong> {c.district || '—'} · <strong>Created:</strong> {timeAgo(c.createdAt)}
               </div>
-
-              {/* One-click actions */}
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem', flexWrap: 'wrap' }}>
-                {(() => {
-                  const store = (stores || []).find(s => (c.storePC && String(s.pc) === String(c.storePC)) || (c.storeName && s.name?.toLowerCase() === c.storeName.toLowerCase()));
-                  if (!store?.email) return null;
-                  const st = caseAction[c.id];
-                  return (
-                    <button onClick={async () => {
-                      if (st === 'notifying' || st === 'notified') return;
-                      setCaseAction(a => ({ ...a, [c.id]: 'notifying' }));
-                      try {
-                        const subject = `[Action Required] ${c.title}`;
-                        const html = `<div style="font-family:Arial,sans-serif;max-width:600px">
-                          <div style="background:${BRAND_CONFIG.primary};padding:16px 24px;border-radius:8px 8px 0 0">
-                            <div style="color:#fff;font-size:18px;font-weight:800">${c.title}</div>
-                            <div style="color:rgba(255,255,255,0.8);font-size:12px;margin-top:4px">${c.storeName || store.name} · District ${c.district}</div>
-                          </div>
-                          <div style="padding:20px 24px;border:1px solid #eee;border-top:none;border-radius:0 0 8px 8px">
-                            <p style="font-size:14px;color:#333">${c.summary || ''}</p>
-                            ${c.dollarOpportunity > 0 ? `<p style="font-size:13px;color:#4caf50;font-weight:700">Estimated impact: $${Math.round(c.dollarOpportunity).toLocaleString()}</p>` : ''}
-                            ${c.dollarBasis ? `<p style="font-size:12px;color:#888">Basis: ${c.dollarBasis}</p>` : ''}
-                            <hr style="border:none;border-top:1px solid #eee;margin:16px 0"/>
-                            <p style="font-size:12px;color:#999">Sent by ${user.name} via ${BRAND_CONFIG.portalName} · Orion AI Analyst</p>
-                          </div>
-                        </div>`;
-                        await sendNotifyEmail([store.email], subject, html);
-                        if (showAlert) showAlert('success', `Notification sent to ${store.mgr || store.name} manager`);
-                        setCaseAction(a => ({ ...a, [c.id]: 'notified' }));
-                        setTimeout(() => setCaseAction(a => ({ ...a, [c.id]: null })), 3000);
-                      } catch { setCaseAction(a => ({ ...a, [c.id]: null })); if (showAlert) showAlert('error', 'Failed to send notification'); }
-                    }} style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.25rem 0.6rem', borderRadius: '0.35rem', border: `1px solid ${st === 'notified' ? '#4caf5055' : '#3b82f655'}`, background: 'none', color: st === 'notified' ? '#4caf50' : '#3b82f6', cursor: 'pointer' }}>
-                      {st === 'notifying' ? '...' : st === 'notified' ? '✓ Sent' : `✉️ Notify ${store.mgr ? store.mgr.split(' ')[0] : 'Manager'}`}
-                    </button>
-                  );
-                })()}
-              </div>
-
-              {c.dollarBasis && (
-                <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'flex-start', gap: '0.4rem', background: '#4caf5010', border: '1px solid #4caf5030', borderRadius: '0.35rem', padding: '0.35rem 0.5rem' }}>
-                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4caf50', whiteSpace: 'nowrap' }}>$ Basis</span>
-                  <span style={{ fontSize: '0.68rem', color: th.muted, lineHeight: 1.5 }}>{c.dollarBasis}</span>
-                </div>
-              )}
             </div>
           )}
         </div>
       ))}
-
-      {/* Decision Log toggle */}
-      <div style={{ marginTop: '0.75rem', borderTop: `1px solid ${th.cardBorder}`, paddingTop: '0.6rem' }}>
-        <button onClick={async () => { if (!showDecisionLog) await loadDecisionLog(); setShowDecisionLog(o => !o); }}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, color: th.muted, display: 'flex', alignItems: 'center', gap: '0.35rem', padding: 0 }}>
-          📊 Decision Log {showDecisionLog ? '▲' : '▼'}
-        </button>
-        {showDecisionLog && (
-          <div style={{ marginTop: '0.5rem' }}>
-            {decisionLog.length === 0 ? (
-              <div style={{ fontSize: '0.7rem', color: th.muted, fontStyle: 'italic' }}>No decisions logged yet. Accept or move cases to track them here.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                {decisionLog.slice(0, 15).map((d, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.4rem 0.5rem', background: th.card2, borderRadius: '0.35rem', borderLeft: `3px solid ${statusColors[d.decision] || '#888'}` }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '0.6rem', fontWeight: 700, color: statusColors[d.decision] || th.muted, background: (statusColors[d.decision] || '#888') + '20', padding: '0.1rem 0.35rem', borderRadius: '0.2rem' }}>{d.decision}</span>
-                        <span style={{ fontSize: '0.68rem', fontWeight: 600, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</span>
-                        {d.dollarOpportunity > 0 && <span style={{ fontSize: '0.6rem', color: '#4caf50', fontWeight: 700 }}>${Math.round(d.dollarOpportunity).toLocaleString()}</span>}
-                      </div>
-                      {d.reason && <div style={{ fontSize: '0.65rem', color: th.muted, marginTop: '0.15rem', fontStyle: 'italic' }}>"{d.reason}"</div>}
-                      <div style={{ fontSize: '0.58rem', color: th.muted, marginTop: '0.1rem' }}>
-                        {d.decidedBy ? `by ${d.decidedBy} · ` : ''}{d.ts ? new Date(d.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
-                        {d.district ? ` · District ${d.district}` : ''}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 
@@ -18839,6 +16741,205 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
 }
 
 // ── Knowledge Base ────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// ═══ Sales Reconciliation ════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+function SalesReconciliation({ th, user, showAlert }) {
+  const O = '#FF671F';
+  const [busDt, setBusDt] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
+  const [snapping, setSnapping] = useState(false);
+  const [comparing, setComparing] = useState(false);
+  const [result, setResult] = useState(null);
+  const [history, setHistory] = useState(null);
+  const [view, setView] = useState('main'); // main, detail
+
+  const callRecon = async (action, extra = {}) => {
+    const res = await fetch('/.netlify/functions/reconciliation', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, busDt, ...extra }),
+    });
+    return res.json();
+  };
+
+  const takeSnapshot = async () => {
+    setSnapping(true);
+    try {
+      const data = await callRecon('snapshot');
+      showAlert(data.ok ? 'success' : 'error', data.ok ? `Snapshot saved for ${busDt} (${data.storeCount} stores)` : (data.error || 'Failed'));
+    } catch (e) { showAlert('error', e.message); }
+    setSnapping(false);
+  };
+
+  const runCompare = async () => {
+    setComparing(true);
+    try {
+      const data = await callRecon('compare');
+      if (data.error) { showAlert('error', data.error); }
+      else { setResult(data); setView('detail'); }
+    } catch (e) { showAlert('error', e.message); }
+    setComparing(false);
+  };
+
+  const loadHistory = async () => {
+    try {
+      const data = await callRecon('history');
+      setHistory(data.history || []);
+    } catch {}
+  };
+
+  useEffect(() => { loadHistory(); }, []);
+
+  const fmtD = v => '$' + Math.abs(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const thS = { padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 };
+  const tdS = { padding: '0.4rem 0.75rem', borderBottom: `1px solid ${th.cardBorder}`, fontSize: '0.8rem', color: th.text };
+
+  if (view === 'detail' && result) {
+    return (
+      <div className="fade-in">
+        <button onClick={() => { setView('main'); setResult(null); }} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, padding: '0.4rem 1rem', fontSize: '0.8rem', marginBottom: '1rem' }) }}>← Back</button>
+
+        <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: th.text, marginBottom: '0.5rem' }}>
+            Reconciliation Report — {result.busDt}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '1rem' }}>
+            Snapshot: {new Date(result.snapshotTaken).toLocaleString()} · Compared: {new Date(result.comparedAt).toLocaleString()} · Gap: {result.hoursSinceSnapshot} hours
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+            {[
+              { label: 'Stores Checked', value: result.totalStores, color: th.text },
+              { label: 'With Differences', value: result.storesWithDiffs, color: result.storesWithDiffs > 0 ? '#f44336' : '#4caf50' },
+              { label: 'Net Difference', value: (result.totalNetDiff >= 0 ? '+' : '-') + fmtD(result.totalNetDiff), color: Math.abs(result.totalNetDiff) > 10 ? '#f44336' : '#4caf50' },
+              { label: 'Absolute Total', value: fmtD(result.totalAbsDiff), color: result.totalAbsDiff > 50 ? '#ff9800' : '#4caf50' },
+            ].map(k => (
+              <div key={k.label} style={{ background: th.card2, borderRadius: '0.625rem', padding: '0.75rem 1rem', flex: '1 1 140px', minWidth: 140 }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.25rem', color: k.color }}>{k.value}</div>
+                <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, marginTop: '0.2rem' }}>{k.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {result.diffs.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: '#4caf50', fontSize: '1rem', fontWeight: 700 }}>
+              ✓ All stores match — no discrepancies found
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    {['Store', 'District', 'Snapshot Net', 'Current Net', 'Difference', 'Tax Diff', 'Err Cor #', 'Err Cor $'].map(h =>
+                      <th key={h} style={thS}>{h}</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.diffs.map(d => {
+                    const severity = Math.abs(d.netDiff) > 100 ? '#f44336' : Math.abs(d.netDiff) > 10 ? '#ff9800' : '#4caf50';
+                    return (
+                      <tr key={d.pc}>
+                        <td style={{ ...tdS, fontWeight: 700 }}>{d.name}</td>
+                        <td style={tdS}>D{d.district}</td>
+                        <td style={tdS}>{fmtD(d.oldNet)}</td>
+                        <td style={tdS}>{fmtD(d.newNet)}</td>
+                        <td style={{ ...tdS, color: severity, fontWeight: 700 }}>{d.netDiff >= 0 ? '+' : '-'}{fmtD(d.netDiff)}</td>
+                        <td style={{ ...tdS, color: Math.abs(d.taxDiff) > 0.5 ? '#ff9800' : th.muted }}>{d.taxDiff >= 0 ? '+' : '-'}{fmtD(d.taxDiff)}</td>
+                        <td style={tdS}>{d.errCorCount}</td>
+                        <td style={tdS}>{fmtD(d.errCorTotal)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fade-in">
+      <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.25rem', color: th.text, marginBottom: '0.25rem' }}>Sales Reconciliation</div>
+      <div style={{ color: th.muted, fontSize: '0.8125rem', marginBottom: '1.5rem' }}>Compare Pulse POS sales at two time points to catch late-sync discrepancies before royalty submission.</div>
+
+      {/* Controls */}
+      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+        <div style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '1rem' }}>Run Reconciliation</div>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div>
+            <label style={{ fontSize: '0.7rem', color: th.muted, fontWeight: 600, display: 'block', marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Business Date</label>
+            <input type="date" value={busDt} onChange={e => setBusDt(e.target.value)}
+              style={{ ...inp(th), fontSize: '0.875rem', padding: '0.5rem 0.75rem' }} />
+          </div>
+          <button onClick={takeSnapshot} disabled={snapping}
+            style={btn(th, { padding: '0.5rem 1.25rem', fontSize: '0.8rem', opacity: snapping ? 0.5 : 1 })}>
+            {snapping ? 'Pulling...' : '1. Take Snapshot'}
+          </button>
+          <button onClick={runCompare} disabled={comparing}
+            style={btn(th, { padding: '0.5rem 1.25rem', fontSize: '0.8rem', background: '#22c55e', opacity: comparing ? 0.5 : 1 })}>
+            {comparing ? 'Comparing...' : '2. Compare Now'}
+          </button>
+        </div>
+        <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.75rem', lineHeight: 1.5 }}>
+          <strong>How to use:</strong> Take a snapshot right after week-end close (e.g. Sunday 12:01 AM). Wait 24-48 hours. Click "Compare Now" to see what changed. Stores with large differences may have POS sync issues.
+        </div>
+      </div>
+
+      {/* History */}
+      {history && history.length > 0 && (
+        <div style={{ ...card(th), padding: '1.5rem' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '1rem' }}>Recent Reconciliations</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Date', 'Compared', 'Gap', 'Stores w/ Diffs', 'Net Diff', 'Abs Diff'].map(h =>
+                    <th key={h} style={thS}>{h}</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {history.map(h => (
+                  <tr key={h.busDt} style={{ cursor: 'pointer' }} onClick={async () => {
+                    setComparing(true);
+                    try {
+                      const res = await fetch('/.netlify/functions/reconciliation', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'compare', busDt: h.busDt }),
+                      });
+                      const data = await res.json();
+                      if (!data.error) { setResult(data); setView('detail'); }
+                    } catch {}
+                    setComparing(false);
+                  }}>
+                    <td style={{ ...tdS, fontWeight: 700 }}>{h.busDt}</td>
+                    <td style={{ ...tdS, fontSize: '0.75rem' }}>{new Date(h.comparedAt).toLocaleString()}</td>
+                    <td style={tdS}>{h.hoursSinceSnapshot}h</td>
+                    <td style={{ ...tdS, color: h.storesWithDiffs > 0 ? '#f44336' : '#4caf50', fontWeight: 700 }}>{h.storesWithDiffs}</td>
+                    <td style={{ ...tdS, color: Math.abs(h.totalNetDiff) > 10 ? '#f44336' : th.text }}>{h.totalNetDiff >= 0 ? '+' : ''}{fmtD(h.totalNetDiff)}</td>
+                    <td style={tdS}>{fmtD(h.totalAbsDiff)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {history && history.length === 0 && (
+        <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted }}>
+          No reconciliation history yet. Take your first snapshot to get started.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function KnowledgeBase({ th, user, showAlert, stores }) {
   const KB_CATEGORIES = ["Setup Guide", "SOP", "Training", "Policy", "Reference"];
   const CAT_COLORS = { "Setup Guide":"#3b82f6", "SOP":"#8b5cf6", "Training":"#22c55e", "Policy":"#ef4444", "Reference":"#f59e0b" };
@@ -19289,11 +17390,8 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
-  const [managerMode, setManagerMode] = useState(null);
   const handleLogout = () => {
     try { window.google?.accounts?.id?.disableAutoSelect(); } catch {}
-    logClientEvent(user?.id, user?.userType, 'logout', { name: user?.name });
-    setManagerMode(null);
     setUser(null);
   };
   const [tab, setTab]           = useState("dashboard");
@@ -19412,8 +17510,6 @@ function PCGPortal() {
       if (document.hidden) {
         hiddenAt.t = Date.now();
       } else if (hiddenAt.t && Date.now() - hiddenAt.t > TIMEOUT_MS) {
-        if (user?.userType?.startsWith('kiosk')) return;
-        logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'background_tab', name: user?.name });
         setUser(null);
         setTab("dashboard");
         tabHistoryRef.current = ["dashboard"];
@@ -19423,8 +17519,6 @@ function PCGPortal() {
     // BFCache restore (browser back/forward) — always reset
     const onPageShow = (e) => {
       if (e.persisted) {
-        if (user?.userType?.startsWith('kiosk')) return;
-        logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'bfcache_restore', name: user?.name });
         setUser(null);
         setTab("dashboard");
         tabHistoryRef.current = ["dashboard"];
@@ -19437,11 +17531,11 @@ function PCGPortal() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onPageShow);
     };
-  }, [user]);
+  }, []);
 
   // Inactivity session timeout — 5 min total (4min45s idle → 15s warning → logout)
   useEffect(() => {
-    if (!user || user.userType?.startsWith('kiosk')) return;
+    if (!user) return;
     const WARN_AFTER = 4 * 60 * 1000 + 45 * 1000;
     const LOGOUT_AFTER = 5 * 60 * 1000;
 
@@ -19460,7 +17554,6 @@ function PCGPortal() {
     const interval = setInterval(() => {
       const idle = Date.now() - lastActivityRef.current;
       if (idle >= LOGOUT_AFTER) {
-        logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'inactivity', name: user?.name });
         setUser(null);
         setTab("dashboard");
         tabHistoryRef.current = ["dashboard"];
@@ -20157,7 +18250,6 @@ function PCGPortal() {
 
   // Cloud sync chat data
   const chatPollRef = useRef(null);
-  const chatPollActive = useRef(false);
   useEffect(() => {
     Promise.all([
       cloudLoad('pcg_chat_channels_v1'),
@@ -20170,9 +18262,9 @@ function PCGPortal() {
       if (rd && typeof rd === 'object' && rd !== null && Object.keys(rd).length > 0) setChatReadState(rd);
     }).catch(() => { cloudChatLoaded.current = true; });
   }, []);
-  useEffect(() => { if (chatPollActive.current || !cloudChatLoaded.current || chatChannels.length === 0) return; cloudSave('pcg_chat_channels_v1', chatChannels); }, [chatChannels]);
-  useEffect(() => { if (chatPollActive.current || !cloudChatLoaded.current || chatMessages.length === 0) return; cloudSave('pcg_chat_messages_v1', chatMessages); }, [chatMessages]);
-  useEffect(() => { if (chatPollActive.current || !cloudChatLoaded.current || Object.keys(chatReadState).length === 0) return; cloudSave('pcg_chat_read_v1', chatReadState); }, [chatReadState]);
+  useEffect(() => { if (cloudChatLoaded.current && chatChannels.length > 0) cloudSave('pcg_chat_channels_v1', chatChannels); }, [chatChannels]);
+  useEffect(() => { if (cloudChatLoaded.current && chatMessages.length > 0) cloudSave('pcg_chat_messages_v1', chatMessages); }, [chatMessages]);
+  useEffect(() => { if (cloudChatLoaded.current && Object.keys(chatReadState).length > 0) cloudSave('pcg_chat_read_v1', chatReadState); }, [chatReadState]);
   // Cloud sync announcements
   useEffect(() => {
     Promise.all([
@@ -20184,8 +18276,8 @@ function PCGPortal() {
       if (dis && typeof dis === 'object' && dis !== null && Object.keys(dis).length > 0) setAnnouncementsDismissed(dis);
     }).catch(() => { cloudAnnouncementsLoaded.current = true; });
   }, []);
-  useEffect(() => { if (chatPollActive.current || !cloudAnnouncementsLoaded.current) return; cloudSave('pcg_announcements_v1', announcements); }, [announcements]);
-  useEffect(() => { if (chatPollActive.current || !cloudAnnouncementsLoaded.current || Object.keys(announcementsDismissed).length === 0) return; cloudSave('pcg_announcements_dismissed_v1', announcementsDismissed); }, [announcementsDismissed]);
+  useEffect(() => { if (cloudAnnouncementsLoaded.current && announcements.length > 0) cloudSave('pcg_announcements_v1', announcements); }, [announcements]);
+  useEffect(() => { if (cloudAnnouncementsLoaded.current && Object.keys(announcementsDismissed).length > 0) cloudSave('pcg_announcements_dismissed_v1', announcementsDismissed); }, [announcementsDismissed]);
 
   // Register service worker for PWA push notifications
   useEffect(() => { registerServiceWorker(); }, []);
@@ -20206,14 +18298,11 @@ function PCGPortal() {
           cloudLoad('pcg_announcements_v1'),
           cloudLoad('pcg_announcements_dismissed_v1'),
         ]);
-        chatPollActive.current = true;
         if (ch && Array.isArray(ch)) setChatChannels(ch);
         if (ms && Array.isArray(ms)) setChatMessages(ms);
         if (rd && typeof rd === 'object' && rd !== null) setChatReadState(rd);
         if (ann && Array.isArray(ann)) setAnnouncements(ann);
         if (dis && typeof dis === 'object' && dis !== null) setAnnouncementsDismissed(dis);
-        // Reset after effects have flushed (setTimeout runs after useEffect)
-        setTimeout(() => { chatPollActive.current = false; }, 0);
       } catch {}
     }, 12000);
     return () => clearInterval(chatPollRef.current);
@@ -20240,7 +18329,7 @@ function PCGPortal() {
           const chName = ch ? (ch.type === "dm" ? "Direct Message" : ch.name || "Chat") : "Chat";
           dispatchNotifications(globalNotifyEmails,
             `PCG Chat: ${m.senderName} mentioned @${username}`,
-            `<h3 style="color:${BRAND_CONFIG.primary}">Chat Mention</h3>
+            `<h3 style="color:#FF671F">Chat Mention</h3>
             <p style="font-size:13px;color:#666">In <strong>${chName}</strong></p>
             <div style="margin:12px 0;padding:12px;background:#f8f8f8;border-radius:8px;font-size:14px">
               <strong>${m.senderName}:</strong> ${m.text}
@@ -20338,7 +18427,7 @@ function PCGPortal() {
         newNotifs.push({ id: mkId(), type: "project_added", projectId: p.id, projectName: projLabel, storePC: p.pc, district: p.district, message: `New project: ${projLabel}`, createdAt: now, read: false });
         if (recipients.length > 0) {
           dispatchNotifications(recipients, `New PCG Project: ${projLabel}`,
-            `<h3 style="color:${BRAND_CONFIG.primary}">New Project Added</h3>${projInfo}
+            `<h3 style="color:#FF671F">New Project Added</h3>${projInfo}
             <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px">
               <tr><td style="padding:6px 0;color:#666"><strong>Type:</strong></td><td>${p.type}</td></tr>
               <tr><td style="padding:6px 0;color:#666"><strong>Due Date:</strong></td><td>${p.dueDate || "TBD"}</td></tr>
@@ -20360,10 +18449,10 @@ function PCGPortal() {
             const oldPct = getOverallCompletion(old);
             const newPct = getOverallCompletion(p);
             dispatchNotifications(recipients, `PCG Phase Change: ${projLabel} → ${newPhase.label}`,
-              `<h3 style="color:${BRAND_CONFIG.primary}">Phase Change</h3>${projInfo}
+              `<h3 style="color:#FF671F">Phase Change</h3>${projInfo}
               <div style="margin:12px 0;padding:12px 16px;background:#f8f8f8;border-radius:8px;font-size:14px">
                 <span style="color:#999">${oldPhase.icon} ${oldPhase.label}</span>
-                <span style="margin:0 8px;color:${BRAND_CONFIG.primary};font-weight:bold">→</span>
+                <span style="margin:0 8px;color:#FF671F;font-weight:bold">→</span>
                 <span style="color:#111;font-weight:bold">${newPhase.icon} ${newPhase.label}</span>
               </div>
               <p style="font-size:13px;color:#666">Progress: ${oldPct}% → <strong>${newPct}%</strong></p>
@@ -20392,7 +18481,7 @@ function PCGPortal() {
           newNotifs.push({ id: mkId(), type: "checklist_update", projectId: p.id, projectName: projLabel, storePC: p.pc, district: p.district, message: `${projLabel}: ${changes.length} item${changes.length > 1 ? "s" : ""} updated`, createdAt: now, read: false });
           const newPct = getOverallCompletion(p);
           dispatchNotifications(recipients, `PCG Project Update: ${projLabel} (${newPct}% complete)`,
-            `<h3 style="color:${BRAND_CONFIG.primary}">Project Checklist Updated</h3>${projInfo}
+            `<h3 style="color:#FF671F">Project Checklist Updated</h3>${projInfo}
             <table style="width:100%;border-collapse:collapse;margin-top:12px;border:1px solid #eee;border-radius:8px">
               <tr style="background:#f4f4f4"><th style="padding:8px;text-align:left;font-size:12px;color:#666">Item</th><th style="padding:8px;text-align:left;font-size:12px;color:#666">Change</th></tr>
               ${changes.join("")}
@@ -20464,7 +18553,7 @@ function PCGPortal() {
     }
   }, [dark]);
 
-  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.darkMode !== undefined) setDark(u.darkMode); if (u.userType === "vendor") setTab("projects"); logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType }); }} dark={dark} users={users} toggleDark={() => {
+  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const updated = { ...u, lastLogin: now }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, lastLogin: now } : x)); if (u.darkMode !== undefined) setDark(u.darkMode); if (u.userType === "vendor") setTab("projects"); }} dark={dark} users={users} toggleDark={() => {
     const newDark = !dark;
     setDark(newDark);
   }} />;
@@ -20472,23 +18561,6 @@ function PCGPortal() {
   // ── First-Login Setup ──────────────────────────────────────────────────────
   if (user.mustSetup) {
     return <FirstLoginSetup user={user} setUser={setUser} setUsers={setUsers} th={th} />;
-  }
-
-  if (user.userType === "manager" && managerMode === "embed") {
-    return (
-      <ManagerEmbeddableView
-        user={user}
-        stores={stores}
-        th={th}
-        dark={dark}
-        toggleDark={() => setDark(d => !d)}
-        salesWeeks={salesWeeks}
-        cashDeposits={cashDeposits}
-        onFullPortal={() => setManagerMode("full")}
-        onOrion={() => { setManagerMode("full"); setTab("chat"); }}
-        onLogout={handleLogout}
-      />
-    );
   }
 
   // ── Kiosk: Pulse TV ─────────────────────────────────────────────────────────
@@ -20836,15 +18908,7 @@ function PCGPortal() {
           let badge = null;
           if (t.id === "chat" && chatUnreadCount > 0) badge = chatUnreadCount;
           if (t.id === "announcements") {
-            const myDist = user.district ? Number(user.district) : null;
-            const unread = announcements.filter(a => {
-              if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
-              if (!a.targets) return true;
-              const { roles, districts } = a.targets;
-              if (roles?.includes(user.userType)) return true;
-              if (myDist && districts?.includes(myDist)) return true;
-              return false;
-            }).length;
+            const unread = announcements.filter(a => a.active && !announcementsDismissed[`${user.id}_${a.id}`]).length;
             if (unread > 0) badge = unread;
           }
           return (
@@ -20959,7 +19023,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.33
+            v6.9
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -21087,31 +19151,6 @@ function PCGPortal() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            {user?.userType === "manager" && tab === "dashboard" && (
-              <button
-                onClick={() => { setShowNotifs(false); setShowChatPanel(false); setManagerMode("embed"); }}
-                title="Open My Store compact view"
-                aria-label="Open My Store compact view"
-                style={{
-                  background: `${O}12`,
-                  border: `1px solid ${O}55`,
-                  color: O,
-                  borderRadius: "0.5rem",
-                  padding: isMobile ? "0.35rem" : "0.35rem 0.65rem",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.4rem",
-                  cursor: "pointer",
-                  fontFamily: "'Source Sans 3'",
-                  fontWeight: 800,
-                  fontSize: "0.75rem",
-                  lineHeight: 1,
-                }}
-              >
-                {ICONS.analytics(O)}
-                <span className="hide-mobile">My Store</span>
-              </button>
-            )}
             {/* Notification bell */}
             {(canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && (
               <div style={{ position: "relative" }}>
@@ -21307,7 +19346,7 @@ function PCGPortal() {
         )}
 
         <div className="main-content-padding" style={{ padding: "3vw 5vw" }}>
-          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} />}
+          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} announcementsDismissed={announcementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} />}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
@@ -21320,6 +19359,7 @@ function PCGPortal() {
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} />}
+          {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
