@@ -18,8 +18,8 @@
 - [ ] Threaded conversations with context memory
 - [ ] @mention routing (Analyst auto-mentions relevant DM/GM)
 - [ ] "Drill in" links — click citation to open exact Pulse/Labor view
-- [ ] Make every KPI tile on dashboard clickable → opens Analyst thread pre-seeded with "Explain this tile"
-- [ ] Knowledge Base section (metric definitions, SOPs, brand standards)
+- [x] Make every KPI tile on dashboard clickable → opens Analyst thread pre-seeded with "Explain this tile"
+- [x] Knowledge Base section (metric definitions, SOPs, brand standards)
 - [ ] Page-locking with approval workflow (draft → review → lock)
 - [ ] Supabase/Postgres migration for structured storage + pgvector for KB embeddings
 - [ ] GM access (store-scoped data only)
@@ -36,9 +36,9 @@
 - [ ] Pluggable connectors: BigQuery, Snowflake, Postgres, QBO, GA, Meta
 - [ ] Email integration (Google Workspace SMTP/IMAP)
 - [ ] Slack/Teams outbound
-- [ ] Weather-aware forecasting (condition forecasts on 7-day weather)
-- [ ] Guest sentiment fusion (Google/Yelp reviews per location, sentiment scoring)
-- [ ] Vendor/COGS watchdog (track invoice unit costs, flag creeping prices)
+- [ ] Weather-aware forecasting (condition forecasts on 7-day weather) — coords defined, pending UI
+- [ ] Guest sentiment fusion (Google/Yelp reviews per location, sentiment scoring) — Places API (New) selected
+- [ ] Vendor/COGS watchdog (track invoice unit costs, flag creeping prices) — WorkPulse as source, pending API access
 - [ ] Forecast-to-schedule loop (Next Week Forecast → shift recommendations → push to Paycor)
 - [ ] Cash variance autopilot (deposit variance → auto business case with likely cause)
 
