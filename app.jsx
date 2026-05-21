@@ -12846,6 +12846,7 @@ const getTabs = (user) => {
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
     { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
+    { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",        icon: (c) => ICONS.users(c) },
     { id: "settings",  label: "Settings",     icon: (c) => ICONS.settings(c) },
@@ -15967,6 +15968,179 @@ function getExpectedDepositDate(businessDate) {
 function isBankClosed(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
   return d.getDay() === 0; // Sunday
+}
+
+// ═══ Sales Reconciliation ════════════════════════════════════════════════════
+function SalesReconciliation({ th, user, showAlert }) {
+  const [busDt, setBusDt] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
+  const [snapping, setSnapping] = useState(false);
+  const [comparing, setComparing] = useState(false);
+  const [result, setResult] = useState(null);
+  const [history, setHistory] = useState(null);
+  const [view, setView] = useState('main');
+
+  const callRecon = async (action, extra = {}) => {
+    const res = await fetch('/.netlify/functions/reconciliation', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, busDt, ...extra }),
+    });
+    return res.json();
+  };
+
+  const takeSnapshot = async () => {
+    setSnapping(true);
+    try {
+      const data = await callRecon('snapshot');
+      showAlert(data.ok ? 'success' : 'error', data.ok ? `Snapshot saved for ${busDt} (${data.storeCount} stores)` : (data.error || 'Failed'));
+    } catch (e) { showAlert('error', e.message); }
+    setSnapping(false);
+  };
+
+  const runCompare = async () => {
+    setComparing(true);
+    try {
+      const data = await callRecon('compare');
+      if (data.error) { showAlert('error', data.error); }
+      else { setResult(data); setView('detail'); }
+    } catch (e) { showAlert('error', e.message); }
+    setComparing(false);
+  };
+
+  const loadHistory = async () => {
+    try {
+      const data = await callRecon('history');
+      setHistory(data.history || []);
+    } catch {}
+  };
+
+  useEffect(() => { loadHistory(); }, []);
+
+  const fmtD = v => '$' + Math.abs(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const thS = { padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 };
+  const tdS = { padding: '0.4rem 0.75rem', borderBottom: `1px solid ${th.cardBorder}`, fontSize: '0.8rem', color: th.text };
+
+  if (view === 'detail' && result) {
+    return (
+      <div className="fade-in">
+        <button onClick={() => { setView('main'); setResult(null); }} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, padding: '0.4rem 1rem', fontSize: '0.8rem', marginBottom: '1rem' }) }}>← Back</button>
+        <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: th.text, marginBottom: '0.5rem' }}>
+            Reconciliation Report — {result.busDt}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '1rem' }}>
+            Snapshot: {new Date(result.snapshotTaken).toLocaleString()} · Compared: {new Date(result.comparedAt).toLocaleString()} · Gap: {result.hoursSinceSnapshot} hours
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+            {[
+              { label: 'Stores Checked', value: result.totalStores, color: th.text },
+              { label: 'With Differences', value: result.storesWithDiffs, color: result.storesWithDiffs > 0 ? '#f44336' : '#4caf50' },
+              { label: 'Net Difference', value: (result.totalNetDiff >= 0 ? '+' : '-') + fmtD(result.totalNetDiff), color: Math.abs(result.totalNetDiff) > 10 ? '#f44336' : '#4caf50' },
+              { label: 'Absolute Total', value: fmtD(result.totalAbsDiff), color: result.totalAbsDiff > 50 ? '#ff9800' : '#4caf50' },
+            ].map(k => (
+              <div key={k.label} style={{ background: th.card2, borderRadius: '0.625rem', padding: '0.75rem 1rem', flex: '1 1 140px', minWidth: 140 }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.25rem', color: k.color }}>{k.value}</div>
+                <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, marginTop: '0.2rem' }}>{k.label}</div>
+              </div>
+            ))}
+          </div>
+          {result.diffs.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: '#4caf50', fontSize: '1rem', fontWeight: 700 }}>✓ All stores match — no discrepancies found</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>{['Store', 'District', 'Snapshot Net', 'Current Net', 'Difference', 'Tax Diff', 'Err Cor #', 'Err Cor $'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {result.diffs.map(d => {
+                    const severity = Math.abs(d.netDiff) > 100 ? '#f44336' : Math.abs(d.netDiff) > 10 ? '#ff9800' : '#4caf50';
+                    return (
+                      <tr key={d.pc}>
+                        <td style={{ ...tdS, fontWeight: 700 }}>{d.name}</td>
+                        <td style={tdS}>D{d.district}</td>
+                        <td style={tdS}>{fmtD(d.oldNet)}</td>
+                        <td style={tdS}>{fmtD(d.newNet)}</td>
+                        <td style={{ ...tdS, color: severity, fontWeight: 700 }}>{d.netDiff >= 0 ? '+' : '-'}{fmtD(d.netDiff)}</td>
+                        <td style={{ ...tdS, color: Math.abs(d.taxDiff) > 0.5 ? '#ff9800' : th.muted }}>{d.taxDiff >= 0 ? '+' : '-'}{fmtD(d.taxDiff)}</td>
+                        <td style={tdS}>{d.errCorCount}</td>
+                        <td style={tdS}>{fmtD(d.errCorTotal)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fade-in">
+      <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.25rem', color: th.text, marginBottom: '0.25rem' }}>Sales Reconciliation</div>
+      <div style={{ color: th.muted, fontSize: '0.8125rem', marginBottom: '1.5rem' }}>Compare Pulse POS sales at two time points to catch late-sync discrepancies before royalty submission.</div>
+      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+        <div style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '1rem' }}>Run Reconciliation</div>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div>
+            <label style={{ fontSize: '0.7rem', color: th.muted, fontWeight: 600, display: 'block', marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Business Date</label>
+            <input type="date" value={busDt} onChange={e => setBusDt(e.target.value)} style={{ ...inp(th), fontSize: '0.875rem', padding: '0.5rem 0.75rem' }} />
+          </div>
+          <button onClick={takeSnapshot} disabled={snapping} style={btn(th, { padding: '0.5rem 1.25rem', fontSize: '0.8rem', opacity: snapping ? 0.5 : 1 })}>
+            {snapping ? 'Pulling...' : '1. Take Snapshot'}
+          </button>
+          <button onClick={runCompare} disabled={comparing} style={btn(th, { padding: '0.5rem 1.25rem', fontSize: '0.8rem', background: '#22c55e', opacity: comparing ? 0.5 : 1 })}>
+            {comparing ? 'Comparing...' : '2. Compare Now'}
+          </button>
+        </div>
+        <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.75rem', lineHeight: 1.5 }}>
+          <strong>How to use:</strong> Take a snapshot right after week-end close (e.g. Sunday 12:01 AM). Wait 24-48 hours. Click "Compare Now" to see what changed. Stores with large differences may have POS sync issues.
+        </div>
+      </div>
+      {history && history.length > 0 && (
+        <div style={{ ...card(th), padding: '1.5rem' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '1rem' }}>Recent Reconciliations</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>{['Date', 'Compared', 'Gap', 'Stores w/ Diffs', 'Net Diff', 'Abs Diff'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
+              <tbody>
+                {history.map(h => (
+                  <tr key={h.busDt} style={{ cursor: 'pointer' }} onClick={async () => {
+                    setComparing(true);
+                    try {
+                      const res = await fetch('/.netlify/functions/reconciliation', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'compare', busDt: h.busDt }),
+                      });
+                      const data = await res.json();
+                      if (!data.error) { setResult(data); setView('detail'); }
+                    } catch {}
+                    setComparing(false);
+                  }}>
+                    <td style={{ ...tdS, fontWeight: 700 }}>{h.busDt}</td>
+                    <td style={{ ...tdS, fontSize: '0.75rem' }}>{new Date(h.comparedAt).toLocaleString()}</td>
+                    <td style={tdS}>{h.hoursSinceSnapshot}h</td>
+                    <td style={{ ...tdS, color: h.storesWithDiffs > 0 ? '#f44336' : '#4caf50', fontWeight: 700 }}>{h.storesWithDiffs}</td>
+                    <td style={{ ...tdS, color: Math.abs(h.totalNetDiff) > 10 ? '#f44336' : th.text }}>{h.totalNetDiff >= 0 ? '+' : ''}{fmtD(h.totalNetDiff)}</td>
+                    <td style={tdS}>{fmtD(h.totalAbsDiff)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {history && history.length === 0 && (
+        <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted }}>
+          No reconciliation history yet. Take your first snapshot to get started.
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CashManagement({ user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }) {
@@ -20959,7 +21133,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.33
+            v8.34
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -21319,6 +21493,7 @@ function PCGPortal() {
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff) && <AdminPulse stores={stores} districts={districts} th={th} user={user} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
+          {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} />}
           {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} />}
