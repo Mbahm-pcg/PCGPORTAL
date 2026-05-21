@@ -270,6 +270,9 @@ function inp(th, extra = {}) {
 function card(th, extra = {}) {
   return { background: th.card, borderRadius: "1rem", border: "1px solid "+th.cardBorder, ...extra };
 }
+function accentCard(th, accentColor, extra = {}) {
+  return { background: th.card, borderRadius: "1rem", borderTop: `1px solid ${th.cardBorder}`, borderRight: `1px solid ${th.cardBorder}`, borderBottom: `1px solid ${th.cardBorder}`, borderLeft: `3px solid ${accentColor}`, ...extra };
+}
 
 // ── Project Tracker Constants & Helpers ───────────────────────────────────────
 const PROJECT_PHASES = [
@@ -10506,6 +10509,285 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
 }
 
 
+// ── Push Test Panel (sub-component of TestNotificationsPanel) ────────────
+function PushTestPanel({ th, user, showAlert, testStatus, setTestStatus }) {
+  const [pushPerm, setPushPerm] = React.useState(isPushSupported() ? Notification.permission : "unsupported");
+  const [showReset, setShowReset] = React.useState(false);
+  const isChrome = /Chrome/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent);
+  const isEdge = /Edg/.test(navigator.userAgent);
+  const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+  const isFirefox = /Firefox/.test(navigator.userAgent);
+  const browserName = isSafari ? "Safari" : isEdge ? "Edge" : isChrome ? "Chrome" : isFirefox ? "Firefox" : "your browser";
+  return (
+    <>
+      <div style={{ fontSize: "0.75rem", color: th.muted, marginBottom: "0.5rem", lineHeight: 1.4 }}>
+        {pushPerm === "granted" && "✅ Push enabled"}
+        {pushPerm === "denied" && "❌ Push blocked by browser"}
+        {pushPerm === "default" && "⚠️ Permission not yet granted"}
+        {pushPerm === "unsupported" && "❌ Push not supported in this browser"}
+      </div>
+      {pushPerm === "denied" && (
+        <div style={{ marginBottom: "0.5rem" }}>
+          <button onClick={() => setShowReset(r => !r)} style={{ background: "none", border: "none", color: O, fontSize: "0.75rem", cursor: "pointer", padding: 0, textDecoration: "underline", fontFamily: "'Source Sans 3'" }}>
+            {showReset ? "Hide instructions" : "How to fix this"}
+          </button>
+          {showReset && (
+            <div style={{ marginTop: "0.5rem", padding: "0.625rem", background: th.card3, borderRadius: "0.375rem", fontSize: "0.7rem", color: th.muted, lineHeight: 1.6 }}>
+              {(isChrome || isEdge) && (<><div style={{ fontWeight: 600, color: th.text, marginBottom: "0.25rem" }}>Reset in {browserName}:</div><div>1. Click the 🔒 lock icon (or tune icon) in the address bar</div><div>2. Find "Notifications" and change to <strong>Allow</strong></div><div>3. Reload this page</div></>)}
+              {isSafari && (<><div style={{ fontWeight: 600, color: th.text, marginBottom: "0.25rem" }}>Reset in Safari:</div><div>1. Go to <strong>Safari &gt; Settings &gt; Websites &gt; Notifications</strong></div><div>2. Find <strong>{BRAND_CONFIG.portalUrl.replace('https://', '')}</strong> and set to <strong>Allow</strong></div><div>3. Reload this page</div></>)}
+              {isFirefox && (<><div style={{ fontWeight: 600, color: th.text, marginBottom: "0.25rem" }}>Reset in Firefox:</div><div>1. Click the 🔒 lock icon in the address bar</div><div>2. Click "Clear permissions" or find Notifications &gt; <strong>Allow</strong></div><div>3. Reload this page</div></>)}
+              {!isChrome && !isEdge && !isSafari && !isFirefox && (<><div style={{ fontWeight: 600, color: th.text, marginBottom: "0.25rem" }}>Reset notification permissions:</div><div>1. Open your browser's site settings for this page</div><div>2. Find "Notifications" and change to <strong>Allow</strong></div><div>3. Reload this page</div></>)}
+              <button onClick={() => { setPushPerm(Notification.permission); if (Notification.permission === "granted") showAlert("success", "Push is now enabled!"); else showAlert("info", "Still " + Notification.permission + " — follow the steps above, then click again"); }}
+                style={btn(th, { width: "100%", padding: "0.4rem", fontSize: "0.7rem", marginTop: "0.5rem" })}>🔄 I've reset it — check again</button>
+            </div>
+          )}
+        </div>
+      )}
+      {pushPerm === "default" && (
+        <button onClick={async () => {
+          const ok = await subscribeToPush(user.id);
+          setPushPerm(Notification.permission);
+          if (ok) { setTestStatus("push_subscribed"); showAlert("success", "Push notifications enabled!"); }
+          else if (Notification.permission === "denied") { showAlert("error", "Push was blocked. Click 'How to fix this' below."); }
+          else { showAlert("error", "Could not enable push"); }
+          setTimeout(() => setTestStatus(null), 3000);
+        }} style={btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", marginBottom: "0.5rem" })}>Enable Push</button>
+      )}
+      <button onClick={async () => {
+        if (pushPerm !== "granted") { showAlert("error", "Enable push permissions first"); return; }
+        setTestStatus("sending_push");
+        try {
+          const res = await fetch('/.netlify/functions/push', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'send', userIds: [user.id], title: `${BRAND_CONFIG.shortName} Portal Test`, body: 'Push notifications are working! 🎉', url: '/', tag: 'test_push_' + Date.now() }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) { setTestStatus("push_ok"); showAlert("success", "Test push sent! Check your notifications."); }
+          else { setTestStatus("push_fail"); showAlert("error", "Push failed: " + (data.error || res.status)); }
+        } catch(e) { setTestStatus("push_fail"); showAlert("error", "Push error: " + e.message); }
+        setTimeout(() => setTestStatus(null), 5000);
+      }} disabled={testStatus === "sending_push"} style={btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", opacity: (testStatus === "sending_push" || pushPerm !== "granted") ? 0.6 : 1 })}>
+        {testStatus === "sending_push" ? "⏳ Sending..." : testStatus === "push_ok" ? "✅ Sent!" : testStatus === "push_fail" ? "❌ Failed" : "🔔 Send Test Push"}
+      </button>
+    </>
+  );
+}
+
+// ── Test Notifications Panel (mike.bahm only) ─────────────────────────────
+function TestNotificationsPanel({ th, user, showAlert }) {
+  const [testStatus, setTestStatus] = React.useState(null);
+  const [testPhone, setTestPhone] = React.useState(user?.phone || "");
+  const [testEmail, setTestEmail] = React.useState(user?.email || "");
+
+  const sendTestSMS = async () => {
+    if (!testPhone) { showAlert("error", "Enter a phone number first"); return; }
+    setTestStatus("sending_sms");
+    try {
+      const digits = testPhone.replace(/\D/g, "");
+      const res = await fetch('/.netlify/functions/sms', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: [digits], message: `${BRAND_CONFIG.portalName} Test: SMS notifications are working! 🎉` }),
+      });
+      const data = await res.json();
+      if (res.ok) { setTestStatus("sms_ok"); showAlert("success", "Test SMS sent!"); }
+      else { setTestStatus("sms_fail"); showAlert("error", "SMS failed: " + JSON.stringify(data)); }
+    } catch(e) { setTestStatus("sms_fail"); showAlert("error", "SMS error: " + e.message); }
+    setTimeout(() => setTestStatus(null), 5000);
+  };
+
+  const sendTestEmail = async () => {
+    if (!testEmail) { showAlert("error", "Enter an email first"); return; }
+    setTestStatus("sending_email");
+    try {
+      await sendNotifyEmail([testEmail], `${BRAND_CONFIG.portalName} — Test Notification`,
+        `<h3 style="color:${BRAND_CONFIG.primary}">Test Notification</h3><p>Email notifications are working correctly! 🎉</p><p style="color:#666;font-size:13px">This is a test from the ${BRAND_CONFIG.portalName} settings page.</p>`);
+      setTestStatus("email_ok"); showAlert("success", "Test email sent!");
+    } catch(e) { setTestStatus("email_fail"); showAlert("error", "Email error: " + e.message); }
+    setTimeout(() => setTestStatus(null), 5000);
+  };
+
+  return (
+    <div style={accentCard(th, "#00d084", { padding: "1.5rem", marginBottom: "1.25rem" })}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+        <span style={{ fontSize: "1.125rem" }}>🧪</span>
+        <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Test Notifications</span>
+      </div>
+      <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
+        Send a test message to verify your Twilio SMS and email integrations are working.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem" }}>
+        <div style={{ background: th.card2, borderRadius: "0.5rem", padding: "1rem" }}>
+          <div style={{ fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.5rem" }}>📱 Test SMS (Twilio)</div>
+          <input style={{ ...inp(th), marginBottom: "0.5rem" }} placeholder="(555) 555-5555" value={testPhone}
+            onChange={e => { const digits = e.target.value.replace(/\D/g, '').slice(0,10); setTestPhone(formatPhone(digits)); }} />
+          <button onClick={sendTestSMS} disabled={testStatus === "sending_sms"} style={btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", opacity: testStatus === "sending_sms" ? 0.6 : 1 })}>
+            {testStatus === "sending_sms" ? "⏳ Sending..." : testStatus === "sms_ok" ? "✅ Sent!" : testStatus === "sms_fail" ? "❌ Failed" : "📱 Send Test SMS"}
+          </button>
+        </div>
+        <div style={{ background: th.card2, borderRadius: "0.5rem", padding: "1rem" }}>
+          <div style={{ fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.5rem" }}>📧 Test Email (Resend)</div>
+          <input style={{ ...inp(th), marginBottom: "0.5rem" }} placeholder="email@example.com" value={testEmail}
+            onChange={e => setTestEmail(e.target.value)} />
+          <button onClick={sendTestEmail} disabled={testStatus === "sending_email"} style={btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", opacity: testStatus === "sending_email" ? 0.6 : 1 })}>
+            {testStatus === "sending_email" ? "⏳ Sending..." : testStatus === "email_ok" ? "✅ Sent!" : testStatus === "email_fail" ? "❌ Failed" : "📧 Send Test Email"}
+          </button>
+        </div>
+        <div style={{ background: th.card2, borderRadius: "0.5rem", padding: "1rem" }}>
+          <div style={{ fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.5rem" }}>🔔 Test Push Notification</div>
+          <PushTestPanel th={th} user={user} showAlert={showAlert} testStatus={testStatus} setTestStatus={setTestStatus} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Pulse Daily Notifications Panel (mike.bahm only) ──────────────────────
+function PulseDailyPanel({ th, user, showAlert }) {
+  const [pulseEnabled, setPulseEnabled] = React.useState(true);
+  const [pulseEmails, setPulseEmails] = React.useState("mike@peoplecapitalgroup.com");
+  const [pulseTime, setPulseTime] = React.useState("22:00");
+  const [pulseSaving, setPulseSaving] = React.useState(false);
+  const [pulseTestStatus, setPulseTestStatus] = React.useState(null);
+  const [lastRun, setLastRun] = React.useState(null);
+  const pulseInitRef = React.useRef(false);
+
+  if (!pulseInitRef.current) {
+    pulseInitRef.current = true;
+    (async () => {
+      try {
+        const res = await fetch('/.netlify/functions/storage', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'load', key: 'pcg_pulse_notify_config' }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json && json.data) {
+            const cfg = json.data;
+            setPulseEnabled(cfg.enabled !== false);
+            setPulseEmails((cfg.emailRecipients || []).join(', '));
+            setPulseTime(cfg.time || "22:00");
+          }
+        }
+      } catch(e) { console.warn('Could not load pulse config:', e); }
+      try {
+        const r2 = await fetch('/.netlify/functions/storage', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'load', key: 'pcg_pulse_notify_last_run' }),
+        });
+        if (r2.ok) { const d2 = await r2.json(); if (d2 && d2.data) setLastRun(d2.data); }
+      } catch {}
+    })();
+  }
+
+  const savePulseConfig = async () => {
+    setPulseSaving(true);
+    try {
+      const cfg = { enabled: pulseEnabled, emailRecipients: pulseEmails.split(',').map(e => e.trim()).filter(Boolean), time: pulseTime, updatedAt: new Date().toISOString(), updatedBy: user?.name };
+      await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', key: 'pcg_pulse_notify_config', data: cfg }) });
+      showAlert("success", "Pulse notification settings saved");
+    } catch(e) { showAlert("error", "Failed to save: " + e.message); }
+    setPulseSaving(false);
+  };
+
+  const triggerPulseNow = async () => {
+    setPulseTestStatus("sending");
+    try {
+      const res = await fetch('/.netlify/functions/pulse-notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manual: true }) });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        setPulseTestStatus("ok"); setLastRun({ ranAt: new Date().toISOString(), ...data });
+        showAlert("success", `Pulse sent! $${(data.daily?.netSales || 0).toLocaleString('en-US', {minimumFractionDigits:2})} today, ${data.storesReporting} stores`);
+      } else { setPulseTestStatus("fail"); showAlert("error", "Pulse failed: " + (data.error || res.status)); }
+    } catch(e) { setPulseTestStatus("fail"); showAlert("error", "Error: " + e.message); }
+    setTimeout(() => setPulseTestStatus(null), 5000);
+  };
+
+  return (
+    <div style={accentCard(th, O, { padding: "1.25rem" })}>
+      <div style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" }}>Pulse Daily Notifications</div>
+      <div style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "0.75rem", lineHeight: 1.5 }}>Automatically fetch daily totals + WTD for all 45 stores and send a summary via push notification and email.</div>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+        <div onClick={() => setPulseEnabled(e => !e)} style={{ width: 36, height: 20, borderRadius: "0.625rem", background: pulseEnabled ? O : "#ccc", position: "relative", cursor: "pointer", transition: "background .25s", flexShrink: 0 }}>
+          <div style={{ position: "absolute", top: 3, left: pulseEnabled ? 19 : 3, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .25s", boxShadow: "0 1px 3px #00000030" }} />
+        </div>
+        <span style={{ fontSize: "0.8125rem", color: th.text, fontWeight: 600 }}>{pulseEnabled ? "Enabled" : "Disabled"}</span>
+      </div>
+      <div style={{ fontSize: "0.75rem", color: th.muted, marginBottom: "0.75rem", padding: "0.5rem", background: th.card2, borderRadius: "0.375rem" }}>Schedule: <strong>Daily at 9:00 PM ET</strong> (cron-based via Netlify)</div>
+      <div style={{ marginBottom: "0.75rem" }}>
+        <label style={{ fontSize: "0.75rem", fontWeight: 600, color: th.text, display: "block", marginBottom: "0.25rem" }}>Email Recipients</label>
+        <input style={{ ...inp(th), width: "100%", fontSize: "0.8rem" }} placeholder="email1@example.com, email2@example.com" value={pulseEmails} onChange={e => setPulseEmails(e.target.value)} />
+        <div style={{ fontSize: "0.65rem", color: th.muted, marginTop: "0.25rem" }}>Comma-separated. Push goes to all subscribed users automatically.</div>
+      </div>
+      <button onClick={savePulseConfig} disabled={pulseSaving} style={btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", marginBottom: "0.5rem", opacity: pulseSaving ? 0.6 : 1 })}>{pulseSaving ? "Saving..." : "Save Settings"}</button>
+      <button onClick={triggerPulseNow} disabled={pulseTestStatus === "sending"} style={btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", background: th.card3, color: th.text, opacity: pulseTestStatus === "sending" ? 0.6 : 1 })}>
+        {pulseTestStatus === "sending" ? "⏳ Fetching all stores..." : pulseTestStatus === "ok" ? "✅ Sent!" : pulseTestStatus === "fail" ? "❌ Failed" : "⚡ Run Pulse Now (manual)"}
+      </button>
+      {lastRun && (
+        <div style={{ marginTop: "0.75rem", padding: "0.5rem", background: th.card2, borderRadius: "0.375rem", fontSize: "0.7rem", color: th.muted, lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 600, color: th.text, marginBottom: "0.25rem" }}>Last Run</div>
+          <div>Time: {new Date(lastRun.ranAt).toLocaleString()}</div>
+          {lastRun.daily && <div>Daily: ${lastRun.daily.netSales?.toLocaleString('en-US', {minimumFractionDigits:2})} | {lastRun.daily.guests?.toLocaleString()} guests</div>}
+          {lastRun.wtd && <div>WTD: ${lastRun.wtd.netSales?.toLocaleString('en-US', {minimumFractionDigits:2})} | {lastRun.wtd.guests?.toLocaleString()} guests ({lastRun.wtd.days} days)</div>}
+          <div>Stores: {lastRun.storesReporting}/45 | Push: {lastRun.push?.sent || 0} sent</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Announcements Panel (mike.bahm only) ──────────────────────────────────
+function AnnouncementsPanel({ th, user, showAlert, announcements, setAnnouncements }) {
+  const [annTitle, setAnnTitle] = React.useState("");
+  const [annMsg, setAnnMsg] = React.useState("");
+
+  const postAnnouncement = () => {
+    if (!annTitle.trim() || !annMsg.trim()) { showAlert("error", "Title and message required"); return; }
+    const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: annTitle.trim(), message: annMsg.trim(), createdAt: new Date().toISOString(), createdBy: user?.name, active: true };
+    setAnnouncements(prev => [ann, ...prev]);
+    setAnnTitle(""); setAnnMsg("");
+    showAlert("success", "Announcement posted!");
+  };
+
+  return (
+    <>
+      <div style={{ fontWeight: 700, fontSize: "1.125rem", color: th.text, margin: "2rem 0 0.75rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        📢 Announcements <span style={{ fontSize: "0.6875rem", fontWeight: 500, color: th.muted }}>(shown to all users on login)</span>
+      </div>
+      <div style={{ ...card(th), padding: "1.25rem", marginBottom: "1rem" }}>
+        <label style={{ fontWeight: 600, fontSize: "0.8125rem", color: th.text, marginBottom: "0.25rem", display: "block" }}>Title</label>
+        <input placeholder="e.g. Mandatory Training Next Week" value={annTitle} onChange={e => setAnnTitle(e.target.value)}
+          style={{ ...inp(th), width: "100%", boxSizing: "border-box", marginBottom: "0.75rem" }} />
+        <label style={{ fontWeight: 600, fontSize: "0.8125rem", color: th.text, marginBottom: "0.25rem", display: "block" }}>Message</label>
+        <textarea placeholder="Write your announcement here..." value={annMsg} onChange={e => setAnnMsg(e.target.value)} rows={3}
+          style={{ ...inp(th), width: "100%", boxSizing: "border-box", marginBottom: "0.75rem", resize: "vertical", fontFamily: "'Source Sans 3'" }} />
+        <button onClick={postAnnouncement} style={btn(th, { padding: "0.5rem 1.5rem" })}>📢 Post Announcement</button>
+      </div>
+      {announcements.length > 0 && (
+        <div style={{ ...card(th), padding: "1rem" }}>
+          <div style={{ fontWeight: 600, fontSize: "0.8125rem", color: th.text, marginBottom: "0.75rem" }}>Active Announcements</div>
+          {announcements.map((a, idx) => (
+            <div key={a.id} style={{ padding: "0.75rem", borderBottom: idx < announcements.length - 1 ? `1px solid ${th.cardBorder}` : "none", opacity: a.active ? 1 : 0.5 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
+                <span style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text }}>{a.title}</span>
+                <div style={{ display: "flex", gap: "0.375rem" }}>
+                  <button onClick={() => setAnnouncements(prev => prev.map(x => x.id === a.id ? { ...x, active: !x.active } : x))}
+                    style={{ ...btn(th, { padding: "0.25rem 0.5rem", fontSize: "0.6875rem", background: a.active ? "#69db7c22" : "#ff666622", color: a.active ? "#69db7c" : "#ff6666" }) }}>
+                    {a.active ? "Active" : "Inactive"}
+                  </button>
+                  <button onClick={() => setAnnouncements(prev => prev.filter(x => x.id !== a.id))}
+                    style={{ ...btn(th, { padding: "0.25rem 0.5rem", fontSize: "0.6875rem", background: "#ff444422", color: "#ff6666" }) }}>✕</button>
+                </div>
+              </div>
+              <div style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "0.25rem" }}>{a.message}</div>
+              <div style={{ fontSize: "0.625rem", color: th.muted }}>{new Date(a.createdAt).toLocaleString()} by {a.createdBy}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Admin: Settings ───────────────────────────────────────────────────────
 function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements }) {
   const [newEmail, setNewEmail] = useState("");
@@ -10621,7 +10903,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       {settingsTab === 'notifications' && <>
 
       {/* Info card */}
-      <div style={{ ...card(th), borderLeft: `3px solid ${O}`, marginBottom: "1.25rem" }}>
+      <div style={accentCard(th, O, { marginBottom: "1.25rem" })}>
         <button onClick={() => setNotifyInfoOpen(o => !o)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", background: "none", border: "none", cursor: "pointer", padding: "1rem 1.25rem", textAlign: "left" }}>
           <span style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text }}>How Notifications Work</span>
           <span style={{ fontSize: "0.75rem", color: th.muted, marginLeft: "0.5rem" }}>{notifyInfoOpen ? "▲ Hide" : "▼ Show"}</span>
@@ -10652,7 +10934,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       </div>
 
       {/* Global Notify List */}
-      <div style={{ ...card(th), padding: "1.5rem", marginBottom: "1.25rem" }}>
+      <div style={accentCard(th, "#ffffff", { padding: "1.5rem", marginBottom: "1.25rem" })}>
         <div onClick={() => setGlobalNotifyOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: globalNotifyOpen ? "0.25rem" : 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <span style={{ fontSize: "1.125rem" }}>📧</span>
@@ -10691,7 +10973,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       </div>
 
       {/* Ticket Notify List */}
-      <div style={{ ...card(th), padding: "1.5rem", marginBottom: "1.25rem" }}>
+      <div style={accentCard(th, "#f59e0b", { padding: "1.5rem", marginBottom: "1.25rem" })}>
         <div onClick={() => setTicketNotifyOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: ticketNotifyOpen ? "0.25rem" : 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <span style={{ fontSize: "1.125rem" }}>🎫</span>
@@ -10729,7 +11011,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       </div>
 
       {/* Test Notifications */}
-      {user?.username === "mike.bahm" && (() => {
+      {user?.username === "mike.bahm" && <TestNotificationsPanel th={th} user={user} showAlert={showAlert} />}
+      {false && (() => {
         const [testStatus, setTestStatus] = React.useState(null);
         const [testPhone, setTestPhone] = React.useState(user.phone || "");
         const [testEmail, setTestEmail] = React.useState(user.email || "");
@@ -10762,7 +11045,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         };
 
         return (
-          <div style={{ ...card(th), padding: "1.5rem", marginBottom: "1.25rem", borderLeft: "3px solid #00d084" }}>
+          <div style={accentCard(th, "#00d084", { padding: "1.5rem", marginBottom: "1.25rem" })}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
               <span style={{ fontSize: "1.125rem" }}>🧪</span>
               <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Test Notifications</span>
@@ -10886,7 +11169,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       })()}
 
       {/* Pulse Daily Notifications — mike.bahm only */}
-      {user?.username === "mike.bahm" && (() => {
+      {user?.username === "mike.bahm" && <PulseDailyPanel th={th} user={user} showAlert={showAlert} />}
+      {false && (() => {
         const [pulseEnabled, setPulseEnabled] = React.useState(true);
         const [pulseEmails, setPulseEmails] = React.useState("mike@peoplecapitalgroup.com");
         const [pulseTime, setPulseTime] = React.useState("22:00");
@@ -10966,7 +11250,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         };
 
         return (
-          <div style={{ ...card(th), padding: "1.25rem", borderLeft: `3px solid ${O}` }}>
+          <div style={accentCard(th, O, { padding: "1.25rem" })}>
             <div style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" }}>Pulse Daily Notifications</div>
             <div style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "0.75rem", lineHeight: 1.5 }}>
               Automatically fetch daily totals + WTD for all 45 stores and send a summary via push notification and email.
@@ -11020,7 +11304,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       })()}
 
       {/* Announcements — mike.bahm only */}
-      {user?.username === "mike.bahm" && (() => {
+      {user?.username === "mike.bahm" && <AnnouncementsPanel th={th} user={user} showAlert={showAlert} announcements={announcements} setAnnouncements={setAnnouncements} />}
+      {false && (() => {
         const [annTitle, setAnnTitle] = React.useState("");
         const [annMsg, setAnnMsg] = React.useState("");
         const postAnnouncement = () => {
@@ -11077,7 +11362,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       {settingsTab === 'orion' && <>
 
       {/* Orion Report Settings */}
-      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', borderLeft: '3px solid #7C3AED' }}>
+      <div style={accentCard(th, '#7C3AED', { padding: '1.5rem', marginBottom: '1.25rem' })}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reportOpen ? '1rem' : 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontSize: '1.125rem' }}>🔮</span>
@@ -11267,7 +11552,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
       {/* Notification Log */}
       <div style={{ marginTop: 0 }}>
-        <NotificationLogSection th={th} notifyLog={notifyLog} pushSubs={pushSubs} logLoading={logLoading} logOpen={logOpen} setLogOpen={setLogOpen} loadNotifyLog={loadNotifyLog} users={users || []} accent="#0EA5E9" />
+        <NotificationLogSection th={th} notifyLog={notifyLog} pushSubs={pushSubs} logLoading={logLoading} logOpen={logOpen} setLogOpen={setLogOpen} loadNotifyLog={loadNotifyLog} users={users || []} accent="#ffffff" />
       </div>
 
       {/* Audit Log */}
@@ -11277,7 +11562,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
       {/* Leaderboard Preview — IT only */}
       {user?.userType === 'it' && (
-        <LeaderboardPreviewSection th={th} user={user} showAlert={showAlert} accent="#0EA5E9" />
+        <LeaderboardPreviewSection th={th} user={user} showAlert={showAlert} accent="#f59e0b" />
       )}
 
       </> /* end admin tab */}
@@ -11336,9 +11621,10 @@ function KBManagementSection({ th, showAlert }) {
     <div style={{ marginTop: '1.25rem' }}>
       <div onClick={() => setOpen(o => !o)} style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0.85rem 1.1rem', background: th.card, border: `1px solid ${th.cardBorder}`,
+        padding: '0.85rem 1.1rem', background: th.card,
+        borderTop: `1px solid ${th.cardBorder}`, borderRight: `1px solid ${th.cardBorder}`,
+        borderBottom: open ? 'none' : `1px solid ${th.cardBorder}`, borderLeft: '3px solid #ec4899',
         borderRadius: open ? '0.75rem 0.75rem 0 0' : '0.75rem', cursor: 'pointer',
-        borderLeft: '3px solid #7C3AED',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <span style={{ fontSize: '1.1rem' }}>🧠</span>
@@ -11349,7 +11635,7 @@ function KBManagementSection({ th, showAlert }) {
       </div>
 
       {open && (
-        <div style={{ border: `1px solid ${th.cardBorder}`, borderTop: 'none', borderRadius: '0 0 0.75rem 0.75rem', padding: '1rem 1.1rem', background: th.card }}>
+        <div style={{ borderTop: 'none', borderRight: `1px solid ${th.cardBorder}`, borderBottom: `1px solid ${th.cardBorder}`, borderLeft: '3px solid #ec4899', borderRadius: '0 0 0.75rem 0.75rem', padding: '1rem 1.1rem', background: th.card }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem', flexWrap: 'wrap' }}>
             <div style={{ fontSize: '0.75rem', color: th.muted, flex: 1 }}>
               📁 <strong style={{ color: th.text }}>PCG - KB</strong> (Google Drive) — files are synced weekly on Monday 6 AM ET
@@ -11449,9 +11735,10 @@ function LeaderboardPreviewSection({ th, user, showAlert, accent }) {
     <div style={{ marginTop: '1.25rem' }}>
       <div onClick={() => setOpen(o => !o)} style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0.85rem 1.1rem', background: th.card, border: `1px solid ${th.cardBorder}`,
+        padding: '0.85rem 1.1rem', background: th.card,
+        borderTop: `1px solid ${th.cardBorder}`, borderRight: `1px solid ${th.cardBorder}`,
+        borderBottom: open ? 'none' : `1px solid ${th.cardBorder}`, borderLeft: `3px solid ${accent || '#f59e0b'}`,
         borderRadius: open ? '0.75rem 0.75rem 0 0' : '0.75rem', cursor: 'pointer',
-        ...(accent ? { borderLeft: `3px solid ${accent}` } : {}),
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <span style={{ fontSize: '1.1rem' }}>🏆</span>
@@ -11462,7 +11749,7 @@ function LeaderboardPreviewSection({ th, user, showAlert, accent }) {
       </div>
 
       {open && (
-        <div style={{ border: `1px solid ${th.cardBorder}`, borderTop: 'none', borderRadius: '0 0 0.75rem 0.75rem', padding: '1rem 1.1rem', background: th.card }}>
+        <div style={{ borderTop: 'none', borderRight: `1px solid ${th.cardBorder}`, borderBottom: `1px solid ${th.cardBorder}`, borderLeft: `3px solid ${accent || '#f59e0b'}`, borderRadius: '0 0 0.75rem 0.75rem', padding: '1rem 1.1rem', background: th.card }}>
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
             <button onClick={load} disabled={loading} style={btn(th, { padding: '0.4rem 0.9rem', fontSize: '0.75rem' })}>
               {loading ? 'Loading…' : 'Refresh Data'}
@@ -11513,7 +11800,7 @@ function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, 
   };
 
   return (
-    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', ...(accent ? { borderLeft: `3px solid ${accent}` } : {}) }}>
+    <div style={accentCard(th, accent || '#ffffff', { padding: '1.5rem', marginBottom: '1.25rem' })}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: logOpen ? '1rem' : 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontSize: '1.125rem' }}>📋</span>
@@ -11651,7 +11938,7 @@ function AuditLogSection({ th, user, users, accent }) {
   const visibleRows = showAll ? reversed : reversed.slice(0, PAGE);
 
   return (
-    <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem', ...(accent ? { borderLeft: `3px solid ${accent}` } : {}) }}>
+    <div style={accentCard(th, accent || '#0EA5E9', { padding: '1.5rem', marginBottom: '1.25rem' })}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: open ? '1rem' : 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontSize: '1.125rem' }}>🔍</span>
@@ -14972,23 +15259,23 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
   // KPI cards based on role
   const kpis = [];
   if (isExec) {
-    kpis.push({ label: "Quick Links", value: linkCount, icon: ICONS.links, color: "#3b82f6", tab: "links" });
-    kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos" });
-    kpis.push({ label: "Active Projects", value: activeProjects.length, icon: ICONS.projects, color: O, tab: "projects" });
-    kpis.push({ label: "Store Locations", value: (stores || []).length, icon: ICONS.locations, color: "#8b5cf6", tab: "locations" });
+    kpis.push({ label: "Quick Links", value: linkCount, icon: ICONS.links, color: "#3b82f6", tab: "links", question: "Summarize the most important operational quick links available and what each one is used for." });
+    kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos", question: "What are the most urgent open tasks right now? Flag anything overdue or high priority." });
+    kpis.push({ label: "Active Projects", value: activeProjects.length, icon: ICONS.projects, color: O, tab: "projects", question: "Give me a status summary of all active remodel and construction projects. Flag any that are behind schedule or at risk." });
+    kpis.push({ label: "Store Locations", value: (stores || []).length, icon: ICONS.locations, color: "#8b5cf6", tab: "locations", question: "Give me a top-level health summary across all our store locations. Which ones need attention?" });
   } else if (isDM) {
-    kpis.push({ label: "My Locations", value: myStores.length, icon: ICONS.locations, color: "#8b5cf6", tab: "locations" });
-    kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos" });
-    kpis.push({ label: "My Projects", value: activeProjects.filter(p => p.district === user?.district).length, icon: ICONS.projects, color: O, tab: "projects" });
+    kpis.push({ label: "My Locations", value: myStores.length, icon: ICONS.locations, color: "#8b5cf6", tab: "locations", question: `Give me a performance overview of my ${myStores.length} district locations. Which ones need my attention today?` });
+    kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos", question: "What are my most urgent open tasks right now? Flag anything overdue or high priority." });
+    kpis.push({ label: "My Projects", value: activeProjects.filter(p => p.district === user?.district).length, icon: ICONS.projects, color: O, tab: "projects", question: "Summarize active construction projects in my district. Are any behind schedule or at risk?" });
   } else if (isConstruction) {
-    kpis.push({ label: "Active Projects", value: activeProjects.length, icon: ICONS.projects, color: O, tab: "projects" });
-    kpis.push({ label: "Locations", value: (stores || []).length, icon: ICONS.locations, color: "#8b5cf6", tab: "locations" });
-    kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos" });
+    kpis.push({ label: "Active Projects", value: activeProjects.length, icon: ICONS.projects, color: O, tab: "projects", question: "Give me a status summary of all active remodel and construction projects. Flag any that are behind schedule or at risk." });
+    kpis.push({ label: "Locations", value: (stores || []).length, icon: ICONS.locations, color: "#8b5cf6", tab: "locations", question: "Give me a quick summary of all store locations and which ones have active construction work." });
+    kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos", question: "What are my most urgent open tasks right now? Flag anything overdue or high priority." });
   } else if (isVendor) {
-    kpis.push({ label: "Active Projects", value: activeProjects.length, icon: ICONS.projects, color: O, tab: "projects" });
+    kpis.push({ label: "Active Projects", value: activeProjects.length, icon: ICONS.projects, color: O, tab: "projects", question: "Give me a status summary of all active remodel and construction projects. Flag any that are behind schedule or at risk." });
   } else {
-    kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos" });
-    kpis.push({ label: "Quick Links", value: linkCount, icon: ICONS.links, color: "#3b82f6", tab: "links" });
+    kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos", question: "What are my most urgent open tasks right now? Flag anything overdue or high priority." });
+    kpis.push({ label: "Quick Links", value: linkCount, icon: ICONS.links, color: "#3b82f6", tab: "links", question: "What are the most useful operational links available to me?" });
   }
 
   // Quick actions based on role
@@ -15242,7 +15529,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
               onMouseEnter={() => setHoveredKpi(k.label)}
               onMouseLeave={() => setHoveredKpi(null)}
               style={{ position: "relative" }}>
-              <div onClick={() => setTab(k.tab)} style={{
+              <div onClick={() => k.question && onAskOrion ? onAskOrion(k.question) : setTab(k.tab)} style={{
                 position: "relative",
                 background: th.card,
                 borderRadius: "0.875rem",
@@ -15284,6 +15571,9 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
                     fontSize: "0.62rem", fontWeight: 800, color: th.muted,
                     textTransform: "uppercase", letterSpacing: 1.2, marginTop: "0.35rem",
                   }}>{k.label}</div>
+                  {k.question && onAskOrion && (
+                    <div style={{ fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.3rem", opacity: isHovered ? 1 : 0.55, transition: "opacity .2s" }}>🔮 Click to ask Orion</div>
+                  )}
                 </div>
               </div>
 
@@ -21133,7 +21423,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.34
+            v8.40
           </div>
         )}
         {/* Collapse toggle — desktop only */}
