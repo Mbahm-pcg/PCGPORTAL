@@ -17793,8 +17793,9 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
         empList = Array.isArray(raw) ? raw : [];
         setEmployees(empList);
       }
-      if (histData) {
-        setStoreHistory(typeof histData === 'string' ? JSON.parse(histData) : histData);
+      if (histData.status === 'fulfilled' && histData.value) {
+        const hd = histData.value;
+        setStoreHistory(typeof hd === 'string' ? JSON.parse(hd) : hd);
       }
       if (salesRes.status === 'fulfilled' && salesRes.value) {
         const checks = salesRes.value.guestChecks || salesRes.value?.response?.guestChecks || [];
@@ -18250,7 +18251,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
                 <tr>{['Day', 'Labor $', 'Sales $', 'Labor %', 'Hours Worked'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {storeHistory?.daily?.slice(-7).map((d, i) => {
+                {storeHistory?.daily?.slice(0, 7).reverse().map((d, i) => {
                   const pct = d.sales > 0 ? (d.laborDollars / d.sales) * 100 : 0;
                   const dayName = d.date ? new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : `Day ${i+1}`;
                   return (
@@ -18281,7 +18282,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
                 <tr>{['Week Of', 'Labor $', 'Sales $', 'Labor %', 'Avg Employees'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {storeHistory?.weekly?.slice(-8).map((w, i) => {
+                {storeHistory?.weekly?.slice(0, 8).reverse().map((w, i) => {
                   const pct = w.sales > 0 ? (w.laborDollars / w.sales) * 100 : 0;
                   const weekLabel = w.weekOf ? new Date(w.weekOf + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : `Wk ${i+1}`;
                   return (
@@ -21434,7 +21435,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.44
+            v8.45
           </div>
         )}
         {/* Collapse toggle — desktop only */}
