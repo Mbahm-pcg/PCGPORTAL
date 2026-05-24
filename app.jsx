@@ -17929,12 +17929,24 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
   const enrichedEmps = employees.map(emp => {
     const id = emp.employeeId || emp.EmployeeId || emp.id;
     const empName = emp.name || emp.Name || emp.displayName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || `Emp ${id}`;
-    const { hoursToday, hoursWeek, currentlyOnClock: tcOnClock, todayPairs } = calcHours(id);
+    const { hoursToday: completedHoursToday, hoursWeek, currentlyOnClock: tcOnClock, todayPairs } = calcHours(id);
     const isSalary = (emp.payType || emp.PayType || '').toLowerCase().includes('salary');
     const rate = emp.payRate || emp.PayRate || 0;
     const hourlyRate = isSalary ? (rate / 26 / 5 / 8) : rate;
+
+    // Add in-progress hours for currently clocked-in employees
+    let hoursToday = completedHoursToday;
+    const live = getLiveStatus(id, empName);
+    if (live.isClockedIn && live.lastPunchTime) {
+      const clockInMs = new Date(live.lastPunchTime).getTime();
+      if (clockInMs > 0) {
+        const partialHrs = (nowMs - clockInMs) / 3600000;
+        if (partialHrs > 0 && partialHrs < 18) hoursToday += partialHrs;
+      }
+    }
+
     const dailyCost = isSalary ? rate / 12 : hoursToday * rate;
-    const otStatus = hoursWeek >= 40 ? 'OT' : hoursWeek >= 35 ? 'Approaching OT' : null;
+    const otStatus = (hoursWeek + (hoursToday - completedHoursToday)) >= 40 ? 'OT' : (hoursWeek + (hoursToday - completedHoursToday)) >= 35 ? 'Approaching OT' : null;
 
     // Schedule info
     const nameKey = empName.toLowerCase().trim();
@@ -17946,8 +17958,7 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
       return nowTime >= st && nowTime <= en;
     });
 
-    // Live punch status (from employeePunches endpoint)
-    const live = getLiveStatus(id, empName);
+    // Live punch status (already fetched above for cost calc)
     const currentlyOnClock = live.isClockedIn || tcOnClock;
     const clockedInAt = live.isClockedIn && live.lastPunchTime
       ? new Date(live.lastPunchTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
@@ -21423,7 +21434,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.43
+            v8.44
           </div>
         )}
         {/* Collapse toggle — desktop only */}
