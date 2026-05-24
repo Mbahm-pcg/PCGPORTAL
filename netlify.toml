@@ -41,6 +41,10 @@
 [functions.leaderboard-announce-cron]
   schedule = "0 4 * * 1"
 
+# Sales reconciliation — Sunday 12:01 AM ET (snapshot) + Tuesday 12:01 AM ET (compare)
+[functions.reconciliation-cron]
+  schedule = "1 4 * * 0,2"
+
 [[headers]]
   for = "/*"
   [headers.values]
