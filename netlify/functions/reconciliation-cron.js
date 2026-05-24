@@ -1,6 +1,6 @@
-// reconciliation-cron.js — Scheduled sales reconciliation
-// Sunday 12:01 AM ET: snapshot Saturday's sales (right after week-end close)
-// Tuesday 12:01 AM ET: compare against that snapshot (catches POS late-sync diffs)
+// reconciliation-cron.js — Scheduled WTD sales reconciliation
+// Sunday 12:01 AM ET: snapshot the full Sun–Sat week that just ended
+// Tuesday 12:01 AM ET: re-pull the same week and compare against Sunday's snapshot
 
 const https = require('https');
 const { getStore } = require('@netlify/blobs');
@@ -58,9 +58,6 @@ function fetchSales(pc, busDt) {
             grossSales: rcs.reduce((s, r) => s + (r.grsSlsTtl || r.grndTtl || 0), 0),
             errCorCount: rcs.reduce((s, r) => s + (r.errCorCnt || 0), 0),
             errCorTotal: rcs.reduce((s, r) => s + (r.errCorTtl || 0), 0),
-            voidCount: rcs.reduce((s, r) => s + (r.voidCnt || 0), 0),
-            voidTotal: rcs.reduce((s, r) => s + (r.voidTtl || 0), 0),
-            discounts: rcs.reduce((s, r) => s + (r.dscntTtl || 0), 0),
           });
         } catch { resolve(null); }
       });
@@ -76,91 +73,132 @@ function getBlobStore() {
   return getStore({ name: 'pcg-portal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 }
 
-function saturdayBusDt() {
+function getWeekDates() {
   const now = new Date();
   const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const dow = et.getDay();
-  // Sunday (0): Saturday was 1 day ago. Tuesday (2): Saturday was 2 days ago.
-  const daysBack = dow === 0 ? 1 : dow === 2 ? 2 : dow;
-  et.setDate(et.getDate() - daysBack);
-  return et.toISOString().slice(0, 10);
+  // Find the most recent Sunday (start of the completed week)
+  // Sunday (0): prior Sunday was 7 days ago. Tuesday (2): prior Sunday was 9 days ago.
+  const daysToSun = dow === 0 ? 7 : dow + 7;
+  const sun = new Date(et);
+  sun.setDate(et.getDate() - daysToSun);
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(sun);
+    d.setDate(sun.getDate() + i);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  return { weekStart: dates[0], weekEnd: dates[6], dates };
 }
 
-async function pullAllSales(busDt) {
-  const results = {};
-  for (let i = 0; i < STORES.length; i += 8) {
-    const batch = STORES.slice(i, i + 8);
-    const batchResults = await Promise.all(batch.map(async (store) => {
-      const data = await fetchSales(store.pc, busDt);
-      return { pc: store.pc, name: store.name, district: store.district, ...data };
-    }));
-    for (const r of batchResults) results[r.pc] = r;
-    if (i + 8 < STORES.length) await new Promise(r => setTimeout(r, 500));
+async function pullWeekSales(dates) {
+  const storeWeek = {};
+  for (const store of STORES) {
+    storeWeek[store.pc] = { pc: store.pc, name: store.name, district: store.district, daily: {}, netSales: 0, tax: 0, grossSales: 0, errCorCount: 0, errCorTotal: 0 };
   }
-  return results;
+
+  for (const busDt of dates) {
+    console.log(`[recon-cron] Pulling ${busDt}...`);
+    for (let i = 0; i < STORES.length; i += 8) {
+      const batch = STORES.slice(i, i + 8);
+      const results = await Promise.all(batch.map(async (store) => {
+        const data = await fetchSales(store.pc, busDt);
+        return { pc: store.pc, data };
+      }));
+      for (const { pc, data } of results) {
+        if (data) {
+          storeWeek[pc].daily[busDt] = data;
+          storeWeek[pc].netSales += data.netSales || 0;
+          storeWeek[pc].tax += data.tax || 0;
+          storeWeek[pc].grossSales += data.grossSales || 0;
+          storeWeek[pc].errCorCount += data.errCorCount || 0;
+          storeWeek[pc].errCorTotal += data.errCorTotal || 0;
+        }
+      }
+      if (i + 8 < STORES.length) await new Promise(r => setTimeout(r, 300));
+    }
+  }
+
+  for (const pc of Object.keys(storeWeek)) {
+    const s = storeWeek[pc];
+    s.netSales = Math.round(s.netSales * 100) / 100;
+    s.tax = Math.round(s.tax * 100) / 100;
+    s.grossSales = Math.round(s.grossSales * 100) / 100;
+    s.errCorTotal = Math.round(s.errCorTotal * 100) / 100;
+  }
+
+  return storeWeek;
 }
 
 exports.handler = async (event) => {
   const now = new Date();
   const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const dow = et.getDay();
-  const busDt = saturdayBusDt();
-  const store = getBlobStore();
+  const { weekStart, weekEnd, dates } = getWeekDates();
+  const blobStore = getBlobStore();
+  const blobKey = `pcg_recon_wtd_snapshot_${weekStart}`;
 
-  console.log(`[recon-cron] triggered at ${now.toISOString()} (ET day=${dow}), busDt=${busDt}`);
+  console.log(`[recon-cron] triggered at ${now.toISOString()} (ET day=${dow}), week=${weekStart} to ${weekEnd}`);
 
   if (dow === 0) {
-    // Sunday — take snapshot of Saturday's sales
-    console.log(`[recon-cron] Taking snapshot for ${busDt}`);
-    const results = await pullAllSales(busDt);
-    const snapshot = { busDt, pulledAt: now.toISOString(), stores: results };
-    await store.setJSON(`pcg_recon_snapshot_${busDt}`, { savedAt: now.toISOString(), data: snapshot });
-    console.log(`[recon-cron] Snapshot saved for ${busDt} — ${Object.keys(results).length} stores`);
-    return { statusCode: 200, body: JSON.stringify({ ok: true, action: 'snapshot', busDt, stores: Object.keys(results).length }) };
+    console.log(`[recon-cron] Sunday — WTD snapshot for ${weekStart} to ${weekEnd}`);
+    const storeWeek = await pullWeekSales(dates);
+    const snapshot = { weekStart, weekEnd, dates, pulledAt: now.toISOString(), stores: storeWeek };
+    await blobStore.setJSON(blobKey, { savedAt: now.toISOString(), data: snapshot });
+    const totalNet = Object.values(storeWeek).reduce((s, st) => s + st.netSales, 0);
+    console.log(`[recon-cron] WTD snapshot saved — ${Object.keys(storeWeek).length} stores, $${Math.round(totalNet).toLocaleString()} net`);
+    return { statusCode: 200, body: JSON.stringify({ ok: true, action: 'wtd-snapshot', weekStart, weekEnd, stores: Object.keys(storeWeek).length }) };
   }
 
   if (dow === 2) {
-    // Tuesday — compare current data vs Sunday's snapshot
-    console.log(`[recon-cron] Comparing for ${busDt}`);
+    console.log(`[recon-cron] Tuesday — WTD compare for ${weekStart} to ${weekEnd}`);
 
     let saved = null;
     try {
-      const raw = await store.get(`pcg_recon_snapshot_${busDt}`, { type: 'json' });
+      const raw = await blobStore.get(blobKey, { type: 'json' });
       saved = raw?.data || raw;
     } catch {}
 
     if (!saved) {
-      console.log(`[recon-cron] No snapshot found for ${busDt}, nothing to compare`);
-      return { statusCode: 200, body: JSON.stringify({ ok: false, error: `No snapshot for ${busDt}` }) };
+      console.log(`[recon-cron] No WTD snapshot for ${weekStart}`);
+      return { statusCode: 200, body: JSON.stringify({ ok: false, error: `No WTD snapshot for ${weekStart}` }) };
     }
 
-    const fresh = await pullAllSales(busDt);
+    const fresh = await pullWeekSales(dates);
 
     const diffs = [];
     for (const s of STORES) {
       const old = saved.stores?.[s.pc];
       const cur = fresh[s.pc];
       if (!old || !cur) continue;
-      const netDiff = (cur.netSales || 0) - (old.netSales || 0);
-      const taxDiff = (cur.tax || 0) - (old.tax || 0);
+      const netDiff = cur.netSales - old.netSales;
+      const taxDiff = cur.tax - old.tax;
       if (Math.abs(netDiff) > 0.01 || Math.abs(taxDiff) > 0.01) {
+        const dayDiffs = {};
+        for (const dt of dates) {
+          const od = old.daily?.[dt] || {};
+          const nd = cur.daily?.[dt] || {};
+          const dd = (nd.netSales || 0) - (od.netSales || 0);
+          if (Math.abs(dd) > 0.01) dayDiffs[dt] = { oldNet: Math.round((od.netSales || 0) * 100) / 100, newNet: Math.round((nd.netSales || 0) * 100) / 100, diff: Math.round(dd * 100) / 100 };
+        }
         diffs.push({
           pc: s.pc, name: s.name, district: s.district,
-          oldNet: Math.round((old.netSales || 0) * 100) / 100,
-          newNet: Math.round((cur.netSales || 0) * 100) / 100,
+          oldNet: Math.round(old.netSales * 100) / 100,
+          newNet: Math.round(cur.netSales * 100) / 100,
           netDiff: Math.round(netDiff * 100) / 100,
-          oldTax: Math.round((old.tax || 0) * 100) / 100,
-          newTax: Math.round((cur.tax || 0) * 100) / 100,
+          oldTax: Math.round(old.tax * 100) / 100,
+          newTax: Math.round(cur.tax * 100) / 100,
           taxDiff: Math.round(taxDiff * 100) / 100,
-          errCorCount: cur.errCorCount || 0,
-          errCorTotal: Math.round((cur.errCorTotal || 0) * 100) / 100,
+          errCorCount: cur.errCorCount,
+          errCorTotal: Math.round(cur.errCorTotal * 100) / 100,
+          dayDiffs,
         });
       }
     }
     diffs.sort((a, b) => Math.abs(b.netDiff) - Math.abs(a.netDiff));
 
     const result = {
-      busDt,
+      weekStart, weekEnd,
       snapshotTaken: saved.pulledAt,
       comparedAt: now.toISOString(),
       hoursSinceSnapshot: Math.round((now.getTime() - new Date(saved.pulledAt).getTime()) / 3600000 * 10) / 10,
@@ -171,11 +209,11 @@ exports.handler = async (event) => {
       diffs,
     };
 
-    await store.setJSON(`pcg_recon_compare_${busDt}`, { savedAt: now.toISOString(), data: result });
-    console.log(`[recon-cron] Compare saved for ${busDt} — ${diffs.length} stores with diffs, net diff: $${result.totalNetDiff}`);
-    return { statusCode: 200, body: JSON.stringify({ ok: true, action: 'compare', busDt, storesWithDiffs: diffs.length, totalNetDiff: result.totalNetDiff }) };
+    await blobStore.setJSON(`pcg_recon_wtd_compare_${weekStart}`, { savedAt: now.toISOString(), data: result });
+    console.log(`[recon-cron] WTD compare saved — ${diffs.length} stores with diffs, net diff: $${result.totalNetDiff}`);
+    return { statusCode: 200, body: JSON.stringify({ ok: true, action: 'wtd-compare', weekStart, storesWithDiffs: diffs.length, totalNetDiff: result.totalNetDiff }) };
   }
 
-  console.log(`[recon-cron] Not a Sunday or Tuesday (day=${dow}), skipping`);
+  console.log(`[recon-cron] Not Sunday or Tuesday (day=${dow}), skipping`);
   return { statusCode: 200, body: JSON.stringify({ ok: true, action: 'skip', day: dow }) };
 };

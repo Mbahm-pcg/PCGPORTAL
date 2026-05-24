@@ -16270,6 +16270,9 @@ function SalesReconciliation({ th, user, showAlert }) {
   const [comparing, setComparing] = useState(false);
   const [result, setResult] = useState(null);
   const [history, setHistory] = useState(null);
+  const [wtdSnapshots, setWtdSnapshots] = useState(null);
+  const [wtdHistory, setWtdHistory] = useState(null);
+  const [wtdDetail, setWtdDetail] = useState(null);
   const [view, setView] = useState('main');
 
   const callRecon = async (action, extra = {}) => {
@@ -16301,17 +16304,93 @@ function SalesReconciliation({ th, user, showAlert }) {
 
   const loadHistory = async () => {
     try {
-      const data = await callRecon('history');
-      setHistory(data.history || []);
+      const [dayH, wtdS, wtdH] = await Promise.all([
+        callRecon('history'),
+        callRecon('wtdSnapshotStatus'),
+        callRecon('wtdHistory'),
+      ]);
+      setHistory(dayH.history || []);
+      setWtdSnapshots(wtdS.snapshots || []);
+      setWtdHistory(wtdH.history || []);
     } catch {}
+  };
+
+  const loadWtdDetail = async (weekStart) => {
+    setComparing(true);
+    try {
+      const data = await callRecon('wtdDetail', { weekStart });
+      if (!data.error) { setWtdDetail(data); setView('wtdDetail'); }
+      else showAlert('error', data.error);
+    } catch {}
+    setComparing(false);
   };
 
   useEffect(() => { loadHistory(); }, []);
 
   const fmtD = v => '$' + Math.abs(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtDate = d => d ? new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
   const thS = { padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 };
   const tdS = { padding: '0.4rem 0.75rem', borderBottom: `1px solid ${th.cardBorder}`, fontSize: '0.8rem', color: th.text };
 
+  // WTD Detail view
+  if (view === 'wtdDetail' && wtdDetail) {
+    return (
+      <div className="fade-in">
+        <button onClick={() => { setView('main'); setWtdDetail(null); }} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, padding: '0.4rem 1rem', fontSize: '0.8rem', marginBottom: '1rem' }) }}>← Back</button>
+        <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: th.text, marginBottom: '0.5rem' }}>
+            WTD Reconciliation — {fmtDate(wtdDetail.weekStart)} – {fmtDate(wtdDetail.weekEnd)}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '1rem' }}>
+            Snapshot: {new Date(wtdDetail.snapshotTaken).toLocaleString()} · Compared: {new Date(wtdDetail.comparedAt).toLocaleString()} · Gap: {wtdDetail.hoursSinceSnapshot} hours
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+            {[
+              { label: 'Stores Checked', value: wtdDetail.totalStores, color: th.text },
+              { label: 'With Differences', value: wtdDetail.storesWithDiffs, color: wtdDetail.storesWithDiffs > 0 ? '#f44336' : '#4caf50' },
+              { label: 'Net Difference', value: (wtdDetail.totalNetDiff >= 0 ? '+' : '-') + fmtD(wtdDetail.totalNetDiff), color: Math.abs(wtdDetail.totalNetDiff) > 10 ? '#f44336' : '#4caf50' },
+              { label: 'Absolute Total', value: fmtD(wtdDetail.totalAbsDiff), color: wtdDetail.totalAbsDiff > 50 ? '#ff9800' : '#4caf50' },
+            ].map(k => (
+              <div key={k.label} style={{ background: th.card2, borderRadius: '0.625rem', padding: '0.75rem 1rem', flex: '1 1 140px', minWidth: 140 }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.25rem', color: k.color }}>{k.value}</div>
+                <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, marginTop: '0.2rem' }}>{k.label}</div>
+              </div>
+            ))}
+          </div>
+          {wtdDetail.diffs.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: '#4caf50', fontSize: '1rem', fontWeight: 700 }}>All stores match — no WTD discrepancies</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>{['Store', 'District', 'Snapshot WTD', 'Current WTD', 'Difference', 'Tax Diff', 'Days Changed'].map(h => <th key={h} style={thS}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {wtdDetail.diffs.map(d => {
+                    const severity = Math.abs(d.netDiff) > 100 ? '#f44336' : Math.abs(d.netDiff) > 10 ? '#ff9800' : '#4caf50';
+                    const daysChanged = d.dayDiffs ? Object.keys(d.dayDiffs).length : 0;
+                    return (
+                      <tr key={d.pc}>
+                        <td style={{ ...tdS, fontWeight: 700 }}>{d.name}</td>
+                        <td style={tdS}>D{d.district}</td>
+                        <td style={tdS}>{fmtD(d.oldNet)}</td>
+                        <td style={tdS}>{fmtD(d.newNet)}</td>
+                        <td style={{ ...tdS, color: severity, fontWeight: 700 }}>{d.netDiff >= 0 ? '+' : '-'}{fmtD(d.netDiff)}</td>
+                        <td style={{ ...tdS, color: Math.abs(d.taxDiff) > 0.5 ? '#ff9800' : th.muted }}>{d.taxDiff >= 0 ? '+' : '-'}{fmtD(d.taxDiff)}</td>
+                        <td style={{ ...tdS, fontSize: '0.7rem' }}>{daysChanged > 0 ? Object.entries(d.dayDiffs).map(([dt, dd]) => `${fmtDate(dt)}: ${dd.diff >= 0 ? '+' : ''}$${dd.diff.toFixed(2)}`).join(', ') : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Single-day detail view
   if (view === 'detail' && result) {
     return (
       <div className="fade-in">
@@ -16337,7 +16416,7 @@ function SalesReconciliation({ th, user, showAlert }) {
             ))}
           </div>
           {result.diffs.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '2rem', color: '#4caf50', fontSize: '1rem', fontWeight: 700 }}>✓ All stores match — no discrepancies found</div>
+            <div style={{ textAlign: 'center', padding: '2rem', color: '#4caf50', fontSize: '1rem', fontWeight: 700 }}>All stores match — no discrepancies found</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -16373,8 +16452,62 @@ function SalesReconciliation({ th, user, showAlert }) {
     <div className="fade-in">
       <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.25rem', color: th.text, marginBottom: '0.25rem' }}>Sales Reconciliation</div>
       <div style={{ color: th.muted, fontSize: '0.8125rem', marginBottom: '1.5rem' }}>Compare Pulse POS sales at two time points to catch late-sync discrepancies before royalty submission.</div>
+
+      {/* WTD Automated Section */}
       <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
-        <div style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '1rem' }}>Run Reconciliation</div>
+        <div style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '0.25rem' }}>Weekly Automated Reconciliation</div>
+        <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: '1rem', lineHeight: 1.5 }}>
+          Snapshots the full Sun–Sat week automatically at Sunday 12:01 AM, then compares Tuesday 12:01 AM to catch POS late-sync changes.
+        </div>
+        {wtdSnapshots && wtdSnapshots.length > 0 && (
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>Recent Snapshots</div>
+            {wtdSnapshots.map(s => (
+              <div key={s.weekStart} style={{ background: th.card2, borderRadius: '0.5rem', padding: '0.6rem 1rem', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <span style={{ fontWeight: 700, fontSize: '0.85rem', color: th.text }}>{fmtDate(s.weekStart)} – {fmtDate(s.weekEnd)}</span>
+                  <span style={{ fontSize: '0.7rem', color: th.muted, marginLeft: '0.75rem' }}>Taken {new Date(s.pulledAt).toLocaleString()} · {s.storeCount} stores · {fmtD(s.totalNet)} net</span>
+                </div>
+                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4caf50', background: '#4caf5020', padding: '0.15rem 0.5rem', borderRadius: '0.3rem' }}>Snapshot Ready</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {wtdHistory && wtdHistory.length > 0 ? (
+          <div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>WTD Comparisons</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>{['Week', 'Compared', 'Gap', 'Stores w/ Diffs', 'Net Diff', 'Abs Diff'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {wtdHistory.map(h => (
+                    <tr key={h.weekStart} style={{ cursor: 'pointer' }} onClick={() => loadWtdDetail(h.weekStart)}>
+                      <td style={{ ...tdS, fontWeight: 700 }}>{fmtDate(h.weekStart)} – {fmtDate(h.weekEnd)}</td>
+                      <td style={{ ...tdS, fontSize: '0.75rem' }}>{new Date(h.comparedAt).toLocaleString()}</td>
+                      <td style={tdS}>{h.hoursSinceSnapshot}h</td>
+                      <td style={{ ...tdS, color: h.storesWithDiffs > 0 ? '#f44336' : '#4caf50', fontWeight: 700 }}>{h.storesWithDiffs}</td>
+                      <td style={{ ...tdS, color: Math.abs(h.totalNetDiff) > 10 ? '#f44336' : th.text }}>{h.totalNetDiff >= 0 ? '+' : ''}{fmtD(h.totalNetDiff)}</td>
+                      <td style={tdS}>{fmtD(h.totalAbsDiff)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : wtdSnapshots && wtdSnapshots.length > 0 ? (
+          <div style={{ textAlign: 'center', padding: '1rem', color: th.muted, fontSize: '0.8rem' }}>
+            Snapshot taken — comparison will run automatically Tuesday 12:01 AM.
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '1rem', color: th.muted, fontSize: '0.8rem' }}>
+            No WTD snapshots yet. The first automated snapshot runs Sunday 12:01 AM.
+          </div>
+        )}
+      </div>
+
+      {/* Manual Single-Day Section */}
+      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+        <div style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '1rem' }}>Manual Single-Day Check</div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div>
             <label style={{ fontSize: '0.7rem', color: th.muted, fontWeight: 600, display: 'block', marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Business Date</label>
@@ -16387,13 +16520,10 @@ function SalesReconciliation({ th, user, showAlert }) {
             {comparing ? 'Comparing...' : '2. Compare Now'}
           </button>
         </div>
-        <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.75rem', lineHeight: 1.5 }}>
-          <strong>How to use:</strong> Take a snapshot right after week-end close (e.g. Sunday 12:01 AM). Wait 24-48 hours. Click "Compare Now" to see what changed. Stores with large differences may have POS sync issues.
-        </div>
       </div>
       {history && history.length > 0 && (
         <div style={{ ...card(th), padding: '1.5rem' }}>
-          <div style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '1rem' }}>Recent Reconciliations</div>
+          <div style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '1rem' }}>Single-Day History</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>{['Date', 'Compared', 'Gap', 'Stores w/ Diffs', 'Net Diff', 'Abs Diff'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
@@ -16422,11 +16552,6 @@ function SalesReconciliation({ th, user, showAlert }) {
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-      {history && history.length === 0 && (
-        <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted }}>
-          No reconciliation history yet. Take your first snapshot to get started.
         </div>
       )}
     </div>
@@ -17029,7 +17154,7 @@ function CashManagement({ user, th, stores, districts, cashDeposits, setCashDepo
           {[
             { key: 'alerts', label: `🚨 Alerts${missing.length > 0 ? ' (' + missing.length + ')' : ''}` },
             { key: 'grid', label: '📊 Deposit Grid' },
-            { key: 'recon', label: '💵 Reconciliation' },
+            { key: 'recon', label: '💵 POS Cash Match' },
             { key: 'history', label: '📋 Upload History' },
           ].map(t => {
             const active = view === t.key;
@@ -21435,7 +21560,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.45
+            v8.46
           </div>
         )}
         {/* Collapse toggle — desktop only */}

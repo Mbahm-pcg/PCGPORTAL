@@ -209,5 +209,62 @@ exports.handler = async (event) => {
     return { statusCode: 200, headers, body: JSON.stringify({ history: history.reverse() }) };
   }
 
+  // ── WTD History: get saved WTD comparisons ─────────────────────────
+  if (action === 'wtdHistory') {
+    const store = getBlobStore();
+    const { blobs } = await store.list({ prefix: 'pcg_recon_wtd_compare_' });
+    const history = [];
+    for (const b of blobs.slice(-8)) {
+      try {
+        const raw = await store.get(b.key, { type: 'json' });
+        const data = raw?.data || raw;
+        if (data) history.push({
+          weekStart: data.weekStart,
+          weekEnd: data.weekEnd,
+          comparedAt: data.comparedAt,
+          hoursSinceSnapshot: data.hoursSinceSnapshot,
+          storesWithDiffs: data.storesWithDiffs,
+          totalNetDiff: data.totalNetDiff,
+          totalAbsDiff: data.totalAbsDiff,
+        });
+      } catch {}
+    }
+    return { statusCode: 200, headers, body: JSON.stringify({ history: history.reverse() }) };
+  }
+
+  // ── WTD Detail: load a specific WTD comparison ────────────────────
+  if (action === 'wtdDetail') {
+    const { weekStart } = payload;
+    if (!weekStart) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing weekStart' }) };
+    const store = getBlobStore();
+    try {
+      const raw = await store.get(`pcg_recon_wtd_compare_${weekStart}`, { type: 'json' });
+      const data = raw?.data || raw;
+      if (data) return { statusCode: 200, headers, body: JSON.stringify(data) };
+    } catch {}
+    return { statusCode: 404, headers, body: JSON.stringify({ error: `No WTD comparison for week of ${weekStart}` }) };
+  }
+
+  // ── WTD Snapshot status: check if a snapshot exists for a week ─────
+  if (action === 'wtdSnapshotStatus') {
+    const store = getBlobStore();
+    const { blobs } = await store.list({ prefix: 'pcg_recon_wtd_snapshot_' });
+    const snapshots = [];
+    for (const b of blobs.slice(-4)) {
+      try {
+        const raw = await store.get(b.key, { type: 'json' });
+        const data = raw?.data || raw;
+        if (data) snapshots.push({
+          weekStart: data.weekStart,
+          weekEnd: data.weekEnd,
+          pulledAt: data.pulledAt,
+          storeCount: Object.keys(data.stores || {}).length,
+          totalNet: Math.round(Object.values(data.stores || {}).reduce((s, st) => s + (st.netSales || 0), 0) * 100) / 100,
+        });
+      } catch {}
+    }
+    return { statusCode: 200, headers, body: JSON.stringify({ snapshots: snapshots.reverse() }) };
+  }
+
   return { statusCode: 400, headers, body: JSON.stringify({ error: `Unknown action: ${action}` }) };
 };
