@@ -586,6 +586,35 @@ async function processStore(store, busDt, { skipSchedules = false } = {}) {
     punchMap[d] = computeHoursFromPunches(punchesByDate[d] || []);
   }
 
+  // 4b. Estimate in-progress hours for today from scheduling shifts.
+  // The /punches endpoint only returns COMPLETED shifts (punched out).
+  // Employees currently mid-shift are invisible. Use their scheduled shift
+  // start time to estimate hours worked so far.
+  if (!skipSchedules && todayShifts.length > 0) {
+    const todayMap = punchMap[busDt] || {};
+    for (const shift of todayShifts) {
+      const empId = shift.employeeId;
+      if (!empId) continue;
+      const shiftDate = (shift.startDateTime || '').slice(0, 10);
+      if (shiftDate !== busDt) continue;
+
+      const completedHours = todayMap[empId] || 0;
+      if (completedHours > 0) continue;
+
+      const shiftStart = new Date(shift.startDateTime);
+      const shiftEnd = new Date(shift.endDateTime);
+      if (isNaN(shiftStart.getTime()) || isNaN(shiftEnd.getTime())) continue;
+      if (nowUTC < shiftStart) continue;
+
+      const effectiveEnd = nowUTC < shiftEnd ? nowUTC : shiftEnd;
+      const estimatedHrs = (effectiveEnd - shiftStart) / 3600000;
+      if (estimatedHrs > 0) {
+        todayMap[empId] = (todayMap[empId] || 0) + Math.round(estimatedHrs * 100) / 100;
+      }
+    }
+    punchMap[busDt] = todayMap;
+  }
+
   // 5. Compute weekly hours per employee (excluding today)
   const weeklyHoursExcludingToday = {}; // empId -> total hours Mon-yesterday
   const priorDates = weekDates.filter(d => d < busDt);
@@ -618,7 +647,7 @@ async function processStore(store, busDt, { skipSchedules = false } = {}) {
 
     totalLaborDollarsToday += costToday;
     hoursWorkedToday       += hoursToday;
-    if (hoursToday > 0) employeesOnClock++; // "worked today" — punches API only returns completed shifts
+    if (hoursToday > 0) employeesOnClock++;
     if (otStatus === 'ot') otCount++;
 
     employeeDetails.push({
