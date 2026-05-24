@@ -368,6 +368,25 @@ async function fetchSchedulingShifts(legalEntityId, startDate, endDate) {
   } catch { return []; }
 }
 
+/**
+ * Fetch employeePunches for a single employee on a given date.
+ * Returns the actual clock-in time if currently on clock (odd punch count), or null.
+ */
+async function fetchLiveClockIn(employeeId, busDt) {
+  try {
+    const res = await callPaycor(`/employees/${employeeId}/employeePunches?startDate=${busDt}&endDate=${busDt}`);
+    if (res.status !== 200) return null;
+    const punches = res.data?.records || res.data || [];
+    if (!Array.isArray(punches) || punches.length === 0) return null;
+    const sorted = punches.sort((a, b) => new Date(a.punchDateTime || a.punchIn || 0) - new Date(b.punchDateTime || b.punchIn || 0));
+    if (sorted.length % 2 === 1) {
+      const lastPunch = sorted[sorted.length - 1];
+      return lastPunch.punchDateTime || lastPunch.punchIn || null;
+    }
+    return null;
+  } catch { return null; }
+}
+
 // ── Labor calculation helpers ─────────────────────────────────────────────────
 
 /**
@@ -586,30 +605,45 @@ async function processStore(store, busDt, { skipSchedules = false } = {}) {
     punchMap[d] = computeHoursFromPunches(punchesByDate[d] || []);
   }
 
-  // 4b. Estimate in-progress hours for today from scheduling shifts.
+  // 4b. Estimate in-progress hours for employees currently clocked in.
   // The /punches endpoint only returns COMPLETED shifts (punched out).
-  // Employees currently mid-shift are invisible. Use their scheduled shift
-  // start time to estimate hours worked so far.
+  // For employees mid-shift, fetch their actual clock-in time via
+  // employeePunches and calculate real hours worked so far.
   if (!skipSchedules && todayShifts.length > 0) {
     const todayMap = punchMap[busDt] || {};
+    const needsLiveCheck = [];
     for (const shift of todayShifts) {
       const empId = shift.employeeId;
       if (!empId) continue;
       const shiftDate = (shift.startDateTime || '').slice(0, 10);
       if (shiftDate !== busDt) continue;
-
-      const completedHours = todayMap[empId] || 0;
-      if (completedHours > 0) continue;
-
+      if ((todayMap[empId] || 0) > 0) continue;
       const shiftStart = new Date(shift.startDateTime);
-      const shiftEnd = new Date(shift.endDateTime);
-      if (isNaN(shiftStart.getTime()) || isNaN(shiftEnd.getTime())) continue;
       if (nowUTC < shiftStart) continue;
+      if (!needsLiveCheck.some(e => e.empId === empId)) {
+        needsLiveCheck.push({ empId, shiftStart, shiftEnd: new Date(shift.endDateTime) });
+      }
+    }
 
-      const effectiveEnd = nowUTC < shiftEnd ? nowUTC : shiftEnd;
-      const estimatedHrs = (effectiveEnd - shiftStart) / 3600000;
-      if (estimatedHrs > 0) {
-        todayMap[empId] = (todayMap[empId] || 0) + Math.round(estimatedHrs * 100) / 100;
+    if (needsLiveCheck.length > 0) {
+      for (let i = 0; i < needsLiveCheck.length; i += 5) {
+        const batch = needsLiveCheck.slice(i, i + 5);
+        await Promise.all(batch.map(async ({ empId, shiftStart, shiftEnd }) => {
+          const clockIn = await fetchLiveClockIn(empId, busDt);
+          let hrs = 0;
+          if (clockIn) {
+            const actualStart = new Date(clockIn);
+            if (!isNaN(actualStart.getTime())) {
+              hrs = (nowUTC - actualStart) / 3600000;
+            }
+          } else {
+            const effectiveEnd = nowUTC < shiftEnd ? nowUTC : shiftEnd;
+            hrs = (effectiveEnd - shiftStart) / 3600000;
+          }
+          if (hrs > 0) {
+            todayMap[empId] = Math.round(hrs * 100) / 100;
+          }
+        }));
       }
     }
     punchMap[busDt] = todayMap;
