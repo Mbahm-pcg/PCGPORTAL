@@ -1,5 +1,7 @@
 // analyst-reports.js — Scheduled email reports (DM daily brief, exec weekly report)
 const https = require('https');
+let nodemailer;
+try { nodemailer = require('nodemailer'); } catch {}
 const { buildDataContext, buildKPISnapshot, STORES, getStoresByDistrict } = require('./analyst-data');
 const { generateStructured } = require('./analyst-claude');
 const { PERSONA } = require('./analyst-prompts');
@@ -151,18 +153,48 @@ const DM_INFO = {
   8: { name: 'Mike (District 8)', email: null },
 };
 
-// ── Email sender ─────────────────────────────────────────────────────────────
-function sendEmail({ to, cc, subject, html }) {
-  const RESEND_KEY = process.env.RESEND_API_KEY;
-  if (!RESEND_KEY) { console.warn('RESEND_API_KEY not set, skipping email'); return Promise.resolve(); }
-  const FROM = process.env.NOTIFY_FROM || 'Orion — PCG Analyst <noreply@pcgops.com>';
+// ── Email sender (SMTP first, Resend fallback) ─────────────────────────────
+function sendEmailSMTP({ to, cc, subject, html }) {
+  if (!nodemailer || !process.env.GOOGLE_SMTP_USER) return null;
 
-  const payload = {
+  const transporter = nodemailer.createTransport({
+    host: process.env.GOOGLE_SMTP_HOST || 'smtp-relay.gmail.com',
+    port: parseInt(process.env.GOOGLE_SMTP_PORT || '587'),
+    secure: false,
+    auth: {
+      user: process.env.GOOGLE_SMTP_USER,
+      pass: process.env.GOOGLE_SMTP_PASSWORD,
+    },
+  });
+
+  const FROM = process.env.SMTP_FROM || 'Orion — PCG Analyst <orion@peoplecapitalgroup.com>';
+  const mailOptions = {
     from: FROM,
-    to: Array.isArray(to) ? to : [to],
+    to: Array.isArray(to) ? to.join(', ') : to,
     subject,
     html,
   };
+  if (cc && cc.length > 0) mailOptions.cc = Array.isArray(cc) ? cc.join(', ') : cc;
+
+  return transporter.sendMail(mailOptions);
+}
+
+async function sendEmail({ to, cc, subject, html }) {
+  try {
+    const smtpResult = await sendEmailSMTP({ to, cc, subject, html });
+    if (smtpResult) {
+      console.log('[analyst-reports] email sent via SMTP:', smtpResult.messageId);
+      return smtpResult;
+    }
+  } catch (e) {
+    console.warn('[analyst-reports] SMTP failed, falling back to Resend:', e.message);
+  }
+
+  const RESEND_KEY = process.env.RESEND_API_KEY;
+  if (!RESEND_KEY) { console.warn('No email provider available, skipping'); return; }
+  const FROM = process.env.NOTIFY_FROM || 'Orion — PCG Analyst <noreply@pcgops.com>';
+
+  const payload = { from: FROM, to: Array.isArray(to) ? to : [to], subject, html };
   if (cc && cc.length > 0) payload.cc = Array.isArray(cc) ? cc : [cc];
 
   const body = JSON.stringify(payload);
@@ -173,9 +205,9 @@ function sendEmail({ to, cc, subject, html }) {
     }, (res) => {
       let raw = '';
       res.on('data', d => raw += d);
-      res.on('end', () => { console.log('[analyst-reports] email sent:', raw); resolve(raw); });
+      res.on('end', () => { console.log('[analyst-reports] email sent via Resend:', raw); resolve(raw); });
     });
-    req.on('error', (e) => { console.error('[analyst-reports] email error:', e.message); resolve(); });
+    req.on('error', (e) => { console.error('[analyst-reports] Resend error:', e.message); resolve(); });
     req.write(body);
     req.end();
   });
