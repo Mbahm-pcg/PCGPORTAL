@@ -3,7 +3,8 @@
 
 const { askAnalyst } = require('./analyst-lib/analyst-claude');
 const { buildDataContext, buildKPISnapshot, buildStoreContext } = require('./analyst-lib/analyst-data');
-const { buildBriefPrompt, buildAskPrompt, PERSONA } = require('./analyst-lib/analyst-prompts');
+const { buildBriefPrompt, buildAskPrompt, PERSONA, REPORT_SYSTEM, buildReportPrompt } = require('./analyst-lib/analyst-prompts');
+const { saveReport } = require('./analyst-lib/analyst-reports-gen');
 const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { getCases, loadCase, updateCaseStatus, loadDecisionLog } = require('./analyst-lib/analyst-cases');
 const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
@@ -316,6 +317,56 @@ exports.handler = async (event) => {
       const targetDate = date || new Date().toISOString().slice(0, 10);
       const entries = await loadAccessEntries(targetDate);
       return json(200, { date: targetDate, entries, count: entries.length });
+    }
+
+    // ── Create Report (on-demand dashboard generation) ────────────────
+    if (action === 'create-report') {
+      const { prompt: userPrompt, scope, channelId } = payload;
+      const reportDistrict = scope?.startsWith('district:') ? parseInt(scope.split(':')[1]) : null;
+      const storePC = scope?.startsWith('store:') ? scope.split(':')[1] : null;
+      const dataContext = await buildDataContext({ district: reportDistrict, storePC, userRole });
+      const kpiSnapshot = await buildKPISnapshot({ district: reportDistrict });
+
+      const dataSnapshot = `${dataContext}\n\nKPI Summary:\n${JSON.stringify(kpiSnapshot, null, 2)}`;
+      const userMessage = buildReportPrompt(userPrompt, dataSnapshot);
+
+      const answer = await askAnalyst({ userPrompt: userMessage, userId, history: [] });
+      const rawAnswer = answer.answer || answer;
+
+      let artifact;
+      try {
+        const parsed = typeof rawAnswer === 'string'
+          ? JSON.parse(rawAnswer.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim())
+          : rawAnswer;
+        artifact = {
+          type: parsed.type || 'dashboard',
+          title: parsed.title || (userPrompt || '').slice(0, 60),
+          scope: scope || 'network',
+          createdBy: `user:${userId}`,
+          trigger: 'on-demand',
+          narrative: parsed.narrative || '',
+          components: Array.isArray(parsed.components) ? parsed.components.slice(0, 8) : [],
+        };
+      } catch (parseErr) {
+        return respond(200, { error: 'Failed to parse report structure', raw: rawAnswer });
+      }
+
+      const reportId = await saveReport(artifact);
+
+      if (channelId) {
+        const messages = (await cacheLoad('pcg_chat_messages_v1')) || [];
+        messages.push({
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          channelId,
+          senderId: 'orion',
+          senderName: 'Orion',
+          text: `New ${artifact.type} ready: **${artifact.title}** — [View in Reports](?tab=reports&report=${reportId})`,
+          timestamp: new Date().toISOString(),
+        });
+        await cacheSave('pcg_chat_messages_v1', messages);
+      }
+
+      return respond(200, { ok: true, reportId, title: artifact.title });
     }
 
     return respond(400, { error: `Unknown action: ${action}` });
