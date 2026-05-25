@@ -5743,6 +5743,16 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [hoveredTender, setHoveredTender] = React.useState(null);
   const [hoveredHour, setHoveredHour] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+  const [storeReviews, setStoreReviews] = React.useState(null);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: `pcg_reviews_${pc}` }) });
+        if (res.ok) { const j = await res.json(); setStoreReviews(j.data || j); }
+      } catch {}
+    })();
+  }, [pc]);
 
   // sumRVC mirror for date overrides
   const sumRVCLocal = (revenueCenters = []) => {
@@ -6584,6 +6594,99 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
           ) : <div style={{ textAlign:'center', padding:'1rem', color:th.muted, fontSize:'0.8rem' }}>No menu item data</div>}
         </div>
       )}
+
+      {/* ── Guest Reviews ── */}
+      {storeReviews && (
+        <div style={{ ...card(th), padding: '1rem', marginTop: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text }}>
+              Guest Reviews
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: storeReviews.googleRating >= 4.0 ? '#4caf50' : storeReviews.googleRating >= 3.5 ? '#ff9800' : '#f44336' }}>
+                ★ {storeReviews.googleRating}
+              </span>
+              <span style={{ fontSize: '0.72rem', color: th.muted }}>({storeReviews.totalReviews} reviews)</span>
+              {storeReviews.trendDirection && storeReviews.trendDirection !== 'stable' && (
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: storeReviews.trendDirection === 'improving' ? '#4caf50' : '#f44336' }}>
+                  {storeReviews.trendDirection === 'improving' ? '↑' : '↓'}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Theme tags */}
+          {storeReviews.themeSummary && Object.keys(storeReviews.themeSummary).length > 0 && (
+            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+              {Object.entries(storeReviews.themeSummary)
+                .sort((a, b) => b[1].mentions - a[1].mentions)
+                .slice(0, 6)
+                .map(([theme, data]) => {
+                  const color = data.avgSentiment >= 4.0 ? '#4caf50' : data.avgSentiment >= 3.0 ? '#ff9800' : '#f44336';
+                  return (
+                    <span key={theme} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                      padding: '0.2rem 0.5rem', borderRadius: '999px',
+                      background: `${color}15`, border: `1px solid ${color}33`,
+                      fontSize: '0.65rem', fontWeight: 600, color,
+                    }}>
+                      {theme} ({data.mentions})
+                    </span>
+                  );
+                })}
+            </div>
+          )}
+
+          {/* Action items */}
+          {storeReviews.reviews?.some(r => r.actionItem) && (
+            <div style={{ padding: '0.5rem 0.75rem', background: '#FF671F15', borderLeft: '3px solid #FF671F', borderRadius: '0 0.375rem 0.375rem 0', marginBottom: '0.75rem', fontSize: '0.75rem' }}>
+              <div style={{ fontWeight: 700, color: '#FF671F', marginBottom: '0.25rem' }}>Action Items</div>
+              {storeReviews.reviews.filter(r => r.actionItem).slice(0, 3).map((r, i) => (
+                <div key={i} style={{ color: th.text, lineHeight: 1.5 }}>• {r.actionItem}</div>
+              ))}
+            </div>
+          )}
+
+          {/* Recent reviews */}
+          {(storeReviews.reviews || []).slice(0, 8).map((review, idx) => (
+            <div key={review.id || idx} style={{
+              padding: '0.6rem 0', borderBottom: idx < 7 ? `1px solid ${th.cardBorder}` : 'none',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 600, color: th.text }}>{review.authorName}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ color: review.rating >= 4 ? '#4caf50' : review.rating >= 3 ? '#ff9800' : '#f44336', fontWeight: 700, fontSize: '0.72rem' }}>
+                    {'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}
+                  </span>
+                  {review.sentiment && (
+                    <span style={{
+                      fontSize: '0.55rem', fontWeight: 700, padding: '0.1rem 0.3rem', borderRadius: 999,
+                      background: review.sentiment === 'positive' ? '#4caf5022' : review.sentiment === 'negative' ? '#f4433622' : '#ff980022',
+                      color: review.sentiment === 'positive' ? '#4caf50' : review.sentiment === 'negative' ? '#f44336' : '#ff9800',
+                    }}>
+                      {review.sentiment}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {review.text && (
+                <div style={{ fontSize: '0.72rem', color: th.muted, lineHeight: 1.5, maxHeight: '3em', overflow: 'hidden' }}>
+                  {review.text.slice(0, 200)}{review.text.length > 200 ? '…' : ''}
+                </div>
+              )}
+              {review.themes?.length > 0 && (
+                <div style={{ display: 'flex', gap: '0.2rem', marginTop: '0.25rem' }}>
+                  {review.themes.map(t => (
+                    <span key={t} style={{ fontSize: '0.55rem', padding: '0.05rem 0.3rem', borderRadius: 999, background: th.card2, color: th.muted }}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -6632,6 +6735,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
   const [loading, setLoading] = React.useState(true);
   const [weatherForecast, setWeatherForecast] = React.useState(null);
   const [weatherCorrelations, setWeatherCorrelations] = React.useState(null);
+  const [networkReviews, setNetworkReviews] = React.useState(null);
 
   React.useEffect(() => {
     (async () => {
@@ -6642,6 +6746,8 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         ]);
         if (fRes.ok) { const j = await fRes.json(); setWeatherForecast(j.data || j); }
         if (cRes.ok) { const j = await cRes.json(); setWeatherCorrelations(j.data || j); }
+        const rRes = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_reviews_network' }) });
+        if (rRes.ok) { const j = await rRes.json(); setNetworkReviews(j.data || j); }
       } catch {}
     })();
   }, []);
@@ -7253,6 +7359,30 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         </div>
       )}
 
+      {/* ── District Sentiment Summary ── */}
+      {networkReviews && (() => {
+        const distStoresLocal = distStores;
+        const ratings = distStoresLocal.map(s => ({ name: s.name, rating: networkReviews.storeRatings?.[s.pc] })).filter(r => r.rating > 0);
+        if (ratings.length === 0) return null;
+        ratings.sort((a, b) => a.rating - b.rating);
+        const avg = Math.round((ratings.reduce((s, r) => s + r.rating, 0) / ratings.length) * 10) / 10;
+        const best = ratings[ratings.length - 1];
+        const worst = ratings[0];
+        const color = avg >= 4.0 ? '#4caf50' : avg >= 3.5 ? '#ff9800' : '#f44336';
+        return (
+          <div style={{ background:th.card, borderRadius:'0.75rem', padding:'0.75rem 1.25rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1rem', color }}>★ {avg}</span>
+              <span style={{ fontSize: '0.7rem', color: th.muted }}>District Avg ({ratings.length} stores)</span>
+            </div>
+            <div style={{ display: 'flex', gap: '1rem', fontSize: '0.7rem' }}>
+              <span style={{ color: '#4caf50' }}>Best: {best.name} ★{best.rating}</span>
+              <span style={{ color: '#f44336' }}>Lowest: {worst.name} ★{worst.rating}</span>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Sales by Hour */}
       <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1.5rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.25rem', gap:'0.5rem', flexWrap:'wrap' }}>
@@ -7705,6 +7835,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const [pulseView,   setPulseView]  = useState("network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
   const [weatherForecast, setWeatherForecast] = useState(null);
   const [weatherCorrelations, setWeatherCorrelations] = useState(null);
+  const [networkReviews, setNetworkReviews] = useState(null);
   const cdRef = useRef(null);
 
   const activePCs = stores.filter(s => s.status === 'Open').map(s => s.pc);
@@ -7853,7 +7984,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
     return () => clearInterval(cdRef.current);
   }, [autoRefresh, busDt]);
 
-  // Weather data
+  // Weather data + reviews
   useEffect(() => {
     (async () => {
       try {
@@ -7863,6 +7994,8 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
         ]);
         if (fRes.ok) { const j = await fRes.json(); setWeatherForecast(j.data || j); }
         if (cRes.ok) { const j = await cRes.json(); setWeatherCorrelations(j.data || j); }
+        const rRes = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_reviews_network' }) });
+        if (rRes.ok) { const j = await rRes.json(); setNetworkReviews(j.data || j); }
       } catch {}
     })();
   }, []);
@@ -8261,6 +8394,19 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                             {Math.round((impact - 1) * 100)}% impact
                           </span>
                         )}
+                      </div>
+                    );
+                  })()}
+                  {networkReviews?.storeRatings && (() => {
+                    const distPCs = allRows.filter(s => s.district === distNum).map(s => s.pc);
+                    const ratings = distPCs.map(pc => networkReviews.storeRatings[pc]).filter(r => r > 0);
+                    if (ratings.length === 0) return null;
+                    const avgRating = Math.round((ratings.reduce((s, r) => s + r, 0) / ratings.length) * 10) / 10;
+                    const color = avgRating >= 4.0 ? '#4caf50' : avgRating >= 3.5 ? '#ff9800' : '#f44336';
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.68rem', marginTop: '0.15rem' }}>
+                        <span style={{ color }}>★ {avgRating}</span>
+                        <span style={{ color: th.muted, fontSize: '0.6rem' }}>({ratings.length} stores)</span>
                       </div>
                     );
                   })()}
@@ -22834,7 +22980,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.4
+            v9.5
           </div>
         )}
         {/* Collapse toggle — desktop only */}
