@@ -38,6 +38,10 @@
 [functions.reconciliation-cron]
   schedule = "1 4 * * 0,2"
 
+# Weather forecast — daily at 8 AM ET (12:00 UTC), after labor-cron morning run
+[functions.weather-forecast-cron]
+  schedule = "0 12 * * *"
+
 # Monthly P&L — 1st of each month at 7 AM ET (11:00 UTC)
 [functions.pnl-cron]
   schedule = "0 11 1 * *"
