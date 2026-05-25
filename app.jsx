@@ -13893,7 +13893,7 @@ function importData(file, onSuccess, onError) {
 }
 
 // ── Chat Section ─────────────────────────────────────────────────────────────
-function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert, initialChannelId, pendingOrionQuestion, clearPendingOrion }) {
+function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert, initialChannelId, pendingOrionQuestion, clearPendingOrion, stores }) {
   const [chatView, setChatView] = useState(initialChannelId ? "thread" : "list");
   const [activeChannelId, setActiveChannelId] = useState(initialChannelId || null);
   const [msgText, setMsgText] = useState("");
@@ -13961,6 +13961,9 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
       });
       const data = await res.json();
       if (data.answer) {
+        // Resolve structured mentions from API response
+        const resolvedMentions = (data.mentions || []).map(m => resolveMention(m));
+
         const orionMsg = {
           id: data.messageId || makeMsgId(),
           channelId,
@@ -13969,6 +13972,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
           senderInitials: "O",
           text: data.answer,
           mentions: [],
+          orionMentions: resolvedMentions,
           attachments: [],
           timestamp: new Date().toISOString(),
           deleted: false,
@@ -13979,6 +13983,21 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
           threadId: threadId || null,
         };
         setMessages(prev => [...prev, orionMsg]);
+
+        // Send push notifications to mentioned users
+        resolvedMentions.filter(m => m.userId).forEach(m => {
+          fetch("/.netlify/functions/push", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "send",
+              userId: m.userId,
+              title: "Orion mentioned you",
+              body: `Orion flagged something in ${m.role === "dm" ? `District ${m.identifier}` : `Store ${m.identifier}`} for your review`,
+              url: "/",
+            }),
+          }).catch(() => {});
+        });
       }
     } catch (err) {
       const errorMsg = {
@@ -13997,6 +14016,55 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   const fileRef = useRef(null);
   const isAdmin = isChatAdmin(user);
   const activeUsers = users.filter(u => u.active);
+
+  // ── Resolve structured @[dm:X] / @[gm:X] mentions to user names ────
+  const resolveMention = (mention) => {
+    if (mention.role === "dm") {
+      const dmUser = users.find(u => u.userType === "dm" && String(u.district) === String(mention.identifier));
+      return dmUser ? { ...mention, userId: dmUser.id, name: dmUser.name } : mention;
+    }
+    if (mention.role === "gm") {
+      const store = (stores || []).find(s => String(s.pc) === String(mention.identifier));
+      if (store && store.mgr) {
+        const mgrUser = users.find(u => u.name === store.mgr);
+        return mgrUser ? { ...mention, userId: mgrUser.id, name: mgrUser.name } : { ...mention, name: store.mgr };
+      }
+    }
+    return mention;
+  };
+
+  // Replace @[dm:X] / @[gm:X] tags in text with styled mention chips
+  const renderOrionTextWithMentions = (text, th) => {
+    const mentionPattern = /@\[(dm|gm):([^\]]+)\]/g;
+    if (!mentionPattern.test(text)) {
+      return typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(text, th) : text;
+    }
+    // Split text on mention tags, render each text segment with markdown, insert styled chips for mentions
+    const parts = text.split(/@\[(dm|gm):([^\]]+)\]/g);
+    const result = [];
+    for (let i = 0; i < parts.length; i += 3) {
+      const segment = parts[i];
+      if (segment) {
+        result.push(React.createElement("span", { key: `seg-${i}` },
+          typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(segment, th) : segment));
+      }
+      if (i + 1 < parts.length && i + 2 < parts.length) {
+        const role = parts[i + 1];
+        const identifier = parts[i + 2];
+        const resolved = resolveMention({ role, identifier, raw: `@[${role}:${identifier}]` });
+        const label = resolved.name ? `@${resolved.name}` : (role === "dm" ? `@DM District ${identifier}` : `@GM Store ${identifier}`);
+        result.push(React.createElement("span", {
+          key: `mention-${i}`,
+          style: {
+            display: "inline-block", background: O + "22", color: O, fontWeight: 700,
+            fontSize: "0.8125rem", padding: "1px 8px", borderRadius: "999px",
+            margin: "0 2px", verticalAlign: "baseline", border: `1px solid ${O}44`
+          }
+        }, label));
+      }
+    }
+    return React.createElement("span", null, ...result);
+  };
 
   // Get channel display name
   const getChannelName = (ch) => {
@@ -14504,7 +14572,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
                               {orionReply.model ? <span style={{ fontSize: "0.55rem", color: th.muted, marginLeft: 6 }}>{orionReply.model.includes("haiku") ? "Quick" : "Deep"} · {orionReply.latencyMs ? (orionReply.latencyMs/1000).toFixed(1)+"s" : ""}</span> : null}
                             </div>
                             <div style={{ fontSize: "0.8125rem", color: th.text, lineHeight: 1.5, maxHeight: isExpanded ? "none" : "6rem", overflow: isExpanded ? "visible" : "hidden", position: "relative" }}>
-                              {typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(orionReply.text, th) : orionReply.text}
+                              {renderOrionTextWithMentions(orionReply.text, th)}
                               {!isExpanded && orionReply.text.length > 300 && (
                                 <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "2rem", background: `linear-gradient(transparent, ${th.card})` }} />
                               )}
@@ -14533,7 +14601,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
                                   </span>
                                 </div>
                                 <div style={{ fontSize: "0.8125rem", color: th.text, lineHeight: 1.5 }}>
-                                  {isOrionMsg ? (typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(m.text, th) : m.text) : m.text}
+                                  {isOrionMsg ? renderOrionTextWithMentions(m.text, th) : m.text}
                                 </div>
                               </div>
                             </div>
@@ -14590,7 +14658,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
                         position: "relative"
                       }}>
                         {m.deleted ? "[Message deleted]" : isOrionMsg ? (
-                          typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(m.text, th) : m.text
+                          renderOrionTextWithMentions(m.text, th)
                         ) : (
                           <>
                             {m.text.split(/@([\w.]+)/g).map((part, i) =>
@@ -21725,7 +21793,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.47
+            v8.48
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -22088,7 +22156,7 @@ function PCGPortal() {
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} />}
           {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} />}
-          {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} />}
+          {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={setTab} />}

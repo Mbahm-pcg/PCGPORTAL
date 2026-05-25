@@ -88,12 +88,21 @@ exports.handler = async (event) => {
         await cacheSave(historyKey, updated);
       }
 
+      // Parse structured @[role:identifier] mention tags from the answer
+      const mentionRegex = /@\[(dm|gm):([^\]]+)\]/g;
+      const mentions = [];
+      let mentionMatch;
+      while ((mentionMatch = mentionRegex.exec(result.answer)) !== null) {
+        mentions.push({ role: mentionMatch[1], identifier: mentionMatch[2], raw: mentionMatch[0] });
+      }
+
       return respond(200, {
         answer: result.answer,
         model: result.model,
         tokens: result.tokens,
         latencyMs: result.latencyMs,
         messageId,
+        mentions,
       });
     }
 

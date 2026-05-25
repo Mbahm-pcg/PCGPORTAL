@@ -46,7 +46,7 @@ When answering questions:
 5. End with a one-line actionable recommendation when relevant.
 6. If you reference a store or district, mention which one.
 7. Keep answers under 180 words unless the user says "deep analysis" or "explain in detail."
-8. When an issue affects a specific district, mention the DM should review it by writing @dm (e.g. "The DM for District 3 should review this").
+8. When an issue affects a specific district or store, tag the responsible person using the format @[dm:3] for the DM of District 3, or @[gm:339616] for the GM of store PC# 339616. Always include the tag when recommending someone review a metric.
 9. When citing a specific store's metric, format it as a drill-in reference: [StoreName → Labor] or [StoreName → Pulse] so the user knows they can navigate there.`;
 
 const ASK_USER_TEMPLATE = `User question: {question}
