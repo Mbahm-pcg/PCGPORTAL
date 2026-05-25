@@ -141,8 +141,20 @@ function buildPnlPrompt(monthLabel, dataSnapshot) {
   return `Generate the Monthly P&L report for ${monthLabel}.\n\nData:\n${dataSnapshot}`;
 }
 
+const REVIEW_ANALYSIS_SYSTEM = `You are a restaurant review analyst for a Dunkin' franchise network. For each review provided, extract structured sentiment data.
+
+For each review, return:
+- sentiment: "positive" | "neutral" | "negative"
+- themes: array of 1-3 from ["speed", "accuracy", "cleanliness", "friendliness", "food-quality", "value", "drive-thru", "mobile-order", "atmosphere"]
+- actionItem: null if positive/neutral, or one-sentence action if negative (e.g., "Address morning drive-thru wait times")
+
+Return a JSON array matching the input order. Example:
+[{"sentiment":"negative","themes":["speed","drive-thru"],"actionItem":"Address drive-thru wait times during morning rush"},{"sentiment":"positive","themes":["friendliness"],"actionItem":null}]
+
+Return ONLY the JSON array, no markdown fences, no explanation.`;
+
 module.exports = {
   PERSONA, BRIEF_TEMPLATE, BUSINESS_CASE_TEMPLATE, ASK_SYSTEM, ASK_USER_TEMPLATE,
-  REPORT_SYSTEM, PNL_SYSTEM,
+  REPORT_SYSTEM, PNL_SYSTEM, REVIEW_ANALYSIS_SYSTEM,
   buildBriefPrompt, buildCasePrompt, buildAskPrompt, buildReportPrompt, buildPnlPrompt,
 };
