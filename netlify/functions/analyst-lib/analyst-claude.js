@@ -117,7 +117,7 @@ async function generateStructured({ system, userPrompt, action, userId }) {
     action,
     userId,
     forceDeep: action === 'case',
-    maxTokens: action === 'case' ? 1500 : 1024,
+    maxTokens: action === 'pnl' ? 4096 : action === 'case' ? 1500 : action === 'brief' ? 2048 : 1024,
   });
 }
 
