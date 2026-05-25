@@ -13876,6 +13876,43 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
     try {
       const district = user.userType === "dm" ? user.district : null;
       const storePC = user.userType === "manager" ? (stores.find(s => s.mgr === user.name)?.pc || null) : null;
+      // Detect report/dashboard creation requests
+      const reportKeywords = ['create a dashboard', 'create a report', 'generate a dashboard', 'generate a report', 'create a presentation', 'build a dashboard', 'make a dashboard'];
+      const isReportRequest = reportKeywords.some(kw => question.toLowerCase().includes(kw));
+
+      if (isReportRequest) {
+        try {
+          const rptRes = await fetch('/.netlify/functions/analyst', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'create-report',
+              prompt: question,
+              userId: user.id,
+              userRole: user.userType,
+              scope: user.userType === 'dm' ? `district:${district}` : user.userType === 'manager' ? `store:${storePC}` : 'network',
+              channelId,
+            }),
+          });
+          const result = await rptRes.json();
+          if (result.ok) {
+            const botMsg = {
+              id: makeMsgId(),
+              channelId,
+              senderId: 'orion',
+              senderName: 'Orion',
+              senderInitials: 'O',
+              text: `Your report is ready: **${result.title}** — [View in Reports](?tab=reports&report=${result.reportId})`,
+              timestamp: new Date().toISOString(),
+              isOrion: true,
+              threadId: threadId || null,
+            };
+            setMessages(prev => [...prev, botMsg]);
+            setOrionThinking(false);
+            return;
+          }
+        } catch (e) { console.warn('Report creation failed, falling back to regular ask:', e); }
+      }
+
       // Collect open tickets scoped to the user's access level
       const _allTickets = (() => { try { return JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]"); } catch { return []; } })();
       const _openStatuses = ["Open", "In Progress"];
