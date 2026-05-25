@@ -200,6 +200,57 @@ async function getStoreDailyHistory(pc, days = 7) {
   return history.daily.slice(0, days);
 }
 
+/**
+ * Build a data context scoped to a single store (for manager-level Orion access).
+ */
+async function buildStoreContext({ storePC }) {
+  if (!storePC) return "No store data available.";
+  const store = STORES.find(s => s.pc === storePC);
+  if (!store) return "Store not found.";
+
+  const sections = [];
+  sections.push(`Store: ${store.name} (PC# ${storePC}), District ${store.district}`);
+
+  // Load labor data for this store from network blob
+  const labor = await cacheLoad('pcg_labor_v1');
+  if (labor && labor.stores && labor.stores[storePC]) {
+    const sd = labor.stores[storePC];
+    const today = sd.today || {};
+    const wtd = sd.wtd || {};
+    sections.push(`\nToday (${labor.busDt || 'current'}):`);
+    sections.push(`  Sales: $${(today.sales || 0).toLocaleString()}`);
+    sections.push(`  Labor: $${(today.laborDollars || 0).toLocaleString()}`);
+    sections.push(`  Labor %: ${(today.laborPct || 0).toFixed(1)}%`);
+    sections.push(`  Scheduled Now: ${today.scheduledNow || 0}`);
+    sections.push(`  Overtime Count: ${today.overtimeCount || 0}`);
+    sections.push(`\nWeek-to-Date:`);
+    sections.push(`  WTD Sales: $${(wtd.sales || 0).toLocaleString()}`);
+    sections.push(`  WTD Labor: $${(wtd.laborDollars || 0).toLocaleString()}`);
+    sections.push(`  WTD Labor %: ${(wtd.laborPct || 0).toFixed(1)}%`);
+  }
+
+  // Load per-store labor history
+  const storeHistory = await cacheLoad(`pcg_labor_store_${storePC}`);
+  if (storeHistory) {
+    const daily = storeHistory.daily?.slice(0, 7) || [];
+    const weekly = storeHistory.weekly?.slice(0, 4) || [];
+    if (daily.length) {
+      sections.push(`\nRecent daily labor:`);
+      daily.forEach(d => {
+        sections.push(`  ${d.date}: Labor $${(d.laborCost || 0).toFixed(0)}, Sales $${(d.sales || 0).toFixed(0)}, Labor% ${(d.laborPct || 0).toFixed(1)}%`);
+      });
+    }
+    if (weekly.length) {
+      sections.push(`\nRecent weekly labor:`);
+      weekly.forEach(w => {
+        sections.push(`  Week of ${w.weekStart}: Labor $${(w.laborCost || 0).toFixed(0)}, Sales $${(w.sales || 0).toFixed(0)}, Labor% ${(w.laborPct || 0).toFixed(1)}%`);
+      });
+    }
+  }
+
+  return sections.join("\n");
+}
+
 module.exports = {
   STORES,
   getAllStores,
@@ -208,5 +259,6 @@ module.exports = {
   getStoreLabor,
   buildKPISnapshot,
   buildDataContext,
+  buildStoreContext,
   getStoreDailyHistory,
 };

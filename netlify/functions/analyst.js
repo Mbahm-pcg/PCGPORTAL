@@ -2,7 +2,7 @@
 // Actions: ask, brief, brief-refresh, case-list, case-detail, case-update, feedback, report-settings
 
 const { askAnalyst } = require('./analyst-lib/analyst-claude');
-const { buildDataContext, buildKPISnapshot } = require('./analyst-lib/analyst-data');
+const { buildDataContext, buildKPISnapshot, buildStoreContext } = require('./analyst-lib/analyst-data');
 const { buildBriefPrompt, buildAskPrompt, PERSONA } = require('./analyst-lib/analyst-prompts');
 const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { getCases, loadCase, updateCaseStatus, loadDecisionLog } = require('./analyst-lib/analyst-cases');
@@ -49,12 +49,19 @@ exports.handler = async (event) => {
   try {
     // ── Ask Analyst (omnibar / chat) ─────────────────────────────────────
     if (action === 'ask') {
-      const { question, forceDeep, channelId, threadId, history } = payload;
+      const { question, forceDeep, channelId, threadId, storePC, history } = payload;
       if (!question) return respond(400, { error: 'Missing question' });
 
-      // Build data context scoped to user's district (DMs) or full network (execs)
-      const scope = district ? `District ${district}` : 'Network';
-      const dataContext = await buildDataContext({ district: district || null, includeStoreDetail: true });
+      // Build data context scoped to user's role: store (managers), district (DMs), or full network (execs)
+      let dataContext;
+      let scope;
+      if (storePC && userRole === 'manager') {
+        dataContext = await buildStoreContext({ storePC });
+        scope = `Store ${storePC}`;
+      } else {
+        scope = district ? `District ${district}` : 'Network';
+        dataContext = await buildDataContext({ district: district || null, includeStoreDetail: true });
+      }
 
       const [kbFiles] = await Promise.all([loadKBContent({ district: district || null, userId, userRole })]);
       const kbContext = buildKBContext(kbFiles);

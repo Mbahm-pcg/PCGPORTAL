@@ -13941,16 +13941,24 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   }, [pendingOrionQuestion]);
 
   // ── Analyst channels — seed on first load ──────────────────────────
-  const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm");
+  const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm" || user.userType === "manager");
   useEffect(() => {
     if (!isAnalystUser) return;
-    const analystChannels = [
-      { id: `analyst_${user.id}`, type: "analyst", name: "Orion — My Analyst", members: [user.id], createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "analyst_exec", type: "analyst", name: "Orion — Executive Room", members: users.filter(u => u.userType === "executive" || u.userType === "it").map(u => u.id), createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "analyst_ops", type: "analyst", name: "Orion — Operations", members: users.filter(u => ["executive", "it", "dm", "office_staff"].includes(u.userType)).map(u => u.id), createdAt: "2026-01-01T00:00:00.000Z" },
+    const personalChannel = {
+      id: `analyst_${user.id}`, type: "analyst", name: "Orion — My Analyst",
+      members: [user.id], createdAt: "2026-01-01T00:00:00.000Z"
+    };
+    const sharedChannels = user.userType === "manager" ? [] : [
+      { id: "analyst_exec", type: "analyst", name: "Orion — Executive Room",
+        members: users.filter(u => u.userType === "executive" || u.userType === "it").map(u => u.id),
+        createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "analyst_ops", type: "analyst", name: "Orion — Operations",
+        members: users.filter(u => ["executive", "it", "dm", "office_staff"].includes(u.userType)).map(u => u.id),
+        createdAt: "2026-01-01T00:00:00.000Z" },
     ];
+    const allAnalystChannels = [personalChannel, ...sharedChannels];
     const existing = channels.map(c => c.id);
-    const toAdd = analystChannels.filter(ac => !existing.includes(ac.id));
+    const toAdd = allAnalystChannels.filter(ac => !existing.includes(ac.id));
     if (toAdd.length > 0) setChannels(prev => [...toAdd, ...prev]);
   }, [user?.id]);
 
@@ -13959,11 +13967,12 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
     setOrionThinking(true);
     try {
       const district = user.userType === "dm" ? user.district : null;
+      const storePC = user.userType === "manager" ? (stores.find(s => s.mgr === user.name)?.pc || null) : null;
       const res = await fetch("/.netlify/functions/analyst", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "ask", question, channelId, threadId,
-          userId: user.id, userRole: user.userType, district,
+          userId: user.id, userRole: user.userType, district, storePC,
           forceDeep: question.toLowerCase().includes("deep analysis"),
         }),
       });
@@ -21903,7 +21912,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.50
+            v8.51
           </div>
         )}
         {/* Collapse toggle — desktop only */}
