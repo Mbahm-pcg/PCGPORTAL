@@ -67,6 +67,7 @@ const ICONS = {
   mail: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"})}{React.createElement("polyline",{points:"22,6 12,13 2,6"})}</>} />,
   kb: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M4 19.5A2.5 2.5 0 0 1 6.5 17H20"})}{React.createElement("path",{d:"M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"})}{React.createElement("line",{x1:"8",y1:"7",x2:"16",y2:"7"})}{React.createElement("line",{x1:"8",y1:"11",x2:"14",y2:"11"})}</>} />,
   tickets: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M2 9a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V9z"})}{React.createElement("line",{x1:"9",y1:"4",x2:"9",y2:"20",strokeDasharray:"2 3"})}</>} />,
+  reports: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
 
 };
 
@@ -13060,6 +13061,7 @@ const getTabs = (user) => {
     { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
+    { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",        icon: (c) => ICONS.users(c) },
     { id: "settings",  label: "Settings",     icon: (c) => ICONS.settings(c) },
@@ -13072,6 +13074,7 @@ const getTabs = (user) => {
     { id: "pulse",     label: "Pulse",     icon: (c) => ICONS.pulse(c), green: true },
     { id: "labor",     label: "Labor",     icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
+    { id: "reports",   label: "Reports",   icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
   ];
@@ -13082,6 +13085,7 @@ const getTabs = (user) => {
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash",         icon: (c) => ICONS.dollar(c) },
+    { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
   ];
   // Store managers see only their assigned stores.
@@ -13089,6 +13093,7 @@ const getTabs = (user) => {
     ...BASE_TABS,
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "labor",     label: "My Labor",     icon: (c) => ICONS.dollar(c) },
+    { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
   ];
   // Construction & Development → base + locations + projects (no analytics/pulse)
   if (ut === "construction") return [
@@ -19642,6 +19647,165 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
   );
 }
 
+// ── Reports Tab ──────────────────────────────────────────────────────────────
+const REPORT_TYPE_COLORS = { dashboard: '#FF671F', deck: '#7c3aed', pnl: '#2563eb', brief: '#4caf50' };
+const REPORT_TYPE_LABELS = { dashboard: 'Dashboard', deck: 'Deck', pnl: 'P&L', brief: 'Brief' };
+
+function ReportsTab({ th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }) {
+  const [filter, setFilter] = React.useState('all');
+  const [dateRange, setDateRange] = React.useState('month');
+  const [selectedReport, setSelectedReport] = React.useState(null);
+  const [reportDetail, setReportDetail] = React.useState(null);
+  const [loadingReport, setLoadingReport] = React.useState(false);
+
+  const now = new Date();
+  const filtered = React.useMemo(() => {
+    return reportsIndex.filter(r => {
+      if (filter !== 'all' && r.type !== filter) return false;
+      if (dateRange !== 'all') {
+        const created = r.createdAt ? new Date(r.createdAt) : null;
+        if (created) {
+          const diffDays = (now - created) / (1000 * 60 * 60 * 24);
+          if (dateRange === 'week' && diffDays > 7) return false;
+          if (dateRange === 'month' && diffDays > 30) return false;
+          if (dateRange === '90' && diffDays > 90) return false;
+        }
+      }
+      return true;
+    }).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  }, [reportsIndex, filter, dateRange]);
+
+  const handleMarkAllRead = async () => {
+    const allIds = reportsIndex.map(r => r.id);
+    await cloudSave(`analyst/reports-read/${user.id}`, allIds);
+    setReportsReadIds(allIds);
+    setReportsUnreadCount(0);
+  };
+
+  const handleSelectReport = async (rpt) => {
+    setSelectedReport(rpt);
+    setLoadingReport(true);
+    try {
+      const detail = await cloudLoad(`analyst/reports/${rpt.id}`);
+      setReportDetail(detail);
+      if (!reportsReadIds.includes(rpt.id)) {
+        const updated = [...reportsReadIds, rpt.id];
+        await cloudSave(`analyst/reports-read/${user.id}`, updated);
+        setReportsReadIds(updated);
+        setReportsUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (e) {
+      showAlert('Failed to load report.', 'error');
+    } finally {
+      setLoadingReport(false);
+    }
+  };
+
+  const pillBtn = (id, label) => (
+    <button key={id} onClick={() => setFilter(id)} style={{
+      padding: '0.35rem 0.85rem', borderRadius: '999px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', border: 'none',
+      background: filter === id ? '#FF671F' : th.card3,
+      color: filter === id ? '#fff' : th.muted,
+      transition: 'all .15s',
+    }}>{label}</button>
+  );
+
+  const fmtDate = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  if (selectedReport && reportDetail) {
+    return (
+      <ReportDetailModal
+        th={th}
+        report={selectedReport}
+        detail={reportDetail}
+        onClose={() => { setSelectedReport(null); setReportDetail(null); }}
+      />
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto', padding: '1.5rem 1rem' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: th.text }}>Reports</h2>
+        <button onClick={handleMarkAllRead} style={{
+          padding: '0.35rem 0.9rem', borderRadius: '0.5rem', fontSize: '0.78rem', fontWeight: 600,
+          background: th.card3, border: `1px solid ${th.cardBorder}`, color: th.muted, cursor: 'pointer',
+        }}>Mark all read</button>
+      </div>
+
+      {/* Filter bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+        {pillBtn('all', 'All')}
+        {pillBtn('dashboard', 'Dashboards')}
+        {pillBtn('deck', 'Decks')}
+        {pillBtn('pnl', 'P&L')}
+        {pillBtn('brief', 'Briefs')}
+        <select value={dateRange} onChange={e => setDateRange(e.target.value)} style={{
+          marginLeft: 'auto', padding: '0.35rem 0.6rem', borderRadius: '0.5rem', fontSize: '0.78rem',
+          background: th.card3, border: `1px solid ${th.cardBorder}`, color: th.text, cursor: 'pointer',
+        }}>
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+          <option value="90">Last 90 Days</option>
+          <option value="all">All Time</option>
+        </select>
+      </div>
+
+      {/* Feed */}
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', color: th.muted, padding: '3rem 0', fontSize: '0.9rem' }}>
+          No reports found for this filter.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {filtered.map(rpt => {
+            const isUnread = !reportsReadIds.includes(rpt.id);
+            const typeColor = REPORT_TYPE_COLORS[rpt.type] || '#888';
+            const typeLabel = REPORT_TYPE_LABELS[rpt.type] || rpt.type;
+            return (
+              <div key={rpt.id} onClick={() => handleSelectReport(rpt)} style={{
+                display: 'flex', alignItems: 'stretch', gap: 0,
+                background: th.card, border: `1px solid ${isUnread ? typeColor + '55' : th.cardBorder}`,
+                borderRadius: '0.75rem', cursor: 'pointer', overflow: 'hidden',
+                boxShadow: isUnread ? `0 0 0 1px ${typeColor}33` : 'none',
+                transition: 'box-shadow .15s',
+              }}>
+                {/* Colored left border */}
+                <div style={{ width: 4, background: typeColor, flexShrink: 0 }} />
+                <div style={{ padding: '0.85rem 1rem', flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem', flexWrap: 'wrap' }}>
+                    {/* Type badge */}
+                    <span style={{
+                      background: typeColor + '22', color: typeColor, borderRadius: '0.35rem',
+                      padding: '0.1rem 0.45rem', fontSize: '0.7rem', fontWeight: 700, letterSpacing: 0.3,
+                    }}>{typeLabel}</span>
+                    {isUnread && (
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: typeColor, display: 'inline-block', flexShrink: 0 }} />
+                    )}
+                    <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: th.muted }}>{fmtDate(rpt.createdAt)}</span>
+                  </div>
+                  <div style={{ fontWeight: isUnread ? 700 : 500, fontSize: '0.92rem', color: th.text, marginBottom: '0.25rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {rpt.title || 'Untitled Report'}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    {rpt.trigger && <span style={{ fontSize: '0.72rem', color: th.muted }}>Trigger: {rpt.trigger}</span>}
+                    {rpt.scope && <span style={{ fontSize: '0.72rem', color: th.muted }}>Scope: {rpt.scope}</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Report Component Renderer ─────────────────────────────────────────────────
 function ReportComponent({ component, theme: th, width }) {
   const isDark = th && th.bg && th.bg.startsWith('#0');
@@ -20749,6 +20913,39 @@ function PCGPortal() {
     dailyReportsUserEdited.current = true;
     setDailyReports(updater);
   }, []);
+
+  // Reports state
+  const [reportsIndex, setReportsIndex] = React.useState([]);
+  const [reportsReadIds, setReportsReadIds] = React.useState([]);
+  const [reportsUnreadCount, setReportsUnreadCount] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!user) return;
+    async function loadReportsState() {
+      const [index, readIds] = await Promise.all([
+        cloudLoad('analyst/reports-index'),
+        cloudLoad(`analyst/reports-read/${user.id}`),
+      ]);
+      const allReports = Array.isArray(index) ? index : [];
+      const read = Array.isArray(readIds) ? readIds : [];
+      const ut = user.userType;
+      const dist = user.district ? String(user.district) : null;
+      const storePC = user.storePC || null;
+      const visible = allReports.filter(r => {
+        if (ut === 'executive' || ut === 'it') return true;
+        if (ut === 'dm' && dist) return r.scope === 'network' || r.scope === `district:${dist}`;
+        if (ut === 'manager' && storePC) return r.scope === `store:${storePC}`;
+        if (ut === 'office_staff') return r.scope === 'network';
+        return r.scope === 'network';
+      });
+      setReportsIndex(visible);
+      setReportsReadIds(read);
+      setReportsUnreadCount(visible.filter(r => !read.includes(r.id)).length);
+    }
+    loadReportsState();
+    const interval = setInterval(loadReportsState, 60000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   // Chat unread count
   const chatUnreadCount = React.useMemo(() => {
@@ -22050,6 +22247,7 @@ function PCGPortal() {
           const isActive = tab === t.id;
           let badge = null;
           if (t.id === "chat" && chatUnreadCount > 0) badge = chatUnreadCount;
+          if (t.id === "reports" && reportsUnreadCount > 0) badge = reportsUnreadCount;
           if (t.id === "announcements") {
             const myDist = user.district ? Number(user.district) : null;
             const unread = announcements.filter(a => {
@@ -22086,6 +22284,7 @@ function PCGPortal() {
                 accent="#74c0fc"
                 isActive={tab === t.id}
                 collapsed={collapsed}
+                badge={t.id === "reports" && reportsUnreadCount > 0 ? reportsUnreadCount : null}
                 onClick={() => { setTab(t.id); onNav && onNav(); }}
               />
             ))}
@@ -22103,6 +22302,7 @@ function PCGPortal() {
                 accent="#22c55e"
                 isActive={tab === t.id}
                 collapsed={collapsed}
+                badge={t.id === "reports" && reportsUnreadCount > 0 ? reportsUnreadCount : null}
                 onClick={() => { setTab(t.id); onNav && onNav(); }}
               />
             ))}
@@ -22138,7 +22338,8 @@ function PCGPortal() {
               const cashColor = cashHasMissing ? "#ef4444" : "#00d084";
               const C = isCash ? cashColor : (isGreen ? "#00d084" : O);
               const glow = isGreen || isCash;
-              const badge = (isCash && cashHasMissing) ? cashMissingCount : null;
+              const isReports = t.id === "reports";
+              const badge = (isCash && cashHasMissing) ? cashMissingCount : (isReports && reportsUnreadCount > 0) ? reportsUnreadCount : null;
               return (
                 <NavButton
                   key={t.id}
@@ -22174,7 +22375,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.2
+            v9.3
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -22293,6 +22494,7 @@ function PCGPortal() {
                 {tab === "analytics" && "Sales data and performance metrics."}
                 {tab === "pulse" && "Live sales monitoring and weekly trends."}
                 {tab === "cash" && "Deposit tracking and missing-deposit alerts."}
+                {tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion."}
                 {tab === "projects" && "Track construction, remodels, and new store builds."}
                 {tab === "users" && "User accounts and access management."}
                 {tab === "kb" && "Company guides, SOPs, training materials, and reference articles."}
@@ -22535,6 +22737,7 @@ function PCGPortal() {
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
+          {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} />}
           {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} />}
