@@ -28,12 +28,15 @@ async function loadKBContent(opts = {}) {
     }
   } catch {}
 
-  // ── Source 2: Portal KB articles ───────────────────────────────────────
+  // ── Source 2: Portal KB articles (only approved/locked/legacy) ──────────
   try {
     const articles = await cacheLoad('pcg_kb_articles');
     if (Array.isArray(articles)) {
+      const publishedArticles = articles.filter(a =>
+        a.status === 'approved' || a.status === 'locked' || !a.status
+      );
       const articleFiles = await Promise.all(
-        articles.map(async (a) => {
+        publishedArticles.map(async (a) => {
           try {
             const content = await cacheLoad(`pcg_kb_article_${a.id}`);
             if (!content) return null;

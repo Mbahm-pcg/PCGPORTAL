@@ -19797,7 +19797,7 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
   const saveArticle = async () => {
     if (!form.title.trim() || !form.content.trim()) { showAlert("error", "Title and content are required."); return; }
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const article = { id, title: form.title.trim(), category: form.category, description: form.description.trim(), createdBy: user.name, createdAt: new Date().toISOString() };
+    const article = { id, title: form.title.trim(), category: form.category, description: form.description.trim(), createdBy: user.name, createdAt: new Date().toISOString(), status: "draft", reviewedBy: null, reviewedAt: null, lockedBy: null, lockedAt: null };
     const updated = [...articles, article];
     await cloudSave('pcg_kb_articles', updated);
     await cloudSave('pcg_kb_article_' + id, form.content);
@@ -19817,10 +19817,33 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
     showAlert("success", "Article deleted.");
   };
 
+  // Handle KB workflow actions (submit-for-review, approve, reject, lock, unlock)
+  const handleWorkflowAction = async (action, reason) => {
+    const art = articles.find(a => a.id === selectedArticle);
+    if (!art) return;
+    try {
+      const res = await fetch('/.netlify/functions/kb-manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, articleId: art.id, userId: user.id, userName: user.name, userRole: user.userType, reason })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { showAlert("error", data.error || "Action failed"); return; }
+      // Refresh articles list from blob
+      const refreshed = await cloudLoad('pcg_kb_articles');
+      setArticles(Array.isArray(refreshed) ? refreshed : []);
+      showAlert("success", action === "submit-for-review" ? "Submitted for review!" : action === "approve" ? "Article approved!" : action === "reject" ? "Article sent back to draft." : action === "lock" ? "Article locked." : "Article unlocked.");
+    } catch (err) { showAlert("error", "Workflow action failed: " + err.message); }
+  };
+
   // Start editing an article
   const startEdit = () => {
     const art = articles.find(a => a.id === selectedArticle);
     if (!art) return;
+    if (art.status === "locked") {
+      showAlert("error", "This article is locked. An admin must unlock it before editing.");
+      return;
+    }
     setEditForm({ title: art.title, category: art.category, description: art.description || '', content: articleContent || '' });
     setEditing(true);
   };
@@ -19933,11 +19956,17 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
       React.createElement("div", { className: "fade-in" },
       React.createElement("div", { style: { display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"1.25rem", flexWrap:"wrap", gap:"0.75rem" } },
         React.createElement("button", { onClick: () => { setSelectedArticle(null); setArticleContent(null); }, style: { ...btn(th), background:th.card2, color:th.text, border:"1px solid "+th.cardBorder, fontSize:"0.85rem", padding:"0.5rem 1rem" } }, "\u2190 Back to Knowledge Base"),
-        React.createElement("div", { style: { display:"flex", gap:"0.5rem" } },
+        React.createElement("div", { style: { display:"flex", gap:"0.5rem", flexWrap:"wrap" } },
           React.createElement("button", { onClick: () => setShowPdfModal(true), style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem" } }, ICONS.download(W), " Export PDF"),
           React.createElement("button", { onClick: shareArticle, style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem", background:"#22c55e" } }, "Share"),
-          isAdmin && React.createElement("button", { onClick: startEdit, style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem", background: th.card2, color: th.text, border: "1px solid " + th.cardBorder } }, "Edit"),
-          isAdmin && React.createElement("button", { onClick: () => deleteArticle(selectedArticle), style: { ...btn(th), background:"#ef4444", fontSize:"0.85rem", padding:"0.5rem 1rem" } }, ICONS.trash(W), " Delete")
+          isAdmin && art && art.status !== "locked" && React.createElement("button", { onClick: startEdit, style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem", background: th.card2, color: th.text, border: "1px solid " + th.cardBorder } }, "Edit"),
+          isAdmin && React.createElement("button", { onClick: () => deleteArticle(selectedArticle), style: { ...btn(th), background:"#ef4444", fontSize:"0.85rem", padding:"0.5rem 1rem" } }, ICONS.trash(W), " Delete"),
+          // Workflow action buttons
+          art && art.status === "draft" && React.createElement("button", { onClick: () => handleWorkflowAction("submit-for-review"), style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem", background:"#f59e0b" } }, "Submit for Review"),
+          art && art.status === "pending_review" && isAdmin && React.createElement("button", { onClick: () => handleWorkflowAction("approve"), style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem", background:"#22c55e" } }, "Approve"),
+          art && art.status === "pending_review" && isAdmin && React.createElement("button", { onClick: () => { const r = prompt("Reason for rejection:"); if (r) handleWorkflowAction("reject", r); }, style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem", background:"#ef4444" } }, "Reject"),
+          art && art.status === "approved" && isAdmin && React.createElement("button", { onClick: () => handleWorkflowAction("lock"), style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem", background:"#ef4444" } }, "Lock"),
+          art && art.status === "locked" && isAdmin && React.createElement("button", { onClick: () => handleWorkflowAction("unlock"), style: { ...btn(th), fontSize:"0.85rem", padding:"0.5rem 1rem", background:"#6b7280" } }, "Unlock")
         )
       ),
       // Edit form (when editing)
@@ -19960,7 +19989,9 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
       !editing && art && React.createElement("div", { style: { ...card(th), padding:"2rem", marginBottom:"1rem" } },
         React.createElement("div", { style: { display:"flex", alignItems:"center", gap:"0.75rem", marginBottom:"0.75rem", flexWrap:"wrap" } },
           React.createElement("span", { style: { background: (CAT_COLORS[art.category]||O)+"22", color: CAT_COLORS[art.category]||O, padding:"0.2rem 0.7rem", borderRadius:999, fontSize:"0.75rem", fontWeight:600 } }, art.category),
-          React.createElement("span", { style: { color:th.muted, fontSize:"0.75rem" } }, "By " + (art.createdBy || 'Unknown') + " · " + new Date(art.createdAt).toLocaleDateString() + (art.updatedAt && art.updatedAt !== art.createdAt ? ' · Updated ' + new Date(art.updatedAt).toLocaleDateString() : ''))
+          (() => { const SB = { draft: { bg:"#6b728022", color:"#6b7280", label:"Draft" }, pending_review: { bg:"#f59e0b22", color:"#f59e0b", label:"Pending Review" }, approved: { bg:"#22c55e22", color:"#22c55e", label:"Approved" }, locked: { bg:"#ef444422", color:"#ef4444", label:"Locked" } }; const s = SB[art.status]; return s ? React.createElement("span", { style: { background:s.bg, color:s.color, padding:"0.2rem 0.7rem", borderRadius:999, fontSize:"0.7rem", fontWeight:600 } }, s.label) : null; })(),
+          React.createElement("span", { style: { color:th.muted, fontSize:"0.75rem" } }, "By " + (art.createdBy || 'Unknown') + " · " + new Date(art.createdAt).toLocaleDateString() + (art.updatedAt && art.updatedAt !== art.createdAt ? ' · Updated ' + new Date(art.updatedAt).toLocaleDateString() : '')),
+          art.reviewNote && React.createElement("span", { style: { color:"#ef4444", fontSize:"0.75rem", fontStyle:"italic" } }, "Review note: " + art.reviewNote)
         ),
         React.createElement("h2", { style: { fontFamily:"'Raleway'", fontWeight:800, fontSize:"1.4rem", color:th.text, marginBottom:"0.5rem" } }, art.title),
         art.description && React.createElement("p", { style: { color:th.muted, fontSize:"0.85rem" } }, art.description)
@@ -20174,9 +20205,12 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
 
     // Article cards grid
     !loading && filtered.length > 0 && React.createElement("div", { style: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))", gap:"1rem" } },
-      filtered.map(a => React.createElement("div", { key: a.id, className: "fade-in", style: { ...card(th), padding:"1.25rem", display:"flex", flexDirection:"column", gap:"0.6rem", cursor:"pointer", transition:"transform .15s, box-shadow .15s" }, onClick: () => viewArticle(a.id), onMouseEnter: e => { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow="0 6px 24px rgba(0,0,0,0.1)"; }, onMouseLeave: e => { e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow=""; } },
+      filtered.map(a => { const STATUS_BADGE = { draft: { bg:"#6b728022", color:"#6b7280", label:"Draft" }, pending_review: { bg:"#f59e0b22", color:"#f59e0b", label:"Pending Review" }, approved: { bg:"#22c55e22", color:"#22c55e", label:"Approved" }, locked: { bg:"#ef444422", color:"#ef4444", label:"Locked" } }; const sb = STATUS_BADGE[a.status] || null; return React.createElement("div", { key: a.id, className: "fade-in", style: { ...card(th), padding:"1.25rem", display:"flex", flexDirection:"column", gap:"0.6rem", cursor:"pointer", transition:"transform .15s, box-shadow .15s" }, onClick: () => viewArticle(a.id), onMouseEnter: e => { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow="0 6px 24px rgba(0,0,0,0.1)"; }, onMouseLeave: e => { e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow=""; } },
         React.createElement("div", { style: { display:"flex", alignItems:"center", justifyContent:"space-between" } },
-          React.createElement("span", { style: { background: (CAT_COLORS[a.category]||O)+"22", color: CAT_COLORS[a.category]||O, padding:"0.15rem 0.6rem", borderRadius:999, fontSize:"0.7rem", fontWeight:600 } }, a.category),
+          React.createElement("div", { style: { display:"flex", alignItems:"center", gap:"0.4rem" } },
+            React.createElement("span", { style: { background: (CAT_COLORS[a.category]||O)+"22", color: CAT_COLORS[a.category]||O, padding:"0.15rem 0.6rem", borderRadius:999, fontSize:"0.7rem", fontWeight:600 } }, a.category),
+            sb && React.createElement("span", { style: { background: sb.bg, color: sb.color, padding:"0.15rem 0.6rem", borderRadius:999, fontSize:"0.65rem", fontWeight:600 } }, sb.label)
+          ),
           React.createElement("span", { style: { color:th.muted, fontSize:"0.7rem" } }, new Date(a.createdAt).toLocaleDateString())
         ),
         React.createElement("h3", { style: { fontFamily:"'Raleway'", fontWeight:700, fontSize:"1rem", color:th.text, margin:0 } }, a.title),
@@ -20185,7 +20219,7 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
           React.createElement("span", { style: { color:th.muted, fontSize:"0.7rem" } }, "By " + (a.createdBy || "Unknown")),
           React.createElement("span", { style: { color:O, fontSize:"0.8rem", fontWeight:600 } }, "View \u2192")
         )
-      ))
+      ); })
     )
     ) // close articles wrapper div
   );
@@ -21869,7 +21903,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.49
+            v8.50
           </div>
         )}
         {/* Collapse toggle — desktop only */}
