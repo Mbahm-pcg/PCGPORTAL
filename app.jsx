@@ -19642,6 +19642,378 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
   );
 }
 
+// ── Report Component Renderer ─────────────────────────────────────────────────
+function ReportComponent({ component, theme: th, width }) {
+  const isDark = th && th.bg && th.bg.startsWith('#0');
+  const cardBg = th.card2 || th.card;
+  const border = `1px solid ${th.border || (th.muted + '22')}`;
+  const baseCard = {
+    background: cardBg,
+    borderRadius: '10px',
+    padding: '16px',
+    marginBottom: '16px',
+    border,
+  };
+
+  // ── 1. kpi-grid ──────────────────────────────────────────────────────────────
+  if (component.type === 'kpi-grid') {
+    const items = (component.data && component.data.items) || [];
+    return (
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: width && width < 480 ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+        gap: '12px',
+        marginBottom: '16px',
+      }}>
+        {items.map((item, i) => (
+          <div key={i} style={{ ...baseCard, marginBottom: 0 }}>
+            <div style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: th.muted,
+              marginBottom: '6px',
+              fontFamily: 'Source Sans 3, sans-serif',
+            }}>{item.label}</div>
+            <div style={{
+              fontSize: '22px',
+              fontWeight: 800,
+              color: item.color || th.text,
+              fontFamily: 'Raleway, sans-serif',
+              lineHeight: 1.1,
+            }}>{item.value}</div>
+            {item.delta !== undefined && item.delta !== null && (
+              <div style={{
+                fontSize: '12px',
+                color: String(item.delta).startsWith('-') ? '#f44336' : '#4caf50',
+                marginTop: '4px',
+                fontFamily: 'Source Sans 3, sans-serif',
+              }}>{String(item.delta).startsWith('-') ? '' : '+'}{item.delta}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // ── 2. chart ─────────────────────────────────────────────────────────────────
+  if (component.type === 'chart') {
+    const data = component.data || {};
+    const canvasRef = React.useRef(null);
+    const chartRef = React.useRef(null);
+
+    React.useEffect(() => {
+      if (!canvasRef.current || typeof Chart === 'undefined') return;
+      // Destroy previous instance
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+      const textColor = isDark ? '#e5e7eb' : '#374151';
+      const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+      const defaultColors = ['#FF671F','#3b82f6','#22c55e','#a855f7','#f59e0b','#ef4444','#06b6d4'];
+
+      const datasets = (data.datasets || []).map((ds, idx) => ({
+        ...ds,
+        backgroundColor: ds.backgroundColor || (
+          data.chartType === 'doughnut'
+            ? defaultColors
+            : defaultColors[idx % defaultColors.length] + 'cc'
+        ),
+        borderColor: ds.borderColor || (
+          data.chartType === 'line'
+            ? defaultColors[idx % defaultColors.length]
+            : undefined
+        ),
+        borderWidth: ds.borderWidth !== undefined ? ds.borderWidth : (data.chartType === 'line' ? 2 : 1),
+        tension: data.chartType === 'line' ? (ds.tension !== undefined ? ds.tension : 0.3) : undefined,
+        fill: data.chartType === 'line' ? (ds.fill !== undefined ? ds.fill : false) : undefined,
+      }));
+
+      const isStacked = data.chartType === 'stacked';
+      const chartType = isStacked ? 'bar' : (data.chartType || 'bar');
+
+      const options = {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: {
+            labels: { color: textColor, font: { family: 'Source Sans 3, sans-serif', size: 12 } },
+          },
+          title: data.title ? {
+            display: true,
+            text: data.title,
+            color: textColor,
+            font: { family: 'Raleway, sans-serif', size: 14, weight: '700' },
+          } : { display: false },
+          ...(data.options && data.options.plugins ? data.options.plugins : {}),
+        },
+        scales: chartType === 'doughnut' ? {} : {
+          x: {
+            stacked: isStacked,
+            ticks: { color: textColor, font: { family: 'Source Sans 3, sans-serif', size: 11 } },
+            grid: { color: gridColor },
+            ...(data.options && data.options.scales && data.options.scales.x ? data.options.scales.x : {}),
+          },
+          y: {
+            stacked: isStacked,
+            ticks: { color: textColor, font: { family: 'Source Sans 3, sans-serif', size: 11 } },
+            grid: { color: gridColor },
+            ...(data.options && data.options.scales && data.options.scales.y ? data.options.scales.y : {}),
+          },
+        },
+        ...(data.options ? { ...data.options, plugins: undefined, scales: undefined } : {}),
+      };
+
+      chartRef.current = new Chart(canvasRef.current, {
+        type: chartType,
+        data: { labels: data.labels || [], datasets },
+        options,
+      });
+
+      return () => {
+        if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+      };
+    }, [component, isDark]);
+
+    return (
+      <div style={{ ...baseCard }}>
+        <canvas ref={canvasRef} style={{ maxHeight: '320px' }} />
+      </div>
+    );
+  }
+
+  // ── 3. table ─────────────────────────────────────────────────────────────────
+  if (component.type === 'table') {
+    const data = component.data || {};
+    const columns = data.columns || [];
+    const rows = (data.rows || []).slice(0, 20);
+    const hl = data.highlight || {};
+
+    const getCellColor = (colKey, val) => {
+      if (hl.key !== colKey || hl.condition !== 'labor') return undefined;
+      const n = parseFloat(val);
+      if (isNaN(n)) return undefined;
+      if (n >= 26) return '#f44336';
+      if (n >= 23) return '#ff9800';
+      return '#4caf50';
+    };
+
+    return (
+      <div style={{ ...baseCard, padding: 0, overflow: 'hidden' }}>
+        {data.title && (
+          <div style={{
+            padding: '12px 16px',
+            fontFamily: 'Raleway, sans-serif',
+            fontWeight: 700,
+            fontSize: '14px',
+            color: th.text,
+            borderBottom: border,
+          }}>{data.title}</div>
+        )}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', fontFamily: 'Source Sans 3, sans-serif' }}>
+            <thead>
+              <tr style={{ position: 'sticky', top: 0, background: isDark ? '#1a1a2e' : '#f3f4f6', zIndex: 1 }}>
+                {columns.map((col, ci) => (
+                  <th key={ci} style={{
+                    padding: '8px 12px',
+                    textAlign: ci === 0 ? 'left' : 'right',
+                    color: th.muted,
+                    fontWeight: 700,
+                    fontSize: '11px',
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    borderBottom: border,
+                    whiteSpace: 'nowrap',
+                  }}>{col.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri} style={{ background: ri % 2 === 0 ? 'transparent' : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)') }}>
+                  {columns.map((col, ci) => {
+                    const cellVal = row[col.key];
+                    const hlColor = getCellColor(col.key, cellVal);
+                    return (
+                      <td key={ci} style={{
+                        padding: '7px 12px',
+                        textAlign: ci === 0 ? 'left' : 'right',
+                        color: hlColor || th.text,
+                        fontWeight: hlColor ? 700 : 400,
+                        borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
+                      }}>{cellVal !== undefined && cellVal !== null ? cellVal : '—'}</td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 4. narrative ─────────────────────────────────────────────────────────────
+  if (component.type === 'narrative') {
+    const data = component.data || {};
+    const style = data.style || 'summary';
+
+    if (style === 'callout') {
+      return (
+        <div style={{
+          ...baseCard,
+          borderLeft: '4px solid #FF671F',
+          paddingLeft: '16px',
+          fontFamily: 'Source Sans 3, sans-serif',
+          fontSize: '14px',
+          color: th.text,
+          lineHeight: 1.6,
+        }}>{data.text}</div>
+      );
+    }
+    if (style === 'insight') {
+      return (
+        <div style={{
+          ...baseCard,
+          fontStyle: 'italic',
+          fontFamily: 'Source Sans 3, sans-serif',
+          fontSize: '14px',
+          color: th.muted,
+          lineHeight: 1.6,
+        }}>{data.text}</div>
+      );
+    }
+    // summary (default)
+    return (
+      <p style={{
+        fontFamily: 'Source Sans 3, sans-serif',
+        fontSize: '14px',
+        color: th.text,
+        lineHeight: 1.7,
+        marginBottom: '16px',
+      }}>{data.text}</p>
+    );
+  }
+
+  // ── 5. ranked-list ───────────────────────────────────────────────────────────
+  if (component.type === 'ranked-list') {
+    const data = component.data || {};
+    const items = data.items || [];
+    const accentColor = data.direction === 'bottom' ? '#f44336' : '#4caf50';
+
+    return (
+      <div style={{ ...baseCard }}>
+        {data.title && (
+          <div style={{
+            fontFamily: 'Raleway, sans-serif',
+            fontWeight: 700,
+            fontSize: '14px',
+            color: th.text,
+            marginBottom: '12px',
+          }}>{data.title}</div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {items.map((item, i) => (
+            <div key={i} style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '8px 10px',
+              background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+              borderRadius: '8px',
+            }}>
+              <div style={{
+                width: '26px',
+                height: '26px',
+                borderRadius: '50%',
+                background: accentColor,
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '12px',
+                fontWeight: 800,
+                flexShrink: 0,
+                fontFamily: 'Raleway, sans-serif',
+              }}>{item.rank || i + 1}</div>
+              <div style={{ flex: 1, fontFamily: 'Source Sans 3, sans-serif', fontSize: '13px', color: th.text }}>{item.name}</div>
+              <div style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 700, fontSize: '14px', color: th.text }}>{item.value}</div>
+              {item.delta !== undefined && item.delta !== null && (
+                <div style={{
+                  fontSize: '11px',
+                  color: String(item.delta).startsWith('-') ? '#f44336' : '#4caf50',
+                  fontFamily: 'Source Sans 3, sans-serif',
+                  minWidth: '36px',
+                  textAlign: 'right',
+                }}>{String(item.delta).startsWith('-') ? '' : '+'}{item.delta}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── 6. comparison ────────────────────────────────────────────────────────────
+  if (component.type === 'comparison') {
+    const data = component.data || {};
+    const periods = data.periods || [];
+    const metrics = data.metrics || [];
+
+    return (
+      <div style={{ ...baseCard, padding: 0, overflow: 'hidden' }}>
+        {data.title && (
+          <div style={{
+            padding: '12px 16px',
+            fontFamily: 'Raleway, sans-serif',
+            fontWeight: 700,
+            fontSize: '14px',
+            color: th.text,
+            borderBottom: border,
+          }}>{data.title}</div>
+        )}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', fontFamily: 'Source Sans 3, sans-serif' }}>
+            <thead>
+              <tr style={{ background: isDark ? '#1a1a2e' : '#f3f4f6' }}>
+                <th style={{ padding: '8px 12px', textAlign: 'left', color: th.muted, fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: border }}>Metric</th>
+                {periods.map((p, pi) => (
+                  <th key={pi} style={{ padding: '8px 12px', textAlign: 'right', color: th.muted, fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: border, whiteSpace: 'nowrap' }}>{p}</th>
+                ))}
+                <th style={{ padding: '8px 12px', textAlign: 'right', color: th.muted, fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: border }}>Delta</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.map((metric, mi) => {
+                const deltaVal = metric.delta;
+                const isPos = deltaVal !== undefined && deltaVal !== null && !String(deltaVal).startsWith('-');
+                const deltaColor = deltaVal === undefined || deltaVal === null ? th.muted : (isPos ? '#4caf50' : '#f44336');
+                return (
+                  <tr key={mi} style={{ background: mi % 2 === 0 ? 'transparent' : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)') }}>
+                    <td style={{ padding: '8px 12px', color: th.text, borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>{metric.label}</td>
+                    {(metric.values || []).map((val, vi) => (
+                      <td key={vi} style={{ padding: '8px 12px', textAlign: 'right', color: th.text, borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>{val !== undefined && val !== null ? val : '—'}</td>
+                    ))}
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: deltaColor, fontWeight: 700, borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>
+                      {deltaVal !== undefined && deltaVal !== null ? (isPos ? '+' : '') + deltaVal : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // Unknown type
+  return null;
+}
+
 // ── Knowledge Base ────────────────────────────────────────────────────────────
 function KnowledgeBase({ th, user, showAlert, stores }) {
   const KB_CATEGORIES = ["Setup Guide", "SOP", "Training", "Policy", "Reference"];
