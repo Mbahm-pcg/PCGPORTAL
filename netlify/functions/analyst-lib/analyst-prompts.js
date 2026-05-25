@@ -97,11 +97,11 @@ Format all dollar values with $ and commas. Use green/red/yellow colors for thre
 Return ONLY valid JSON, no markdown fences.`;
 
 /** Build the brief prompt with real data injected */
-function buildBriefPrompt(role, date, dataSnapshot) {
+function buildBriefPrompt(role, date, dataSnapshot, extraContext) {
   return BRIEF_TEMPLATE
     .replace('{role}', role)
     .replace('{date}', date)
-    .replace('{data}', JSON.stringify(dataSnapshot, null, 2));
+    .replace('{data}', JSON.stringify(dataSnapshot, null, 2) + (extraContext || ''));
 }
 
 /** Build the business case prompt, optionally injecting recent decision history */
@@ -123,8 +123,8 @@ function buildCasePrompt(anomalyDescription, dataContext, decisionHistory) {
 }
 
 /** Build the ask prompt, optionally injecting KB context and open ticket context */
-function buildAskPrompt(question, role, scope, date, dataSnapshot, kbContext, ticketsContext) {
-  const data = JSON.stringify(dataSnapshot, null, 2) + (kbContext || '') + (ticketsContext || '');
+function buildAskPrompt(question, role, scope, date, dataSnapshot, kbContext, ticketsContext, extraContext) {
+  const data = JSON.stringify(dataSnapshot, null, 2) + (kbContext || '') + (ticketsContext || '') + (extraContext || '');
   return ASK_USER_TEMPLATE
     .replace('{question}', question)
     .replace('{role}', role)

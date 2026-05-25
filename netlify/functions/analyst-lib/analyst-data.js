@@ -251,6 +251,41 @@ async function buildStoreContext({ storePC }) {
   return sections.join("\n");
 }
 
+async function getWeatherForecast() {
+  return cacheLoad('pcg_weather_forecast');
+}
+
+async function getWeatherCorrelations() {
+  return cacheLoad('pcg_weather_correlations');
+}
+
+async function buildWeatherContext({ district } = {}) {
+  const forecast = await getWeatherForecast();
+  const correlations = await getWeatherCorrelations();
+  if (!forecast) return '';
+
+  const condIcon = { clear: 'Clear', cloudy: 'Cloudy', fog: 'Foggy', rain: 'Rain', snow: 'Snow', storm: 'Thunderstorm' };
+  const districts = district ? [String(district)] : Object.keys(forecast);
+  const lines = [];
+
+  for (const d of districts) {
+    const f = forecast[d];
+    if (!f?.days?.length) continue;
+    const corr = correlations?.[d] || {};
+    const dayStrs = f.days.slice(0, 7).map(day => {
+      const dow = new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+      const impact = corr[day.condition];
+      const impactStr = impact && Math.abs(impact - 1) > 0.03
+        ? ` (${impact > 1 ? '+' : ''}${Math.round((impact - 1) * 100)}% historical sales impact)`
+        : '';
+      return `${dow} ${condIcon[day.condition] || day.condition} ${day.tempHighF}°F${impactStr}`;
+    });
+    lines.push(`District ${d} forecast: ${dayStrs.join(', ')}`);
+  }
+
+  return lines.length > 0 ? '\n\nWEATHER FORECAST:\n' + lines.join('\n') : '';
+}
+
 module.exports = {
   STORES,
   getAllStores,
@@ -261,4 +296,7 @@ module.exports = {
   buildDataContext,
   buildStoreContext,
   getStoreDailyHistory,
+  getWeatherForecast,
+  getWeatherCorrelations,
+  buildWeatherContext,
 };

@@ -6,7 +6,7 @@
 
 const { detectAnomalies } = require('./analyst-lib/analyst-anomaly');
 const { createCaseFromAnomaly, getCases } = require('./analyst-lib/analyst-cases');
-const { buildDataContext, buildKPISnapshot } = require('./analyst-lib/analyst-data');
+const { buildDataContext, buildKPISnapshot, buildWeatherContext } = require('./analyst-lib/analyst-data');
 const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { PERSONA, buildBriefPrompt, REPORT_SYSTEM, buildReportPrompt } = require('./analyst-lib/analyst-prompts');
 const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
@@ -87,7 +87,8 @@ exports.handler = async (event) => {
       // Executive brief (network-wide)
       try {
         const execData = await buildDataContext({ includeStoreDetail: true });
-        const execPrompt = buildBriefPrompt('VP / Executive', today, execData);
+        const weatherCtx = await buildWeatherContext();
+        const execPrompt = buildBriefPrompt('VP / Executive', today, execData, weatherCtx);
         const execResult = await generateStructured({
           system: PERSONA,
           userPrompt: execPrompt,
@@ -113,10 +114,10 @@ exports.handler = async (event) => {
       for (let d = 1; d <= 8; d++) {
         try {
           const distData = await buildDataContext({ district: d });
-          // Skip districts with no data
           if (distData.includes('No labor data')) continue;
 
-          const distPrompt = buildBriefPrompt('District Manager', today, distData);
+          const distWeatherCtx = await buildWeatherContext({ district: d });
+          const distPrompt = buildBriefPrompt('District Manager', today, distData, distWeatherCtx);
           const distResult = await generateStructured({
             system: PERSONA,
             userPrompt: distPrompt,
