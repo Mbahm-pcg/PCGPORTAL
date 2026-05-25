@@ -286,6 +286,47 @@ async function buildWeatherContext({ district } = {}) {
   return lines.length > 0 ? '\n\nWEATHER FORECAST:\n' + lines.join('\n') : '';
 }
 
+async function getStoreReviews(pc) {
+  return cacheLoad(`pcg_reviews_${pc}`);
+}
+
+async function getNetworkReviews() {
+  return cacheLoad('pcg_reviews_network');
+}
+
+async function buildSentimentContext({ district } = {}) {
+  const network = await getNetworkReviews();
+  if (!network) return '';
+
+  const lines = [];
+  lines.push(`Network avg rating: ★${network.networkAvgRating}`);
+
+  if (network.actionItems?.length > 0) {
+    const filtered = district
+      ? network.actionItems.filter(a => STORES.find(s => s.pc === a.pc)?.district === district)
+      : network.actionItems.slice(0, 5);
+    if (filtered.length > 0) {
+      lines.push('Action items from recent reviews:');
+      for (const item of filtered) {
+        lines.push(`  - ${item.store}: ${item.action} (${item.reviewCount} review${item.reviewCount > 1 ? 's' : ''})`);
+      }
+    }
+  }
+
+  if (district && network.storeRatings) {
+    const distStores = STORES.filter(s => s.district === district);
+    const ratings = distStores.map(s => ({ name: s.name, rating: network.storeRatings[s.pc] })).filter(r => r.rating > 0);
+    if (ratings.length > 0) {
+      ratings.sort((a, b) => a.rating - b.rating);
+      const worst = ratings[0];
+      const best = ratings[ratings.length - 1];
+      lines.push(`District ${district} ratings: best ${best.name} ★${best.rating}, lowest ${worst.name} ★${worst.rating}`);
+    }
+  }
+
+  return lines.length > 1 ? '\n\nGUEST SENTIMENT:\n' + lines.join('\n') : '';
+}
+
 module.exports = {
   STORES,
   getAllStores,
@@ -299,4 +340,7 @@ module.exports = {
   getWeatherForecast,
   getWeatherCorrelations,
   buildWeatherContext,
+  getStoreReviews,
+  getNetworkReviews,
+  buildSentimentContext,
 };
