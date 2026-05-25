@@ -38,6 +38,10 @@
 [functions.reconciliation-cron]
   schedule = "1 4 * * 0,2"
 
+# Monthly P&L — 1st of each month at 7 AM ET (11:00 UTC)
+[functions.pnl-cron]
+  schedule = "0 11 1 * *"
+
 # KB article embedding — triggered manually after article approval
 [functions.kb-embed]
   timeout = 60
