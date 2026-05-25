@@ -59,6 +59,43 @@ Available data:
 
 Answer the question using ONLY the data above. If the data is insufficient, say what's missing.`;
 
+const REPORT_SYSTEM = `${PERSONA}
+
+You are generating a structured report artifact. Analyze the data provided and return a JSON object with:
+1. "narrative" — a 2-4 sentence executive summary of the key findings
+2. "components" — an ordered array of visualization components (max 8)
+
+Each component must have "type" and "data" fields. Valid types:
+- "kpi-grid": { "items": [{ "label": "Total Sales", "value": "$847K", "delta": "+3.2%", "color": "#4caf50" }] } — max 4 items
+- "chart": { "chartType": "bar"|"line"|"doughnut"|"stacked", "title": "chart title", "labels": [...], "datasets": [{ "label": "...", "data": [...], "backgroundColor": "..." }] }
+- "table": { "title": "table title", "columns": [{ "key": "name", "label": "Store" }], "rows": [{ "name": "Willow Grove", ... }] }
+- "narrative": { "text": "analysis paragraph", "style": "summary"|"callout"|"insight" }
+- "ranked-list": { "title": "Top 5 by Sales", "items": [{ "rank": 1, "name": "Store", "value": "$12.4K", "delta": "+5%" }], "direction": "top"|"bottom" }
+- "comparison": { "title": "WoW Comparison", "periods": ["This Week", "Last Week"], "metrics": [{ "label": "Revenue", "values": ["$847K", "$821K"], "delta": "+3.2%" }] }
+
+Choose components that best tell the story. Not every report needs all types. Lead with the most important insight.
+Format all dollar values with $ and commas. Format percentages with one decimal. Use green (#4caf50) for positive, red (#f44336) for negative, yellow (#ff9800) for warning, white (#ffffff) for neutral.
+Return ONLY valid JSON, no markdown fences.`;
+
+const PNL_SYSTEM = `${PERSONA}
+
+You are generating a Monthly P&L (Operational Profit & Loss) report. This covers Revenue (from POS sales) and Labor Cost (from payroll) — the two biggest controllable line items. Gross Margin = Revenue - Labor.
+
+Analyze the monthly data and return a JSON object with:
+1. "narrative" — 3-5 sentence executive summary: total revenue, labor cost, labor %, gross margin, month-over-month trend, any notable outliers
+2. "components" — exactly these components in order:
+
+Component 1 (kpi-grid): Revenue, Labor Cost, Gross Margin, Labor %, MoM Revenue Delta, YoY Revenue Delta (if available)
+Component 2 (table): Monthly P&L table with rows [Revenue, Labor Cost, Gross Margin, Labor %] and columns [This Month, Last Month, MoM Delta, Year Ago (if available), YoY Delta (if available)]
+Component 3 (chart): Revenue vs Labor Cost bar chart for last 6 months (dual dataset)
+Component 4 (ranked-list, direction=top): Top 5 stores by lowest labor % (best performers)
+Component 5 (ranked-list, direction=bottom): Bottom 5 stores by highest labor % (worst performers)
+Component 6 (comparison): Week-over-week breakdown — Week 1/2/3/4 of the month showing Revenue, Labor $, Labor %, Gross Margin per week. Note best and worst weeks.
+Component 7 (comparison): District-by-district breakdown — Revenue, Labor %, Gross Margin per district
+
+Format all dollar values with $ and commas. Use green/red/yellow colors for thresholds.
+Return ONLY valid JSON, no markdown fences.`;
+
 /** Build the brief prompt with real data injected */
 function buildBriefPrompt(role, date, dataSnapshot) {
   return BRIEF_TEMPLATE
@@ -96,10 +133,16 @@ function buildAskPrompt(question, role, scope, date, dataSnapshot, kbContext, ti
     .replace('{data}', data);
 }
 
+function buildReportPrompt(userPrompt, dataSnapshot) {
+  return `${userPrompt}\n\nCurrent data:\n${dataSnapshot}`;
+}
+
+function buildPnlPrompt(monthLabel, dataSnapshot) {
+  return `Generate the Monthly P&L report for ${monthLabel}.\n\nData:\n${dataSnapshot}`;
+}
+
 module.exports = {
-  PERSONA,
-  ASK_SYSTEM,
-  buildBriefPrompt,
-  buildCasePrompt,
-  buildAskPrompt,
+  PERSONA, BRIEF_TEMPLATE, BUSINESS_CASE_TEMPLATE, ASK_SYSTEM, ASK_USER_TEMPLATE,
+  REPORT_SYSTEM, PNL_SYSTEM,
+  buildBriefPrompt, buildCasePrompt, buildAskPrompt, buildReportPrompt, buildPnlPrompt,
 };
