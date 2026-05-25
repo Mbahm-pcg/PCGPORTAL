@@ -6,12 +6,13 @@
 
 const { detectAnomalies } = require('./analyst-lib/analyst-anomaly');
 const { createCaseFromAnomaly, getCases } = require('./analyst-lib/analyst-cases');
-const { buildDataContext } = require('./analyst-lib/analyst-data');
+const { buildDataContext, buildKPISnapshot } = require('./analyst-lib/analyst-data');
 const { generateStructured } = require('./analyst-lib/analyst-claude');
-const { PERSONA, buildBriefPrompt } = require('./analyst-lib/analyst-prompts');
+const { PERSONA, buildBriefPrompt, REPORT_SYSTEM, buildReportPrompt } = require('./analyst-lib/analyst-prompts');
 const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
 const { logAudit } = require('./analyst-lib/analyst-audit');
 const { sendDMBriefs, sendExecReport, loadReportSettings } = require('./analyst-lib/analyst-reports');
+const { saveReport } = require('./analyst-lib/analyst-reports-gen');
 
 exports.handler = async (event) => {
   const headers = {
@@ -137,6 +138,48 @@ exports.handler = async (event) => {
         }
       }
       console.log(`[analyst-cron] Generated ${briefsGenerated} briefs`);
+
+      // Save exec brief as report artifact (network dashboard)
+      try {
+        const execData = await buildKPISnapshot();
+        const dataSnapshot = `${await buildDataContext()}\n\nKPI Summary:\n${JSON.stringify(execData, null, 2)}`;
+        const reportResult = await generateStructured({
+          system: REPORT_SYSTEM,
+          userPrompt: buildReportPrompt('Generate a weekly executive dashboard with sales, labor, and anomaly overview.', dataSnapshot),
+          action: 'brief',
+          userId: 'system',
+        });
+        const reportJson = typeof reportResult === 'object' ? (reportResult.answer || reportResult.text || JSON.stringify(reportResult)) : reportResult;
+        const parsed = JSON.parse(reportJson.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
+        await saveReport({
+          type: 'dashboard',
+          title: `Weekly Exec Dashboard — ${today}`,
+          scope: 'network',
+          createdBy: 'orion',
+          trigger: 'scheduled',
+          narrative: parsed.narrative || '',
+          components: Array.isArray(parsed.components) ? parsed.components.slice(0, 8) : [],
+        });
+        console.log('[analyst-cron] Saved exec dashboard artifact');
+      } catch (e) { console.warn('[analyst-cron] Failed to save exec dashboard artifact:', e.message); }
+
+      // Save DM briefs as report artifacts
+      for (let d = 1; d <= 8; d++) {
+        try {
+          const briefData = await cacheLoad(`analyst/briefs/${today}_${d}`);
+          if (briefData?.content) {
+            await saveReport({
+              type: 'brief',
+              title: `DM Brief — District ${d} — ${today}`,
+              scope: `district:${d}`,
+              createdBy: 'orion',
+              trigger: 'scheduled',
+              narrative: briefData.content,
+              components: [],
+            });
+          }
+        } catch (e) { console.warn(`[analyst-cron] Failed to save D${d} brief artifact:`, e.message); }
+      }
     }
 
     // ── Step 4: Email reports (time-gated) ────────────────────────────
