@@ -6,7 +6,7 @@
 
 const { detectAnomalies } = require('./analyst-lib/analyst-anomaly');
 const { createCaseFromAnomaly, getCases } = require('./analyst-lib/analyst-cases');
-const { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentimentContext } = require('./analyst-lib/analyst-data');
+const { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentimentContext, buildEmailContext } = require('./analyst-lib/analyst-data');
 const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { PERSONA, buildBriefPrompt, REPORT_SYSTEM, buildReportPrompt } = require('./analyst-lib/analyst-prompts');
 const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
@@ -89,7 +89,8 @@ exports.handler = async (event) => {
         const execData = await buildDataContext({ includeStoreDetail: true });
         const weatherCtx = await buildWeatherContext();
         const sentimentCtx = await buildSentimentContext();
-        const execPrompt = buildBriefPrompt('VP / Executive', today, execData, weatherCtx + sentimentCtx);
+        const emailCtx = await buildEmailContext();
+        const execPrompt = buildBriefPrompt('VP / Executive', today, execData, weatherCtx + sentimentCtx + emailCtx);
         const execResult = await generateStructured({
           system: PERSONA,
           userPrompt: execPrompt,

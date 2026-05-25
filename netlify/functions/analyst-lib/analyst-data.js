@@ -327,6 +327,27 @@ async function buildSentimentContext({ district } = {}) {
   return lines.length > 1 ? '\n\nGUEST SENTIMENT:\n' + lines.join('\n') : '';
 }
 
+async function buildEmailContext() {
+  const inbox = await cacheLoad('pcg_emails_inbox');
+  if (!inbox?.emails?.length) return '';
+
+  const unread = inbox.emails.filter(e => !e.isRead);
+  if (unread.length === 0) return '';
+
+  const lines = [`${unread.length} unread emails in shared inbox:`];
+  const byCategory = {};
+  for (const e of unread.slice(0, 10)) {
+    const cat = e.category || 'general';
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(e);
+  }
+  for (const [cat, emails] of Object.entries(byCategory)) {
+    lines.push(`  ${cat}: ${emails.map(e => e.subject).join('; ')}`);
+  }
+
+  return '\n\nEMAIL INBOX:\n' + lines.join('\n');
+}
+
 module.exports = {
   STORES,
   getAllStores,
@@ -343,4 +364,5 @@ module.exports = {
   getStoreReviews,
   getNetworkReviews,
   buildSentimentContext,
+  buildEmailContext,
 };

@@ -13295,6 +13295,7 @@ const getTabs = (user) => {
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",        icon: (c) => ICONS.users(c) },
+    { id: "email",     label: "Email",        icon: '📧' },
     { id: "settings",  label: "Settings",     icon: (c) => ICONS.settings(c) },
   ];
   // Office Staff → all tabs but no admin destructive powers
@@ -13308,6 +13309,7 @@ const getTabs = (user) => {
     { id: "reports",   label: "Reports",   icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
+    { id: "email",     label: "Email",     icon: '📧' },
   ];
   // District Managers → base + their locations + their district analytics + projects (view-only)
   if (ut === "dm") return [
@@ -21256,6 +21258,202 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
   );
 }
 
+function EmailTab({ th, user }) {
+  const [emails, setEmails] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('all');
+  const [selectedEmail, setSelectedEmail] = useState(null);
+  const [composing, setComposing] = useState(false);
+  const [composeData, setComposeData] = useState({ to: '', cc: '', subject: '', body: '' });
+  const [sending, setSending] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
+
+  const loadEmails = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/.netlify/functions/storage', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'load', key: 'pcg_emails_inbox' }),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const data = j.data || j;
+        setEmails(data.emails || []);
+        setLastSync(data.lastSyncAt);
+      }
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { loadEmails(); }, []);
+
+  const filtered = filter === 'all' ? emails : emails.filter(e => e.category === filter);
+  const unreadCount = emails.filter(e => !e.isRead).length;
+
+  const CATEGORY_COLORS = {
+    vendor: '#2196f3', corporate: '#9c27b0', complaint: '#f44336', general: '#607d8b',
+  };
+
+  const sendEmail = async () => {
+    if (!composeData.to || !composeData.subject || !composeData.body) return;
+    setSending(true);
+    try {
+      const res = await fetch('/.netlify/functions/email-send', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: composeData.to,
+          cc: composeData.cc || undefined,
+          subject: composeData.subject,
+          bodyHtml: `<div style="font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; line-height: 1.6;">${composeData.body.replace(/\n/g, '<br>')}</div>`,
+          fromName: user?.name || 'PCG Portal',
+          userId: user?.id,
+        }),
+      });
+      if (res.ok) {
+        setComposing(false);
+        setComposeData({ to: '', cc: '', subject: '', body: '' });
+      }
+    } catch {}
+    setSending(false);
+  };
+
+  const accentColor = '#2196f3';
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ ...card(th), padding: '1.25rem 1.5rem', marginBottom: '1rem',
+        background: 'linear-gradient(135deg, #0d1b2a 0%, #1b2838 100%)',
+        border: `1px solid ${accentColor}33` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.4rem', color: accentColor }}>
+              📧 EMAIL
+            </div>
+            <div style={{ fontSize: '0.7rem', color: `${accentColor}88`, fontWeight: 600, letterSpacing: 2 }}>
+              SHARED INBOX{lastSync ? ` · SYNCED ${new Date(lastSync).toLocaleTimeString()}` : ''}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button onClick={() => setComposing(true)} style={{ ...btn(th, { background: accentColor, color: '#fff', fontWeight: 700, padding: '0.4rem 1rem', fontSize: '0.78rem' }) }}>
+              ✏️ Compose
+            </button>
+            <button onClick={loadEmails} disabled={loading} style={{ ...btn(th, { background: `${accentColor}22`, color: accentColor, border: `1px solid ${accentColor}55`, fontWeight: 700, padding: '0.4rem 1rem', fontSize: '0.78rem' }) }}>
+              {loading ? '⏳' : '🔄'} Refresh
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Category filter */}
+      <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+        {['all', 'vendor', 'corporate', 'complaint', 'general'].map(cat => (
+          <button key={cat} onClick={() => setFilter(cat)} style={{
+            ...btn(th, {
+              background: filter === cat ? `${CATEGORY_COLORS[cat] || accentColor}22` : th.card2,
+              color: filter === cat ? (CATEGORY_COLORS[cat] || accentColor) : th.muted,
+              border: filter === cat ? `1px solid ${CATEGORY_COLORS[cat] || accentColor}55` : `1px solid ${th.cardBorder}`,
+              fontWeight: 600, padding: '0.3rem 0.75rem', fontSize: '0.72rem', textTransform: 'capitalize',
+            }),
+          }}>
+            {cat}{cat === 'all' && unreadCount > 0 ? ` (${unreadCount})` : ''}
+          </button>
+        ))}
+      </div>
+
+      {/* Email list */}
+      <div style={{ ...card(th), padding: 0, overflow: 'hidden' }}>
+        {filtered.length === 0 && !loading && (
+          <div style={{ padding: '2rem', textAlign: 'center', color: th.muted }}>
+            {emails.length === 0 ? 'No emails synced yet. Configure Gmail API to start.' : 'No emails match this filter.'}
+          </div>
+        )}
+        {filtered.map((email, idx) => (
+          <div key={email.id} onClick={() => setSelectedEmail(selectedEmail?.id === email.id ? null : email)}
+            style={{
+              padding: '0.75rem 1rem', cursor: 'pointer',
+              borderBottom: idx < filtered.length - 1 ? `1px solid ${th.cardBorder}` : 'none',
+              background: selectedEmail?.id === email.id ? `${accentColor}08` : !email.isRead ? `${accentColor}05` : 'transparent',
+              transition: 'background .15s',
+            }}
+            onMouseEnter={e => { if (selectedEmail?.id !== email.id) e.currentTarget.style.background = th.card2; }}
+            onMouseLeave={e => { if (selectedEmail?.id !== email.id) e.currentTarget.style.background = !email.isRead ? `${accentColor}05` : 'transparent'; }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.15rem' }}>
+                  {!email.isRead && <div style={{ width: 6, height: 6, borderRadius: '50%', background: accentColor, flexShrink: 0 }} />}
+                  <span style={{ fontSize: '0.78rem', fontWeight: email.isRead ? 400 : 700, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {email.fromName}
+                  </span>
+                  <span style={{
+                    fontSize: '0.55rem', fontWeight: 600, padding: '0.05rem 0.35rem', borderRadius: 999,
+                    background: `${CATEGORY_COLORS[email.category] || '#607d8b'}18`,
+                    color: CATEGORY_COLORS[email.category] || '#607d8b',
+                    textTransform: 'capitalize', flexShrink: 0,
+                  }}>
+                    {email.category}
+                  </span>
+                  {email.hasAttachment && <span style={{ fontSize: '0.65rem' }}>📎</span>}
+                </div>
+                <div style={{ fontSize: '0.78rem', fontWeight: email.isRead ? 400 : 600, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {email.subject}
+                </div>
+                <div style={{ fontSize: '0.68rem', color: th.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '0.1rem' }}>
+                  {email.snippet}
+                </div>
+              </div>
+              <div style={{ fontSize: '0.62rem', color: th.muted, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                {new Date(email.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {' '}
+                {new Date(email.date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+              </div>
+            </div>
+
+            {/* Expanded body */}
+            {selectedEmail?.id === email.id && email.bodyPreview && (
+              <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: th.card2, borderRadius: '0.375rem', fontSize: '0.75rem', color: th.text, lineHeight: 1.6, maxHeight: '300px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {email.bodyPreview.replace(/<[^>]+>/g, '')}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Compose Modal */}
+      {composing && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+          onClick={e => { if (e.target === e.currentTarget) setComposing(false); }}>
+          <div style={{ ...card(th), width: '100%', maxWidth: 600, padding: '1.5rem' }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1rem', color: th.text, marginBottom: '1rem' }}>
+              ✏️ Compose Email
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <input placeholder="To (email)" value={composeData.to} onChange={e => setComposeData({ ...composeData, to: e.target.value })}
+                style={{ ...inp(th), fontSize: '0.85rem' }} />
+              <input placeholder="CC (optional)" value={composeData.cc} onChange={e => setComposeData({ ...composeData, cc: e.target.value })}
+                style={{ ...inp(th), fontSize: '0.85rem' }} />
+              <input placeholder="Subject" value={composeData.subject} onChange={e => setComposeData({ ...composeData, subject: e.target.value })}
+                style={{ ...inp(th), fontSize: '0.85rem' }} />
+              <textarea placeholder="Message body..." value={composeData.body} onChange={e => setComposeData({ ...composeData, body: e.target.value })}
+                rows={8} style={{ ...inp(th), fontSize: '0.85rem', resize: 'vertical' }} />
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                <button onClick={() => setComposing(false)} style={{ ...btn(th, { padding: '0.4rem 1rem', fontSize: '0.78rem' }) }}>
+                  Cancel
+                </button>
+                <button onClick={sendEmail} disabled={sending || !composeData.to || !composeData.subject}
+                  style={{ ...btn(th, { background: accentColor, color: '#fff', fontWeight: 700, padding: '0.4rem 1.25rem', fontSize: '0.78rem', opacity: sending ? 0.6 : 1 }) }}>
+                  {sending ? '⏳ Sending…' : '📤 Send'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
@@ -22980,7 +23178,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.5
+            v9.6
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -23104,6 +23302,7 @@ function PCGPortal() {
                 {tab === "users" && "User accounts and access management."}
                 {tab === "kb" && "Company guides, SOPs, training materials, and reference articles."}
                 {tab === "settings" && "Portal configuration and preferences."}
+                {tab === "email" && "Shared inbox and outbound email from the portal."}
                 {tab === "tickets"  && "Submit and track maintenance & service tickets."}
               </p>
             </div>
@@ -23348,6 +23547,7 @@ function PCGPortal() {
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
+          {tab === "email"    && (isFullAdmin(user) || isOfficeStaff) && <EmailTab th={th} user={user} />}
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={setTab} />}
         </div>
       </div>
