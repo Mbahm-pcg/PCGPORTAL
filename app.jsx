@@ -12358,7 +12358,11 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const fmtRelative = d => { if (!d) return ""; const h = Math.floor((Date.now()-new Date(d))/3600000); if (h<1) return "Just now"; if (h<24) return `${h}h ago`; return `${Math.floor(h/24)}d ago`; };
 
   const sendTicketNotification = (t) => {
-    const emails = (ticketNotifyEmails || []).filter(e => e && e.includes("@"));
+    const storeEmail = stores.find(s => String(s.pc) === String(t.storePC))?.email || null;
+    const emails = [
+      ...(ticketNotifyEmails || []).filter(e => e && e.includes("@")),
+      ...(storeEmail ? [storeEmail] : []),
+    ];
     if (!emails.length) return;
     const prioColor = { High:"#ef4444", Medium:"#f59e0b", Low:"#22c55e" }[t.priority] || "#aaa";
     const prioBg    = { High:"#fef2f2", Medium:"#fffbeb", Low:"#f0fdf4" }[t.priority] || "#f9f9f9";
@@ -12480,7 +12484,19 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     const issueLine = form.selectedIssues.length ? "Issues reported:\n• " + form.selectedIssues.join("\n• ") : "";
     const description = [issueLine, form.notes.trim()].filter(Boolean).join("\n\n");
     const allAttachments = [...(form.attachments || []), ...(form.videoAttachment ? [form.videoAttachment] : [])];
-    const t = { id: Date.now(), number: nextNumber(), title: form.title, storePC: form.storePC, storeName: store?.name || "Unknown Store", address: store ? (store.address || "") : "", category: form.category, priority: form.priority, dueDate: form.dueDate, status: "Open", ticketOwner: form.ticketOwner || user?.name || "Unassigned", createdBy: user?.name || "Unknown", description, selectedIssues: form.selectedIssues, attachments: allAttachments, comments: [], createdAt: now, updatedAt: now };
+    // Build email recipient list for system activity log (ticket notify list + store email)
+    const storeEmail = store?.email || null;
+    const notifyEmails = [
+      ...(ticketNotifyEmails || []).filter(e => e && e.includes("@")).filter(email => {
+        const u = (users || []).find(usr => (usr.email || "").toLowerCase() === email.toLowerCase());
+        return !u || u.emailNotify !== false;
+      }),
+      ...(storeEmail ? [storeEmail] : []),
+    ];
+    const initActivity = notifyEmails.length > 0
+      ? [{ id: Date.now() + 1, type: "system", text: `Sent ticket details on emails:\n${notifyEmails.join(", ")}`, createdAt: now }]
+      : [];
+    const t = { id: Date.now(), number: nextNumber(), title: form.title, storePC: form.storePC, storeName: store?.name || "Unknown Store", address: store ? (store.address || "") : "", category: form.category, priority: form.priority, dueDate: form.dueDate, status: "Open", ticketOwner: form.ticketOwner || user?.name || "Unassigned", createdBy: user?.name || "Unknown", description, selectedIssues: form.selectedIssues, attachments: allAttachments, comments: initActivity, createdAt: now, updatedAt: now };
     setTickets(ts => [t, ...ts]);
     setSelectedId(t.id);
     setShowForm(false);
@@ -12655,6 +12671,9 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                   )}
                   <span style={{ fontSize:"0.72rem", color:th.muted }}>· Owner <strong style={{ color:th.text }}>{selectedTicket.ticketOwner}</strong></span>
                   <span style={{ fontSize:"0.72rem", color:th.muted }}>· By <strong style={{ color:th.text }}>{selectedTicket.createdBy}</strong></span>
+                  {selectedTicket.createdAt && (
+                    <span style={{ fontSize:"0.72rem", color:th.muted }}>· Created <strong style={{ color:th.text }}>{new Date(selectedTicket.createdAt).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})} {new Date(selectedTicket.createdAt).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</strong></span>
+                  )}
                 </div>
               </div>
               <button onClick={()=>setSelectedId(null)} style={{ background:"none", border:"none", color:th.muted, fontSize:"1.25rem", cursor:"pointer", padding:4, lineHeight:1, flexShrink:0 }}>×</button>
@@ -12756,6 +12775,18 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                 {(selectedTicket.comments||[]).length === 0
                   ? <div style={{ color:th.muted, fontSize:"0.875rem", textAlign:"center", padding:"2rem 0" }}>No activity yet.</div>
                   : [...(selectedTicket.comments||[])].reverse().map(c => (
+                    c.type === "system" ? (
+                      <div key={c.id} style={{ display:"flex", gap:"0.75rem", marginBottom:"1.25rem", alignItems:"flex-start" }}>
+                        <div style={{ width:34, height:34, borderRadius:"50%", background:th.card2, border:`1px solid ${th.cardBorder}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.85rem", flexShrink:0 }}>⚙️</div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ display:"flex", gap:"0.5rem", alignItems:"baseline", marginBottom:"0.3rem" }}>
+                            <span style={{ fontSize:"0.8rem", fontWeight:700, color:th.muted }}>System</span>
+                            <span style={{ fontSize:"0.7rem", color:th.muted }}>{fmtRelative(c.createdAt)}</span>
+                          </div>
+                          <div style={{ fontSize:"0.8rem", color:th.muted, lineHeight:1.6, whiteSpace:"pre-line" }}>{c.text}</div>
+                        </div>
+                      </div>
+                    ) : (
                     <div key={c.id} style={{ display:"flex", gap:"0.75rem", marginBottom:"1.25rem" }}>
                       <div style={{ width:34, height:34, borderRadius:"50%", background:O, color:W, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.72rem", fontWeight:700, flexShrink:0 }}>{c.initials}</div>
                       <div style={{ flex:1 }}>
@@ -12766,6 +12797,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                         <div style={{ fontSize:"0.875rem", color:th.text, lineHeight:1.55 }}>{c.text}</div>
                       </div>
                     </div>
+                    )
                   ))
                 }
               </div>
@@ -13839,12 +13871,23 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
     try {
       const district = user.userType === "dm" ? user.district : null;
       const storePC = user.userType === "manager" ? (stores.find(s => s.mgr === user.name)?.pc || null) : null;
+      // Collect open tickets scoped to the user's access level
+      const _allTickets = (() => { try { return JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]"); } catch { return []; } })();
+      const _openStatuses = ["Open", "In Progress"];
+      let _scopedTickets = _allTickets.filter(t => _openStatuses.includes(t.status));
+      if (storePC) _scopedTickets = _scopedTickets.filter(t => String(t.storePC) === String(storePC));
+      else if (district) {
+        const _districtPCs = stores.filter(s => s.district === district).map(s => String(s.pc));
+        _scopedTickets = _scopedTickets.filter(t => _districtPCs.includes(String(t.storePC)));
+      }
+      const tickets = _scopedTickets.slice(0, 30).map(({ id, number, title, storeName, storePC: spc, category, priority, status, createdAt, description }) => ({ id, number, title, storeName, storePC: spc, category, priority, status, createdAt, description: (description || "").slice(0, 200) }));
       const res = await fetch("/.netlify/functions/analyst", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "ask", question, channelId, threadId,
           userId: user.id, userRole: user.userType, district, storePC,
           forceDeep: question.toLowerCase().includes("deep analysis"),
+          tickets,
         }),
       });
       const data = await res.json();
@@ -18991,7 +19034,7 @@ function renderAnalystMarkdown(text, th) {
 }
 
 /** AskBar — Global Cmd-K omnibar for asking the Analyst */
-function AskBar({ user, th, onNavigate }) {
+function AskBar({ user, stores, th, onNavigate }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [answer, setAnswer] = useState(null);
@@ -19016,9 +19059,16 @@ function AskBar({ user, th, onNavigate }) {
     setLoading(true); setAnswer(null); setFeedback(null);
     try {
       const district = user.userType === 'dm' ? user.district : null;
+      const _allTix = (() => { try { return JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]"); } catch { return []; } })();
+      let _openTix = _allTix.filter(t => ["Open", "In Progress"].includes(t.status));
+      if (district && stores) {
+        const _dPCs = stores.filter(s => s.district === district).map(s => String(s.pc));
+        _openTix = _openTix.filter(t => _dPCs.includes(String(t.storePC)));
+      }
+      const tickets = _openTix.slice(0, 30).map(({ id, number, title, storeName, storePC, category, priority, status, createdAt, description }) => ({ id, number, title, storeName, storePC, category, priority, status, createdAt, description: (description || "").slice(0, 200) }));
       const res = await fetch('/.netlify/functions/analyst', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ask', question: query, userId: user.id, userRole: user.userType, district, forceDeep: query.toLowerCase().includes('deep analysis') }),
+        body: JSON.stringify({ action: 'ask', question: query, userId: user.id, userRole: user.userType, district, forceDeep: query.toLowerCase().includes('deep analysis'), tickets }),
       });
       const data = await res.json();
       setAnswer(data);
@@ -21752,7 +21802,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.0.2
+            v9.2
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -21806,7 +21856,7 @@ function PCGPortal() {
 
       {/* Global Ask Analyst Omnibar (Cmd-K) */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
-        <AskBar user={user} th={th} />
+        <AskBar user={user} stores={stores} th={th} />
       )}
 
       {/* Desktop sidebar */}

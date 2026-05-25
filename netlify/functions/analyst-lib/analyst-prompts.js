@@ -85,9 +85,9 @@ function buildCasePrompt(anomalyDescription, dataContext, decisionHistory) {
     .replace('{data}', JSON.stringify(dataContext, null, 2));
 }
 
-/** Build the ask prompt, optionally injecting KB context */
-function buildAskPrompt(question, role, scope, date, dataSnapshot, kbContext) {
-  const data = JSON.stringify(dataSnapshot, null, 2) + (kbContext || '');
+/** Build the ask prompt, optionally injecting KB context and open ticket context */
+function buildAskPrompt(question, role, scope, date, dataSnapshot, kbContext, ticketsContext) {
+  const data = JSON.stringify(dataSnapshot, null, 2) + (kbContext || '') + (ticketsContext || '');
   return ASK_USER_TEMPLATE
     .replace('{question}', question)
     .replace('{role}', role)

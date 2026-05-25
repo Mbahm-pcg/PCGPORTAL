@@ -49,7 +49,7 @@ exports.handler = async (event) => {
   try {
     // ── Ask Analyst (omnibar / chat) ─────────────────────────────────────
     if (action === 'ask') {
-      const { question, forceDeep, channelId, threadId, storePC, history } = payload;
+      const { question, forceDeep, channelId, threadId, storePC, history, tickets } = payload;
       if (!question) return respond(400, { error: 'Missing question' });
 
       // Build data context scoped to user's role: store (managers), district (DMs), or full network (execs)
@@ -66,7 +66,16 @@ exports.handler = async (event) => {
       const [kbFiles] = await Promise.all([loadKBContent({ district: district || null, userId, userRole })]);
       const kbContext = buildKBContext(kbFiles);
 
-      const prompt = buildAskPrompt(question, userRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext);
+      // Build open tickets context block (passed from frontend, already scoped to user's district/store)
+      let ticketsContext = '';
+      if (Array.isArray(tickets) && tickets.length > 0) {
+        const lines = tickets.map(t =>
+          `• #${t.number || t.id} | ${t.storeName || t.storePC} | ${t.title} | ${t.priority || 'Normal'} priority | ${t.category || ''} | Opened ${t.createdAt ? t.createdAt.slice(0, 10) : 'unknown'}${t.description ? ' | ' + t.description.slice(0, 120) : ''}`
+        ).join('\n');
+        ticketsContext = `\n\nOpen support tickets (${tickets.length}):\n${lines}`;
+      }
+
+      const prompt = buildAskPrompt(question, userRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext);
 
       // Use thread-scoped history key when threadId is provided
       const historyKey = threadId
