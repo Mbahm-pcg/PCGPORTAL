@@ -19716,12 +19716,23 @@ function ReportsTab({ th, user, showAlert, reportsIndex, reportsReadIds, setRepo
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  // Deep-link: ?report=ID → auto-open that report
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reportParam = params.get('report');
+    if (reportParam && reportsIndex.length > 0) {
+      const rpt = reportsIndex.find(r => r.id === reportParam);
+      if (rpt && !selectedReport) handleSelectReport(rpt);
+    }
+  }, [reportsIndex]);
+
   if (selectedReport && reportDetail) {
     return (
       <ReportDetailModal
         th={th}
-        report={selectedReport}
-        detail={reportDetail}
+        user={user}
+        report={reportDetail}
+        meta={selectedReport}
         onClose={() => { setSelectedReport(null); setReportDetail(null); }}
       />
     );
@@ -19802,6 +19813,147 @@ function ReportsTab({ th, user, showAlert, reportsIndex, reportsReadIds, setRepo
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Report Detail Modal stubs ─────────────────────────────────────────────────
+function presentSlides(report, meta, th) {
+  alert('Slide presenter loading...');
+}
+
+function exportPPTX(report, meta) {
+  alert('PPTX export loading...');
+}
+
+// ── ReportDetailModal ─────────────────────────────────────────────────────────
+function ReportDetailModal({ report, meta, th, user, onClose }) {
+  const contentRef = React.useRef(null);
+  const typeColor = REPORT_TYPE_COLORS[meta && meta.type] || '#FF671F';
+
+  const fmtDate = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const handleShare = async () => {
+    const url = `${window.location.origin}${window.location.pathname}?tab=reports&report=${meta.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: meta.title || 'Report', url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        alert('Link copied to clipboard!');
+      }
+    } catch (e) {
+      try { await navigator.clipboard.writeText(url); alert('Link copied to clipboard!'); } catch {}
+    }
+  };
+
+  const handlePDF = () => {
+    if (!contentRef.current) return;
+    const opt = {
+      margin: 12,
+      filename: `${(meta.title || 'report').replace(/[^a-z0-9]/gi, '_')}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    };
+    html2pdf().set(opt).from(contentRef.current).save();
+  };
+
+  const components = (report && report.components) || [];
+  const narrative = report && report.narrative;
+
+  const actionBtn = (label, onClick, color) => (
+    <button onClick={onClick} style={{
+      padding: '0.4rem 0.9rem', borderRadius: '0.5rem', fontSize: '0.78rem', fontWeight: 700,
+      background: color || '#333', color: '#fff', border: 'none', cursor: 'pointer',
+      fontFamily: "'Source Sans 3', sans-serif",
+      transition: 'opacity .15s',
+    }}
+    onMouseEnter={e => e.currentTarget.style.opacity = '0.82'}
+    onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+    >{label}</button>
+  );
+
+  return (
+    <div
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 10000,
+        background: 'rgba(0,0,0,0.85)',
+        backdropFilter: 'blur(6px)',
+        WebkitBackdropFilter: 'blur(6px)',
+        display: 'flex', flexDirection: 'column',
+        overflowY: 'auto',
+      }}
+    >
+      {/* Top bar */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 1,
+        background: 'linear-gradient(135deg, #0b0b0c 0%, #1a1a2e 100%)',
+        borderBottom: `2px solid ${typeColor}`,
+        padding: '0.75rem 1.25rem',
+        display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap',
+        flexShrink: 0,
+      }}>
+        {/* Close */}
+        <button onClick={onClose} style={{
+          background: 'rgba(255,255,255,0.08)', border: 'none', color: '#fff',
+          borderRadius: '0.4rem', width: 32, height: 32, fontSize: '1.1rem',
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          fontFamily: "'Source Sans 3', sans-serif",
+        }}>×</button>
+
+        {/* Title + subtitle */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            color: '#fff', fontFamily: "'Raleway', sans-serif", fontWeight: 800,
+            fontSize: '1.1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>{meta && meta.title || 'Report'}</div>
+          <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.72rem', marginTop: '0.1rem', fontFamily: "'Source Sans 3', sans-serif" }}>
+            {fmtDate(meta && meta.createdAt)}
+            {meta && meta.scope ? ` · ${meta.scope}` : ''}
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {actionBtn('Share', handleShare, '#374151')}
+          {actionBtn('PDF', handlePDF, '#374151')}
+          {actionBtn('Present', () => presentSlides(report, meta, th), '#7c3aed')}
+          {actionBtn('PPTX', () => exportPPTX(report, meta), '#2563eb')}
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '2rem 1rem 3rem' }}>
+        <div ref={contentRef} style={{ width: '100%', maxWidth: 960 }}>
+          {/* Orion's Take */}
+          {narrative && (
+            <div style={{
+              background: 'rgba(255,103,31,0.08)', border: '1px solid rgba(255,103,31,0.25)',
+              borderRadius: '0.75rem', padding: '1.25rem 1.5rem', marginBottom: '1.5rem',
+            }}>
+              <div style={{
+                fontFamily: "'Raleway', sans-serif", fontWeight: 800, fontSize: '1rem',
+                color: '#FF671F', marginBottom: '0.6rem',
+              }}>Orion's Take</div>
+              <div style={{
+                color: '#e5e7eb', fontSize: '0.9rem', lineHeight: 1.6,
+                fontFamily: "'Source Sans 3', sans-serif",
+              }}>{narrative}</div>
+            </div>
+          )}
+
+          {/* Components */}
+          {components.map((comp, i) => (
+            <ReportComponent key={i} component={comp} theme={th} width={960} />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -21053,6 +21205,15 @@ function PCGPortal() {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, [user]);
+
+  // Deep-link: ?tab=reports&report=ID → switch to reports tab on load
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    if (tabParam === 'reports') {
+      setTab('reports');
+    }
+  }, []);
 
   // Close drawer when switching to desktop
   useEffect(() => { if (!isMobile) setDrawerOpen(false); }, [isMobile]);
