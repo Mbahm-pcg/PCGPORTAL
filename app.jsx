@@ -13904,6 +13904,8 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   const [groupMembers, setGroupMembers] = useState([]);
   const [dmSearch, setDmSearch] = useState("");
   const [orionThinking, setOrionThinking] = useState(false);
+  const [replyToThread, setReplyToThread] = useState(null);
+  const [expandedThreads, setExpandedThreads] = useState(new Set());
 
   // ── Handle pending Orion question from KPI tile click ──────────────
   useEffect(() => {
@@ -13914,15 +13916,17 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
     setChatView("thread");
     // Auto-send the question after a brief delay for state to settle
     const timer = setTimeout(() => {
+      const threadId = `thread_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const msg = {
         id: makeMsgId(), channelId: analystChId, senderId: user.id,
         senderName: user.name, senderInitials: user.initials,
         text: pendingOrionQuestion, mentions: [], attachments: [],
         timestamp: new Date().toISOString(), deleted: false,
+        threadId,
       };
       setMessages(prev => [...prev, msg]);
       setReadState(prev => ({ ...prev, [`${user.id}_${analystChId}`]: msg.timestamp }));
-      sendToOrion(pendingOrionQuestion, analystChId);
+      sendToOrion(pendingOrionQuestion, analystChId, threadId);
       if (clearPendingOrion) clearPendingOrion();
     }, 300);
     return () => clearTimeout(timer);
@@ -13943,14 +13947,14 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   }, [user?.id]);
 
   // ── Send message to Orion (analyst channel handler) ────────────────
-  const sendToOrion = async (question, channelId) => {
+  const sendToOrion = async (question, channelId, threadId) => {
     setOrionThinking(true);
     try {
       const district = user.userType === "dm" ? user.district : null;
       const res = await fetch("/.netlify/functions/analyst", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "ask", question, channelId,
+          action: "ask", question, channelId, threadId,
           userId: user.id, userRole: user.userType, district,
           forceDeep: question.toLowerCase().includes("deep analysis"),
         }),
@@ -13972,6 +13976,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
           model: data.model,
           tokens: data.tokens,
           latencyMs: data.latencyMs,
+          threadId: threadId || null,
         };
         setMessages(prev => [...prev, orionMsg]);
       }
@@ -13980,6 +13985,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
         id: makeMsgId(), channelId, senderId: "orion", senderName: "Orion", senderInitials: "O",
         text: "Sorry, I encountered an error processing your question. Please try again.",
         mentions: [], attachments: [], timestamp: new Date().toISOString(), deleted: false, isOrion: true,
+        threadId: threadId || null,
       };
       setMessages(prev => [...prev, errorMsg]);
     }
@@ -14078,6 +14084,19 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
       attachments: pendingAttachments, timestamp: new Date().toISOString(),
       deleted: false, deletedBy: null
     };
+
+    // If this is an analyst channel, add threadId
+    const ch = channels.find(c => c.id === activeChannelId);
+    let msgThreadId = null;
+    if (ch && ch.type === "analyst") {
+      if (replyToThread) {
+        msgThreadId = replyToThread;
+      } else {
+        msgThreadId = `thread_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      }
+      msg.threadId = msgThreadId;
+    }
+
     setMessages(prev => [...prev, msg]);
     const questionText = msgText.trim();
     setMsgText(""); setPendingAttachments([]);
@@ -14085,9 +14104,9 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
     setReadState(prev => ({ ...prev, [`${user.id}_${activeChannelId}`]: msg.timestamp }));
 
     // If this is an analyst channel, route to Orion instead of push notifications
-    const ch = channels.find(c => c.id === activeChannelId);
     if (ch && ch.type === "analyst") {
-      sendToOrion(questionText, activeChannelId);
+      sendToOrion(questionText, activeChannelId, msgThreadId);
+      setReplyToThread(null);
       return;
     }
 
@@ -14178,6 +14197,26 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   // Active channel messages
   const activeChannel = channels.find(ch => ch.id === activeChannelId);
   const threadMessages = activeChannelId ? messages.filter(m => m.channelId === activeChannelId).sort((a,b) => a.timestamp.localeCompare(b.timestamp)) : [];
+
+  // Clear replyToThread when channel changes
+  useEffect(() => { setReplyToThread(null); }, [activeChannelId]);
+
+  // Group analyst messages by threadId for threaded view
+  const threadedMessages = React.useMemo(() => {
+    if (!activeChannel || activeChannel.type !== "analyst") return null;
+    const threads = new Map();
+    threadMessages.forEach(m => {
+      const tid = m.threadId || m.id;
+      if (!threads.has(tid)) threads.set(tid, []);
+      threads.get(tid).push(m);
+    });
+    return Array.from(threads.entries()).map(([tid, msgs]) => ({
+      threadId: tid,
+      firstMsg: msgs[0],
+      messages: msgs,
+      lastActivity: msgs[msgs.length - 1].timestamp,
+    })).sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
+  }, [threadMessages, activeChannel]);
 
   // Group messages by date
   const groupByDate = (msgs) => {
@@ -14406,7 +14445,124 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
                 : "No messages yet. Say hello! 👋"}
             </div>
           )}
-          {grouped.map(([date, msgs]) => (
+
+          {/* ── Analyst threaded view ── */}
+          {activeChannel.type === "analyst" && threadedMessages && threadedMessages.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {threadedMessages.map(thread => {
+                const isExpanded = expandedThreads.has(thread.threadId);
+                const userMsg = thread.firstMsg;
+                const orionReply = thread.messages.find(m => m.isOrion || m.senderId === "orion");
+                const followUps = thread.messages.slice(orionReply ? 2 : 1);
+                const hasFollowUps = followUps.length > 0;
+                const isActiveReply = replyToThread === thread.threadId;
+                const questionPreview = userMsg.text.length > 120 ? userMsg.text.slice(0, 120) + "..." : userMsg.text;
+                return (
+                  <div key={thread.threadId} style={{
+                    ...card(th), padding: 0, overflow: "hidden",
+                    border: isActiveReply ? `1.5px solid ${O}` : `1px solid ${th.cardBorder}`,
+                    transition: "border .15s"
+                  }}>
+                    {/* Thread header — user question */}
+                    <div style={{ padding: "0.75rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, cursor: "pointer",
+                      display: "flex", alignItems: "flex-start", gap: "0.625rem" }}
+                      onClick={() => setExpandedThreads(prev => {
+                        const next = new Set(prev);
+                        if (next.has(thread.threadId)) next.delete(thread.threadId); else next.add(thread.threadId);
+                        return next;
+                      })}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.6rem", flexShrink: 0, marginTop: 2 }}>
+                        {userMsg.senderInitials}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                          <span style={{ fontWeight: 600, fontSize: "0.8125rem", color: th.text }}>{userMsg.senderName}</span>
+                          <span style={{ fontSize: "0.5625rem", color: th.muted, whiteSpace: "nowrap" }}>
+                            {new Date(userMsg.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: "0.8125rem", color: th.text, lineHeight: 1.4 }}>{questionPreview}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.375rem" }}>
+                          <span style={{ fontSize: "0.625rem", color: th.muted }}>
+                            {thread.messages.length} message{thread.messages.length !== 1 ? "s" : ""}
+                          </span>
+                          <span style={{ fontSize: "0.625rem", color: "#8b5cf6" }}>
+                            {isExpanded ? "Collapse" : "Expand"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Orion response (always visible as preview, full when expanded) */}
+                    {orionReply && (
+                      <div style={{ padding: "0.625rem 1rem", borderBottom: hasFollowUps || isExpanded ? `1px solid ${th.cardBorder}` : "none" }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: "0.625rem" }}>
+                          <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#8b5cf622", color: "#8b5cf6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.875rem", flexShrink: 0, marginTop: 2 }}>🔮</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: "#8b5cf6", marginBottom: 2 }}>
+                              Orion
+                              {orionReply.model ? <span style={{ fontSize: "0.55rem", color: th.muted, marginLeft: 6 }}>{orionReply.model.includes("haiku") ? "Quick" : "Deep"} · {orionReply.latencyMs ? (orionReply.latencyMs/1000).toFixed(1)+"s" : ""}</span> : null}
+                            </div>
+                            <div style={{ fontSize: "0.8125rem", color: th.text, lineHeight: 1.5, maxHeight: isExpanded ? "none" : "6rem", overflow: isExpanded ? "visible" : "hidden", position: "relative" }}>
+                              {typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(orionReply.text, th) : orionReply.text}
+                              {!isExpanded && orionReply.text.length > 300 && (
+                                <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "2rem", background: `linear-gradient(transparent, ${th.card})` }} />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Follow-up messages (only when expanded) */}
+                    {isExpanded && hasFollowUps && (
+                      <div style={{ padding: "0.375rem 1rem 0.5rem", background: th.card2 + "44" }}>
+                        {followUps.map(m => {
+                          const isMine = m.senderId === user.id;
+                          const isOrionMsg = m.isOrion || m.senderId === "orion";
+                          return (
+                            <div key={m.id} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.5rem", marginTop: "0.375rem" }}>
+                              <div style={{ width: 24, height: 24, borderRadius: "50%", background: isOrionMsg ? "#8b5cf622" : O + "22", color: isOrionMsg ? "#8b5cf6" : O, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: isOrionMsg ? "0.75rem" : "0.5rem", flexShrink: 0, marginTop: 2 }}>
+                                {isOrionMsg ? "🔮" : m.senderInitials}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: "0.625rem", fontWeight: 600, color: isOrionMsg ? "#8b5cf6" : th.text, marginBottom: 1 }}>
+                                  {m.senderName}
+                                  <span style={{ fontWeight: 400, color: th.muted, marginLeft: 6, fontSize: "0.5625rem" }}>
+                                    {new Date(m.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: "0.8125rem", color: th.text, lineHeight: 1.5 }}>
+                                  {isOrionMsg ? (typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(m.text, th) : m.text) : m.text}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Thread actions */}
+                    <div style={{ padding: "0.375rem 1rem", display: "flex", alignItems: "center", gap: "0.75rem", borderTop: `1px solid ${th.cardBorder}` }}>
+                      <button onClick={() => { setReplyToThread(isActiveReply ? null : thread.threadId); setExpandedThreads(prev => { const next = new Set(prev); next.add(thread.threadId); return next; }); }}
+                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.6875rem", fontWeight: 600,
+                          color: isActiveReply ? O : "#8b5cf6", padding: "0.25rem 0" }}>
+                        {isActiveReply ? "Cancel reply" : "Reply in thread"}
+                      </button>
+                      {hasFollowUps && (
+                        <span style={{ fontSize: "0.625rem", color: th.muted }}>
+                          {followUps.length} follow-up{followUps.length !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── Non-analyst flat message view ── */}
+          {activeChannel.type !== "analyst" && grouped.map(([date, msgs]) => (
             <div key={date}>
               <div style={{ textAlign: "center", margin: "1rem 0 0.5rem", fontSize: "0.625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase", letterSpacing: 1 }}>
                 {date === new Date().toLocaleDateString() ? "Today" : date}
@@ -14494,6 +14650,15 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
 
         {/* Compose area */}
         <div style={{ flexShrink: 0, borderTop: `1px solid ${th.cardBorder}`, paddingTop: "0.75rem", marginTop: "0.5rem" }}>
+          {/* Reply-to-thread indicator */}
+          {replyToThread && (
+            <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", padding:"0.4rem 0.75rem",
+              background: th.card, borderLeft:`3px solid ${O}`, borderRadius:"4px", margin:"0 0 0.5rem", fontSize:"0.8rem" }}>
+              <span style={{ color:th.muted }}>Replying to thread</span>
+              <button onClick={() => setReplyToThread(null)}
+                style={{ background:"none", border:"none", color:th.muted, cursor:"pointer", fontSize:"1rem", padding: 0, lineHeight: 1 }}>x</button>
+            </div>
+          )}
           {/* Pending attachments preview */}
           {pendingAttachments.length > 0 && (
             <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
@@ -21560,7 +21725,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.46
+            v8.47
           </div>
         )}
         {/* Collapse toggle — desktop only */}

@@ -49,7 +49,7 @@ exports.handler = async (event) => {
   try {
     // ── Ask Analyst (omnibar / chat) ─────────────────────────────────────
     if (action === 'ask') {
-      const { question, forceDeep, channelId, history } = payload;
+      const { question, forceDeep, channelId, threadId, history } = payload;
       if (!question) return respond(400, { error: 'Missing question' });
 
       // Build data context scoped to user's district (DMs) or full network (execs)
@@ -61,10 +61,15 @@ exports.handler = async (event) => {
 
       const prompt = buildAskPrompt(question, userRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext);
 
+      // Use thread-scoped history key when threadId is provided
+      const historyKey = threadId
+        ? `analyst/chat/${channelId}/thread/${threadId}`
+        : `analyst/chat/${channelId}`;
+
       // Load conversation history from blob if channelId provided and no inline history
       let chatHistory = history || null;
       if (!chatHistory && channelId) {
-        const stored = await cacheLoad(`analyst/chat/${channelId}`);
+        const stored = await cacheLoad(historyKey);
         if (stored && Array.isArray(stored)) chatHistory = stored;
       }
 
@@ -74,13 +79,13 @@ exports.handler = async (event) => {
 
       // Save conversation turn to history blob if channelId provided
       if (channelId) {
-        const existing = (await cacheLoad(`analyst/chat/${channelId}`)) || [];
+        const existing = (await cacheLoad(historyKey)) || [];
         const updated = Array.isArray(existing) ? existing : [];
         updated.push({ role: 'user', content: question, ts: new Date().toISOString() });
         updated.push({ role: 'assistant', content: result.answer, ts: new Date().toISOString(), messageId });
         // Keep last 20 turns (10 pairs)
         if (updated.length > 20) updated.splice(0, updated.length - 20);
-        await cacheSave(`analyst/chat/${channelId}`, updated);
+        await cacheSave(historyKey, updated);
       }
 
       return respond(200, {
