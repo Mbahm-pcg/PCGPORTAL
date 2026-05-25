@@ -6630,6 +6630,21 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
   const [hoveredTender, setHoveredTender] = React.useState(null);
   const [hoveredHour, setHoveredHour] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+  const [weatherForecast, setWeatherForecast] = React.useState(null);
+  const [weatherCorrelations, setWeatherCorrelations] = React.useState(null);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const [fRes, cRes] = await Promise.all([
+          fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_weather_forecast' }) }),
+          fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_weather_correlations' }) }),
+        ]);
+        if (fRes.ok) { const j = await fRes.json(); setWeatherForecast(j.data || j); }
+        if (cRes.ok) { const j = await cRes.json(); setWeatherCorrelations(j.data || j); }
+      } catch {}
+    })();
+  }, []);
 
   const sumRVCLocal = (revenueCenters = []) => {
     const r = revenueCenters.reduce((acc, rc) => ({
@@ -7203,6 +7218,41 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         );
       })()}
 
+      {/* 7-Day Weather Forecast Strip */}
+      {weatherForecast?.[distNum] && (
+        <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1rem 1.25rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: th.text, marginBottom: '0.5rem' }}>
+            7-Day Weather Forecast — District {distNum}
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto' }}>
+            {(weatherForecast[distNum]?.days || []).map(day => {
+              const ICONS = { clear: '☀️', cloudy: '⛅', fog: '🌫️', rain: '🌧️', snow: '❄️', storm: '⛈️' };
+              const dow = new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+              const isToday = day.date === localDate;
+              const impact = weatherCorrelations?.[distNum]?.[day.condition];
+              return (
+                <div key={day.date} style={{
+                  flex: '1 1 0', minWidth: 60, textAlign: 'center', padding: '0.5rem 0.25rem',
+                  borderRadius: '0.5rem', background: isToday ? `${G}18` : th.card2,
+                  border: isToday ? `1px solid ${G}55` : `1px solid ${th.cardBorder}`,
+                }}>
+                  <div style={{ fontSize: '0.62rem', color: th.muted, fontWeight: 600 }}>{dow}</div>
+                  <div style={{ fontSize: '0.6rem', color: th.muted }}>{day.date.slice(5)}</div>
+                  <div style={{ fontSize: '1.2rem', margin: '0.2rem 0' }}>{ICONS[day.condition] || '🌡️'}</div>
+                  <div style={{ fontSize: '0.7rem', color: th.text, fontWeight: 700 }}>{day.tempHighF}°</div>
+                  <div style={{ fontSize: '0.55rem', color: th.muted }}>{day.tempLowF}°</div>
+                  {day.adjustedTarget > 0 && (
+                    <div style={{ fontSize: '0.55rem', color: impact && impact < 0.90 ? '#f44336' : G, fontWeight: 600, marginTop: '0.2rem' }}>
+                      ${Math.round(day.adjustedTarget / 1000)}K target
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Sales by Hour */}
       <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1.5rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.25rem', gap:'0.5rem', flexWrap:'wrap' }}>
@@ -7653,6 +7703,8 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const [wtdLoading,  setWtdLoading] = useState(false);
   const [collapsed,   setCollapsed]  = useState(new Set());
   const [pulseView,   setPulseView]  = useState("network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
+  const [weatherForecast, setWeatherForecast] = useState(null);
+  const [weatherCorrelations, setWeatherCorrelations] = useState(null);
   const cdRef = useRef(null);
 
   const activePCs = stores.filter(s => s.status === 'Open').map(s => s.pc);
@@ -7800,6 +7852,22 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
     }
     return () => clearInterval(cdRef.current);
   }, [autoRefresh, busDt]);
+
+  // Weather data
+  useEffect(() => {
+    (async () => {
+      try {
+        const [fRes, cRes] = await Promise.all([
+          fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_weather_forecast' }) }),
+          fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_weather_correlations' }) }),
+        ]);
+        if (fRes.ok) { const j = await fRes.json(); setWeatherForecast(j.data || j); }
+        if (cRes.ok) { const j = await cRes.json(); setWeatherCorrelations(j.data || j); }
+      } catch {}
+    })();
+  }, []);
+
+  const WEATHER_ICONS = { clear: '☀️', cloudy: '⛅', fog: '🌫️', rain: '🌧️', snow: '❄️', storm: '⛈️' };
 
   // WTD computed
   const weekDates   = getWeekDates(busDt);
@@ -8179,6 +8247,23 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                     <span style={{ color:'#74c0fc' }}>{fmtNum(distTotals.guests)} guests</span>
                     <span style={{ color:'#ffd43b' }}>{fmtAvg(distTotals.avgCheck)} avg</span>
                   </div>
+                  {weatherForecast?.[distNum] && (() => {
+                    const todayForecast = (weatherForecast[distNum]?.days || []).find(d => d.date === busDt);
+                    if (!todayForecast) return null;
+                    const impact = weatherCorrelations?.[distNum]?.[todayForecast.condition];
+                    const hasNegImpact = impact && impact < 0.90;
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.3rem', fontSize: '0.68rem' }}>
+                        <span>{WEATHER_ICONS[todayForecast.condition] || '🌡️'}</span>
+                        <span style={{ color: th.muted }}>{todayForecast.tempHighF}°F</span>
+                        {hasNegImpact && (
+                          <span style={{ color: '#f44336', fontWeight: 700, fontSize: '0.62rem' }}>
+                            {Math.round((impact - 1) * 100)}% impact
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
