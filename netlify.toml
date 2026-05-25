@@ -45,6 +45,14 @@
 [functions.reconciliation-cron]
   schedule = "1 4 * * 0,2"
 
+# KB article embedding — triggered manually after article approval
+[functions.kb-embed]
+  timeout = 60
+
+# DB migration — triggered manually to create/update schema
+[functions.db-migrate]
+  timeout = 30
+
 [[headers]]
   for = "/*"
   [headers.values]

@@ -165,4 +165,26 @@ function buildKBContext(kbFiles) {
   return `\n\nCompany Knowledge Base (SOPs, standards, guides, archive — use when relevant to the question):\n${sections}`;
 }
 
-module.exports = { loadKBIndex, loadKBContent, buildKBContext };
+async function searchKB(query) {
+  try {
+    const { sql } = require('../db');
+    const db = sql();
+    const keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    if (keywords.length === 0) return null;
+    const searchPattern = keywords.map(k => `%${k}%`);
+    const results = await db`
+      SELECT e.article_id, e.chunk_text, a.title, a.category
+      FROM kb_embeddings e
+      JOIN kb_articles a ON a.id = e.article_id
+      WHERE a.status IN ('approved', 'locked')
+        AND EXISTS (SELECT 1 FROM unnest(${searchPattern}::text[]) AS kw WHERE lower(e.chunk_text) LIKE kw)
+      ORDER BY (SELECT count(*) FROM unnest(${searchPattern}::text[]) AS kw WHERE lower(e.chunk_text) LIKE kw) DESC
+      LIMIT 5
+    `;
+    return results.length > 0 ? results : null;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { loadKBIndex, loadKBContent, buildKBContext, searchKB };

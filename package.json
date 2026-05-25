@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
+    "@neondatabase/serverless": "^1.1.0",
     "@netlify/blobs": "^10.7.2",
     "@netlify/database": "^1.0.0",
     "drizzle-orm": "^1.0.0-beta.22",
