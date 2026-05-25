@@ -7633,7 +7633,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
 }
 
 // ─── Admin Pulse ─────────────────────────────────────────────────────────────
-function AdminPulse({ stores, districts, th, user }) {
+function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn }) {
   const G = '#00d084';
   const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
 
@@ -7655,6 +7655,14 @@ function AdminPulse({ stores, districts, th, user }) {
   const cdRef = useRef(null);
 
   const activePCs = stores.filter(s => s.status === 'Open').map(s => s.pc);
+
+  // Drill-in from Orion: auto-open store detail
+  useEffect(() => {
+    if (drillInStore) {
+      setPulseView({ level: "store", pc: drillInStore });
+      if (onClearDrillIn) onClearDrillIn();
+    }
+  }, [drillInStore]);
 
   // Get Sun–Sat week dates up to and including today (not busDt, so clicking
   // a past day doesn't shrink the week). dateStr picks which week.
@@ -13893,7 +13901,7 @@ function importData(file, onSuccess, onError) {
 }
 
 // ── Chat Section ─────────────────────────────────────────────────────────────
-function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert, initialChannelId, pendingOrionQuestion, clearPendingOrion, stores }) {
+function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert, initialChannelId, pendingOrionQuestion, clearPendingOrion, stores, onDrillIn }) {
   const [chatView, setChatView] = useState(initialChannelId ? "thread" : "list");
   const [activeChannelId, setActiveChannelId] = useState(initialChannelId || null);
   const [msgText, setMsgText] = useState("");
@@ -14033,20 +14041,72 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
     return mention;
   };
 
-  // Replace @[dm:X] / @[gm:X] tags in text with styled mention chips
+  // Parse {{drill:StoreName:tab}} tags into clickable store links
+  const parseDrillIns = (text, keyPrefix) => {
+    const drillParts = [];
+    let lastIdx = 0;
+    const drillRegex = /\{\{drill:([^:}]+):([^}]+)\}\}/g;
+    let dm;
+    while ((dm = drillRegex.exec(text)) !== null) {
+      if (dm.index > lastIdx) {
+        drillParts.push(text.slice(lastIdx, dm.index));
+      }
+      const storeName = dm[1];
+      const drillTab = dm[2];
+      const store = stores.find(s => s.name && s.name.toLowerCase() === storeName.toLowerCase());
+      drillParts.push(
+        React.createElement("span", {
+          key: `${keyPrefix}_drill_${dm.index}`,
+          onClick: (e) => { e.stopPropagation(); if (store && onDrillIn) onDrillIn(store.pc, drillTab); },
+          style: {
+            color: "#FF671F", cursor: "pointer", fontWeight: 600,
+            borderBottom: "1px dashed #FF671F", padding: "0 2px",
+          },
+        }, `${storeName} → ${drillTab.charAt(0).toUpperCase() + drillTab.slice(1)}`)
+      );
+      lastIdx = dm.index + dm[0].length;
+    }
+    if (lastIdx < text.length) drillParts.push(text.slice(lastIdx));
+    return drillParts.length > 0 ? drillParts : [text];
+  };
+
+  // Render a text segment with drill-in links and markdown
+  const renderSegmentWithDrillIns = (segment, keyPrefix) => {
+    const hasDrill = /\{\{drill:[^}]+\}\}/.test(segment);
+    if (!hasDrill) {
+      return typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(segment, th) : segment;
+    }
+    const drillParts = parseDrillIns(segment, keyPrefix);
+    return React.createElement("span", { key: keyPrefix }, ...drillParts.map((part, idx) => {
+      if (typeof part === "string") {
+        return React.createElement("span", { key: `${keyPrefix}_t${idx}` },
+          typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(part, th) : part);
+      }
+      return part;
+    }));
+  };
+
+  // Replace @[dm:X] / @[gm:X] tags and {{drill:Store:tab}} tags in text with styled chips/links
   const renderOrionTextWithMentions = (text, th) => {
     const mentionPattern = /@\[(dm|gm):([^\]]+)\]/g;
-    if (!mentionPattern.test(text)) {
+    const hasMentions = mentionPattern.test(text);
+    const hasDrillIns = /\{\{drill:[^}]+\}\}/.test(text);
+
+    if (!hasMentions && !hasDrillIns) {
       return typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(text, th) : text;
     }
-    // Split text on mention tags, render each text segment with markdown, insert styled chips for mentions
+
+    if (!hasMentions && hasDrillIns) {
+      return renderSegmentWithDrillIns(text, "dronly");
+    }
+
+    // Split text on mention tags, render each text segment with markdown + drill-ins, insert styled chips for mentions
     const parts = text.split(/@\[(dm|gm):([^\]]+)\]/g);
     const result = [];
     for (let i = 0; i < parts.length; i += 3) {
       const segment = parts[i];
       if (segment) {
-        result.push(React.createElement("span", { key: `seg-${i}` },
-          typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(segment, th) : segment));
+        result.push(React.createElement("span", { key: `seg-${i}` }, renderSegmentWithDrillIns(segment, `seg-${i}`)));
       }
       if (i + 1 < parts.length && i + 2 < parts.length) {
         const role = parts[i + 1];
@@ -18730,7 +18790,7 @@ function timeAgo(iso) {
   return Math.floor(hrs / 24) + 'd ago';
 }
 
-function AdminLabor({ stores, districts, th, user }) {
+function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn }) {
   const [laborData, setLaborData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -18746,6 +18806,17 @@ function AdminLabor({ stores, districts, th, user }) {
   useEffect(() => {
     if (isDM && user.district) setDistrictFilter(String(user.district));
   }, [isDM, user]);
+
+  // Drill-in from Orion: auto-open store drill-down
+  useEffect(() => {
+    if (drillInStore) {
+      const store = stores.find(s => s.pc === drillInStore);
+      if (store) {
+        setSelectedStore({ ...store, pc: drillInStore, paycor: store.paycor });
+      }
+      if (onClearDrillIn) onClearDrillIn();
+    }
+  }, [drillInStore]);
 
   // Fetch cached labor data from Blobs
   const fetchLaborData = useCallback(async () => {
@@ -20132,6 +20203,11 @@ function PCGPortal() {
   };
   const [tab, setTab]           = useState("dashboard");
   const [pendingOrionQuestion, setPendingOrionQuestion] = useState(null); // KPI click → ask Orion
+  const [drillInStore, setDrillInStore] = useState(null); // Orion drill-in link → navigate to store in Pulse/Labor
+  const handleDrillIn = (storePC, targetTab) => {
+    setDrillInStore(storePC);
+    setTab(targetTab);
+  };
   const tabHistoryRef  = useRef(["dashboard"]); // visited tab stack for swipe-back
   const isGoingBackRef = useRef(false);          // flag to suppress history push on goBack
   const sidebarNavRef  = useRef(null);           // ref to sidebar nav scroll container
@@ -21793,7 +21869,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v8.48
+            v8.49
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -22150,13 +22226,13 @@ function PCGPortal() {
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
-          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff) && <AdminPulse stores={stores} districts={districts} th={th} user={user} />}
-          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} />}
+          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff) && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} />}
           {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} />}
-          {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} />}
+          {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={setTab} />}
