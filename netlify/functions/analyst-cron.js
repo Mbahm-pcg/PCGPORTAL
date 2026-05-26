@@ -14,6 +14,76 @@ const { logAudit } = require('./analyst-lib/analyst-audit');
 const { sendDMBriefs, sendExecReport, loadReportSettings } = require('./analyst-lib/analyst-reports');
 const { saveReport } = require('./analyst-lib/analyst-reports-gen');
 
+async function generateLeaderboardShoutout(today) {
+  const laborData = await cacheLoad('pcg_labor_v1');
+  if (!laborData?.stores) return null;
+
+  const stores = Object.entries(laborData.stores)
+    .filter(([, s]) => !s.error && s.wtd?.sales > 500)
+    .map(([pc, s]) => ({
+      pc,
+      name: s.name,
+      district: s.district,
+      wtdSales: s.wtd.sales,
+      wtdLaborPct: s.wtd.laborPct,
+    }));
+
+  if (stores.length < 3) return null;
+
+  const bySales = [...stores]
+    .sort((a, b) => b.wtdSales - a.wtdSales)
+    .slice(0, 3);
+
+  const byLabor = [...stores]
+    .filter(s => s.wtdLaborPct > 5 && s.wtdLaborPct < 50)
+    .sort((a, b) => a.wtdLaborPct - b.wtdLaborPct)
+    .slice(0, 3);
+
+  // Most improved WoW — compare current WTD to prior week for top 10 stores by sales
+  const topPcs = [...stores]
+    .sort((a, b) => b.wtdSales - a.wtdSales)
+    .slice(0, 10)
+    .map(s => s.pc);
+
+  const improvements = (await Promise.all(
+    topPcs.map(async (pc) => {
+      const storeBlob = await cacheLoad(`pcg_labor_store_${pc}`);
+      const weekly = storeBlob?.weekly;
+      if (!Array.isArray(weekly) || weekly.length < 2) return null;
+      const sorted = [...weekly].sort((a, b) => (b.weekOf || '').localeCompare(a.weekOf || ''));
+      const [thisWeek, lastWeek] = sorted;
+      if (!thisWeek?.sales || !lastWeek?.sales || lastWeek.sales === 0) return null;
+      const pct = ((thisWeek.sales - lastWeek.sales) / lastWeek.sales) * 100;
+      const store = stores.find(s => s.pc === pc);
+      return store ? { ...store, improvement: pct } : null;
+    })
+  )).filter(Boolean).sort((a, b) => b.improvement - a.improvement);
+
+  const mostImproved = improvements[0];
+
+  const lines = [
+    `Week of ${today}`,
+    '',
+    'Top stores by WTD net sales:',
+    ...bySales.map((s, i) => `${i + 1}. ${s.name} — $${Math.round(s.wtdSales).toLocaleString()}`),
+    '',
+    'Lowest labor %:',
+    ...byLabor.map((s, i) => `${i + 1}. ${s.name} — ${s.wtdLaborPct.toFixed(1)}%`),
+  ];
+  if (mostImproved && mostImproved.improvement > 0) {
+    lines.push('', `Most improved WoW: ${mostImproved.name} — +${mostImproved.improvement.toFixed(1)}% sales vs last week`);
+  }
+
+  const result = await generateStructured({
+    system: PERSONA,
+    userPrompt: `Write a short, energetic weekly leaderboard shout-out for district managers and executives. Celebrate the top-performing stores. Keep it under 150 words, upbeat and motivating. Reference stores by name. No emojis. Sign off as "— Orion"\n\n${lines.join('\n')}`,
+    action: 'leaderboard',
+    userId: 'system',
+  });
+
+  return result.text;
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -222,7 +292,40 @@ exports.handler = async (event) => {
       }
     }
 
-    // ── Step 5: Log run summary ─────────────────────────────────────────
+    // ── Step 5: Weekly leaderboard shout-out (Sunday morning only) ────────
+    let leaderboardPosted = false;
+    if (dayET === 0 && (isMorningRun || isManual)) {
+      try {
+        const existing = await cacheLoad('pcg_announcements_v1') || [];
+        const alreadyPosted = Array.isArray(existing) &&
+          existing.some(a => a.title?.includes('Weekly Leaderboard') && a.createdAt?.startsWith(today));
+
+        if (!alreadyPosted) {
+          const shoutout = await generateLeaderboardShoutout(today);
+          if (shoutout) {
+            const ann = {
+              id: `ann_${Date.now()}_ldr`,
+              title: `Weekly Leaderboard — Week of ${today}`,
+              message: shoutout,
+              createdAt: new Date().toISOString(),
+              createdBy: 'Orion',
+              active: true,
+              type: 'leaderboard',
+              targets: { roles: ['executive', 'dm'] },
+            };
+            await cacheSave('pcg_announcements_v1', [ann, ...(Array.isArray(existing) ? existing : [])]);
+            leaderboardPosted = true;
+            console.log('[analyst-cron] Posted weekly leaderboard shout-out');
+          }
+        } else {
+          console.log('[analyst-cron] Leaderboard already posted today, skipping');
+        }
+      } catch (err) {
+        console.warn('[analyst-cron] Leaderboard shout-out failed:', err.message);
+      }
+    }
+
+    // ── Step 6: Log run summary ─────────────────────────────────────────
     const summary = {
       ok: true,
       completedAt: new Date().toISOString(),
@@ -231,6 +334,7 @@ exports.handler = async (event) => {
       briefsGenerated,
       dmBriefsSent,
       execReportSent,
+      leaderboardPosted,
       isManual,
     };
 

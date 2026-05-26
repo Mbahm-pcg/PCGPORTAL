@@ -13,16 +13,16 @@
 - [x] District-scoped data for DMs
 - [x] docs/ANALYST_ROADMAP.md
 
-## Phase 2 — Analyst Chat Channel + Deep Features
-- [ ] Analyst channel type inside existing Chat (#analyst-me, #analyst-exec, #analyst-ops)
-- [ ] Threaded conversations with context memory
-- [ ] @mention routing (Analyst auto-mentions relevant DM/GM)
-- [ ] "Drill in" links — click citation to open exact Pulse/Labor view
+## Phase 2 — Analyst Chat Channel + Deep Features ✅
+- [x] Analyst channel type inside existing Chat (#analyst-me, #analyst-exec, #analyst-ops)
+- [x] Threaded conversations with context memory
+- [x] @mention routing (Analyst auto-mentions relevant DM/GM)
+- [x] "Drill in" links — click citation to open exact Pulse/Labor view
 - [x] Make every KPI tile on dashboard clickable → opens Analyst thread pre-seeded with "Explain this tile"
 - [x] Knowledge Base section (metric definitions, SOPs, brand standards)
-- [ ] Page-locking with approval workflow (draft → review → lock)
-- [ ] Supabase/Postgres migration for structured storage + pgvector for KB embeddings
-- [ ] GM access (store-scoped data only)
+- [x] Page-locking with approval workflow (draft → review → lock)
+- [x] Supabase/Postgres migration for structured storage + pgvector for KB embeddings (Neon serverless Postgres)
+- [x] GM access (store-scoped data only)
 
 ## Phase 3 — Data Stories + Scheduled Reports ✅
 - [x] Auto-generated interactive dashboards (save/share) — create-report action, Reports tab, blob storage
@@ -34,7 +34,7 @@
 
 ## Phase 4 — Connectors + Advanced Intelligence
 - [ ] Pluggable connectors: BigQuery, Snowflake, Postgres, QBO, GA, Meta
-- [ ] Email integration (Google Workspace SMTP/IMAP)
+- [x] Email integration (Google Workspace SMTP/IMAP — Gmail API sync + SMTP send)
 - [ ] Slack/Teams outbound
 - [x] Weather-aware forecasting (condition forecasts on 7-day weather) — `weather-forecast-cron.js`, district coords, correlation data, UI consuming blobs
 - [x] Guest sentiment fusion (Google/Yelp reviews per location, sentiment scoring) — `reviews-cron.js`, Claude Haiku sentiment, per-store + network blobs, UI in store detail
@@ -45,7 +45,7 @@
 ## Phase 5 — Embedded / White-Label / Enterprise
 - [x] SSO (Google), session timeout, 2FA on admin
 - [x] SOC 2-style audit trail, PII redaction on logs
-- [ ] Row-level security per location
+- [x] Row-level security per location (app-layer, store/district scoped by role)
 - [x] Embeddable mode (narrow mobile view for GMs)
 - [x] Theme tokens for multi-brand white-labeling
 - [ ] Franchisee portal mode (single-location operators, locked-down data)
@@ -54,8 +54,8 @@
 
 ## Level-Up Ideas (Beyond Orion)
 - [ ] Voice-first "Walk-the-floor" mode for GMs (speak → 30-second action list)
-- [ ] Location leaderboards + gamification (weekly rankings with auto shout-outs)
+- [x] Location leaderboards + gamification (weekly rankings with auto shout-outs)
 - [x] "Decision log" — Accept/Reject on cases becomes reinforcement learning data
 - [x] "Ask the archive" — index all past Announcements, Notes, Chat into KB
 - [ ] Compliance/audit: auto-generate monthly board-ready deck + food-safety readiness report
-- [ ] Mobile/PWA-first Analyst experience
+- [x] Mobile/PWA-first Analyst experience

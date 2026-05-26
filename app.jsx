@@ -21561,10 +21561,372 @@ function EmailTab({ th, user }) {
   );
 }
 
+// ── Mobile Analyst Shell ─────────────────────────────────────────────────────
+function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull }) {
+  const O = '#FF671F';
+  const [activeTab, setActiveTab] = React.useState('brief');
+  const [brief, setBrief] = React.useState(null);
+  const [cases, setCases] = React.useState([]);
+  const [kpi, setKpi] = React.useState(null);
+  const [leaderboard, setLeaderboard] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [chatMessages, setChatMessages] = React.useState([]);
+  const [chatInput, setChatInput] = React.useState('');
+  const [chatLoading, setChatLoading] = React.useState(false);
+  const [askInput, setAskInput] = React.useState('');
+  const [askAnswer, setAskAnswer] = React.useState(null);
+  const [askLoading, setAskLoading] = React.useState(false);
+  const [caseFilter, setCaseFilter] = React.useState('open');
+  const chatEndRef = React.useRef(null);
+  const askInputRef = React.useRef(null);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const district = user?.district ? Number(user.district) : null;
+  const isExec = user?.userType === 'executive' || user?.userType === 'it';
+  const initials = (user?.name || '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+  React.useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const briefKey = isExec ? `analyst/briefs/${today}_network` : `analyst/briefs/${today}_${district}`;
+        const [briefData, laborData, annData] = await Promise.all([
+          cloudLoad(briefKey).catch(() => null),
+          cloudLoad('pcg_labor_v1').catch(() => null),
+          cloudLoad('pcg_announcements_v1').catch(() => null),
+        ]);
+
+        setBrief(briefData);
+
+        // KPI: build district-scoped or network summary
+        if (laborData?.stores) {
+          const storeList = Object.values(laborData.stores).filter(s => !s.error);
+          const scoped = isExec ? storeList : storeList.filter(s => Number(s.district) === district);
+          const totalSales = scoped.reduce((s, r) => s + (r.wtd?.sales || 0), 0);
+          const validLaborStores = scoped.filter(r => r.wtd?.laborPct > 0);
+          const avgLaborPct = validLaborStores.length > 0
+            ? validLaborStores.reduce((s, r) => s + r.wtd.laborPct, 0) / validLaborStores.length
+            : 0;
+          setKpi({ totalSales, avgLaborPct, storeCount: scoped.length });
+        }
+
+        // Latest leaderboard announcement
+        if (Array.isArray(annData)) {
+          const lb = annData.find(a => a.type === 'leaderboard' && a.active);
+          setLeaderboard(lb || null);
+        }
+
+        // Cases
+        const caseRes = await fetch('/.netlify/functions/analyst', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'case-list', userId: user.id, district: isExec ? undefined : district, limit: 15 }),
+        }).catch(() => null);
+        if (caseRes?.ok) {
+          const caseData = await caseRes.json();
+          setCases(Array.isArray(caseData.cases) ? caseData.cases : []);
+        }
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
+
+  React.useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  const sendChat = async () => {
+    const text = chatInput.trim();
+    if (!text || chatLoading) return;
+    const userMsg = { role: 'user', content: text, ts: Date.now() };
+    setChatMessages(m => [...m, userMsg]);
+    setChatInput('');
+    setChatLoading(true);
+    try {
+      const res = await fetch('/.netlify/functions/analyst', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ask', question: text, userId: user.id, district: isExec ? undefined : district, history: chatMessages.slice(-8) }),
+      });
+      const data = await res.json();
+      setChatMessages(m => [...m, { role: 'assistant', content: data.answer || data.text || 'Sorry, no answer.', ts: Date.now() }]);
+    } catch {
+      setChatMessages(m => [...m, { role: 'assistant', content: 'Something went wrong. Try again.', ts: Date.now() }]);
+    }
+    setChatLoading(false);
+  };
+
+  const sendAsk = async (question) => {
+    const text = (question || askInput).trim();
+    if (!text || askLoading) return;
+    setAskInput('');
+    setAskAnswer(null);
+    setAskLoading(true);
+    setActiveTab('ask');
+    try {
+      const res = await fetch('/.netlify/functions/analyst', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ask', question: text, userId: user.id, district: isExec ? undefined : district }),
+      });
+      const data = await res.json();
+      setAskAnswer({ question: text, answer: data.answer || data.text || 'No answer.' });
+    } catch {
+      setAskAnswer({ question: text, answer: 'Something went wrong. Try again.' });
+    }
+    setAskLoading(false);
+  };
+
+  const updateCase = async (caseId, status) => {
+    setCases(cs => cs.map(c => c.id === caseId ? { ...c, status } : c));
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'case-update', caseId, status, userId: user.id }),
+    }).catch(() => {});
+  };
+
+  const severityColor = s => s === 'high' ? '#f44336' : s === 'medium' ? '#ff9800' : '#4caf50';
+  const laborColor = p => !p ? th.muted : p < 23 ? '#4caf50' : p < 26 ? '#ff9800' : '#f44336';
+  const fmtDollars = n => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
+
+  const NAV_ITEMS = [
+    { id: 'brief', label: 'Brief', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8M8 8h5M8 16h6"/></svg> },
+    { id: 'cases', label: 'Cases', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12l2 2 4-4"/></svg> },
+    { id: 'chat', label: 'Chat', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
+    { id: 'ask', label: 'Ask', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> },
+  ];
+
+  const SUGGESTIONS = [
+    'How is my district tracking vs target this week?',
+    'Which stores are over 25% labor right now?',
+    'Summarize this week\'s open business cases',
+    'What should I focus on during today\'s store visits?',
+    'What does the weather forecast mean for sales this week?',
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: th.bg, fontFamily: "'Source Sans 3', sans-serif", overflow: 'hidden' }}>
+
+      {/* Top bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px 8px', background: th.sidebar, borderBottom: `1px solid ${th.sidebarBorder}`, flexShrink: 0 }}>
+        <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 19, color: O, letterSpacing: -0.5 }}>
+          Orion{!isExec && district && <span style={{ color: th.muted, fontWeight: 600, fontSize: 14 }}> · D{district}</span>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={onSwitchToFull} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 7, color: th.muted, cursor: 'pointer', fontSize: 11, fontFamily: "'Source Sans 3'", padding: '3px 8px', fontWeight: 600 }}>Full Portal</button>
+          <button onClick={onLogout} style={{ background: 'none', border: 'none', color: th.muted, cursor: 'pointer', fontSize: 12, fontFamily: "'Source Sans 3'", padding: '4px 8px' }}>Sign out</button>
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: `linear-gradient(135deg, ${O}, #ff9d6e)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Raleway'", fontWeight: 800, fontSize: 12, color: '#fff' }}>{initials}</div>
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 14px 12px', WebkitOverflowScrolling: 'touch' }}>
+
+        {/* ── BRIEF TAB ── */}
+        {activeTab === 'brief' && (
+          <div>
+            {/* KPI row */}
+            {kpi && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14, marginBottom: 12 }}>
+                <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: '13px 14px 11px' }}>
+                  <div style={{ fontSize: 10, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 5 }}>{isExec ? 'Network' : `D${district}`} WTD Sales</div>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 22, color: th.text, lineHeight: 1 }}>{fmtDollars(kpi.totalSales)}</div>
+                  <div style={{ fontSize: 11, color: th.muted, marginTop: 4 }}>{kpi.storeCount} stores</div>
+                </div>
+                <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: '13px 14px 11px' }}>
+                  <div style={{ fontSize: 10, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 5 }}>Avg Labor %</div>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 22, color: laborColor(kpi.avgLaborPct), lineHeight: 1 }}>{kpi.avgLaborPct > 0 ? kpi.avgLaborPct.toFixed(1) + '%' : '—'}</div>
+                  <div style={{ fontSize: 11, color: th.muted, marginTop: 4 }}>WTD avg</div>
+                </div>
+              </div>
+            )}
+
+            {/* Brief card */}
+            <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '14px 0 8px' }}>Today's Brief</div>
+            {loading ? (
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 20, textAlign: 'center', color: th.muted, fontSize: 13 }}>Loading brief...</div>
+            ) : brief?.content ? (
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <span style={{ fontSize: 11, color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                  <span style={{ background: O + '22', color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: '2px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8 }}>{isExec ? 'Network' : `District ${district}`}</span>
+                </div>
+                <div style={{ fontSize: 13.5, color: th.text, lineHeight: 1.65 }}>{renderAnalystMarkdown(brief.content, th)}</div>
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${th.cardBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— Orion, {brief.generatedAt ? new Date(brief.generatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'today'}</span>
+                  <button onClick={() => sendAsk('Give me a quick recap of today\'s brief')} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '3px 10px', color: th.muted, fontSize: 11, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Ask follow-up</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 20, textAlign: 'center' }}>
+                <div style={{ color: th.muted, fontSize: 13, marginBottom: 10 }}>Brief not yet generated for today.</div>
+                <div style={{ fontSize: 12, color: th.muted }}>Orion generates the daily brief at 7 AM ET.</div>
+              </div>
+            )}
+
+            {/* Leaderboard card — only if exists */}
+            {leaderboard && (
+              <div>
+                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '16px 0 8px' }}>Weekly Leaderboard</div>
+                <div style={{ background: th.card, border: `1px solid ${O}33`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 12, color: O, textTransform: 'uppercase', letterSpacing: 0.8 }}>{leaderboard.title}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: th.text, lineHeight: 1.65 }}>{leaderboard.message}</div>
+                  <div style={{ marginTop: 10, fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— {leaderboard.createdBy} · {leaderboard.createdAt ? new Date(leaderboard.createdAt).toLocaleDateString() : ''}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── CASES TAB ── */}
+        {activeTab === 'cases' && (
+          <div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 14, marginBottom: 12 }}>
+              {['open', 'accepted', 'dismissed'].map(f => (
+                <button key={f} onClick={() => setCaseFilter(f)} style={{ flex: 1, padding: '6px 4px', borderRadius: 999, border: `1px solid ${caseFilter === f ? O : th.cardBorder}`, background: caseFilter === f ? O + '18' : 'none', color: caseFilter === f ? O : th.muted, fontSize: 11, fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize', fontFamily: "'Source Sans 3'" }}>{f}</button>
+              ))}
+            </div>
+            {loading ? (
+              <div style={{ color: th.muted, fontSize: 13, textAlign: 'center', padding: 24 }}>Loading cases...</div>
+            ) : cases.filter(c => {
+              if (caseFilter === 'open') return !c.status || c.status === 'open' || c.status === 'new';
+              return c.status === caseFilter;
+            }).length === 0 ? (
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 24, textAlign: 'center', color: th.muted, fontSize: 13 }}>No {caseFilter} cases</div>
+            ) : cases.filter(c => {
+              if (caseFilter === 'open') return !c.status || c.status === 'open' || c.status === 'new';
+              return c.status === caseFilter;
+            }).map(c => (
+              <div key={c.id} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 14, marginBottom: 10, borderLeft: `3px solid ${severityColor(c.severity)}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 5 }}>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 14, color: th.text, flex: 1, paddingRight: 8, lineHeight: 1.3 }}>{c.title}</div>
+                  <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: severityColor(c.severity) + '22', color: severityColor(c.severity), whiteSpace: 'nowrap' }}>{c.severity}</span>
+                </div>
+                <div style={{ fontSize: 11, color: th.muted, marginBottom: 7 }}>{c.storeName}{c.district ? ` · D${c.district}` : ''}</div>
+                {c.description && <div style={{ fontSize: 12.5, color: '#999', lineHeight: 1.5, marginBottom: 10 }}>{c.description}</div>}
+                {(!c.status || c.status === 'open' || c.status === 'new') && (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => updateCase(c.id, 'dismissed')} style={{ flex: 1, padding: 7, borderRadius: 9, border: `1px solid ${th.cardBorder}`, background: 'none', color: th.muted, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Dismiss</button>
+                    <button onClick={() => updateCase(c.id, 'accepted')} style={{ flex: 1, padding: 7, borderRadius: 9, border: `1px solid #4caf5044`, background: '#4caf5010', color: '#4caf50', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Accept</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── CHAT TAB ── */}
+        {activeTab === 'chat' && (
+          <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: 8 }}>
+            {chatMessages.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '32px 16px 20px', color: th.muted, fontSize: 13 }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 16, color: th.text, marginBottom: 6 }}>Ask Orion anything</div>
+                <div>Your AI analyst — briefings, anomalies, store details, and more.</div>
+              </div>
+            )}
+            {chatMessages.map((m, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: m.role === 'user' ? 'row-reverse' : 'row', gap: 10, marginBottom: 14, alignItems: 'flex-end', marginTop: i === 0 ? 14 : 0 }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: m.role === 'user' ? '#3a3a3a' : O + '33', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: m.role === 'user' ? '#aaa' : O, flexShrink: 0 }}>{m.role === 'user' ? initials : 'AI'}</div>
+                <div style={{ maxWidth: '75%', background: m.role === 'user' ? O : th.card, border: `1px solid ${m.role === 'user' ? O : th.cardBorder}`, borderRadius: m.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 13px' }}>
+                  <div style={{ fontSize: 13, color: m.role === 'user' ? '#fff' : th.text, lineHeight: 1.5 }}>{m.role === 'assistant' ? renderAnalystMarkdown(m.content, th) : m.content}</div>
+                </div>
+              </div>
+            ))}
+            {chatLoading && (
+              <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'flex-end' }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: O + '33', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: O, flexShrink: 0 }}>AI</div>
+                <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '16px 16px 16px 4px', padding: '10px 16px', color: th.muted, fontSize: 13 }}>Thinking...</div>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+        )}
+
+        {/* ── ASK TAB ── */}
+        {activeTab === 'ask' && (
+          <div>
+            <div style={{ background: th.card, border: `1px solid ${O}44`, borderRadius: 14, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, marginBottom: 14 }}>
+              <span style={{ color: O, fontSize: 18 }}>✦</span>
+              <input
+                ref={askInputRef}
+                value={askInput}
+                onChange={e => setAskInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendAsk()}
+                placeholder="Ask Orion anything..."
+                style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: th.text, fontSize: 14, fontFamily: "'Source Sans 3'" }}
+              />
+              {askInput.trim() && (
+                <button onClick={() => sendAsk()} style={{ background: O, border: 'none', borderRadius: 8, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: 14, flexShrink: 0 }}>↑</button>
+              )}
+            </div>
+
+            {askLoading && (
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 18, marginBottom: 14, color: th.muted, fontSize: 13 }}>Thinking...</div>
+            )}
+
+            {askAnswer && !askLoading && (
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, marginBottom: 8 }}>{askAnswer.question}</div>
+                <div style={{ fontSize: 13.5, color: th.text, lineHeight: 1.65 }}>{renderAnalystMarkdown(askAnswer.answer, th)}</div>
+                <button onClick={() => { setChatMessages(m => [...m, { role: 'user', content: askAnswer.question, ts: Date.now() }, { role: 'assistant', content: askAnswer.answer, ts: Date.now() }]); setAskAnswer(null); setActiveTab('chat'); }} style={{ marginTop: 12, background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '4px 12px', color: th.muted, fontSize: 11, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Continue in chat</button>
+              </div>
+            )}
+
+            {!askAnswer && !askLoading && (
+              <div>
+                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Suggested</div>
+                {SUGGESTIONS.map((s, i) => (
+                  <div key={i} onClick={() => sendAsk(s)} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, padding: '11px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 8, background: O + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
+                      {['📊', '💰', '⚠️', '📅', '🌤️'][i] || '✦'}
+                    </div>
+                    <div style={{ fontSize: 13, color: '#bbb', lineHeight: 1.3 }}>{s}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Chat input bar (only on chat tab) */}
+      {activeTab === 'chat' && (
+        <div style={{ display: 'flex', gap: 8, padding: '8px 14px 10px', background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0 }}>
+          <input
+            value={chatInput}
+            onChange={e => setChatInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && sendChat()}
+            placeholder="Message Orion..."
+            style={{ flex: 1, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: '9px 16px', color: th.text, fontSize: 13, fontFamily: "'Source Sans 3'", outline: 'none' }}
+          />
+          <button onClick={sendChat} disabled={!chatInput.trim() || chatLoading} style={{ width: 38, height: 38, borderRadius: '50%', background: chatInput.trim() ? O : th.card, border: 'none', cursor: chatInput.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', color: chatInput.trim() ? '#fff' : th.muted, fontSize: 16, flexShrink: 0, transition: 'background .2s' }}>↑</button>
+        </div>
+      )}
+
+      {/* Bottom nav */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '6px 8px 20px', background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0 }}>
+        {NAV_ITEMS.map(item => {
+          const active = activeTab === item.id;
+          return (
+            <button key={item.id} onClick={() => setActiveTab(item.id)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 18px', borderRadius: 12, border: 'none', background: active ? O + '18' : 'none', cursor: 'pointer', color: active ? O : th.muted }}>
+              <span style={{ display: 'flex', color: active ? O : th.muted }}>{item.icon}</span>
+              <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: active ? O : th.muted }}>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
   const [managerMode, setManagerMode] = useState(null);
+  const [preferFullPortal, setPreferFullPortal] = useState(() => { try { return localStorage.getItem('pcg_prefer_full_portal') === 'true'; } catch { return false; } });
   const handleLogout = () => {
     try { window.google?.accounts?.id?.disableAutoSelect(); } catch {}
     logClientEvent(user?.id, user?.userType, 'logout', { name: user?.name });
@@ -23407,7 +23769,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.8.0
+            v9.9.0
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -23432,6 +23794,14 @@ function PCGPortal() {
       </div>
     </>
   );
+
+  const togglePortalMode = (full) => {
+    try { localStorage.setItem('pcg_prefer_full_portal', full ? 'true' : 'false'); } catch {}
+    setPreferFullPortal(full);
+  };
+  if (user && isMobile && !preferFullPortal && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
+    return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} />;
+  }
 
   return (
     <div className="dash-enter" style={{ display: "flex", minHeight: "100vh", background: th.bg, transition: "background .3s" }}>
@@ -23537,6 +23907,10 @@ function PCGPortal() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            {/* Switch back to mobile Analyst shell */}
+            {isMobile && (user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it') && (
+              <button onClick={() => togglePortalMode(false)} style={{ background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap' }}>✦ Orion</button>
+            )}
             {user?.userType === "manager" && tab === "dashboard" && (
               <button
                 onClick={() => { setShowNotifs(false); setShowChatPanel(false); setManagerMode("embed"); }}
