@@ -21492,6 +21492,13 @@ function PCGPortal() {
   const sidebarNavRef  = useRef(null);           // ref to sidebar nav scroll container
   const sidebarScrollPos = useRef(0);            // persisted scroll position across re-renders
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem('pcg_sidebar_collapsed') === 'true'; } catch { return false; } });
+  const [showMoreSheet, setShowMoreSheet] = useState(false);
+  const [sidebarGroupsOpen, setSidebarGroupsOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pcg_sidebar_groups');
+      return saved ? JSON.parse(saved) : { ops: true, fin: true, team: false, system: false };
+    } catch { return { ops: true, fin: true, team: false, system: false }; }
+  });
   const [links, setLinks]       = useState(() => { const s=loadFromStorage(); return s?.links    || INIT_LINKS; });
   const [notes, setNotes]       = useState(() => { const s=loadFromStorage(); return s?.notes    || {}; });
   const [todos, setTodos]       = useState(() => { const s=loadFromStorage(); return s?.todos    || []; });
@@ -22884,6 +22891,126 @@ function PCGPortal() {
     );
   };
 
+  // ─── Admin groups config ──────────────────────────────────────────────────
+  const ADMIN_GROUPS = [
+    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics'] },
+    { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['cash', 'recon'] },
+    { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['locations', 'projects', 'users'] },
+    { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'settings'] },
+  ];
+
+  // ─── Collapsible admin group — Doclines-style accordion ──────────────────
+  const AdminGroup = ({ icon: grpIcon, label, color, tabs: grpTabs, collapsed, groupKey, onNav: nav }) => {
+    const isOpen = sidebarGroupsOpen[groupKey];
+    const hasActiveChild = grpTabs.some(t => t.id === tab);
+    const showChildren = isOpen || hasActiveChild;
+
+    // Any child with a badge → show red dot on the group header
+    const hasBadge = grpTabs.some(t => {
+      if (t.cash && cashMissingCount > 0) return true;
+      if (t.id === "reports" && reportsUnreadCount > 0) return true;
+      return false;
+    });
+
+    const toggle = () => {
+      const next = { ...sidebarGroupsOpen, [groupKey]: !isOpen };
+      setSidebarGroupsOpen(next);
+      try { localStorage.setItem('pcg_sidebar_groups', JSON.stringify(next)); } catch {}
+    };
+
+    const iconColor = hasActiveChild ? color : th.muted;
+
+    // Collapsed: icon only + red dot
+    if (collapsed) {
+      return (
+        <button
+          title={label}
+          onClick={toggle}
+          style={{
+            width: "100%", padding: "0.65rem 0", marginBottom: "0.15rem",
+            display: "flex", justifyContent: "center", alignItems: "center",
+            background: hasActiveChild ? `${color}18` : "transparent",
+            border: "none", borderRadius: "0.625rem", cursor: "pointer",
+            transition: "all .2s", position: "relative",
+          }}
+          onMouseEnter={e => { if (!hasActiveChild) e.currentTarget.style.background = th.card3; }}
+          onMouseLeave={e => { e.currentTarget.style.background = hasActiveChild ? `${color}18` : "transparent"; }}
+        >
+          {grpIcon(iconColor)}
+          {hasBadge && (
+            <span style={{ position: "absolute", top: 6, right: 8, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" }} />
+          )}
+          {hasActiveChild && !hasBadge && (
+            <span style={{ position: "absolute", bottom: 3, left: "50%", transform: "translateX(-50%)", width: 16, height: 2, borderRadius: 999, background: color, boxShadow: `0 0 6px ${color}` }} />
+          )}
+        </button>
+      );
+    }
+
+    // Expanded: group header + optional indented children
+    return (
+      <>
+        <button
+          onClick={toggle}
+          style={{
+            width: "100%", padding: "0.65rem 0.85rem", marginBottom: "0.1rem",
+            display: "flex", alignItems: "center", gap: "0.55rem",
+            background: "transparent",
+            border: "none", borderRadius: "0.625rem", cursor: "pointer",
+            fontFamily: "'Source Sans 3'", fontSize: "0.8rem", fontWeight: 600,
+            color: iconColor,
+            transition: "all .2s", textAlign: "left",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.color = th.text; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = iconColor; }}
+        >
+          {/* SVG icon — same 18px slot as NavButton, red dot overlaid when badges exist */}
+          <span style={{ position: "relative", width: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {grpIcon(iconColor)}
+            {hasBadge && (
+              <span style={{ position: "absolute", top: -3, right: -4, width: 7, height: 7, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" }} />
+            )}
+          </span>
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+          {/* Red dot beside chevron when group is open so indicator stays visible */}
+          {hasBadge && showChildren && (
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc", flexShrink: 0, marginRight: "0.35rem" }} />
+          )}
+          <span style={{
+            fontSize: "0.5rem", opacity: 0.4, flexShrink: 0,
+            transition: "transform 0.22s", display: "inline-block",
+            transform: showChildren ? "rotate(90deg)" : "none",
+          }}>▶</span>
+        </button>
+        {showChildren && (
+          <div style={{
+            marginLeft: "0.875rem",
+            paddingLeft: "0.625rem",
+            borderLeft: `1.5px solid ${color}28`,
+            marginBottom: "0.25rem",
+          }}>
+            {grpTabs.map(t => {
+              const isGreen = t.green;
+              const isCash = t.cash;
+              const cashHasMissing = isCash && cashMissingCount > 0;
+              const isActive = tab === t.id;
+              const cashColor = cashHasMissing ? "#ef4444" : "#00d084";
+              const C = isCash ? cashColor : (isGreen ? "#00d084" : color);
+              const glow = isGreen || isCash;
+              const isReports = t.id === "reports";
+              const badge = (isCash && cashHasMissing) ? cashMissingCount : (isReports && reportsUnreadCount > 0) ? reportsUnreadCount : null;
+              return (
+                <NavButton key={t.id} tabDef={t} accent={C} isActive={isActive} collapsed={false}
+                  badge={badge} glow={glow} dotColor={C}
+                  onClick={() => { setTab(t.id); nav && nav(); }} />
+              );
+            })}
+          </div>
+        )}
+      </>
+    );
+  };
+
   const SidebarContent = ({ onNav, collapsed, navRef, onNavScroll }) => (
     <>
       {/* ─── Header / Brand block ─────────────────────────────────────── */}
@@ -23145,34 +23272,29 @@ function PCGPortal() {
           </>
         )}
 
-        {/* Admin / Operations section */}
+        {/* Admin / Operations section — grouped accordion */}
         {(isFullAdmin(user) || user?.userType === "office_staff") && (
           <>
             <SectionHeader label={isFullAdmin(user) ? "Admin" : "Operations"} accent={O} collapsed={collapsed} />
-            {getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => {
-              const isGreen = t.green;
-              const isCash = t.cash;
-              const cashHasMissing = isCash && cashMissingCount > 0;
-              const isActive = tab === t.id;
-              const cashColor = cashHasMissing ? "#ef4444" : "#00d084";
-              const C = isCash ? cashColor : (isGreen ? "#00d084" : O);
-              const glow = isGreen || isCash;
-              const isReports = t.id === "reports";
-              const badge = (isCash && cashHasMissing) ? cashMissingCount : (isReports && reportsUnreadCount > 0) ? reportsUnreadCount : null;
-              return (
-                <NavButton
-                  key={t.id}
-                  tabDef={t}
-                  accent={C}
-                  isActive={isActive}
-                  collapsed={collapsed}
-                  badge={badge}
-                  glow={glow}
-                  dotColor={C}
-                  onClick={() => { setTab(t.id); onNav && onNav(); }}
-                />
-              );
-            })}
+            {(() => {
+              const adminTabs = getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id));
+              return ADMIN_GROUPS.map(grp => {
+                const grpTabs = grp.ids.map(id => adminTabs.find(t => t.id === id)).filter(Boolean);
+                if (grpTabs.length === 0) return null;
+                return (
+                  <AdminGroup
+                    key={grp.key}
+                    groupKey={grp.key}
+                    icon={grp.icon}
+                    label={grp.label}
+                    color={grp.color}
+                    tabs={grpTabs}
+                    collapsed={collapsed}
+                    onNav={onNav}
+                  />
+                );
+              });
+            })()}
           </>
         )}
       </div>
@@ -23194,7 +23316,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.7
+            v9.7.3
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -23568,40 +23690,138 @@ function PCGPortal() {
         </div>
       </div>
 
-      {/* Bottom nav — mobile only */}
-      <div className="bottom-nav" style={{
-        position: "fixed", bottom: 0, left: 0, right: 0, height: 68, zIndex: 100,
-        background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`,
-        display: "flex", alignItems: "stretch",
-        transition: "background .3s, border .3s",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)",
-      }}>
-        {TABS.map(t => {
+      {/* Bottom nav — mobile only, 4 pinned tabs + More */}
+      {(() => {
+        // Pick 4 pinned tabs based on role
+        const ut = user?.userType;
+        const pinnedIds = (ut === "executive" || ut === "it")
+          ? ["dashboard", "pulse", "labor", "chat"]
+          : ut === "office_staff"
+          ? ["dashboard", "pulse", "labor", "chat"]
+          : ut === "dm"
+          ? ["dashboard", "labor", "chat", "tickets"]
+          : ut === "manager"
+          ? ["dashboard", "labor", "chat", "tickets"]
+          : ["dashboard", "chat", "announcements", "tickets"];
+
+        const pinnedTabs = pinnedIds.map(id => TABS.find(t => t.id === id)).filter(Boolean);
+        const moreTabs = TABS.filter(t => !pinnedIds.includes(t.id));
+        const moreHasActive = moreTabs.some(t => t.id === tab);
+
+        const MobileNavBtn = ({ t, onClick: oc }) => {
           const active = tab === t.id;
           const color = active ? (t.green ? "#00d084" : O) : th.muted;
+          const badge = t.id === "chat" && chatUnreadCount > 0 ? chatUnreadCount
+            : t.id === "cash" && cashMissingCount > 0 ? cashMissingCount
+            : null;
           return (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              flex: "0 0 auto", minWidth: 64, display: "flex", flexDirection: "column",
+            <button onClick={oc || (() => setTab(t.id))} style={{
+              flex: 1, display: "flex", flexDirection: "column",
               alignItems: "center", justifyContent: "center",
               gap: "0.2rem", background: "none", border: "none", cursor: "pointer",
-              padding: "6px 8px 4px", color,
+              padding: "6px 4px 4px", color,
               fontFamily: "'Source Sans 3'", fontSize: "0.6rem", fontWeight: active ? 700 : 400,
               transition: "color .15s", position: "relative",
               borderTop: active ? `2.5px solid ${color}` : "2.5px solid transparent",
             }}>
-              <span style={{ fontSize: "1.2rem", display: "flex", alignItems: "center", lineHeight: 1 }}>
+              <span style={{ fontSize: "1.15rem", display: "flex", alignItems: "center", lineHeight: 1 }}>
                 {typeof t.icon === "function" ? t.icon(color) : t.icon}
               </span>
-              <span style={{ lineHeight: 1.1, textAlign: "center", maxWidth: 60, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
-              {t.id === "chat" && chatUnreadCount > 0 && (
-                <span style={{ position: "absolute", top: 6, right: "calc(50% - 20px)", width: 15, height: 15, borderRadius: "50%", background: "#ff4444", color: "#fff", fontSize: "0.5rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {chatUnreadCount > 9 ? "9+" : chatUnreadCount}
-                </span>
+              <span style={{ lineHeight: 1.1, maxWidth: 56, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
+              {badge > 0 && (
+                <span style={{ position: "absolute", top: 5, right: "calc(50% - 18px)", width: 8, height: 8, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" }} />
               )}
             </button>
           );
-        })}
-      </div>
+        };
+
+        return (
+          <>
+            <div className="bottom-nav" style={{
+              position: "fixed", bottom: 0, left: 0, right: 0, height: 64, zIndex: 100,
+              background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`,
+              display: "flex", alignItems: "stretch",
+              paddingBottom: "env(safe-area-inset-bottom, 0px)",
+            }}>
+              {pinnedTabs.map(t => <MobileNavBtn key={t.id} t={t} />)}
+
+              {/* More button */}
+              <button onClick={() => setShowMoreSheet(v => !v)} style={{
+                flex: 1, display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                gap: "0.2rem", background: "none", border: "none", cursor: "pointer",
+                padding: "6px 4px 4px",
+                color: (showMoreSheet || moreHasActive) ? O : th.muted,
+                fontFamily: "'Source Sans 3'", fontSize: "0.6rem", fontWeight: (showMoreSheet || moreHasActive) ? 700 : 400,
+                borderTop: (showMoreSheet || moreHasActive) ? `2.5px solid ${O}` : "2.5px solid transparent",
+                position: "relative",
+              }}>
+                <Icon color={(showMoreSheet || moreHasActive) ? O : th.muted} size={18}
+                  d={<><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></>} />
+                <span>More</span>
+                {moreHasActive && !showMoreSheet && (
+                  <span style={{ position: "absolute", top: 5, right: "calc(50% - 16px)", width: 7, height: 7, borderRadius: "50%", background: O, boxShadow: `0 0 5px ${O}` }} />
+                )}
+              </button>
+            </div>
+
+            {/* More sheet — slides up from bottom */}
+            {showMoreSheet && (
+              <>
+                {/* Backdrop */}
+                <div onClick={() => setShowMoreSheet(false)} style={{
+                  position: "fixed", inset: 0, zIndex: 110,
+                  background: "#00000066",
+                }} />
+                {/* Sheet */}
+                <div style={{
+                  position: "fixed", bottom: 64, left: 0, right: 0, zIndex: 120,
+                  background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`,
+                  borderRadius: "16px 16px 0 0",
+                  maxHeight: "65vh", overflowY: "auto",
+                  padding: "0 0 8px",
+                  boxShadow: "0 -8px 32px #00000044",
+                }}>
+                  {/* Handle */}
+                  <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 4px" }}>
+                    <div style={{ width: 36, height: 4, borderRadius: 999, background: th.subtle, opacity: 0.5 }} />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", padding: "4px 8px 8px", gap: "2px" }}>
+                    {moreTabs.map(t => {
+                      const active = tab === t.id;
+                      const color = active ? (t.green ? "#00d084" : O) : th.muted;
+                      const badge = t.id === "chat" && chatUnreadCount > 0 ? chatUnreadCount
+                        : t.id === "cash" && cashMissingCount > 0 ? cashMissingCount
+                        : null;
+                      return (
+                        <button key={t.id} onClick={() => { setTab(t.id); setShowMoreSheet(false); }} style={{
+                          display: "flex", flexDirection: "column", alignItems: "center",
+                          justifyContent: "center", gap: "0.3rem",
+                          padding: "14px 6px 12px",
+                          background: active ? `${color}12` : "transparent",
+                          border: `1px solid ${active ? `${color}33` : "transparent"}`,
+                          borderRadius: "12px", cursor: "pointer", position: "relative",
+                          fontFamily: "'Source Sans 3'", fontSize: "0.65rem",
+                          fontWeight: active ? 700 : 400, color,
+                          transition: "all .15s",
+                        }}>
+                          <span style={{ fontSize: "1.3rem", display: "flex", lineHeight: 1 }}>
+                            {typeof t.icon === "function" ? t.icon(color) : t.icon}
+                          </span>
+                          <span style={{ textAlign: "center", lineHeight: 1.2, maxWidth: 64, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
+                          {badge > 0 && (
+                            <span style={{ position: "absolute", top: 8, right: 8, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" }} />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        );
+      })()}
 
       {/* ── Profile Modal ── */}
       {showProfile && <ProfileModal user={user} setUser={setUser} setUsers={setUsers} th={th} onClose={()=>setShowProfile(false)} />}

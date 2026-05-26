@@ -24,11 +24,11 @@
 - [ ] Supabase/Postgres migration for structured storage + pgvector for KB embeddings
 - [ ] GM access (store-scoped data only)
 
-## Phase 3 — Data Stories + Scheduled Reports
-- [ ] Auto-generated interactive dashboards (save/share)
-- [ ] Slide deck generation (reveal.js or PPTX, board-ready)
-- [x] Scheduled reports: daily 7am DMO, weekly exec (Sun + Tue) — monthly P&L pending
-- [x] Delivery: email (Resend) — in-app inbox + Chat delivery pending
+## Phase 3 — Data Stories + Scheduled Reports ✅
+- [x] Auto-generated interactive dashboards (save/share) — create-report action, Reports tab, blob storage
+- [x] Slide deck generation — reveal.js presenter + PPTX export via pptxgenjs
+- [x] Scheduled reports: daily 7am DMO, weekly exec (Sun + Tue), monthly P&L
+- [x] Delivery: email (Resend) + in-app Reports tab with unread badge
 - [x] One-click "Send to Announcements" and "Send to a Location Manager"
 - [x] PDF export for business cases and reports
 
@@ -36,8 +36,8 @@
 - [ ] Pluggable connectors: BigQuery, Snowflake, Postgres, QBO, GA, Meta
 - [ ] Email integration (Google Workspace SMTP/IMAP)
 - [ ] Slack/Teams outbound
-- [ ] Weather-aware forecasting (condition forecasts on 7-day weather) — coords defined, pending UI
-- [ ] Guest sentiment fusion (Google/Yelp reviews per location, sentiment scoring) — Places API (New) selected
+- [x] Weather-aware forecasting (condition forecasts on 7-day weather) — `weather-forecast-cron.js`, district coords, correlation data, UI consuming blobs
+- [x] Guest sentiment fusion (Google/Yelp reviews per location, sentiment scoring) — `reviews-cron.js`, Claude Haiku sentiment, per-store + network blobs, UI in store detail
 - [ ] Vendor/COGS watchdog (track invoice unit costs, flag creeping prices) — WorkPulse as source, pending API access
 - [ ] Forecast-to-schedule loop (Next Week Forecast → shift recommendations → push to Paycor)
 - [ ] Cash variance autopilot (deposit variance → auto business case with likely cause)
@@ -54,7 +54,7 @@
 
 ## Level-Up Ideas (Beyond Orion)
 - [ ] Voice-first "Walk-the-floor" mode for GMs (speak → 30-second action list)
-- [x] Location leaderboards + gamification (weekly rankings with auto shout-outs)
+- [ ] Location leaderboards + gamification (weekly rankings with auto shout-outs)
 - [x] "Decision log" — Accept/Reject on cases becomes reinforcement learning data
 - [x] "Ask the archive" — index all past Announcements, Notes, Chat into KB
 - [ ] Compliance/audit: auto-generate monthly board-ready deck + food-safety readiness report
