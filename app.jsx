@@ -5282,6 +5282,19 @@ async function cloudSave(key, data) {
     return res.ok;
   } catch { return false; }
 }
+async function cloudSaveOrThrow(key, data) {
+  const res = await fetch('/.netlify/functions/storage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'save', key, data }),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { const j = await res.json(); msg = j.error || msg; } catch {}
+    throw new Error(`${key}: ${msg}`);
+  }
+  return true;
+}
 async function cloudLoad(key) {
   try {
     const res = await fetch('/.netlify/functions/storage', {
@@ -5330,11 +5343,11 @@ async function cloudSaveReport(report) {
       return { ...w, photos: [] };
     }),
   };
-  const [reportOk, photosOk] = await Promise.all([
-    cloudSave(drKey(report.id), slimReport),
-    cloudSave(drPhotosKey(report.id), photoMap),
+  await Promise.all([
+    cloudSaveOrThrow(drKey(report.id), slimReport),
+    cloudSaveOrThrow(drPhotosKey(report.id), photoMap),
   ]);
-  return reportOk && photosOk;
+  return true;
 }
 async function cloudLoadReport(id) {
   if (id == null) return null;
@@ -8893,36 +8906,39 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     setForceSyncMsg('');
     const toSync = dailyReports || [];
     let ok = 0, fail = 0;
+    const errors = [];
     for (const r of toSync) {
       try {
         // Local state has photos stripped after a page load. Hydrate from cloud
         // first so we re-upload the real photos, not empty placeholders.
         const localHasStripped = (r.workLogs || []).some(w => (w.photos || []).some(p => p._photoStripped));
         const full = localHasStripped ? (await cloudLoadReport(r.id) || r) : r;
-        const result = await cloudSaveReport(full);
-        if (result) ok++; else fail++;
-      } catch { fail++; }
+        await cloudSaveReport(full);
+        ok++;
+      } catch (err) { fail++; errors.push(`Report ${r.id}: ${err?.message || 'unknown'}`); }
     }
     // Rewrite the index from local state
     try {
       const idx = toSync.map(makeDailyReportIndexEntry);
-      await cloudSave(DR_INDEX_KEY, idx);
-    } catch { fail++; }
+      await cloudSaveOrThrow(DR_INDEX_KEY, idx);
+    } catch (err) { fail++; errors.push(`Index: ${err?.message || 'unknown'}`); }
     // Rewrite the legacy backup with photos stripped (recovery safety net)
     try {
       const legacyBackup = toSync.map(stripDailyReportPhotos);
-      await cloudSave('pcg_daily_reports_v1', legacyBackup);
-    } catch { fail++; }
+      await cloudSaveOrThrow('pcg_daily_reports_v1', legacyBackup);
+    } catch (err) { fail++; errors.push(`Legacy backup: ${err?.message || 'unknown'}`); }
     if (fail === 0) {
       setForceSyncState('success');
       setForceSyncMsg(`Synced ${ok} report${ok !== 1 ? 's' : ''} to cloud.`);
       showAlert && showAlert('success', `Synced ${ok} daily report${ok !== 1 ? 's' : ''} to cloud.`);
       logClientEvent(user?.id, user?.userType, 'force_sync', { synced: ok, failed: 0, store: project.pc });
     } else {
+      const errSummary = errors.join('; ');
+      console.error('[forceSyncAll] failures:', errSummary);
       setForceSyncState('error');
-      setForceSyncMsg(`${ok} synced, ${fail} failed.`);
-      showAlert && showAlert('error', `Sync partial: ${ok} succeeded, ${fail} failed. Check your connection and try again.`);
-      logClientEvent(user?.id, user?.userType, 'force_sync_error', { synced: ok, failed: fail, store: project.pc, error: `${fail} report(s) failed` });
+      setForceSyncMsg(`${ok} synced, ${fail} failed — ${errSummary}`);
+      showAlert && showAlert('error', `Sync partial: ${ok} succeeded, ${fail} failed. ${errSummary}`);
+      logClientEvent(user?.id, user?.userType, 'force_sync_error', { synced: ok, failed: fail, store: project.pc, error: errSummary });
     }
     setTimeout(() => setForceSyncState('idle'), 3500);
   };
@@ -23178,7 +23194,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.6
+            v9.7
           </div>
         )}
         {/* Collapse toggle — desktop only */}
