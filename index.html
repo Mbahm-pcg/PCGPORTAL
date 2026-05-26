@@ -134,6 +134,10 @@
   /* Toast slide animations */
   @keyframes toastSlideIn{from{opacity:0;transform:translateX(100%)}to{opacity:1;transform:translateX(0)}}
   @keyframes toastSlideOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(100%)}}
+  @media (max-width: 768px) {
+    .orion-fab-btn { bottom: 80px !important; }
+    .orion-panel { bottom: 148px !important; max-height: calc(100vh - 178px) !important; }
+  }
 </style>
 </head>
 <body>

@@ -29,6 +29,10 @@ const Icon = ({ d, size = 18, color = "currentColor", sw = 2 }) => (
     typeof d === "string" ? React.createElement("path", { d }) : d)
 );
 
+const OrionIcon = ({ size = 20 }) => (
+  <img src="/orion-icon.png" width={size} height={size} style={{ display: "inline-block", verticalAlign: "middle", borderRadius: "50%", flexShrink: 0 }} alt="Orion" />
+);
+
 const ICONS = {
   dashboard: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"3",y:"3",width:"7",height:"7",rx:"1"})}{React.createElement("rect",{x:"14",y:"3",width:"7",height:"4",rx:"1"})}{React.createElement("rect",{x:"3",y:"14",width:"7",height:"4",rx:"1"})}{React.createElement("rect",{x:"14",y:"11",width:"7",height:"7",rx:"1"})}</>} />,
   links: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"})}{React.createElement("path",{d:"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"})}</>} />,
@@ -4642,7 +4646,7 @@ function AdminAnalytics({ stores, users, districts, th, salesWeeks, setSalesWeek
             { icon: '📅', label: 'vs Same Wk Last Year',  value: fmtPct(vsLY),               sub: `${enriched.length} stores reporting`,                         color: vsLY >= 0 ? '#69db7c' : '#ffa94d' },
             { icon: '👥', label: 'Total Guest Count',     value: fmtNum(totalCC),            sub: `${fmtNum(Math.round(totalCC/enriched.length||0))} avg/store`,  color: '#74c0fc' },
             { icon: '⚙️', label: 'Avg Labor %',           value: `${avgLabor.toFixed(1)}%`,  sub: `Avg Food Cost ${avgFC.toFixed(1)}%`,                           color: laborClr(avgLabor) },
-            { icon: '🔮', label: 'Next Wk Forecast',      value: fmtSales(totalFC),          sub: `${fmtSales(totalFC / (enriched.length||1))}/store avg`,        color: '#b197fc' },
+            { icon: <OrionIcon size={22} />, label: 'Next Wk Forecast', value: fmtSales(totalFC), sub: `${fmtSales(totalFC / (enriched.length||1))}/store avg`, color: '#b197fc' },
           ].map(k => (
             <div key={k.label} style={{ ...card(th), padding: '1rem 1.125rem', borderTop: `3px solid ${k.color}` }}>
               <div style={{ fontSize: '1.4rem', marginBottom: '0.35rem' }}>{k.icon}</div>
@@ -5757,6 +5761,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [hoveredHour, setHoveredHour] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [storeReviews, setStoreReviews] = React.useState(null);
+  const [foodCostT, setFoodCostT] = React.useState(null);
+  const [foodCostLoading, setFoodCostLoading] = React.useState(false);
+  const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
 
   React.useEffect(() => {
     (async () => {
@@ -6607,6 +6614,71 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
           ) : <div style={{ textAlign:'center', padding:'1rem', color:th.muted, fontSize:'0.8rem' }}>No menu item data</div>}
         </div>
       )}
+
+      {/* ── Food Cost (Theoretical) ── */}
+      <div style={{ ...card(th), padding: '1rem', marginTop: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text }}>🍩 Food Cost (T)</div>
+          <button onClick={async () => {
+            if (foodCostT) { setFoodCostT(null); return; }
+            setFoodCostLoading(true);
+            try {
+              const res = await fetch('/.netlify/functions/food-cost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'store', pc, date: localDate }) });
+              if (res.ok) { const j = await res.json(); setFoodCostT(j); }
+            } catch {}
+            setFoodCostLoading(false);
+          }} style={{ ...btn(th, { padding: '0.3rem 0.65rem', fontSize: '0.72rem' }) }}>
+            {foodCostLoading ? 'Loading…' : foodCostT ? 'Hide' : 'Load'}
+          </button>
+        </div>
+        {foodCostT && !foodCostT.error && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+              <div style={{ background: th.card2, borderRadius: 8, padding: '0.5rem 0.75rem', minWidth: 120 }}>
+                <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Bakery Food Cost</div>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: O }}>${foodCostT.totalBakeryCost?.toFixed(2)}</div>
+              </div>
+              <div style={{ background: th.card2, borderRadius: 8, padding: '0.5rem 0.75rem', minWidth: 120 }}>
+                <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>FC % of Net Sales</div>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: foodCostT.pct > 12 ? '#f44336' : foodCostT.pct > 9 ? '#ff9800' : '#4caf50' }}>{foodCostT.pct?.toFixed(1)}%</div>
+              </div>
+              <div style={{ background: th.card2, borderRadius: 8, padding: '0.5rem 0.75rem', minWidth: 120 }}>
+                <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Net Sales</div>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: th.text }}>${foodCostT.netSales?.toLocaleString()}</div>
+              </div>
+            </div>
+            {foodCostT.categories && Object.entries(foodCostT.categories).map(([key, cat]) => (
+              <div key={key} style={{ borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: '0.4rem', marginBottom: '0.4rem' }}>
+                <div onClick={() => setExpandedFoodCat(expandedFoodCat === key ? null : key)}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '0.3rem 0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.9rem' }}>{cat.icon}</span>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 600, color: th.text }}>{cat.label}</span>
+                    <span style={{ fontSize: '0.68rem', color: th.muted }}>{cat.totalQty} sold</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    {cat.totalCost > 0 && <span style={{ fontSize: '0.72rem', fontWeight: 700, color: O }}>${cat.totalCost.toFixed(2)}</span>}
+                    <span style={{ fontSize: '0.72rem', color: th.muted }}>${cat.totalRevenue.toFixed(0)} rev</span>
+                    <span style={{ fontSize: '0.65rem', color: th.muted }}>{expandedFoodCat === key ? '▲' : '▼'}</span>
+                  </div>
+                </div>
+                {expandedFoodCat === key && (
+                  <div style={{ paddingLeft: '1.25rem', paddingTop: '0.25rem' }}>
+                    {cat.items.slice(0, 10).map((item, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.2rem 0', borderBottom: `1px solid ${th.cardBorder}44` }}>
+                        <span style={{ fontSize: '0.7rem', color: th.text, flex: 1 }}>{item.name}</span>
+                        <span style={{ fontSize: '0.68rem', color: th.muted, marginRight: '0.5rem' }}>{item.qtySold}×</span>
+                        {item.totalCost > 0 && <span style={{ fontSize: '0.68rem', fontWeight: 600, color: O }}>${item.totalCost.toFixed(2)}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {foodCostT?.error && <div style={{ color: '#f44336', fontSize: '0.78rem', marginTop: '0.5rem' }}>{foodCostT.error}</div>}
+      </div>
 
       {/* ── Guest Reviews ── */}
       {storeReviews && (
@@ -11132,7 +11204,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
   const settingsTabs = [
     { id: 'notifications', label: '📬 Notifications', color: O },
-    { id: 'orion', label: '🔮 Orion', color: '#7C3AED' },
+    { id: 'orion', label: 'Orion', icon: <OrionIcon size={16} />, color: '#7C3AED' },
     { id: 'admin', label: '🛠️ Admin Tools', color: '#0EA5E9' },
   ];
 
@@ -11151,7 +11223,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             color: settingsTab === t.id ? t.color : th.muted,
             boxShadow: settingsTab === t.id ? '0 1px 4px #00000018' : 'none',
             transition: 'all 0.18s',
-          }}>{t.label}</button>
+          }}>{t.icon ? <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}>{t.icon}{t.label}</span> : t.label}</button>
         ))}
       </div>
 
@@ -11621,7 +11693,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       <div style={accentCard(th, '#7C3AED', { padding: '1.5rem', marginBottom: '1.25rem' })}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reportOpen ? '1rem' : 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.125rem' }}>🔮</span>
+            <OrionIcon size={22} />
             <span style={{ fontWeight: 700, fontSize: '1rem', color: th.text }}>Orion Report Settings</span>
           </div>
           <button onClick={() => { setReportOpen(o => !o); if (!reportSettings) loadReportSettings(); }}
@@ -13370,7 +13442,7 @@ const filterNotifsByRole = (notifs, user) => {
   return notifs;
 };
 
-function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onOrion, onLogout }) {
+function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onLogout }) {
   const store = getManagerStore(stores, user) || {};
   const pc = store.pc;
   const todayStr = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
@@ -13895,14 +13967,10 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         {lastRefresh && <div style={{ textAlign: "center", fontSize: "0.58rem", color: th.subtle, opacity: 0.7 }}>Updated {lastRefresh.toLocaleTimeString()}</div>}
       </div>
 
-      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
+      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
         <button onClick={fetchAll} disabled={refreshing} title="Refresh" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text }}>
           <span style={{ fontSize: "1.15rem", lineHeight: 1 }}>{refreshing ? "·" : "↻"}</span>
           <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Refresh</span>
-        </button>
-        <button onClick={onOrion} title="Ask Orion" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: "#8b5cf6" }}>
-          <span style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>{ICONS.chat("#8b5cf6")}</span>
-          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Orion</span>
         </button>
         <button onClick={onFullPortal} title="Full Portal" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O }}>
           <span style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>{ICONS.dashboard(O)}</span>
@@ -14357,7 +14425,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
 
   // Get channel avatar/initials
   const getChannelAvatar = (ch) => {
-    if (ch.type === "analyst") return "🔮";
+    if (ch.type === "analyst") return <OrionIcon size={20} />;
     if (ch.type === "dm") {
       const otherId = ch.members.find(id => id !== user.id);
       const other = users.find(u => u.id === otherId);
@@ -14369,7 +14437,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
 
   // User's channels, sorted by latest message
   const myChannels = channels
-    .filter(ch => ch.members && ch.members.includes(user.id))
+    .filter(ch => ch.type !== 'analyst' && ch.members && ch.members.includes(user.id))
     .map(ch => {
       const chMsgs = messages.filter(m => m.channelId === ch.id && !m.deleted);
       const lastMsg = chMsgs.length > 0 ? chMsgs[chMsgs.length - 1] : null;
@@ -23316,7 +23384,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.7.3
+            v9.8.0
           </div>
         )}
         {/* Collapse toggle — desktop only */}
