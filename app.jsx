@@ -5764,6 +5764,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [foodCostT, setFoodCostT] = React.useState(null);
   const [foodCostLoading, setFoodCostLoading] = React.useState(false);
   const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
+  const [expandedReview, setExpandedReview] = React.useState(null);
 
   React.useEffect(() => {
     (async () => {
@@ -6733,43 +6734,65 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
           )}
 
           {/* Recent reviews */}
-          {(storeReviews.reviews || []).slice(0, 8).map((review, idx) => (
-            <div key={review.id || idx} style={{
-              padding: '0.6rem 0', borderBottom: idx < 7 ? `1px solid ${th.cardBorder}` : 'none',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
-                <div style={{ fontSize: '0.72rem', fontWeight: 600, color: th.text }}>{review.authorName}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span style={{ color: review.rating >= 4 ? '#4caf50' : review.rating >= 3 ? '#ff9800' : '#f44336', fontWeight: 700, fontSize: '0.72rem' }}>
-                    {'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}
-                  </span>
-                  {review.sentiment && (
-                    <span style={{
-                      fontSize: '0.55rem', fontWeight: 700, padding: '0.1rem 0.3rem', borderRadius: 999,
-                      background: review.sentiment === 'positive' ? '#4caf5022' : review.sentiment === 'negative' ? '#f4433622' : '#ff980022',
-                      color: review.sentiment === 'positive' ? '#4caf50' : review.sentiment === 'negative' ? '#f44336' : '#ff9800',
-                    }}>
-                      {review.sentiment}
+          {(storeReviews.reviews || []).slice(0, 8).map((review, idx) => {
+            const isOpen = expandedReview === (review.id || idx);
+            const reviewDate = review.publishTime ? new Date(review.publishTime) : null;
+            const dateStr = reviewDate ? reviewDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+            const timeAgo = reviewDate ? (() => {
+              const days = Math.floor((Date.now() - reviewDate.getTime()) / 86400000);
+              if (days === 0) return 'Today';
+              if (days === 1) return 'Yesterday';
+              if (days < 30) return `${days}d ago`;
+              if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+              return `${Math.floor(days / 365)}y ago`;
+            })() : '';
+            return (
+              <div key={review.id || idx}
+                onClick={() => setExpandedReview(isOpen ? null : (review.id || idx))}
+                style={{ padding: '0.6rem 0', borderBottom: idx < 7 ? `1px solid ${th.cardBorder}` : 'none', cursor: review.text ? 'pointer' : 'default', transition: 'background .15s' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 600, color: th.text }}>{review.authorName}</span>
+                    {dateStr && <span style={{ fontSize: '0.6rem', color: th.muted }} title={dateStr}>{timeAgo}</span>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <span style={{ color: review.rating >= 4 ? '#4caf50' : review.rating >= 3 ? '#ff9800' : '#f44336', fontWeight: 700, fontSize: '0.72rem' }}>
+                      {'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}
                     </span>
-                  )}
+                    {review.sentiment && (
+                      <span style={{
+                        fontSize: '0.55rem', fontWeight: 700, padding: '0.1rem 0.3rem', borderRadius: 999,
+                        background: review.sentiment === 'positive' ? '#4caf5022' : review.sentiment === 'negative' ? '#f4433622' : '#ff980022',
+                        color: review.sentiment === 'positive' ? '#4caf50' : review.sentiment === 'negative' ? '#f44336' : '#ff9800',
+                      }}>
+                        {review.sentiment}
+                      </span>
+                    )}
+                  </div>
                 </div>
+                {review.text && (
+                  <div style={{ fontSize: '0.72rem', color: isOpen ? th.text : th.muted, lineHeight: 1.5, maxHeight: isOpen ? 'none' : '3em', overflow: 'hidden', transition: 'max-height .3s ease, color .2s' }}>
+                    {isOpen ? review.text : (review.text.slice(0, 200) + (review.text.length > 200 ? '…' : ''))}
+                  </div>
+                )}
+                {isOpen && dateStr && (
+                  <div style={{ fontSize: '0.6rem', color: th.muted, marginTop: '0.3rem' }}>{dateStr}</div>
+                )}
+                {review.themes?.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.2rem', marginTop: '0.25rem' }}>
+                    {review.themes.map(t => (
+                      <span key={t} style={{ fontSize: '0.55rem', padding: '0.05rem 0.3rem', borderRadius: 999, background: th.card2, color: th.muted }}>
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {review.text && !isOpen && review.text.length > 200 && (
+                  <div style={{ fontSize: '0.6rem', color: '#8b5cf6', marginTop: '0.15rem', fontWeight: 600 }}>tap to read more</div>
+                )}
               </div>
-              {review.text && (
-                <div style={{ fontSize: '0.72rem', color: th.muted, lineHeight: 1.5, maxHeight: '3em', overflow: 'hidden' }}>
-                  {review.text.slice(0, 200)}{review.text.length > 200 ? '…' : ''}
-                </div>
-              )}
-              {review.themes?.length > 0 && (
-                <div style={{ display: 'flex', gap: '0.2rem', marginTop: '0.25rem' }}>
-                  {review.themes.map(t => (
-                    <span key={t} style={{ fontSize: '0.55rem', padding: '0.05rem 0.3rem', borderRadius: 999, background: th.card2, color: th.muted }}>
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
