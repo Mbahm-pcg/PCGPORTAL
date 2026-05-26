@@ -1,7 +1,7 @@
 // One-time script: look up Google Place IDs for all Dunkin' stores and seed the blob
 const https = require('https');
 
-const API_KEY = 'AIzaSyCZDw2hK8kZnsYELxIhq7ikdbb34axx9NI';
+const API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 
 const STORES = [
   { pc:"339616", name:"Wadsworth", address:"1630 W Wadsworth Ave", city:"Philadelphia", state:"PA" },
