@@ -71,6 +71,8 @@ const ICONS = {
 
 };
 
+const OrionIcon = ({ size = 20 }) => <img src="/orion-icon.png" alt="Orion" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }} />;
+
 const CAT_ICONS_SVG = {
   "Dunkin'": ICONS.coffee,
   "Payroll & HR": ICONS.briefcase,
@@ -4642,10 +4644,10 @@ function AdminAnalytics({ stores, users, districts, th, salesWeeks, setSalesWeek
             { icon: '📅', label: 'vs Same Wk Last Year',  value: fmtPct(vsLY),               sub: `${enriched.length} stores reporting`,                         color: vsLY >= 0 ? '#69db7c' : '#ffa94d' },
             { icon: '👥', label: 'Total Guest Count',     value: fmtNum(totalCC),            sub: `${fmtNum(Math.round(totalCC/enriched.length||0))} avg/store`,  color: '#74c0fc' },
             { icon: '⚙️', label: 'Avg Labor %',           value: `${avgLabor.toFixed(1)}%`,  sub: `Avg Food Cost ${avgFC.toFixed(1)}%`,                           color: laborClr(avgLabor) },
-            { icon: '🔮', label: 'Next Wk Forecast',      value: fmtSales(totalFC),          sub: `${fmtSales(totalFC / (enriched.length||1))}/store avg`,        color: '#b197fc' },
+            { icon: 'orion', label: 'Next Wk Forecast',      value: fmtSales(totalFC),          sub: `${fmtSales(totalFC / (enriched.length||1))}/store avg`,        color: '#b197fc' },
           ].map(k => (
             <div key={k.label} style={{ ...card(th), padding: '1rem 1.125rem', borderTop: `3px solid ${k.color}` }}>
-              <div style={{ fontSize: '1.4rem', marginBottom: '0.35rem' }}>{k.icon}</div>
+              <div style={{ fontSize: '1.4rem', marginBottom: '0.35rem' }}>{k.icon === 'orion' ? <OrionIcon size={28} /> : k.icon}</div>
               <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.45rem', color: (k.label==='vs Prior Week'||k.label==='vs Same Wk Last Year') ? k.color : th.text }}>{k.value}</div>
               <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.15rem' }}>{k.sub}</div>
               <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>{k.label}</div>
@@ -5757,6 +5759,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [hoveredHour, setHoveredHour] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [storeReviews, setStoreReviews] = React.useState(null);
+  const [foodCostT, setFoodCostT] = React.useState(null);
+  const [foodCostLoading, setFoodCostLoading] = React.useState(false);
+  const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
 
   React.useEffect(() => {
     (async () => {
@@ -5914,6 +5919,13 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
       }
 
       setLoading(false);
+
+      // Fetch Food Cost(T) in background
+      setFoodCostLoading(true);
+      fetch('/.netlify/functions/food-cost', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'store', pc, date: localDate }),
+      }).then(r => r.json()).then(data => { if (!data.error) setFoodCostT(data); }).catch(() => {}).finally(() => setFoodCostLoading(false));
 
       // Compute WTD (past days in current week) + LY same week for forecast
       // In WEEK mode, perDay already covers all 7 days of the current week, so
@@ -6605,6 +6617,66 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
               })}
             </div>
           ) : <div style={{ textAlign:'center', padding:'1rem', color:th.muted, fontSize:'0.8rem' }}>No menu item data</div>}
+        </div>
+      )}
+
+      {/* ── Food Cost(T) ── */}
+      {(foodCostT || foodCostLoading) && (
+        <div style={{ background: th.card, borderRadius: '0.75rem', padding: '1.25rem', marginBottom: '1.25rem', border: `1px solid ${th.cardBorder}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.85rem', color: th.text }}>Food Cost(T)</div>
+            {foodCostT && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: foodCostT.pct <= 25 ? '#4caf50' : foodCostT.pct <= 30 ? '#ff9800' : '#f44336' }}>
+                  {foodCostT.pct}%
+                </span>
+                <span style={{ fontSize: '0.72rem', color: th.muted }}>{fmtUSD(foodCostT.totalBakeryCost)} / {fmtUSD(foodCostT.netSales)}</span>
+              </div>
+            )}
+          </div>
+          {foodCostLoading ? (
+            <div style={{ textAlign: 'center', padding: '1rem', color: th.muted, fontSize: '0.8rem' }}>Calculating theoretical food cost...</div>
+          ) : foodCostT && foodCostT.categories && Object.keys(foodCostT.categories).length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              {Object.entries(foodCostT.categories).sort((a, b) => b[1].totalRevenue - a[1].totalRevenue).map(([key, cat]) => {
+                const isExpanded = expandedFoodCat === key;
+                const maxRev = Math.max(...Object.values(foodCostT.categories).map(c => c.totalRevenue));
+                const barPct = maxRev > 0 ? (cat.totalRevenue / maxRev) * 100 : 0;
+                return (
+                  <div key={key}>
+                    <div onClick={() => setExpandedFoodCat(isExpanded ? null : key)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', padding: '0.4rem 0.25rem', borderRadius: 6, cursor: 'pointer', transition: 'background .15s', background: isExpanded ? (th.card3 || 'rgba(255,255,255,0.04)') : 'transparent' }}
+                      onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = th.card3 || 'rgba(255,255,255,0.04)'; }}
+                      onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = 'transparent'; }}>
+                      <span style={{ fontSize: '0.85rem', flexShrink: 0, width: 22, textAlign: 'center' }}>{cat.icon}</span>
+                      <div style={{ width: 100, color: th.text, fontWeight: 600, fontSize: '0.72rem', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cat.label}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ background: th.card3 || 'rgba(255,255,255,0.06)', borderRadius: 3, height: 6, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', borderRadius: 3, background: `linear-gradient(90deg, ${cat.color}, ${cat.color}88)`, width: barPct + '%', transition: 'width .5s ease' }} />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: th.muted, flexShrink: 0, minWidth: 40, textAlign: 'right' }}>{fmtNum(cat.totalQty)}</div>
+                      <div style={{ fontSize: '0.72rem', color: cat.color, fontWeight: 700, flexShrink: 0, minWidth: 60, textAlign: 'right' }}>{fmtUSD(cat.totalRevenue)}</div>
+                      {cat.totalCost > 0 && <div style={{ fontSize: '0.68rem', color: '#8b5cf6', fontWeight: 600, flexShrink: 0, minWidth: 50, textAlign: 'right' }}>{fmtUSD(cat.totalCost)}</div>}
+                      <span style={{ fontSize: '0.6rem', color: th.muted, flexShrink: 0, width: 14, textAlign: 'center', transition: 'transform .2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)' }}>▼</span>
+                    </div>
+                    {isExpanded && cat.items && cat.items.length > 0 && (
+                      <div style={{ marginLeft: 30, marginTop: '0.25rem', marginBottom: '0.5rem', borderLeft: `2px solid ${cat.color}44`, paddingLeft: '0.75rem' }}>
+                        {cat.items.map((item, idx) => (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', padding: '0.2rem 0', borderBottom: `1px solid ${th.cardBorder || 'rgba(255,255,255,0.04)'}` }}>
+                            <div style={{ flex: 1, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
+                            <div style={{ flexShrink: 0, color: th.muted, fontSize: '0.65rem', minWidth: 45, textAlign: 'right' }}>{fmtNum(item.qtySold)} sold</div>
+                            <div style={{ flexShrink: 0, color: th.muted, fontSize: '0.65rem', minWidth: 50, textAlign: 'right' }}>{fmtUSD(item.revenue)}</div>
+                            {item.totalCost > 0 && <div style={{ flexShrink: 0, color: '#8b5cf6', fontSize: '0.65rem', fontWeight: 600, minWidth: 45, textAlign: 'right' }}>{fmtUSD(item.totalCost)}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : <div style={{ textAlign: 'center', padding: '1rem', color: th.muted, fontSize: '0.8rem' }}>No food cost data</div>}
         </div>
       )}
 
@@ -11132,7 +11204,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
   const settingsTabs = [
     { id: 'notifications', label: '📬 Notifications', color: O },
-    { id: 'orion', label: '🔮 Orion', color: '#7C3AED' },
+    { id: 'orion', label: 'Orion', icon: 'orion', color: '#7C3AED' },
     { id: 'admin', label: '🛠️ Admin Tools', color: '#0EA5E9' },
   ];
 
@@ -11151,7 +11223,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             color: settingsTab === t.id ? t.color : th.muted,
             boxShadow: settingsTab === t.id ? '0 1px 4px #00000018' : 'none',
             transition: 'all 0.18s',
-          }}>{t.label}</button>
+          }}>{t.icon === 'orion' ? <><OrionIcon size={14} /> {t.label}</> : t.label}</button>
         ))}
       </div>
 
@@ -11621,7 +11693,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       <div style={accentCard(th, '#7C3AED', { padding: '1.5rem', marginBottom: '1.25rem' })}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reportOpen ? '1rem' : 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.125rem' }}>🔮</span>
+            <OrionIcon size={22} />
             <span style={{ fontWeight: 700, fontSize: '1rem', color: th.text }}>Orion Report Settings</span>
           </div>
           <button onClick={() => { setReportOpen(o => !o); if (!reportSettings) loadReportSettings(); }}
@@ -13370,7 +13442,7 @@ const filterNotifsByRole = (notifs, user) => {
   return notifs;
 };
 
-function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onOrion, onLogout }) {
+function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onLogout }) {
   const store = getManagerStore(stores, user) || {};
   const pc = store.pc;
   const todayStr = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
@@ -13895,14 +13967,10 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         {lastRefresh && <div style={{ textAlign: "center", fontSize: "0.58rem", color: th.subtle, opacity: 0.7 }}>Updated {lastRefresh.toLocaleTimeString()}</div>}
       </div>
 
-      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
+      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
         <button onClick={fetchAll} disabled={refreshing} title="Refresh" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text }}>
           <span style={{ fontSize: "1.15rem", lineHeight: 1 }}>{refreshing ? "·" : "↻"}</span>
           <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Refresh</span>
-        </button>
-        <button onClick={onOrion} title="Ask Orion" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: "#8b5cf6" }}>
-          <span style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>{ICONS.chat("#8b5cf6")}</span>
-          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Orion</span>
         </button>
         <button onClick={onFullPortal} title="Full Portal" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O }}>
           <span style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>{ICONS.dashboard(O)}</span>
@@ -14357,7 +14425,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
 
   // Get channel avatar/initials
   const getChannelAvatar = (ch) => {
-    if (ch.type === "analyst") return "🔮";
+    if (ch.type === "analyst") return <OrionIcon size={20} />;
     if (ch.type === "dm") {
       const otherId = ch.members.find(id => id !== user.id);
       const other = users.find(u => u.id === otherId);
@@ -14369,7 +14437,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
 
   // User's channels, sorted by latest message
   const myChannels = channels
-    .filter(ch => ch.members && ch.members.includes(user.id))
+    .filter(ch => ch.members && ch.members.includes(user.id) && ch.type !== "analyst")
     .map(ch => {
       const chMsgs = messages.filter(m => m.channelId === ch.id && !m.deleted);
       const lastMsg = chMsgs.length > 0 ? chMsgs[chMsgs.length - 1] : null;
@@ -14783,7 +14851,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
           {threadMessages.length === 0 && (
             <div style={{ textAlign: "center", color: th.muted, fontSize: "0.875rem", marginTop: "3rem" }}>
               {activeChannel && activeChannel.type === "analyst"
-                ? <>🔮 <strong style={{ color: "#8b5cf6" }}>Orion is ready.</strong> Ask anything about your stores, labor, sales, or operations.<br/><span style={{ fontSize: "0.75rem" }}>Try: "Which stores have the highest labor today?" or "Deep analysis on District 3"</span></>
+                ? <><OrionIcon size={18} /> <strong style={{ color: "#8b5cf6" }}>Orion is ready.</strong> Ask anything about your stores, labor, sales, or operations.<br/><span style={{ fontSize: "0.75rem" }}>Try: "Which stores have the highest labor today?" or "Deep analysis on District 3"</span></>
                 : "No messages yet. Say hello! 👋"}
             </div>
           )}
@@ -14839,7 +14907,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
                     {orionReply && (
                       <div style={{ padding: "0.625rem 1rem", borderBottom: hasFollowUps || isExpanded ? `1px solid ${th.cardBorder}` : "none" }}>
                         <div style={{ display: "flex", alignItems: "flex-start", gap: "0.625rem" }}>
-                          <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#8b5cf622", color: "#8b5cf6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.875rem", flexShrink: 0, marginTop: 2 }}>🔮</div>
+                          <div style={{ width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}><OrionIcon size={28} /></div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: "#8b5cf6", marginBottom: 2 }}>
                               Orion
@@ -14864,8 +14932,8 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
                           const isOrionMsg = m.isOrion || m.senderId === "orion";
                           return (
                             <div key={m.id} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.5rem", marginTop: "0.375rem" }}>
-                              <div style={{ width: 24, height: 24, borderRadius: "50%", background: isOrionMsg ? "#8b5cf622" : O + "22", color: isOrionMsg ? "#8b5cf6" : O, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: isOrionMsg ? "0.75rem" : "0.5rem", flexShrink: 0, marginTop: 2 }}>
-                                {isOrionMsg ? "🔮" : m.senderInitials}
+                              <div style={{ width: 24, height: 24, borderRadius: "50%", background: isOrionMsg ? "transparent" : O + "22", color: isOrionMsg ? "#8b5cf6" : O, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: isOrionMsg ? "0.75rem" : "0.5rem", flexShrink: 0, marginTop: 2 }}>
+                                {isOrionMsg ? <OrionIcon size={24} /> : m.senderInitials}
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: "0.625rem", fontWeight: 600, color: isOrionMsg ? "#8b5cf6" : th.text, marginBottom: 1 }}>
@@ -14917,8 +14985,8 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
                 return (
                   <div key={m.id} style={{ display: "flex", flexDirection: isMine ? "row-reverse" : "row", gap: "0.5rem", marginBottom: "0.75rem", alignItems: "flex-start" }}>
                     {!isMine && (
-                      <div style={{ width: 32, height: 32, borderRadius: "50%", background: isOrionMsg ? "#8b5cf622" : O + "22", color: isOrionMsg ? "#8b5cf6" : O, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: isOrionMsg ? "1rem" : "0.625rem", flexShrink: 0, marginTop: 2 }}>
-                        {isOrionMsg ? "🔮" : m.senderInitials}
+                      <div style={{ width: 32, height: 32, borderRadius: "50%", background: isOrionMsg ? "transparent" : O + "22", color: isOrionMsg ? "#8b5cf6" : O, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: isOrionMsg ? "1rem" : "0.625rem", flexShrink: 0, marginTop: 2 }}>
+                        {isOrionMsg ? <OrionIcon size={32} /> : m.senderInitials}
                       </div>
                     )}
                     <div style={{ maxWidth: isOrionMsg ? "85%" : "70%" }}>
@@ -14975,7 +15043,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
           {/* Orion typing indicator */}
           {orionThinking && activeChannel && activeChannel.type === "analyst" && (
             <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem", alignItems: "flex-start" }}>
-              <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#8b5cf622", color: "#8b5cf6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", flexShrink: 0 }}>🔮</div>
+              <div style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><OrionIcon size={32} /></div>
               <div>
                 <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: "#8b5cf6", marginBottom: 2 }}>Orion</div>
                 <div style={{ padding: "0.5rem 0.75rem", borderRadius: "1rem 1rem 1rem 0.25rem", background: th.card, border: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", gap: 6 }}>
@@ -15585,7 +15653,7 @@ function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
                 onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
                 <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: kpi.color, textShadow: kpi.label === "Net Sales" ? `0 0 12px ${kpi.color}66` : "none" }}>{kpi.value}</div>
                 <div style={{ fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" }}>{kpi.sub}</div>
-                {onAskOrion && <div style={{ fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.35rem", opacity: 0.7 }}>🔮 Click to ask Orion</div>}
+                {onAskOrion && <div style={{ fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.35rem", opacity: 0.7, display: "flex", alignItems: "center", gap: 3 }}><OrionIcon size={10} /> Click to ask Orion</div>}
               </div>
             ))}
           </div>
@@ -16048,7 +16116,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
                     textTransform: "uppercase", letterSpacing: 1.2, marginTop: "0.35rem",
                   }}>{k.label}</div>
                   {k.question && onAskOrion && (
-                    <div style={{ fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.3rem", opacity: isHovered ? 1 : 0.55, transition: "opacity .2s" }}>🔮 Click to ask Orion</div>
+                    <div style={{ fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.3rem", opacity: isHovered ? 1 : 0.55, transition: "opacity .2s", display: "flex", alignItems: "center", gap: 3 }}><OrionIcon size={10} /> Click to ask Orion</div>
                   )}
                 </div>
               </div>
@@ -19382,7 +19450,7 @@ function AskBar({ user, stores, th, onNavigate }) {
       <div style={{ width: '100%', maxWidth: 640, background: th.card, borderRadius: '1rem', border: `1px solid ${th.cardBorder}`, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
         {/* Search bar */}
         <div style={{ display: 'flex', alignItems: 'center', padding: '1rem 1.25rem', gap: '0.75rem', borderBottom: `1px solid ${th.cardBorder}` }}>
-          <span style={{ fontSize: '1.1rem' }}>🔮</span>
+          <OrionIcon size={22} />
           <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && ask()}
             placeholder="Ask Orion anything... (e.g. 'Which stores have high labor today?')"
@@ -19660,7 +19728,7 @@ function TodayBrief({ user, th, setAnnouncements, showAlert }) {
   if (loading) return (
     <div style={{ background: `linear-gradient(135deg, ${O}12, ${O}06)`, border: `1px solid ${O}33`, borderRadius: '0.75rem', padding: '1.25rem', marginBottom: '1.25rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: O, fontSize: '0.75rem', fontWeight: 700 }}>
-        <span>🔮</span> Loading Orion's brief...
+        <OrionIcon size={16} /> Loading Orion's brief...
       </div>
     </div>
   );
@@ -19671,7 +19739,7 @@ function TodayBrief({ user, th, setAnnouncements, showAlert }) {
     <div style={{ background: `linear-gradient(135deg, ${O}10, ${O}05)`, border: `1px solid ${O}30`, borderRadius: '0.75rem', padding: collapsed ? '0.75rem 1.25rem' : '1.25rem', marginBottom: '1.25rem', transition: 'padding 0.2s' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setCollapsed(c => !c)}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <span style={{ fontSize: '1.1rem' }}>🔮</span>
+          <OrionIcon size={22} />
           <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.85rem', color: th.text }}>Today's Brief from Orion</span>
           <span style={{ fontSize: '0.6rem', color: th.muted, fontWeight: 500 }}>{brief.scope} · {timeAgo(brief.generatedAt)}</span>
         </div>
@@ -21470,6 +21538,430 @@ function EmailTab({ th, user }) {
   );
 }
 
+function OrionFAB({ user, users, messages, setMessages, readState, setReadState, channels, setChannels, stores, th, showAlert, pendingOrionQuestion, clearPendingOrion, onDrillIn }) {
+  const [open, setOpen] = useState(false);
+  const [msgText, setMsgText] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const [replyToThread, setReplyToThread] = useState(null);
+  const [expandedThreads, setExpandedThreads] = useState(new Set());
+  const [hasNewResponse, setHasNewResponse] = useState(false);
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
+  const dark = th.bg === "#0f1117" || th.bg === "#10121b";
+  const O = "#FF671F";
+
+  const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm" || user.userType === "manager");
+  if (!isAnalystUser) return null;
+
+  const channelId = `analyst_${user.id}`;
+
+  // Ensure analyst channel exists
+  useEffect(() => {
+    const exists = channels.find(c => c.id === channelId);
+    if (!exists) {
+      const personalChannel = {
+        id: channelId, type: "analyst", name: "Orion — My Analyst",
+        members: [user.id], createdAt: "2026-01-01T00:00:00.000Z"
+      };
+      const sharedChannels = user.userType === "manager" ? [] : [
+        { id: "analyst_exec", type: "analyst", name: "Orion — Executive Room",
+          members: users.filter(u => u.userType === "executive" || u.userType === "it").map(u => u.id),
+          createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "analyst_ops", type: "analyst", name: "Orion — Operations",
+          members: users.filter(u => ["executive", "it", "dm", "office_staff"].includes(u.userType)).map(u => u.id),
+          createdAt: "2026-01-01T00:00:00.000Z" },
+      ];
+      setChannels(prev => [personalChannel, ...sharedChannels, ...prev]);
+    }
+  }, [user?.id]);
+
+  // Handle pending Orion question from KPI clicks
+  useEffect(() => {
+    if (!pendingOrionQuestion) return;
+    setOpen(true);
+    const timer = setTimeout(() => {
+      const threadId = `thread_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const msg = {
+        id: makeMsgId(), channelId, senderId: user.id,
+        senderName: user.name, senderInitials: user.initials,
+        text: pendingOrionQuestion, mentions: [], attachments: [],
+        timestamp: new Date().toISOString(), deleted: false, threadId,
+      };
+      setMessages(prev => [...prev, msg]);
+      setReadState(prev => ({ ...prev, [`${user.id}_${channelId}`]: msg.timestamp }));
+      sendToOrion(pendingOrionQuestion, threadId);
+      if (clearPendingOrion) clearPendingOrion();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [pendingOrionQuestion]);
+
+  const threadMessages = messages.filter(m => m.channelId === channelId && !m.deleted);
+
+  const threadedMessages = React.useMemo(() => {
+    const threads = new Map();
+    threadMessages.forEach(m => {
+      const tid = m.threadId || m.id;
+      if (!threads.has(tid)) threads.set(tid, []);
+      threads.get(tid).push(m);
+    });
+    return Array.from(threads.entries()).map(([tid, msgs]) => ({
+      threadId: tid, firstMsg: msgs[0], messages: msgs,
+      lastActivity: msgs[msgs.length - 1].timestamp,
+    })).sort((a, b) => a.lastActivity.localeCompare(b.lastActivity));
+  }, [threadMessages]);
+
+  useEffect(() => {
+    if (open && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [threadMessages.length, open]);
+
+  useEffect(() => {
+    if (open && inputRef.current) inputRef.current.focus();
+  }, [open]);
+
+  const resolveMention = (mention) => {
+    const { role, identifier } = mention;
+    if (role === "dm") {
+      const district = parseInt(identifier);
+      const dm = users.find(u => u.userType === "dm" && u.district === district);
+      return { ...mention, name: dm?.name, userId: dm?.id };
+    }
+    if (role === "gm") {
+      const store = stores.find(s => String(s.pc) === String(identifier) || (s.name && s.name.toLowerCase() === identifier.toLowerCase()));
+      if (store) {
+        const mgr = users.find(u => u.userType === "manager" && u.name === store.mgr);
+        return { ...mention, name: mgr?.name || store.mgr, userId: mgr?.id, storeName: store.name };
+      }
+    }
+    return mention;
+  };
+
+  const parseDrillIns = (text, keyPrefix) => {
+    const drillParts = [];
+    let lastIdx = 0;
+    const drillRegex = /\{\{drill:([^:}]+):([^}]+)\}\}/g;
+    let dm;
+    while ((dm = drillRegex.exec(text)) !== null) {
+      if (dm.index > lastIdx) drillParts.push(text.slice(lastIdx, dm.index));
+      const storeName = dm[1];
+      const drillTab = dm[2];
+      const store = stores.find(s => s.name && s.name.toLowerCase() === storeName.toLowerCase());
+      drillParts.push(
+        React.createElement("span", {
+          key: `${keyPrefix}_drill_${dm.index}`,
+          onClick: (e) => { e.stopPropagation(); if (store && onDrillIn) { setOpen(false); onDrillIn(store.pc, drillTab); } },
+          style: { color: "#FF671F", cursor: "pointer", fontWeight: 600, borderBottom: "1px dashed #FF671F", padding: "0 2px" },
+        }, `${storeName} → ${drillTab.charAt(0).toUpperCase() + drillTab.slice(1)}`)
+      );
+      lastIdx = dm.index + dm[0].length;
+    }
+    if (lastIdx < text.length) drillParts.push(text.slice(lastIdx));
+    return drillParts.length > 0 ? drillParts : [text];
+  };
+
+  const renderSegmentWithDrillIns = (segment, keyPrefix) => {
+    const hasDrill = /\{\{drill:[^}]+\}\}/.test(segment);
+    if (!hasDrill) return typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(segment, th) : segment;
+    const drillParts = parseDrillIns(segment, keyPrefix);
+    return React.createElement("span", { key: keyPrefix }, ...drillParts.map((part, idx) => {
+      if (typeof part === "string") return React.createElement("span", { key: `${keyPrefix}_t${idx}` }, typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(part, th) : part);
+      return part;
+    }));
+  };
+
+  const renderOrionText = (text) => {
+    const mentionPattern = /@\[(dm|gm):([^\]]+)\]/g;
+    const hasMentions = mentionPattern.test(text);
+    const hasDrillIns = /\{\{drill:[^}]+\}\}/.test(text);
+    if (!hasMentions && !hasDrillIns) return typeof renderAnalystMarkdown === "function" ? renderAnalystMarkdown(text, th) : text;
+    if (!hasMentions && hasDrillIns) return renderSegmentWithDrillIns(text, "dronly");
+    const parts = text.split(/@\[(dm|gm):([^\]]+)\]/g);
+    const result = [];
+    for (let i = 0; i < parts.length; i += 3) {
+      const segment = parts[i];
+      if (segment) result.push(React.createElement("span", { key: `seg-${i}` }, renderSegmentWithDrillIns(segment, `seg-${i}`)));
+      if (i + 1 < parts.length && i + 2 < parts.length) {
+        const role = parts[i + 1];
+        const identifier = parts[i + 2];
+        const resolved = resolveMention({ role, identifier, raw: `@[${role}:${identifier}]` });
+        const label = resolved.name ? `@${resolved.name}` : (role === "dm" ? `@DM District ${identifier}` : `@GM Store ${identifier}`);
+        result.push(React.createElement("span", {
+          key: `mention-${i}`,
+          style: { display: "inline-block", background: O + "22", color: O, fontWeight: 700, fontSize: "0.8125rem", padding: "1px 8px", borderRadius: "999px", margin: "0 2px", verticalAlign: "baseline", border: `1px solid ${O}44` }
+        }, label));
+      }
+    }
+    return React.createElement("span", null, ...result);
+  };
+
+  const sendToOrion = async (question, threadId) => {
+    setThinking(true);
+    try {
+      const district = user.userType === "dm" ? user.district : null;
+      const storePC = user.userType === "manager" ? (stores.find(s => s.mgr === user.name)?.pc || null) : null;
+      const reportKeywords = ['create a dashboard', 'create a report', 'generate a dashboard', 'generate a report', 'create a presentation', 'build a dashboard', 'make a dashboard'];
+      const isReportRequest = reportKeywords.some(kw => question.toLowerCase().includes(kw));
+      if (isReportRequest) {
+        try {
+          const rptRes = await fetch('/.netlify/functions/analyst', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'create-report', prompt: question, userId: user.id, userRole: user.userType, scope: user.userType === 'dm' ? `district:${district}` : user.userType === 'manager' ? `store:${storePC}` : 'network', channelId }),
+          });
+          const result = await rptRes.json();
+          if (result.ok) {
+            const botMsg = { id: makeMsgId(), channelId, senderId: 'orion', senderName: 'Orion', senderInitials: 'O', text: `Your report is ready: **${result.title}** — [View in Reports](?tab=reports&report=${result.reportId})`, timestamp: new Date().toISOString(), isOrion: true, threadId: threadId || null };
+            setMessages(prev => [...prev, botMsg]);
+            setThinking(false);
+            if (!open) setHasNewResponse(true);
+            return;
+          }
+        } catch (e) { console.warn('Report creation failed, falling back:', e); }
+      }
+      const _allTickets = (() => { try { return JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]"); } catch { return []; } })();
+      const _openStatuses = ["Open", "In Progress"];
+      let _scopedTickets = _allTickets.filter(t => _openStatuses.includes(t.status));
+      if (storePC) _scopedTickets = _scopedTickets.filter(t => String(t.storePC) === String(storePC));
+      else if (district) {
+        const _districtPCs = stores.filter(s => s.district === district).map(s => String(s.pc));
+        _scopedTickets = _scopedTickets.filter(t => _districtPCs.includes(String(t.storePC)));
+      }
+      const tickets = _scopedTickets.slice(0, 30).map(({ id, number, title, storeName, storePC: spc, category, priority, status, createdAt, description }) => ({ id, number, title, storeName, storePC: spc, category, priority, status, createdAt, description: (description || "").slice(0, 200) }));
+      const res = await fetch("/.netlify/functions/analyst", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "ask", question, channelId, threadId, userId: user.id, userRole: user.userType, district, storePC, forceDeep: question.toLowerCase().includes("deep analysis"), tickets }),
+      });
+      const data = await res.json();
+      if (data.answer) {
+        const resolvedMentions = (data.mentions || []).map(m => resolveMention(m));
+        const orionMsg = {
+          id: data.messageId || makeMsgId(), channelId, senderId: "orion", senderName: "Orion", senderInitials: "O",
+          text: data.answer, mentions: [], orionMentions: resolvedMentions, attachments: [],
+          timestamp: new Date().toISOString(), deleted: false, isOrion: true,
+          model: data.model, tokens: data.tokens, latencyMs: data.latencyMs, threadId: threadId || null,
+        };
+        setMessages(prev => [...prev, orionMsg]);
+        if (!open) setHasNewResponse(true);
+        resolvedMentions.filter(m => m.userId).forEach(m => {
+          fetch("/.netlify/functions/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send", userId: m.userId, title: "Orion mentioned you", body: `Orion flagged something for your review`, url: "/" }) }).catch(() => {});
+        });
+      }
+    } catch (err) {
+      const errorMsg = { id: makeMsgId(), channelId, senderId: "orion", senderName: "Orion", senderInitials: "O", text: "Sorry, I encountered an error. Please try again.", mentions: [], attachments: [], timestamp: new Date().toISOString(), deleted: false, isOrion: true, threadId: threadId || null };
+      setMessages(prev => [...prev, errorMsg]);
+    }
+    setThinking(false);
+  };
+
+  const sendMessage = () => {
+    if (!msgText.trim()) return;
+    let msgThreadId;
+    if (replyToThread) {
+      msgThreadId = replyToThread;
+    } else {
+      msgThreadId = `thread_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    }
+    const msg = {
+      id: makeMsgId(), channelId, senderId: user.id, senderName: user.name, senderInitials: user.initials,
+      text: msgText.trim(), mentions: [], attachments: [], timestamp: new Date().toISOString(), deleted: false, threadId: msgThreadId,
+    };
+    setMessages(prev => [...prev, msg]);
+    const questionText = msgText.trim();
+    setMsgText("");
+    setReadState(prev => ({ ...prev, [`${user.id}_${channelId}`]: msg.timestamp }));
+    sendToOrion(questionText, msgThreadId);
+    setReplyToThread(null);
+  };
+
+  // ── FAB button ──
+  const fabStyle = {
+    position: "fixed", bottom: 24, right: 24, zIndex: 9998, width: 56, height: 56,
+    borderRadius: "50%", border: "none", cursor: "pointer", padding: 0,
+    background: "linear-gradient(135deg, #8b5cf6, #6d28d9)",
+    boxShadow: "0 4px 20px rgba(139, 92, 246, 0.4), 0 2px 8px rgba(0,0,0,0.2)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    transition: "transform 0.2s, box-shadow 0.2s",
+  };
+
+  const panelStyle = {
+    position: "fixed", bottom: 90, right: 24, zIndex: 9999,
+    width: 420, maxWidth: "calc(100vw - 48px)", height: 580, maxHeight: "calc(100vh - 120px)",
+    background: th.card, border: `1px solid ${th.cardBorder}`,
+    borderRadius: "1rem", boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
+    display: "flex", flexDirection: "column", overflow: "hidden",
+    animation: "orionSlideUp 0.25s ease-out",
+  };
+
+  return ReactDOM.createPortal(<>
+    {/* Slide-up panel */}
+    {open && <div className="orion-panel" style={panelStyle}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", padding: "0.75rem 1rem", gap: "0.5rem", borderBottom: `1px solid ${th.cardBorder}`, background: `linear-gradient(135deg, #8b5cf622, #6d28d922)` }}>
+        <OrionIcon size={28} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.9rem", color: th.text }}>Orion</div>
+          <div style={{ fontSize: "0.65rem", color: th.muted }}>AI Analyst — ask about sales, labor, operations</div>
+        </div>
+        <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "1.2rem", padding: "0.25rem" }}>✕</button>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex: 1, overflow: "auto", padding: "0.75rem", minHeight: 0 }}>
+        {threadedMessages.length === 0 && (
+          <div style={{ textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "3rem" }}>
+            <OrionIcon size={40} />
+            <div style={{ marginTop: "0.75rem" }}><strong style={{ color: "#8b5cf6" }}>Orion is ready.</strong></div>
+            <div style={{ fontSize: "0.75rem", marginTop: "0.35rem" }}>Ask anything about your stores, labor, sales, or operations.</div>
+            <div style={{ fontSize: "0.65rem", marginTop: "0.5rem", color: th.muted }}>Try: "Which stores have high labor today?"</div>
+          </div>
+        )}
+
+        {threadedMessages.map(thread => {
+          const isExpanded = expandedThreads.has(thread.threadId);
+          const userMsg = thread.firstMsg;
+          const orionReply = thread.messages.find(m => m.isOrion || m.senderId === "orion");
+          const followUps = thread.messages.slice(orionReply ? 2 : 1);
+          const hasFollowUps = followUps.length > 0;
+          const isActiveReply = replyToThread === thread.threadId;
+          const questionPreview = userMsg.text.length > 100 ? userMsg.text.slice(0, 100) + "..." : userMsg.text;
+          return (
+            <div key={thread.threadId} style={{
+              background: th.card2, borderRadius: "0.75rem", padding: 0, overflow: "hidden", marginBottom: "0.5rem",
+              border: isActiveReply ? `1.5px solid ${O}` : `1px solid ${th.cardBorder}`,
+            }}>
+              {/* User question */}
+              <div style={{ padding: "0.625rem 0.75rem", cursor: "pointer" }}
+                onClick={() => setExpandedThreads(prev => { const n = new Set(prev); n.has(thread.threadId) ? n.delete(thread.threadId) : n.add(thread.threadId); return n; })}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "0.4rem" }}>
+                  <div style={{ width: 22, height: 22, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.45rem", flexShrink: 0, marginTop: 1 }}>{userMsg.senderInitials}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "0.8rem", fontWeight: 600, color: th.text, lineHeight: 1.4 }}>{isExpanded ? userMsg.text : questionPreview}</div>
+                    <div style={{ fontSize: "0.55rem", color: th.muted, marginTop: 2 }}>{new Date(userMsg.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
+                  </div>
+                  {(hasFollowUps || orionReply) && <span style={{ fontSize: "0.6rem", color: th.muted }}>{isExpanded ? "▾" : "▸"}</span>}
+                </div>
+              </div>
+              {/* Orion reply */}
+              {orionReply && (isExpanded || !hasFollowUps) && (
+                <div style={{ padding: "0.5rem 0.75rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card + "88" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "0.4rem" }}>
+                    <div style={{ width: 22, height: 22, flexShrink: 0, marginTop: 1 }}><OrionIcon size={22} /></div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "0.6rem", fontWeight: 600, color: "#8b5cf6", marginBottom: 2 }}>
+                        Orion
+                        {orionReply.model && <span style={{ fontSize: "0.5rem", color: th.muted, marginLeft: 6 }}>{orionReply.model.includes("haiku") ? "⚡" : "🧠"} {orionReply.latencyMs ? (orionReply.latencyMs/1000).toFixed(1)+"s" : ""}</span>}
+                      </div>
+                      <div style={{ fontSize: "0.78rem", color: th.text, lineHeight: 1.55 }}>
+                        {renderOrionText(orionReply.text)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Follow-ups */}
+              {isExpanded && hasFollowUps && (
+                <div style={{ padding: "0.25rem 0.75rem 0.375rem", background: th.card2 + "44" }}>
+                  {followUps.map(m => {
+                    const isOrionMsg = m.isOrion || m.senderId === "orion";
+                    return (
+                      <div key={m.id} style={{ display: "flex", alignItems: "flex-start", gap: "0.4rem", marginBottom: "0.375rem", marginTop: "0.25rem" }}>
+                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: isOrionMsg ? "transparent" : O + "22", color: isOrionMsg ? "#8b5cf6" : O, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.4rem", flexShrink: 0, marginTop: 1 }}>
+                          {isOrionMsg ? <OrionIcon size={20} /> : m.senderInitials}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: "0.55rem", fontWeight: 600, color: isOrionMsg ? "#8b5cf6" : th.text, marginBottom: 1 }}>{m.senderName}</div>
+                          <div style={{ fontSize: "0.75rem", color: th.text, lineHeight: 1.5 }}>
+                            {isOrionMsg ? renderOrionText(m.text) : m.text}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {/* Reply button */}
+              <div style={{ padding: "0.25rem 0.75rem 0.375rem", display: "flex", gap: "0.5rem", borderTop: `1px solid ${th.cardBorder}22` }}>
+                <button onClick={() => setReplyToThread(replyToThread === thread.threadId ? null : thread.threadId)}
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.6rem", color: isActiveReply ? O : "#8b5cf6", fontWeight: 600, padding: "0.2rem 0" }}>
+                  {isActiveReply ? "Cancel" : "Follow up"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Thinking indicator */}
+        {thinking && (
+          <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.5rem", alignItems: "flex-start" }}>
+            <div style={{ width: 24, height: 24, flexShrink: 0 }}><OrionIcon size={24} /></div>
+            <div>
+              <div style={{ fontSize: "0.6rem", fontWeight: 600, color: "#8b5cf6", marginBottom: 2 }}>Orion</div>
+              <div style={{ padding: "0.375rem 0.6rem", borderRadius: "0.75rem", background: th.card2, border: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: "#8b5cf6", animation: "pulse 1s ease-in-out infinite" }} />
+                <span style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: "#8b5cf6", animation: "pulse 1s ease-in-out infinite", animationDelay: "0.2s" }} />
+                <span style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: "#8b5cf6", animation: "pulse 1s ease-in-out infinite", animationDelay: "0.4s" }} />
+                <span style={{ fontSize: "0.7rem", color: th.muted, marginLeft: 3 }}>Analyzing...</span>
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Reply indicator */}
+      {replyToThread && (
+        <div style={{ padding: "0.375rem 0.75rem", background: O + "11", borderTop: `1px solid ${O}33`, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{ fontSize: "0.65rem", color: O, fontWeight: 600 }}>Following up on thread</span>
+          <button onClick={() => setReplyToThread(null)} style={{ background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "0.75rem" }}>✕</button>
+        </div>
+      )}
+
+      {/* Input */}
+      <div style={{ padding: "0.625rem 0.75rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", gap: "0.5rem", alignItems: "flex-end" }}>
+        <textarea
+          ref={inputRef}
+          value={msgText}
+          onChange={e => setMsgText(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+          placeholder="Ask Orion anything..."
+          rows={1}
+          style={{ flex: 1, background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", padding: "0.5rem 0.625rem", color: th.text, fontSize: "0.8rem", fontFamily: "'Source Sans 3'", outline: "none", resize: "none", maxHeight: 80 }}
+        />
+        <button onClick={sendMessage} disabled={!msgText.trim() || thinking}
+          style={{ background: msgText.trim() ? "linear-gradient(135deg, #8b5cf6, #6d28d9)" : th.card2, border: "none", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", color: msgText.trim() ? "#fff" : th.muted, fontSize: "0.75rem", fontWeight: 700, cursor: msgText.trim() ? "pointer" : "default", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" }}>
+          Send
+        </button>
+      </div>
+    </div>}
+
+    {/* FAB */}
+    <button
+      className="orion-fab-btn"
+      onClick={() => { setOpen(o => !o); setHasNewResponse(false); }}
+      style={fabStyle}
+      onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1)"; e.currentTarget.style.boxShadow = "0 6px 28px rgba(139, 92, 246, 0.5), 0 3px 12px rgba(0,0,0,0.25)"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(139, 92, 246, 0.4), 0 2px 8px rgba(0,0,0,0.2)"; }}
+      title="Ask Orion"
+    >
+      {open
+        ? <span style={{ color: "#fff", fontSize: "1.5rem", lineHeight: 1 }}>✕</span>
+        : <OrionIcon size={36} />
+      }
+      {hasNewResponse && !open && (
+        <span style={{ position: "absolute", top: -2, right: -2, width: 14, height: 14, borderRadius: "50%", background: "#22c55e", border: "2px solid " + th.bg, boxShadow: "0 0 6px #22c55e" }} />
+      )}
+    </button>
+
+    {/* Animation keyframe */}
+    <style>{`
+      @keyframes orionSlideUp {
+        from { opacity: 0; transform: translateY(20px) scale(0.95); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+    `}</style>
+  </>, document.body);
+}
+
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
@@ -22716,8 +23208,7 @@ function PCGPortal() {
         salesWeeks={salesWeeks}
         cashDeposits={cashDeposits}
         onFullPortal={() => setManagerMode("full")}
-        onOrion={() => { setManagerMode("full"); setTab("chat"); }}
-        onLogout={handleLogout}
+                onLogout={handleLogout}
       />
     );
   }
@@ -23194,7 +23685,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.7
+            v9.71
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -23544,7 +24035,7 @@ function PCGPortal() {
         )}
 
         <div className="main-content-padding" style={{ padding: "3vw 5vw" }}>
-          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} />}
+          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); }} showAlert={showAlert} />}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
@@ -23605,6 +24096,9 @@ function PCGPortal() {
 
       {/* ── Profile Modal ── */}
       {showProfile && <ProfileModal user={user} setUser={setUser} setUsers={setUsers} th={th} onClose={()=>setShowProfile(false)} />}
+
+      {/* ── Orion Floating Assistant ── */}
+      {user && <OrionFAB user={user} users={users} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} channels={chatChannels} setChannels={setChatChannels} stores={stores} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} onDrillIn={(pc, tab) => { if (managerMode) setManagerMode("full"); handleDrillIn(pc, tab); }} />}
 
     </div>
   );
