@@ -47,11 +47,11 @@ exports.handler = async (event) => {
   const isManual = event?.httpMethod === 'POST';
   console.log('[email-sync] Starting', isManual ? '(manual)' : '(scheduled)');
 
-  const SERVICE_ACCOUNT_KEY = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  const SERVICE_ACCOUNT_KEY = process.env.GOOGLE_SERVICE_ACCOUNT_KEY2 || process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
   const SHARED_MAILBOX = process.env.GOOGLE_SHARED_MAILBOX;
 
   if (!SERVICE_ACCOUNT_KEY || !SHARED_MAILBOX) {
-    console.warn('[email-sync] Missing GOOGLE_SERVICE_ACCOUNT_KEY or GOOGLE_SHARED_MAILBOX');
+    console.warn('[email-sync] Missing GOOGLE_SERVICE_ACCOUNT_KEY2 or GOOGLE_SHARED_MAILBOX');
     return isManual ? { statusCode: 200, body: JSON.stringify({ ok: false, error: 'Not configured' }) } : undefined;
   }
 
