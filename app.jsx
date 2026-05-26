@@ -21927,10 +21927,16 @@ function PCGPortal() {
   const [user, setUser]         = useState(null);
   const [managerMode, setManagerMode] = useState(null);
   const [preferFullPortal, setPreferFullPortal] = useState(() => { try { return localStorage.getItem('pcg_prefer_full_portal') === 'true'; } catch { return false; } });
+  const togglePortalMode = (full) => {
+    try { localStorage.setItem('pcg_prefer_full_portal', full ? 'true' : 'false'); } catch {}
+    setPreferFullPortal(full);
+  };
   const handleLogout = () => {
     try { window.google?.accounts?.id?.disableAutoSelect(); } catch {}
     logClientEvent(user?.id, user?.userType, 'logout', { name: user?.name });
     setManagerMode(null);
+    try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
+    setPreferFullPortal(false);
     setUser(null);
   };
   const [tab, setTab]           = useState("dashboard");
@@ -22063,6 +22069,8 @@ function PCGPortal() {
       } else if (hiddenAt.t && Date.now() - hiddenAt.t > TIMEOUT_MS) {
         if (user?.userType?.startsWith('kiosk')) return;
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'background_tab', name: user?.name });
+        try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
+        setPreferFullPortal(false);
         setUser(null);
         setTab("dashboard");
         tabHistoryRef.current = ["dashboard"];
@@ -22074,6 +22082,8 @@ function PCGPortal() {
       if (e.persisted) {
         if (user?.userType?.startsWith('kiosk')) return;
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'bfcache_restore', name: user?.name });
+        try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
+        setPreferFullPortal(false);
         setUser(null);
         setTab("dashboard");
         tabHistoryRef.current = ["dashboard"];
@@ -22110,6 +22120,8 @@ function PCGPortal() {
       const idle = Date.now() - lastActivityRef.current;
       if (idle >= LOGOUT_AFTER) {
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'inactivity', name: user?.name });
+        try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
+        setPreferFullPortal(false);
         setUser(null);
         setTab("dashboard");
         tabHistoryRef.current = ["dashboard"];
@@ -23165,7 +23177,7 @@ function PCGPortal() {
     return <FirstLoginSetup user={user} setUser={setUser} setUsers={setUsers} th={th} />;
   }
 
-  if (user.userType === "manager" && managerMode === "embed") {
+  if (user.userType === "manager" && (isMobile && !preferFullPortal)) {
     return (
       <ManagerEmbeddableView
         user={user}
@@ -23175,8 +23187,8 @@ function PCGPortal() {
         toggleDark={() => setDark(d => !d)}
         salesWeeks={salesWeeks}
         cashDeposits={cashDeposits}
-        onFullPortal={() => setManagerMode("full")}
-        onOrion={() => { setManagerMode("full"); setTab("chat"); }}
+        onFullPortal={() => togglePortalMode(true)}
+        onOrion={() => { togglePortalMode(true); setTab("chat"); }}
         onLogout={handleLogout}
       />
     );
@@ -23769,7 +23781,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.9.0
+            v9.9.6
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -23795,10 +23807,6 @@ function PCGPortal() {
     </>
   );
 
-  const togglePortalMode = (full) => {
-    try { localStorage.setItem('pcg_prefer_full_portal', full ? 'true' : 'false'); } catch {}
-    setPreferFullPortal(full);
-  };
   if (user && isMobile && !preferFullPortal && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
     return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} />;
   }
@@ -23821,7 +23829,7 @@ function PCGPortal() {
               Stay Logged In
             </button>
             <button
-              onClick={() => { setUser(null); setTab("dashboard"); tabHistoryRef.current = ["dashboard"]; setShowTimeoutWarning(false); }}
+              onClick={() => { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); setUser(null); setTab("dashboard"); tabHistoryRef.current = ["dashboard"]; setShowTimeoutWarning(false); }}
               style={{ padding: "0.375rem 1rem", borderRadius: "0.5rem", background: "rgba(0,0,0,0.2)", color: "#fff", border: "1px solid rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.875rem" }}>
               Log Out
             </button>
@@ -23907,11 +23915,14 @@ function PCGPortal() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            {/* Switch back to mobile Analyst shell */}
+            {/* Switch back to mobile shell */}
             {isMobile && (user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it') && (
               <button onClick={() => togglePortalMode(false)} style={{ background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap' }}>✦ Orion</button>
             )}
-            {user?.userType === "manager" && tab === "dashboard" && (
+            {isMobile && user?.userType === 'manager' && (
+              <button onClick={() => togglePortalMode(false)} style={{ background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap' }}>⊞ My Store</button>
+            )}
+            {false && user?.userType === "manager" && tab === "dashboard" && (
               <button
                 onClick={() => { setShowNotifs(false); setShowChatPanel(false); setManagerMode("embed"); }}
                 title="Open My Store compact view"
