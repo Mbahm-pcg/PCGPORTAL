@@ -281,6 +281,29 @@ function accentCard(th, accentColor, extra = {}) {
 
 // ── Project Tracker Constants & Helpers ───────────────────────────────────────
 const PROJECT_PHASES = [
+  { id: "zoning", label: "Zoning", icon: "🏛️", color: "#6366f1", items: [
+    { key: "zoningClassification", label: "Zoning Classification Obtained", type: "bool" },
+    { key: "zoningVarianceNeeded", label: "Variance / Special Exception Needed", type: "bool" },
+    { key: "zoningPermitFiled", label: "Zoning Permit Filed", type: "bool" },
+    { key: "zoningHearingDate", label: "Zoning Hearing Date", type: "date" },
+    { key: "zoningApproved", label: "Zoning Approved", type: "bool" },
+  ]},
+  { id: "land_development", label: "Land Development", icon: "🌍", color: "#14b8a6", skippable: true, items: [
+    { key: "surveyComplete", label: "Survey Complete", type: "bool" },
+    { key: "stormwaterPlan", label: "Stormwater Management Plan", type: "bool" },
+    { key: "landDevPlanFiled", label: "Land Development Plan Filed", type: "bool" },
+    { key: "landDevApproved", label: "Land Development Approved", type: "bool" },
+  ]},
+  { id: "permitting", label: "Permitting", icon: "📋", color: "#f97316", items: [
+    { key: "buildingPermitApplied", label: "Building Permit Applied", type: "bool" },
+    { key: "electricalPermitApplied", label: "Electrical Permit Applied", type: "bool" },
+    { key: "plumbingPermitApplied", label: "Plumbing Permit Applied", type: "bool" },
+    { key: "mechanicalPermitApplied", label: "Mechanical Permit Applied", type: "bool" },
+    { key: "buildingPermitIssued", label: "Building Permit Issued", type: "bool" },
+    { key: "electricalPermitIssued", label: "Electrical Permit Issued", type: "bool" },
+    { key: "plumbingPermitIssued", label: "Plumbing Permit Issued", type: "bool" },
+    { key: "mechanicalPermitIssued", label: "Mechanical Permit Issued", type: "bool" },
+  ]},
   { id: "pre_construction", label: "Pre-Construction", icon: "📐", color: "#3b82f6", items: [
     { key: "sitePlans", label: "Site Plans", type: "bool" },
     { key: "plansComplete", label: "Plans Complete", type: "bool" },
@@ -305,7 +328,28 @@ const PROJECT_PHASES = [
     { key: "cameraReinstallDate", label: "Camera Reinstall", type: "date" },
     { key: "installationDate", label: "Installation Date", type: "date" },
   ]},
+  { id: "completion", label: "Completion", icon: "🏁", color: "#10b981", items: [
+    { key: "finalWalkthrough", label: "Final Walkthrough", type: "bool" },
+    { key: "dunkinApproval", label: "Dunkin' Final Approval", type: "bool" },
+    { key: "grandOpeningDate", label: "Grand Opening Date", type: "date" },
+  ]},
 ];
+
+const DEFAULT_PROFESSIONALS = {
+  attorneys: [
+    { id: "att1", name: "Dave Shafkowitz", phone: "", email: "", company: "" },
+    { id: "att2", name: "Brett Feldman", phone: "", email: "", company: "" },
+    { id: "att3", name: "Devin Uqdah", phone: "", email: "", company: "" },
+  ],
+  architects: [
+    { id: "arc1", name: "Albert Taus and Associates", phone: "", email: "", company: "" },
+    { id: "arc2", name: "TK Studios", phone: "", email: "", company: "" },
+  ],
+  engineers: [
+    { id: "eng1", name: "Van Cleef Engineering", phone: "", email: "", company: "" },
+    { id: "eng2", name: "Bohler", phone: "", email: "", company: "" },
+  ],
+};
 
 const PROJECTS_SEED = [
   { id:1, priority:0, pc:"342144", address:"750 Miles Rd", city:"West Chester", state:"PA", zip:"19382", district:null, nickname:"West Chester", type:"Remodel", dueDate:"2026-02-01", completionDate:"2026-01-17", notes:"", notifyEmails:"",
@@ -389,11 +433,28 @@ const PROJECTS_SEED = [
 const EMPTY_PROJECT = {
   id: 0, priority: 0, pc: "", address: "", city: "", state: "", zip: "", district: null,
   nickname: "", type: "Remodel", dueDate: "", completionDate: "", notes: "", notifyEmails: "",
+  // Zoning
+  attorney: "", zoningClassification: false, zoningVarianceNeeded: false, zoningPermitFiled: false,
+  zoningHearingDate: "", zoningApproved: false, zoningInfo: null,
+  // Land Development (skippable)
+  landDevSkip: false, surveyComplete: false, stormwaterPlan: false, landDevPlanFiled: false, landDevApproved: false,
+  // Permitting
+  buildingPermitApplied: false, electricalPermitApplied: false, plumbingPermitApplied: false, mechanicalPermitApplied: false,
+  buildingPermitIssued: false, electricalPermitIssued: false, plumbingPermitIssued: false, mechanicalPermitIssued: false,
+  // Pre-Construction
+  architect: "", engineer: "",
   sitePlans: false, plansComplete: false, image2015: false, pklApproved: false,
+  // Equipment Ordering
   dcpOrderPlaced: false, ncrPosOrdered: false, interiorDmbOrdered: false, exteriorDmbOrdered: false,
   headsetOrdered: false, cameraOrdered: false,
+  // Construction
   dcpDeliveryDate: "", ncrDeinstallDate: "", ncrReinstallDate: "",
   constructionCompleteBy: "", interiorDmbDate: "", exteriorDmbDate: "", cameraReinstallDate: "", installationDate: "",
+  // Completion
+  finalWalkthrough: false, dunkinApproval: false, grandOpeningDate: "",
+  // Permits (blob keys for uploaded files)
+  permits: {},
+  // Meta
   createdAt: "", createdBy: "", updatedAt: "",
   lastEditedBy: "", lastEditedAt: "",
   completed: false, completedAt: "",
@@ -401,14 +462,15 @@ const EMPTY_PROJECT = {
 };
 
 function getPhaseCompletion(project, phase) {
-  const countable = phase.items.filter(it => project[it.key] !== "na");
+  const countable = phase.items.filter(it => { const v = project[it.key]; return v !== "na" && v !== undefined; });
   const done = countable.filter(it => it.type === "bool" ? !!project[it.key] : !!project[it.key]).length;
   return { done, total: countable.length, pct: countable.length ? Math.round((done / countable.length) * 100) : 100 };
 }
+function isPhaseSkipped(project, phase) {
+  return phase.id === "land_development" && project.landDevSkip;
+}
 function getCurrentPhase(project) {
   if (project.completed) return { id: "complete", label: "Complete", icon: "✅", color: "#22c55e", items: [] };
-  // Manual override — force the project into a specific phase regardless of
-  // checklist progress. Set via Edit Project → "Phase Override" dropdown.
   if (project.phaseOverride) {
     if (project.phaseOverride === "complete") {
       return { id: "complete", label: "Complete", icon: "✅", color: "#22c55e", items: [] };
@@ -417,12 +479,14 @@ function getCurrentPhase(project) {
     if (found) return found;
   }
   for (const phase of PROJECT_PHASES) {
+    if (isPhaseSkipped(project, phase)) continue;
     if (getPhaseCompletion(project, phase).pct < 100) return phase;
   }
   return { id: "complete", label: "Complete", icon: "✅", color: "#22c55e", items: [] };
 }
 function getOverallCompletion(project) {
-  const all = PROJECT_PHASES.flatMap(p => p.items);
+  const phases = PROJECT_PHASES.filter(p => !isPhaseSkipped(project, p));
+  const all = phases.flatMap(p => p.items).filter(it => { const v = project[it.key]; return v !== "na" && v !== undefined; });
   const done = all.filter(it => it.type === "bool" ? !!project[it.key] : !!project[it.key]).length;
   return all.length ? Math.round((done / all.length) * 100) : 0;
 }
@@ -10225,7 +10289,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
 }
 
 // ── Admin: Project Tracker ────────────────────────────────────────────────────
-function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers }) {
+function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
   const dailyReports = _dr || [];
   const [view, setView] = useState("table"); // "table" | "board" | "detail"
   const [selectedProject, setSelectedProject] = useState(null);
@@ -10242,6 +10306,11 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   const [reorderLocked, setReorderLocked] = useState(true);
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [zoningOverlay, setZoningOverlay] = useState(null);
+  const [zoningLoading, setZoningLoading] = useState(false);
+  const [zoningData, setZoningData] = useState(null);
+  const [permitUploading, setPermitUploading] = useState(null);
+  const pros = professionals || DEFAULT_PROFESSIONALS;
 
   // Deep-link: auto-open project from email link
   useEffect(() => {
@@ -10329,7 +10398,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   filtered.forEach(p => { const ph = getCurrentPhase(p); if (phaseGroups[ph.id]) phaseGroups[ph.id].push(p); });
 
   const TYPE_COLORS = { Remodel: "#3b82f6", Relocation: "#f59e0b", "New Location": "#22c55e" };
-  const PHASE_COLORS = { pre_construction: "#3b82f6", equipment_ordering: "#f59e0b", construction: "#8b5cf6", complete: "#22c55e" };
+  const PHASE_COLORS = { zoning: "#6366f1", land_development: "#14b8a6", permitting: "#f97316", pre_construction: "#3b82f6", equipment_ordering: "#f59e0b", construction: "#8b5cf6", completion: "#10b981", complete: "#22c55e" };
 
   // ── Detail / Drill-Down View ──
   if (view === "detail" && selectedProject) {
@@ -10448,22 +10517,143 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
 
         {/* Phase sections with checklists */}
         {detailTab === "checklist" && PROJECT_PHASES.map(phase => {
-          const { done, total, pct } = getPhaseCompletion(p, phase);
+          const skipped = isPhaseSkipped(p, phase);
+          const { done, total, pct } = skipped ? { done: 0, total: 0, pct: 100 } : getPhaseCompletion(p, phase);
+          const isZoning = phase.id === "zoning";
+          const isLandDev = phase.id === "land_development";
+          const isPermitting = phase.id === "permitting";
+          const isPreCon = phase.id === "pre_construction";
+          const isPhilly = (p.state || "").toUpperCase() === "PA" && (p.city || "").toLowerCase().includes("philadelph");
           return (
-            <div key={phase.id} style={{ ...card(th), padding: "1.25rem", marginBottom: "1rem" }}>
+            <div key={phase.id} style={{ ...card(th), padding: "1.25rem", marginBottom: "1rem", opacity: skipped ? 0.5 : 1, transition: "opacity .2s" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <span style={{ fontSize: "1.125rem" }}>{phase.icon}</span>
                   <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>{phase.label}</span>
+                  {skipped && <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, background: th.card3, padding: "0.125rem 0.5rem", borderRadius: "1rem" }}>SKIPPED</span>}
                 </div>
-                <span style={{ fontSize: "0.75rem", fontWeight: 600, color: pct === 100 ? "#22c55e" : phase.color }}>{done}/{total}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  {isLandDev && editable && (
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", cursor: "pointer", fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>
+                      <input type="checkbox" checked={!!p.landDevSkip} onChange={e => updateItem(p.id, "landDevSkip", e.target.checked)} style={{ accentColor: "#14b8a6", width: 14, height: 14 }} />
+                      Skip
+                    </label>
+                  )}
+                  {!skipped && <span style={{ fontSize: "0.75rem", fontWeight: 600, color: pct === 100 ? "#22c55e" : phase.color }}>{done}/{total}</span>}
+                </div>
               </div>
-              <div style={{ height: 6, borderRadius: 3, background: th.card3, marginBottom: "1rem" }}>
-                <div style={{ height: "100%", borderRadius: 3, width: pct + "%", background: pct === 100 ? "#22c55e" : phase.color, transition: "width .3s" }} />
-              </div>
+              {!skipped && (
+                <div style={{ height: 6, borderRadius: 3, background: th.card3, marginBottom: "1rem" }}>
+                  <div style={{ height: "100%", borderRadius: 3, width: pct + "%", background: pct === 100 ? "#22c55e" : phase.color, transition: "width .3s" }} />
+                </div>
+              )}
+
+              {/* Attorney selector for Zoning & Land Development */}
+              {(isZoning || isLandDev) && !skipped && (
+                <div style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2, marginBottom: "0.75rem" }}>
+                  <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.35rem" }}>Attorney</div>
+                  <select value={p.attorney || ""} onChange={e => updateItem(p.id, "attorney", e.target.value)} disabled={!editable}
+                    style={{ ...inp(th, { fontSize: "0.8125rem" }) }}>
+                    <option value="">— Select Attorney —</option>
+                    {(pros.attorneys || []).map(a => <option key={a.id} value={a.id}>{a.name}{a.company ? ` (${a.company})` : ""}</option>)}
+                  </select>
+                  {p.attorney && (() => { const att = (pros.attorneys || []).find(a => a.id === p.attorney); return att ? (
+                    <div style={{ fontSize: "0.75rem", color: th.muted, marginTop: "0.35rem" }}>
+                      {att.phone && <span style={{ marginRight: "1rem" }}>📞 {att.phone}</span>}
+                      {att.email && <span>✉ {att.email}</span>}
+                    </div>
+                  ) : null; })()}
+                </div>
+              )}
+
+              {/* Architect & Engineer for Pre-Construction */}
+              {isPreCon && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.625rem", marginBottom: "0.75rem" }}>
+                  <div style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
+                    <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.35rem" }}>Architect</div>
+                    <select value={p.architect || ""} onChange={e => updateItem(p.id, "architect", e.target.value)} disabled={!editable}
+                      style={{ ...inp(th, { fontSize: "0.8125rem" }) }}>
+                      <option value="">— Select Architect —</option>
+                      {(pros.architects || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                    {p.architect && (() => { const arc = (pros.architects || []).find(a => a.id === p.architect); return arc ? (
+                      <div style={{ fontSize: "0.75rem", color: th.muted, marginTop: "0.35rem" }}>
+                        {arc.phone && <span style={{ marginRight: "0.75rem" }}>📞 {arc.phone}</span>}
+                        {arc.email && <span>✉ {arc.email}</span>}
+                      </div>
+                    ) : null; })()}
+                  </div>
+                  <div style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
+                    <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.35rem" }}>Engineer</div>
+                    <select value={p.engineer || ""} onChange={e => updateItem(p.id, "engineer", e.target.value)} disabled={!editable}
+                      style={{ ...inp(th, { fontSize: "0.8125rem" }) }}>
+                      <option value="">— Select Engineer —</option>
+                      {(pros.engineers || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                    {p.engineer && (() => { const eng = (pros.engineers || []).find(a => a.id === p.engineer); return eng ? (
+                      <div style={{ fontSize: "0.75rem", color: th.muted, marginTop: "0.35rem" }}>
+                        {eng.phone && <span style={{ marginRight: "0.75rem" }}>📞 {eng.phone}</span>}
+                        {eng.email && <span>✉ {eng.email}</span>}
+                      </div>
+                    ) : null; })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Philadelphia zoning auto-lookup + summary link */}
+              {isZoning && isPhilly && (
+                <div style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: "#6366f111", border: "1px solid #6366f133", marginBottom: "0.75rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                    <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#6366f1" }}>🏛️ Philadelphia Zoning</div>
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <button onClick={async () => {
+                        setZoningLoading(true);
+                        try {
+                          const addr = encodeURIComponent((p.address || "").toUpperCase());
+                          const res = await fetch(`/.netlify/functions/philly-zoning?address=${addr}`);
+                          const data = await res.json();
+                          if (data.rows && data.rows.length > 0) {
+                            setZoningData(data.rows);
+                            updateItem(p.id, "zoningInfo", data.rows[0]);
+                            showAlert("success", `Found ${data.rows.length} permit(s) for this address`);
+                          } else {
+                            setZoningData([]);
+                            showAlert("info", "No permits found for this address");
+                          }
+                        } catch (e) { showAlert("error", "Zoning lookup failed: " + e.message); }
+                        setZoningLoading(false);
+                      }} style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem", background: "#6366f1", color: "#fff" })} disabled={zoningLoading}>
+                        {zoningLoading ? "Looking up..." : "🔍 Lookup Permits"}
+                      </button>
+                      <button onClick={() => setZoningOverlay(p.address)} style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem" })}>
+                        📄 Zoning Summary
+                      </button>
+                    </div>
+                  </div>
+                  {(zoningData || p.zoningInfo) && (
+                    <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: th.muted }}>
+                      {(() => { const zi = (zoningData && zoningData[0]) || p.zoningInfo; return zi ? (
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.35rem" }}>
+                          {zi.permitdescription && <div><strong>Type:</strong> {zi.permitdescription}</div>}
+                          {zi.status && <div><strong>Status:</strong> {zi.status}</div>}
+                          {zi.permitnumber && <div><strong>Permit #:</strong> {zi.permitnumber}</div>}
+                          {zi.typeofwork && <div><strong>Work:</strong> {zi.typeofwork}</div>}
+                          {zi.contractorname && <div><strong>Contractor:</strong> {zi.contractorname}</div>}
+                        </div>
+                      ) : null; })()}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Checklist items */}
+              {!skipped && (
               <div style={{ display: "grid", gap: "0.5rem" }}>
                 {phase.items.map(item => {
-                  const isNA = p[item.key] === "na";
+                  const val = p[item.key];
+                  const isNA = val === "na";
+                  const isUndefined = val === undefined;
+                  if (isUndefined) return null;
                   return (
                   <div key={item.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.5rem 0.75rem", borderRadius: "0.5rem", background: isNA ? (th.card3 || th.card2) : th.card2, opacity: isNA ? 0.55 : 1, transition: "opacity .2s" }}>
                     <span style={{ fontSize: "0.8125rem", color: th.text, textDecoration: isNA ? "line-through" : "none" }}>{item.label}</span>
@@ -10472,9 +10662,9 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                       <>
                         {!isNA && (
                           <label style={{ display: "flex", alignItems: "center", gap: "0.375rem", cursor: editable ? "pointer" : "default" }}>
-                            <input type="checkbox" checked={!!p[item.key] && p[item.key] !== "na"} onChange={e => updateItem(p.id, item.key, e.target.checked)} disabled={!editable}
+                            <input type="checkbox" checked={!!val && val !== "na"} onChange={e => updateItem(p.id, item.key, e.target.checked)} disabled={!editable}
                               style={{ accentColor: phase.color, width: 18, height: 18 }} />
-                            <span style={{ fontSize: "0.75rem", color: p[item.key] ? "#22c55e" : th.muted, fontWeight: 600 }}>{p[item.key] ? "Done" : "Pending"}</span>
+                            <span style={{ fontSize: "0.75rem", color: val ? "#22c55e" : th.muted, fontWeight: 600 }}>{val ? "Done" : "Pending"}</span>
                           </label>
                         )}
                         {isNA && <span style={{ fontSize: "0.7rem", fontWeight: 600, color: th.muted }}>N/A</span>}
@@ -10487,9 +10677,9 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                       </>
                     ) : (
                       <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
-                        <input type="date" value={(p[item.key] && p[item.key] !== "na") ? p[item.key] : ""} onChange={e => updateItem(p.id, item.key, e.target.value)} disabled={!editable}
+                        <input type="date" value={(val && val !== "na") ? val : ""} onChange={e => updateItem(p.id, item.key, e.target.value)} disabled={!editable}
                           style={{ ...inp(th, { width: "auto", padding: "0.312rem 0.5rem", fontSize: "0.75rem", maxWidth: 160 }) }} />
-                        {p[item.key] && p[item.key] !== "na" && <span style={{ color: "#22c55e", fontWeight: 700, fontSize: "0.75rem" }}>✓</span>}
+                        {val && val !== "na" && <span style={{ color: "#22c55e", fontWeight: 700, fontSize: "0.75rem" }}>✓</span>}
                       </div>
                     )}
                     </div>
@@ -10497,6 +10687,62 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                   );
                 })}
               </div>
+              )}
+
+              {/* Permit upload section for Zoning phase */}
+              {isZoning && !skipped && editable && (
+                <div style={{ marginTop: "0.75rem", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
+                  <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.35rem" }}>Zoning Permit Upload</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={async e => {
+                      const file = e.target.files?.[0]; if (!file) return;
+                      setPermitUploading("zoning");
+                      try {
+                        const reader = new FileReader();
+                        reader.onload = async () => {
+                          const key = `pcg_permit_${p.id}_zoning`;
+                          await cloudSave(key, { name: file.name, type: file.type, size: file.size, data: reader.result, uploadedAt: new Date().toISOString(), uploadedBy: user?.name });
+                          updateItem(p.id, "permits", { ...(p.permits || {}), zoning: key });
+                          showAlert("success", "Zoning permit uploaded");
+                          setPermitUploading(null);
+                        };
+                        reader.readAsDataURL(file);
+                      } catch (err) { showAlert("error", "Upload failed"); setPermitUploading(null); }
+                    }} style={{ fontSize: "0.75rem" }} disabled={permitUploading === "zoning"} />
+                    {(p.permits?.zoning) && <span style={{ fontSize: "0.6875rem", color: "#22c55e", fontWeight: 600 }}>✓ Uploaded</span>}
+                  </div>
+                </div>
+              )}
+
+              {/* Permit uploads for Permitting phase */}
+              {isPermitting && !skipped && editable && (
+                <div style={{ marginTop: "0.75rem", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
+                  <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.5rem" }}>Permit Uploads</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                    {["building", "electrical", "plumbing", "mechanical"].map(ptype => (
+                      <div key={ptype} style={{ padding: "0.5rem", borderRadius: "0.375rem", background: th.card3 }}>
+                        <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.text, marginBottom: "0.25rem", textTransform: "capitalize" }}>{ptype} Permit</div>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={async e => {
+                          const file = e.target.files?.[0]; if (!file) return;
+                          setPermitUploading(ptype);
+                          try {
+                            const reader = new FileReader();
+                            reader.onload = async () => {
+                              const key = `pcg_permit_${p.id}_${ptype}`;
+                              await cloudSave(key, { name: file.name, type: file.type, size: file.size, data: reader.result, uploadedAt: new Date().toISOString(), uploadedBy: user?.name });
+                              updateItem(p.id, "permits", { ...(p.permits || {}), [ptype]: key });
+                              showAlert("success", `${ptype} permit uploaded`);
+                              setPermitUploading(null);
+                            };
+                            reader.readAsDataURL(file);
+                          } catch { showAlert("error", "Upload failed"); setPermitUploading(null); }
+                        }} style={{ fontSize: "0.6875rem", maxWidth: "100%" }} disabled={permitUploading === ptype} />
+                        {(p.permits?.[ptype]) && <span style={{ fontSize: "0.6875rem", color: "#22c55e", fontWeight: 600 }}>✓ Uploaded</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
@@ -10512,6 +10758,18 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             <p style={{ fontSize: "0.8125rem", color: th.muted }}>{p.notes || "No notes."}</p>
           )}
         </div>
+        )}
+
+        {/* Zoning Summary Overlay (iframe) */}
+        {zoningOverlay && (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, background: "rgba(0,0,0,0.7)", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 1.25rem", background: th.sidebar }}>
+              <span style={{ fontWeight: 700, color: "#fff", fontSize: "0.875rem" }}>🏛️ Philadelphia Zoning Summary — {zoningOverlay}</span>
+              <button onClick={() => setZoningOverlay(null)} style={{ background: "#ff444444", border: "none", borderRadius: "0.5rem", padding: "0.4rem 0.85rem", cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: "0.875rem" }}>✕ Close</button>
+            </div>
+            <iframe src={`https://www.phila.gov/zoning-summary-generator/?address=${encodeURIComponent(zoningOverlay)}`}
+              style={{ flex: 1, border: "none", width: "100%", background: "#fff" }} title="Zoning Summary" />
+          </div>
         )}
       </div>
     );
@@ -10606,15 +10864,79 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             {addMode && !editId ? "✕ Cancel" : "+ Add Project"}
           </button>
         )}
+        {editable && (
+          <button onClick={() => {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+            const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+            const rows = sorted.map((p, i) => {
+              const phase = getCurrentPhase(p);
+              const pct = getOverallCompletion(p);
+              return `<tr>
+                <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:600;color:#6b7280;">${p.priority || i + 1}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;"><strong>${p.nickname || p.pc}</strong><br/><span style="font-size:11px;color:#9ca3af;">${p.address || ""}${p.city ? ", " + p.city : ""}</span></td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;"><span style="background:${(TYPE_COLORS[p.type]||"#666")}15;color:${TYPE_COLORS[p.type]||"#666"};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">${p.type}</span></td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;"><span style="color:${PHASE_COLORS[phase.id]||"#666"};font-weight:600;font-size:12px;">${phase.icon} ${phase.label}</span></td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;">
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <div style="flex:1;height:6px;border-radius:3px;background:#e2e8f0;"><div style="height:100%;border-radius:3px;width:${pct}%;background:${pct===100?"#22c55e":"#FF671F"};"></div></div>
+                    <span style="font-size:11px;font-weight:700;color:${pct===100?"#22c55e":"#374151"};min-width:30px;text-align:right;">${pct}%</span>
+                  </div>
+                </td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#6b7280;">${p.dueDate ? new Date(p.dueDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—"}</td>
+              </tr>`;
+            }).join("");
+            const html = `<!DOCTYPE html><html><head><style>@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@600;700;800;900&family=Source+Sans+3:wght@400;600;700&display=swap');body{font-family:'Source Sans 3',sans-serif;margin:0;padding:40px;color:#1f2937;}@media print{body{padding:20px;}}</style></head><body>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:30px;padding-bottom:20px;border-bottom:3px solid #FF671F;">
+                <div><h1 style="font-family:Raleway;font-weight:900;font-size:28px;margin:0;color:#1f2937;">PCG Project Pipeline</h1>
+                <p style="margin:5px 0 0;color:#9ca3af;font-size:13px;">People Capital Group — Unified Operations Portal</p></div>
+                <div style="text-align:right;font-size:12px;color:#9ca3af;">
+                  <div><strong>Generated:</strong> ${dateStr} at ${timeStr}</div>
+                  <div><strong>By:</strong> ${user?.name || "Unknown"}</div>
+                  <div><strong>Projects:</strong> ${sorted.length}</div>
+                </div>
+              </div>
+              <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead><tr style="background:#f8fafc;">
+                  <th style="padding:10px 12px;text-align:left;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">#</th>
+                  <th style="padding:10px 12px;text-align:left;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Project</th>
+                  <th style="padding:10px 12px;text-align:left;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Type</th>
+                  <th style="padding:10px 12px;text-align:left;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Phase</th>
+                  <th style="padding:10px 12px;text-align:left;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Progress</th>
+                  <th style="padding:10px 12px;text-align:left;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Due</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+              </table>
+              <div style="margin-top:30px;padding-top:15px;border-top:1px solid #e2e8f0;font-size:11px;color:#9ca3af;text-align:center;">PCG Unified Operations Portal · Confidential</div>
+            </body></html>`;
+            const printWin = window.open("", "_blank");
+            printWin.document.write(html);
+            printWin.document.close();
+            printWin.focus();
+            setTimeout(() => printWin.print(), 400);
+          }} style={{
+            padding: "0.65rem 1.1rem",
+            fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7,
+            color: th.muted, background: th.card3,
+            border: `1px solid ${th.cardBorder}`, borderRadius: "0.625rem",
+            cursor: "pointer", fontFamily: "'Source Sans 3'", transition: "all .2s",
+          }}>
+            📄 Export PDF
+          </button>
+        )}
       </div>
 
       {/* ─── KPI summary — click-to-filter phase cards ───────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.7rem", marginBottom: "1.5rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(105px, 1fr))", gap: "0.5rem", marginBottom: "1.5rem" }}>
         {[
           { label: "Total", value: filtered.length, color: O, phase: "All" },
+          { label: "Zoning", value: (phaseGroups.zoning || []).length, color: "#6366f1", phase: "zoning" },
+          { label: "Land Dev", value: (phaseGroups.land_development || []).length, color: "#14b8a6", phase: "land_development" },
+          { label: "Permitting", value: (phaseGroups.permitting || []).length, color: "#f97316", phase: "permitting" },
           { label: "Pre-Const", value: (phaseGroups.pre_construction || []).length, color: "#3b82f6", phase: "pre_construction" },
           { label: "Equipment", value: (phaseGroups.equipment_ordering || []).length, color: "#f59e0b", phase: "equipment_ordering" },
           { label: "Construction", value: (phaseGroups.construction || []).length, color: "#8b5cf6", phase: "construction" },
+          { label: "Completion", value: (phaseGroups.completion || []).length, color: "#10b981", phase: "completion" },
           { label: "Complete", value: (phaseGroups.complete || []).length, color: "#22c55e", phase: "complete" },
         ].map(k => {
           const active = filterPhase === k.phase;
@@ -10672,15 +10994,37 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
           {stores.find(s => s.pc === form.pc) && form.pc && (
             <div style={{ fontSize: "0.75rem", color: "#22c55e", marginBottom: "0.75rem", fontWeight: 600 }}>✓ Linked to store: {stores.find(s => s.pc === form.pc)?.address}</div>
           )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
+            <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Attorney</label>
+              <select style={inp(th)} value={form.attorney || ""} onChange={e => setForm(f => ({ ...f, attorney: e.target.value }))}>
+                <option value="">— None —</option>
+                {(pros.attorneys || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+            <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Architect</label>
+              <select style={inp(th)} value={form.architect || ""} onChange={e => setForm(f => ({ ...f, architect: e.target.value }))}>
+                <option value="">— None —</option>
+                {(pros.architects || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+            <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Engineer</label>
+              <select style={inp(th)} value={form.engineer || ""} onChange={e => setForm(f => ({ ...f, engineer: e.target.value }))}>
+                <option value="">— None —</option>
+                {(pros.engineers || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
             <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Notify Emails (comma-separated)</label><input style={inp(th)} placeholder="user@example.com" value={form.notifyEmails} onChange={e => setForm(f => ({ ...f, notifyEmails: e.target.value }))} /></div>
             <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Google Drive Folder URL</label><input style={inp(th)} placeholder="https://drive.google.com/drive/folders/..." value={form.driveFolder || ""} onChange={e => setForm(f => ({ ...f, driveFolder: e.target.value }))} /></div>
             <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Notes</label><input style={inp(th)} placeholder="Optional notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} /></div>
+            <div style={{ display: "flex", alignItems: "flex-end" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.8125rem", color: th.text, fontWeight: 600, padding: "0.55rem 0" }}>
+                <input type="checkbox" checked={!!form.landDevSkip} onChange={e => setForm(f => ({ ...f, landDevSkip: e.target.checked }))} style={{ accentColor: "#14b8a6", width: 16, height: 16 }} />
+                Skip Land Development Phase
+              </label>
+            </div>
           </div>
-          {/* Phase Override — normally the phase is computed from checklist
-              progress, but sometimes you need to force a project forward even
-              when earlier items aren't ticked off (e.g. work is in-flight and
-              we're tracking it in a later phase). */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.75rem", marginBottom: "0.75rem", padding: "0.75rem", background: th.card2, borderRadius: "0.5rem", border: `1px dashed ${th.cardBorder}` }}>
             <div>
               <label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>
@@ -10807,9 +11151,9 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
 
       {/* ── BOARD VIEW ── */}
       {view === "board" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem" }} className="projects-board">
+        <div style={{ display: "flex", gap: "1rem", overflowX: "auto", paddingBottom: "0.75rem" }} className="projects-board">
           {ALL_PHASES.map(phase => (
-            <div key={phase.id}>
+            <div key={phase.id} style={{ minWidth: "220px", flex: "0 0 220px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.75rem" }}>
                 <span style={{ fontSize: "1rem" }}>{phase.icon}</span>
                 <span style={{ fontWeight: 700, fontSize: "0.8125rem", color: th.text }}>{phase.label}</span>
@@ -10852,7 +11196,8 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
 
       <style>{`
         @media (max-width: 768px) {
-          .projects-board { grid-template-columns: 1fr !important; }
+          .projects-board { flex-direction: column !important; overflow-x: visible !important; }
+          .projects-board > div { min-width: 100% !important; flex: 1 1 auto !important; }
         }
       `}</style>
     </div>
@@ -11140,7 +11485,7 @@ function AnnouncementsPanel({ th, user, showAlert, announcements, setAnnouncemen
 }
 
 // ── Admin: Settings ───────────────────────────────────────────────────────
-function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements }) {
+function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
   const [notifyLog, setNotifyLog] = useState(null);
@@ -11228,6 +11573,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const settingsTabs = [
     { id: 'notifications', label: '📬 Notifications', color: O },
     { id: 'orion', label: 'Orion', icon: <OrionIcon size={16} />, color: '#7C3AED' },
+    { id: 'vendors', label: '🏗️ Vendors', color: '#14b8a6' },
     { id: 'admin', label: '🛠️ Admin Tools', color: '#0EA5E9' },
   ];
 
@@ -11897,6 +12243,74 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       )}
 
       </> /* end orion tab */}
+
+      {/* ── Tab: Vendors (Attorneys/Architects/Engineers) ── */}
+      {settingsTab === 'vendors' && (() => {
+        const pros = professionals || DEFAULT_PROFESSIONALS;
+        const VendorSection = ({ title, icon, type, items }) => {
+          const [addOpen, setAddOpen] = React.useState(false);
+          const [editId, setEditId] = React.useState(null);
+          const [form, setForm] = React.useState({ name: "", phone: "", email: "", company: "" });
+          const save = () => {
+            if (!form.name.trim()) { showAlert("error", "Name is required"); return; }
+            const updated = { ...pros };
+            if (editId) {
+              updated[type] = items.map(v => v.id === editId ? { ...v, ...form } : v);
+            } else {
+              updated[type] = [...items, { id: type.slice(0,3) + "_" + Date.now(), ...form }];
+            }
+            setProfessionals(updated);
+            showAlert("success", editId ? "Updated" : "Added");
+            setAddOpen(false); setEditId(null); setForm({ name: "", phone: "", email: "", company: "" });
+          };
+          const remove = (id) => {
+            const updated = { ...pros, [type]: items.filter(v => v.id !== id) };
+            setProfessionals(updated);
+            showAlert("success", "Removed");
+          };
+          return (
+            <div style={{ ...card(th), padding: "1.25rem", marginBottom: "1rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                <div style={{ fontWeight: 700, fontSize: "0.9375rem", color: th.text }}>{icon} {title}</div>
+                <button onClick={() => { setAddOpen(a => !a); setEditId(null); setForm({ name: "", phone: "", email: "", company: "" }); }}
+                  style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem" })}>{addOpen ? "Cancel" : "+ Add"}</button>
+              </div>
+              {(addOpen || editId) && (
+                <div style={{ padding: "0.75rem", background: th.card2, borderRadius: "0.5rem", marginBottom: "0.75rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }} className="fade-in">
+                  <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Name *</label><input style={inp(th)} value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} /></div>
+                  <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Company</label><input style={inp(th)} value={form.company} onChange={e => setForm(f => ({...f, company: e.target.value}))} /></div>
+                  <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Phone</label><input style={inp(th)} value={form.phone} onChange={e => setForm(f => ({...f, phone: e.target.value}))} /></div>
+                  <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Email</label><input style={inp(th)} type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></div>
+                  <button onClick={save} style={btn(th, { gridColumn: "1 / -1" })}>{editId ? "Save Changes" : "Add " + title.replace(/s$/, "")}</button>
+                </div>
+              )}
+              {items.length === 0 && <div style={{ fontSize: "0.8125rem", color: th.muted, padding: "1rem", textAlign: "center" }}>No {title.toLowerCase()} added yet.</div>}
+              {items.map(v => (
+                <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2, marginBottom: "0.375rem" }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: "0.875rem", color: th.text }}>{v.name}{v.company ? ` — ${v.company}` : ""}</div>
+                    <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                      {v.phone && <span style={{ marginRight: "1rem" }}>📞 {v.phone}</span>}
+                      {v.email && <span>✉ {v.email}</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.375rem" }}>
+                    <button onClick={() => { setEditId(v.id); setForm({ name: v.name, phone: v.phone || "", email: v.email || "", company: v.company || "" }); setAddOpen(true); }}
+                      style={{ background: th.card3, border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.5rem", fontSize: "0.6875rem", color: th.muted, cursor: "pointer" }}>Edit</button>
+                    <button onClick={() => remove(v.id)}
+                      style={{ background: "#ff444422", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.5rem", fontSize: "0.6875rem", color: "#ff4444", cursor: "pointer" }}>Remove</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        };
+        return <>
+          <VendorSection title="Attorneys" icon="⚖️" type="attorneys" items={pros.attorneys || []} />
+          <VendorSection title="Architects" icon="📐" type="architects" items={pros.architects || []} />
+          <VendorSection title="Engineers" icon="🔧" type="engineers" items={pros.engineers || []} />
+        </>;
+      })()}
 
       {/* ── Tab: Admin Tools ── */}
       {settingsTab === 'admin' && <>
@@ -22030,6 +22444,8 @@ function PCGPortal() {
   const [cashNotes, setCashNotes] = useState([]); // array of { id, pc, businessDate, text, actions:[], createdAt, createdBy, createdByName }
   const [cashPOS, setCashPOS] = useState({});     // { "pc_YYYY-MM-DD": { cash: number, fetchedAt } }
   const cloudCashLoaded = useRef(false);
+  const [professionals, setProfessionals] = useState(DEFAULT_PROFESSIONALS);
+  const cloudProfessionalsLoaded = useRef(false);
   const [showProfile, setShowProfile] = useState(false);
   const [cloudStatus, setCloudStatus] = useState('idle');
   const [logoAnim, setLogoAnim] = useState(false);
@@ -22770,6 +23186,18 @@ function PCGPortal() {
     if (vendors.length === 0) return;
     cloudSave('pcg_vendors_v1', vendors);
   }, [vendors]);
+
+  // Cloud sync professionals (attorneys/architects/engineers)
+  useEffect(() => {
+    cloudLoad('pcg_professionals_v1').then(data => {
+      cloudProfessionalsLoaded.current = true;
+      if (data && typeof data === 'object' && data.attorneys) setProfessionals(data);
+    }).catch(() => { cloudProfessionalsLoaded.current = true; });
+  }, []);
+  useEffect(() => {
+    if (!cloudProfessionalsLoaded.current) return;
+    cloudSave('pcg_professionals_v1', professionals);
+  }, [professionals]);
 
   // Cloud sync links (links is an object { category: [items] }, not an array)
   useEffect(() => {
@@ -23781,7 +24209,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v9.9.6
+            v10.0
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -24156,8 +24584,8 @@ function PCGPortal() {
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
-          {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} />}
-          {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} />}
+          {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
