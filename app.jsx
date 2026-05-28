@@ -349,6 +349,7 @@ const DEFAULT_PROFESSIONALS = {
     { id: "eng1", name: "Van Cleef Engineering", phone: "", email: "", company: "" },
     { id: "eng2", name: "Bohler", phone: "", email: "", company: "" },
   ],
+  contractors: [],
 };
 
 const PROJECTS_SEED = [
@@ -11301,35 +11302,81 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
               )}
 
               {/* Contractors for Construction phase */}
-              {phase.id === "construction" && !skipped && (
-                <div style={{ marginTop: "0.75rem", display: "grid", gap: "0.5rem" }}>
-                  {[
-                    { label: "General Contractor", prefix: "gc", contactKey: "gc", color: O },
-                    { label: "Plumbing Contractor", prefix: "plumbing", contactKey: "plumbingContact", color: "#3b82f6" },
-                    { label: "Electrical Contractor", prefix: "electrical", contactKey: "electricalContact", color: "#f59e0b" },
-                    { label: "Mechanical Contractor", prefix: "mechanical", contactKey: "mechanicalContact", color: "#8b5cf6" },
-                  ].map(ct => (
-                    <div key={ct.prefix} style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
-                      <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: ct.color, marginBottom: "0.35rem" }}>{ct.label}</div>
-                      {editable ? (
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.375rem" }}>
-                          <input placeholder="Company" value={p[ct.prefix + "Company"] || ""} onChange={e => updateItem(p.id, ct.prefix + "Company", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
-                          <input placeholder="Contact Name" value={p[ct.contactKey] || ""} onChange={e => updateItem(p.id, ct.contactKey, e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
-                          <input placeholder="Phone" value={p[ct.prefix + "Phone"] || ""} onChange={e => updateItem(p.id, ct.prefix + "Phone", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
-                          <input placeholder="Email" value={p[ct.prefix + "Email"] || ""} onChange={e => updateItem(p.id, ct.prefix + "Email", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
-                          <input placeholder="Contract Amount ($)" value={p[ct.prefix + "ContractAmount"] || ""} onChange={e => updateItem(p.id, ct.prefix + "ContractAmount", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem", gridColumn: "span 2" }) }} />
+              {phase.id === "construction" && !skipped && (() => {
+                const ctTypes = [
+                  { label: "General Contractor", prefix: "gc", contactKey: "gc", type: "gc", color: O },
+                  { label: "Plumbing Contractor", prefix: "plumbing", contactKey: "plumbingContact", type: "plumbing", color: "#3b82f6" },
+                  { label: "Electrical Contractor", prefix: "electrical", contactKey: "electricalContact", type: "electrical", color: "#f59e0b" },
+                  { label: "Mechanical Contractor", prefix: "mechanical", contactKey: "mechanicalContact", type: "mechanical", color: "#8b5cf6" },
+                ];
+                const savedContractors = pros.contractors || [];
+                const saveToRoster = (ct) => {
+                  const company = p[ct.prefix + "Company"] || "";
+                  const name = p[ct.contactKey] || "";
+                  if (!company && !name) return;
+                  const already = savedContractors.find(c => c.contractorType === ct.type && (c.company || "").toLowerCase() === company.toLowerCase() && company);
+                  if (already) { showAlert("info", "Already in roster"); return; }
+                  const updated = { ...pros, contractors: [...savedContractors, {
+                    id: "con_" + Date.now(), contractorType: ct.type,
+                    company, name, phone: p[ct.prefix + "Phone"] || "", email: p[ct.prefix + "Email"] || "",
+                  }]};
+                  setProfessionals(updated);
+                  showAlert("success", `${company || name} saved to contractor roster`);
+                };
+                return (
+                  <div style={{ marginTop: "0.75rem", display: "grid", gap: "0.5rem" }}>
+                    {ctTypes.map(ct => {
+                      const rosterForType = savedContractors.filter(c => c.contractorType === ct.type);
+                      const hasData = p[ct.prefix + "Company"] || p[ct.contactKey];
+                      return (
+                        <div key={ct.prefix} style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+                            <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: ct.color }}>{ct.label}</div>
+                            {editable && hasData && (
+                              <button onClick={() => saveToRoster(ct)} title="Save this contractor to your reusable roster"
+                                style={{ background: "none", border: "none", fontSize: "0.6rem", color: th.muted, cursor: "pointer", padding: "0.15rem 0.35rem", borderRadius: "0.25rem" }}
+                                onMouseEnter={e => { e.currentTarget.style.background = ct.color + "22"; e.currentTarget.style.color = ct.color; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = th.muted; }}>
+                                Save to Roster
+                              </button>
+                            )}
+                          </div>
+                          {editable ? (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.375rem" }}>
+                              {rosterForType.length > 0 && (
+                                <select style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem", gridColumn: "span 2" }) }}
+                                  value="" onChange={e => {
+                                    const sel = rosterForType.find(c => c.id === e.target.value);
+                                    if (sel) {
+                                      updateItem(p.id, ct.prefix + "Company", sel.company || "");
+                                      updateItem(p.id, ct.contactKey, sel.name || "");
+                                      updateItem(p.id, ct.prefix + "Phone", sel.phone || "");
+                                      updateItem(p.id, ct.prefix + "Email", sel.email || "");
+                                    }
+                                  }}>
+                                  <option value="">— Select from roster —</option>
+                                  {rosterForType.map(c => <option key={c.id} value={c.id}>{c.company || c.name}{c.company && c.name ? ` — ${c.name}` : ""}</option>)}
+                                </select>
+                              )}
+                              <input placeholder="Company" value={p[ct.prefix + "Company"] || ""} onChange={e => updateItem(p.id, ct.prefix + "Company", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
+                              <input placeholder="Contact Name" value={p[ct.contactKey] || ""} onChange={e => updateItem(p.id, ct.contactKey, e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
+                              <input placeholder="Phone" value={p[ct.prefix + "Phone"] || ""} onChange={e => updateItem(p.id, ct.prefix + "Phone", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
+                              <input placeholder="Email" value={p[ct.prefix + "Email"] || ""} onChange={e => updateItem(p.id, ct.prefix + "Email", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
+                              <input placeholder="Contract Amount ($)" value={p[ct.prefix + "ContractAmount"] || ""} onChange={e => updateItem(p.id, ct.prefix + "ContractAmount", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem", gridColumn: "span 2" }) }} />
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                              {hasData ? (
+                                <span>{p[ct.prefix + "Company"] || ""}{p[ct.contactKey] ? ` — ${p[ct.contactKey]}` : ""}{p[ct.prefix + "Phone"] ? ` | ${p[ct.prefix + "Phone"]}` : ""}{p[ct.prefix + "ContractAmount"] ? ` | $${Number(p[ct.prefix + "ContractAmount"]).toLocaleString()}` : ""}</span>
+                              ) : "Not assigned"}
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <div style={{ fontSize: "0.75rem", color: th.muted }}>
-                          {p[ct.prefix + "Company"] || p[ct.contactKey] ? (
-                            <span>{p[ct.prefix + "Company"] || ""}{p[ct.contactKey] ? ` — ${p[ct.contactKey]}` : ""}{p[ct.prefix + "Phone"] ? ` | ${p[ct.prefix + "Phone"]}` : ""}{p[ct.prefix + "ContractAmount"] ? ` | $${Number(p[ct.prefix + "ContractAmount"]).toLocaleString()}` : ""}</span>
-                          ) : "Not assigned"}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {/* Inspection Tracking for Completion phase */}
               {phase.id === "completion" && !skipped && (
@@ -13058,7 +13105,86 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             </div>
           );
         };
+        const CONTRACTOR_TYPES = [
+          { value: "gc", label: "General Contractor", color: O },
+          { value: "plumbing", label: "Plumbing", color: "#3b82f6" },
+          { value: "electrical", label: "Electrical", color: "#f59e0b" },
+          { value: "mechanical", label: "Mechanical", color: "#8b5cf6" },
+        ];
+        const ContractorSection = () => {
+          const items = pros.contractors || [];
+          const [addOpen, setAddOpen] = React.useState(false);
+          const [editId, setEditId] = React.useState(null);
+          const [form, setForm] = React.useState({ name: "", phone: "", email: "", company: "", contractorType: "gc" });
+          const save = () => {
+            if (!form.company.trim() && !form.name.trim()) { showAlert("error", "Company or contact name required"); return; }
+            const updated = { ...pros };
+            if (editId) {
+              updated.contractors = items.map(v => v.id === editId ? { ...v, ...form } : v);
+            } else {
+              updated.contractors = [...items, { id: "con_" + Date.now(), ...form }];
+            }
+            setProfessionals(updated);
+            showAlert("success", editId ? "Updated" : "Contractor added");
+            setAddOpen(false); setEditId(null); setForm({ name: "", phone: "", email: "", company: "", contractorType: "gc" });
+          };
+          const remove = (id) => {
+            setProfessionals({ ...pros, contractors: items.filter(v => v.id !== id) });
+            showAlert("success", "Removed");
+          };
+          return (
+            <div style={{ ...card(th), padding: "1.25rem", marginBottom: "1rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                <div style={{ fontWeight: 700, fontSize: "0.9375rem", color: th.text }}>🏗️ Contractors</div>
+                <button onClick={() => { setAddOpen(a => !a); setEditId(null); setForm({ name: "", phone: "", email: "", company: "", contractorType: "gc" }); }}
+                  style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem" })}>{addOpen ? "Cancel" : "+ Add"}</button>
+              </div>
+              {(addOpen || editId) && (
+                <div style={{ padding: "0.75rem", background: th.card2, borderRadius: "0.5rem", marginBottom: "0.75rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }} className="fade-in">
+                  <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Company *</label><input style={inp(th)} value={form.company} onChange={e => setForm(f => ({...f, company: e.target.value}))} /></div>
+                  <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Contact Name</label><input style={inp(th)} value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} /></div>
+                  <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Phone</label><input style={inp(th)} value={form.phone} onChange={e => setForm(f => ({...f, phone: e.target.value}))} /></div>
+                  <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Email</label><input style={inp(th)} type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></div>
+                  <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Type</label>
+                    <select style={inp(th)} value={form.contractorType} onChange={e => setForm(f => ({...f, contractorType: e.target.value}))}>
+                      {CONTRACTOR_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={save} style={btn(th, { gridColumn: "1 / -1" })}>{editId ? "Save Changes" : "Add Contractor"}</button>
+                </div>
+              )}
+              {items.length === 0 && <div style={{ fontSize: "0.8125rem", color: th.muted, padding: "1rem", textAlign: "center" }}>No contractors added yet. Add them here or use "Save to Roster" from any project.</div>}
+              {CONTRACTOR_TYPES.map(ct => {
+                const typeItems = items.filter(c => c.contractorType === ct.value);
+                if (typeItems.length === 0) return null;
+                return (
+                  <div key={ct.value} style={{ marginBottom: "0.625rem" }}>
+                    <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: ct.color, marginBottom: "0.35rem", textTransform: "uppercase", letterSpacing: 0.5 }}>{ct.label}</div>
+                    {typeItems.map(v => (
+                      <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2, marginBottom: "0.375rem" }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: "0.875rem", color: th.text }}>{v.company || v.name}{v.company && v.name ? ` — ${v.name}` : ""}</div>
+                          <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                            {v.phone && <span style={{ marginRight: "1rem" }}>📞 {v.phone}</span>}
+                            {v.email && <span>✉ {v.email}</span>}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "0.375rem" }}>
+                          <button onClick={() => { setEditId(v.id); setForm({ name: v.name || "", phone: v.phone || "", email: v.email || "", company: v.company || "", contractorType: v.contractorType || "gc" }); setAddOpen(true); }}
+                            style={{ background: th.card3, border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.5rem", fontSize: "0.6875rem", color: th.muted, cursor: "pointer" }}>Edit</button>
+                          <button onClick={() => remove(v.id)}
+                            style={{ background: "#ff444422", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.5rem", fontSize: "0.6875rem", color: "#ff4444", cursor: "pointer" }}>Remove</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        };
         return <>
+          <ContractorSection />
           <VendorSection title="Attorneys" icon="⚖️" type="attorneys" items={pros.attorneys || []} />
           <VendorSection title="Architects" icon="📐" type="architects" items={pros.architects || []} />
           <VendorSection title="Engineers" icon="🔧" type="engineers" items={pros.engineers || []} />
@@ -23944,7 +24070,7 @@ function PCGPortal() {
   useEffect(() => {
     cloudLoad('pcg_professionals_v1').then(data => {
       cloudProfessionalsLoaded.current = true;
-      if (data && typeof data === 'object' && data.attorneys) setProfessionals(data);
+      if (data && typeof data === 'object' && data.attorneys) setProfessionals(prev => ({ ...DEFAULT_PROFESSIONALS, ...prev, ...data }));
     }).catch(() => { cloudProfessionalsLoaded.current = true; });
   }, []);
   useEffect(() => {
@@ -24962,7 +25088,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v10.7
+            v10.8
           </div>
         )}
         {/* Collapse toggle — desktop only */}
