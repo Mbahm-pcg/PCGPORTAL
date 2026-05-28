@@ -30,7 +30,10 @@ const Icon = ({ d, size = 18, color = "currentColor", sw = 2 }) => (
 );
 
 const OrionIcon = ({ size = 20 }) => (
-  <img src="/orion-icon.png" width={size} height={size} style={{ display: "inline-block", verticalAlign: "middle", borderRadius: "50%", flexShrink: 0 }} alt="Orion" />
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display:"inline-block", verticalAlign:"middle", flexShrink:0, borderRadius:"50%" }}>
+    <circle cx="16" cy="16" r="16" fill="#6d28d9"/>
+    <path d="M16 8l1.8 5.5h5.7l-4.65 3.4 1.8 5.5L16 19.1l-4.65 3.3 1.8-5.5L8.5 13.5h5.7z" fill="white" opacity="0.95"/>
+  </svg>
 );
 
 const ICONS = {
@@ -17995,12 +17998,18 @@ function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
               { label: "Avg Check", value: fmtAvg(totals.avgCheck), color: "#ffd43b", sub: "Avg Check", question: `Explain today's average check of ${fmtAvg(totals.avgCheck)}. How does it compare to our target and what's affecting it?` },
               { label: "Discounts", value: fmtUSD(totals.discounts), color: "#f06595", sub: "Discounts", question: `Explain today's discount total of ${fmtUSD(totals.discounts)}. Is this within normal range? Which stores are discounting the most?` },
             ].map(kpi => (
-              <div key={kpi.label} onClick={() => onAskOrion && onAskOrion(kpi.question)} style={{ background: th.card2, borderRadius: "0.75rem", padding: "1rem 1.25rem", borderLeft: `3px solid ${kpi.color}`, flex: "1 1 130px", minWidth: 130, cursor: onAskOrion ? "pointer" : "default", transition: "transform 0.15s, box-shadow 0.15s" }}
-                onMouseEnter={e => { if (onAskOrion) { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = `0 8px 20px rgba(0,0,0,0.1), 0 0 0 1px ${kpi.color}33`; }}}
+              <div key={kpi.label} style={{ position: "relative", background: th.card2, borderRadius: "0.75rem", padding: "1rem 1.25rem", borderLeft: `3px solid ${kpi.color}`, flex: "1 1 130px", minWidth: 130, transition: "transform 0.15s, box-shadow 0.15s" }}
+                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = `0 8px 20px rgba(0,0,0,0.1), 0 0 0 1px ${kpi.color}33`; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+                {onAskOrion && (
+                  <button onClick={() => onAskOrion(kpi.question)} title="Ask Orion" style={{ position: "absolute", top: 8, right: 8, background: "none", border: "none", cursor: "pointer", padding: 2, opacity: 0.6, display: "flex" }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                    onMouseLeave={e => e.currentTarget.style.opacity = 0.6}>
+                    <OrionIcon size={18} />
+                  </button>
+                )}
                 <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: kpi.color, textShadow: kpi.label === "Net Sales" ? `0 0 12px ${kpi.color}66` : "none" }}>{kpi.value}</div>
                 <div style={{ fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" }}>{kpi.sub}</div>
-                {onAskOrion && <div style={{ fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.35rem", opacity: 0.7 }}>🔮 Click to ask Orion</div>}
               </div>
             ))}
           </div>
@@ -18420,7 +18429,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
               onMouseEnter={() => setHoveredKpi(k.label)}
               onMouseLeave={() => setHoveredKpi(null)}
               style={{ position: "relative" }}>
-              <div onClick={() => k.question && onAskOrion ? onAskOrion(k.question) : setTab(k.tab)} style={{
+              <div onClick={() => setTab(k.tab)} style={{
                 position: "relative",
                 background: th.card,
                 borderRadius: "0.875rem",
@@ -18440,6 +18449,12 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
                   position: "absolute", top: 0, left: 0, right: 0, height: 3,
                   background: `linear-gradient(90deg, ${k.color}, ${k.color}88 40%, transparent)`,
                 }} />
+                {/* Orion quick-ask icon */}
+                {k.question && onAskOrion && (
+                  <button onClick={e => { e.stopPropagation(); onAskOrion(k.question); }} title="Ask Orion" style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", cursor: "pointer", padding: 2, opacity: isHovered ? 0.9 : 0.4, transition: "opacity .2s", display: "flex", zIndex: 1 }}>
+                    <OrionIcon size={18} />
+                  </button>
+                )}
                 {/* Icon bubble */}
                 <div style={{
                   width: 44, height: 44, borderRadius: "0.625rem",
@@ -18462,9 +18477,6 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
                     fontSize: "0.62rem", fontWeight: 800, color: th.muted,
                     textTransform: "uppercase", letterSpacing: 1.2, marginTop: "0.35rem",
                   }}>{k.label}</div>
-                  {k.question && onAskOrion && (
-                    <div style={{ fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.3rem", opacity: isHovered ? 1 : 0.55, transition: "opacity .2s" }}>🔮 Click to ask Orion</div>
-                  )}
                 </div>
               </div>
 
@@ -26631,7 +26643,7 @@ function PCGPortal() {
     return <FirstLoginSetup user={user} setUser={setUser} setUsers={setUsers} th={th} />;
   }
 
-  if (user.userType === "maintenance" && !preferFullPortal) {
+  if (user.userType === "maintenance" && isMobile && !preferFullPortal) {
     return (
       <MaintenanceMobileView
         th={th}
@@ -27264,7 +27276,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.10
+            v13.12
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -27404,6 +27416,9 @@ function PCGPortal() {
             )}
             {isMobile && user?.userType === 'manager' && (
               <button onClick={() => togglePortalMode(false)} style={{ background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap' }}>⊞ My Store</button>
+            )}
+            {isMobile && user?.userType === 'maintenance' && (
+              <button onClick={() => togglePortalMode(false)} style={{ background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap' }}>🔧 Mobile View</button>
             )}
             {false && user?.userType === "manager" && tab === "dashboard" && (
               <button
