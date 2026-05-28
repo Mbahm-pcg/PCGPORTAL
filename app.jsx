@@ -10549,6 +10549,22 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   const [permitUploading, setPermitUploading] = useState(null);
   const [permitDetailData, setPermitDetailData] = useState(null);
   const [docViewerData, setDocViewerData] = useState(null);
+  const [docBlobUrl, setDocBlobUrl] = useState(null);
+  useEffect(() => {
+    if (!docViewerData?.data || (docViewerData.type && docViewerData.type.startsWith("image/"))) {
+      setDocBlobUrl(null); return;
+    }
+    try {
+      const [header, b64] = docViewerData.data.split(",");
+      const mime = (header.match(/:(.*?);/) || [])[1] || "application/pdf";
+      const bin = atob(b64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([arr], { type: mime }));
+      setDocBlobUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } catch { setDocBlobUrl(null); }
+  }, [docViewerData]);
   const [planUploading, setPlanUploading] = useState(null);
   const [projCityData, setProjCityData] = useState(null);
   const [projCityLoading, setProjCityLoading] = useState(false);
@@ -10832,6 +10848,28 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
           <ChatSection user={user} users={allUsers || []} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages || []} setMessages={setChatMessages} readState={chatReadState || {}} setReadState={setChatReadState} th={th} showAlert={showAlert} initialChannelId={`proj_${p.id}`} />
         )}
 
+        {/* Quick-nav phase tiles */}
+        {detailTab === "checklist" && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem", marginBottom: "1rem" }}>
+            {PROJECT_PHASES.map(phase => {
+              const skp = isPhaseSkipped(p, phase);
+              const { pct } = skp ? { pct: 100 } : getPhaseCompletion(p, phase);
+              return (
+                <button key={phase.id} onClick={() => { const el = document.getElementById(`phase-${phase.id}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+                  style={{ display: "flex", alignItems: "center", gap: "0.3rem", padding: "0.312rem 0.625rem", borderRadius: "0.375rem", border: `1px solid ${phase.color}44`, background: skp ? th.card2 : `${phase.color}11`, cursor: "pointer", fontSize: "0.6875rem", fontWeight: 600, color: skp ? th.muted : phase.color, opacity: skp ? 0.5 : 1, whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: "0.75rem" }}>{phase.icon}</span> {phase.label}
+                  {!skp && <span style={{ marginLeft: "0.125rem", fontSize: "0.5625rem", fontWeight: 700, color: pct === 100 ? "#22c55e" : th.muted }}>{pct}%</span>}
+                </button>
+              );
+            })}
+            <button onClick={() => { const el = document.getElementById("phase-inspections"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+              style={{ display: "flex", alignItems: "center", gap: "0.3rem", padding: "0.312rem 0.625rem", borderRadius: "0.375rem", border: "1px solid #ef444444", background: "#ef444411", cursor: "pointer", fontSize: "0.6875rem", fontWeight: 600, color: "#ef4444", whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: "0.75rem" }}>🔍</span> Inspections
+              {(p.inspections || []).length > 0 && <span style={{ marginLeft: "0.125rem", fontSize: "0.5625rem", fontWeight: 700 }}>{(p.inspections || []).length}</span>}
+            </button>
+          </div>
+        )}
+
         {/* Phase sections with checklists */}
         {detailTab === "checklist" && PROJECT_PHASES.map(phase => {
           const skipped = isPhaseSkipped(p, phase);
@@ -10842,7 +10880,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
           const isPreCon = phase.id === "pre_construction";
           const isPhilly = (p.state || "").toUpperCase() === "PA" && (p.city || "").toLowerCase().includes("philadelph");
           return (
-            <div key={phase.id} style={{ ...card(th), padding: "1.25rem", marginBottom: "1rem", opacity: skipped ? 0.5 : 1, transition: "opacity .2s" }}>
+            <div key={phase.id} id={`phase-${phase.id}`} style={{ ...card(th), padding: "1.25rem", marginBottom: "1rem", opacity: skipped ? 0.5 : 1, transition: "opacity .2s", scrollMarginTop: "1rem" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <span style={{ fontSize: "1.125rem" }}>{phase.icon}</span>
@@ -11420,49 +11458,6 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                 );
               })()}
 
-              {/* Inspection Tracking for Completion phase */}
-              {phase.id === "completion" && !skipped && (
-                <div style={{ marginTop: "0.75rem", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
-                    <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted }}>Inspections</div>
-                    {editable && (
-                      <button onClick={() => { const insp = [...(p.inspections || []), { id: Date.now(), type: "", date: "", result: "" }]; updateItem(p.id, "inspections", insp); }}
-                        style={btn(th, { padding: "0.2rem 0.5rem", fontSize: "0.625rem" })}>+ Add</button>
-                    )}
-                  </div>
-                  {(p.inspections || []).length === 0 && <div style={{ fontSize: "0.625rem", color: th.muted, fontStyle: "italic" }}>No inspections recorded.</div>}
-                  {(p.inspections || []).map((ins, ii) => (
-                    <div key={ins.id || ii} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: "0.35rem", marginBottom: "0.35rem", alignItems: "center" }}>
-                      {editable ? (
-                        <>
-                          <select value={ins.type || ""} onChange={e => { const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, type: e.target.value }; updateItem(p.id, "inspections", arr); }}
-                            style={{ ...inp(th, { fontSize: "0.6875rem", padding: "0.25rem 0.4rem" }) }}>
-                            <option value="">Type...</option>
-                            <option>Building</option><option>Fire</option><option>Health</option><option>Electrical</option><option>Plumbing</option><option>Final</option><option>Certificate of Occupancy</option>
-                          </select>
-                          <input type="date" value={ins.date || ""} onChange={e => { const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, date: e.target.value }; updateItem(p.id, "inspections", arr); }}
-                            style={{ ...inp(th, { fontSize: "0.6875rem", padding: "0.25rem 0.4rem" }) }} />
-                          <select value={ins.result || ""} onChange={e => { const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, result: e.target.value }; updateItem(p.id, "inspections", arr); }}
-                            style={{ ...inp(th, { fontSize: "0.6875rem", padding: "0.25rem 0.4rem" }) }}>
-                            <option value="">Result...</option>
-                            <option>Passed</option><option>Failed</option><option>Conditional</option><option>Scheduled</option>
-                          </select>
-                          <button onClick={() => { const arr = (p.inspections || []).filter((_, i) => i !== ii); updateItem(p.id, "inspections", arr); }}
-                            style={{ background: "none", border: "none", color: "#ff4444", cursor: "pointer", fontSize: "0.75rem" }}>🗑</button>
-                        </>
-                      ) : (
-                        <>
-                          <span style={{ fontSize: "0.6875rem", color: th.text }}>{ins.type || "—"}</span>
-                          <span style={{ fontSize: "0.6875rem", color: th.muted }}>{ins.date || "—"}</span>
-                          <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: ins.result === "Passed" ? "#22c55e" : ins.result === "Failed" ? "#f44336" : th.muted }}>{ins.result || "—"}</span>
-                          <span />
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
               {/* Per-Phase Notes */}
               {!skipped && (
                 <div style={{ marginTop: "0.75rem" }}>
@@ -11477,6 +11472,103 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             </div>
           );
         })}
+
+        {/* Inspections — standalone section */}
+        {detailTab === "checklist" && (
+          <div id="phase-inspections" style={{ ...card(th), padding: "1.25rem", marginBottom: "1rem", scrollMarginTop: "1rem", borderLeft: "3px solid #ef4444" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "1.125rem" }}>🔍</span>
+                <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Inspections</span>
+                {(p.inspections || []).length > 0 && (
+                  <span style={{ fontSize: "0.6875rem", fontWeight: 600, padding: "0.125rem 0.5rem", borderRadius: "1rem", background: "#ef444422", color: "#ef4444" }}>
+                    {(p.inspections || []).filter(i => i.result === "Passed").length}/{(p.inspections || []).length} Passed
+                  </span>
+                )}
+              </div>
+              {editable && (
+                <button onClick={() => { const insp = [...(p.inspections || []), { id: Date.now(), type: "", date: "", result: "", notes: "" }]; updateItem(p.id, "inspections", insp); }}
+                  style={btn(th, { padding: "0.3rem 0.75rem", fontSize: "0.75rem" })}>+ Add Inspection</button>
+              )}
+            </div>
+            {(p.inspections || []).length === 0 && <div style={{ fontSize: "0.75rem", color: th.muted, fontStyle: "italic", padding: "0.5rem 0" }}>No inspections recorded yet.</div>}
+            {(p.inspections || []).map((ins, ii) => (
+              <div key={ins.id || ii} style={{ padding: "0.75rem", borderRadius: "0.5rem", background: th.card2, marginBottom: "0.5rem", border: `1px solid ${ins.result === "Passed" ? "#22c55e33" : ins.result === "Failed" ? "#f4433633" : th.cardBorder}` }}>
+                {editable ? (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
+                      <select value={ins.type || ""} onChange={e => { const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, type: e.target.value }; updateItem(p.id, "inspections", arr); }}
+                        style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }}>
+                        <option value="">Type...</option>
+                        <option>Building</option><option>Fire</option><option>Health</option><option>Electrical</option><option>Plumbing</option><option>Mechanical</option><option>Final</option><option>Certificate of Occupancy</option><option>Rough-In</option><option>Framing</option><option>ADA</option>
+                      </select>
+                      <input type="date" value={ins.date || ""} onChange={e => { const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, date: e.target.value }; updateItem(p.id, "inspections", arr); }}
+                        style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
+                      <select value={ins.result || ""} onChange={e => { const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, result: e.target.value }; updateItem(p.id, "inspections", arr); }}
+                        style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem", color: ins.result === "Passed" ? "#22c55e" : ins.result === "Failed" ? "#f44336" : undefined, fontWeight: ins.result ? 700 : 400 }) }}>
+                        <option value="">Result...</option>
+                        <option>Passed</option><option>Failed</option><option>Conditional</option><option>Scheduled</option><option>Pending</option>
+                      </select>
+                      <button onClick={() => { const arr = (p.inspections || []).filter((_, i) => i !== ii); updateItem(p.id, "inspections", arr); }}
+                        style={{ background: "none", border: "none", color: "#ff4444", cursor: "pointer", fontSize: "0.875rem", padding: "0.25rem" }}>🗑</button>
+                    </div>
+                    <textarea value={ins.notes || ""} placeholder="Inspection notes..." onChange={e => { const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, notes: e.target.value }; updateItem(p.id, "inspections", arr); }}
+                      style={{ ...inp(th, { fontSize: "0.6875rem", padding: "0.35rem 0.5rem", minHeight: 40, resize: "vertical", width: "100%", marginBottom: "0.35rem" }) }} />
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                      {ins.fileKey && (
+                        <button onClick={async () => {
+                          const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, _loading: true }; updateItem(p.id, "inspections", arr);
+                          const d = await cloudLoadFile(ins.fileKey);
+                          const arr2 = [...(p.inspections || [])]; arr2[ii] = { ...ins, _loading: false }; updateItem(p.id, "inspections", arr2);
+                          if (d) setDocViewerData({ ...d, label: `${ins.type || "Inspection"} — ${ins.date || ""}` });
+                          else showAlert("error", "Could not load file");
+                        }} style={btn(th, { padding: "0.2rem 0.5rem", fontSize: "0.625rem", background: "#22c55e22", color: "#22c55e", border: "1px solid #22c55e44" })}>
+                          {ins._loading ? "Loading..." : `📄 View: ${ins.fileName || "File"}`}
+                        </button>
+                      )}
+                      <label style={{ ...btn(th, { padding: "0.2rem 0.5rem", fontSize: "0.625rem", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.25rem" }) }}>
+                        📎 {ins.fileKey ? "Replace" : "Attach"} File
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={async e => {
+                          const file = e.target.files?.[0]; if (!file) return;
+                          const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, _uploading: true }; updateItem(p.id, "inspections", arr);
+                          try {
+                            const key = `pcg_insp_${p.id}_${ins.id}`;
+                            await cloudSaveFile(key, file, user?.name);
+                            const arr2 = [...(p.inspections || [])]; arr2[ii] = { ...ins, fileKey: key, fileName: file.name, _uploading: false }; updateItem(p.id, "inspections", arr2);
+                            showAlert("success", `File attached (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+                          } catch (err) {
+                            const arr2 = [...(p.inspections || [])]; arr2[ii] = { ...ins, _uploading: false }; updateItem(p.id, "inspections", arr2);
+                            showAlert("error", "Upload failed: " + err.message);
+                          }
+                          e.target.value = "";
+                        }} />
+                      </label>
+                      {ins._uploading && <span style={{ fontSize: "0.625rem", color: th.muted }}>Uploading...</span>}
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: ins.notes ? "0.35rem" : 0 }}>
+                      <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: th.text, minWidth: 100 }}>{ins.type || "—"}</span>
+                      <span style={{ fontSize: "0.75rem", color: th.muted }}>{ins.date ? new Date(ins.date).toLocaleDateString() : "—"}</span>
+                      <span style={{ fontSize: "0.75rem", fontWeight: 700, color: ins.result === "Passed" ? "#22c55e" : ins.result === "Failed" ? "#f44336" : ins.result === "Conditional" ? "#f59e0b" : th.muted }}>{ins.result || "—"}</span>
+                      {ins.fileKey && (
+                        <button onClick={async () => {
+                          const d = await cloudLoadFile(ins.fileKey);
+                          if (d) setDocViewerData({ ...d, label: `${ins.type || "Inspection"} — ${ins.date || ""}` });
+                          else showAlert("error", "Could not load file");
+                        }} style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: "0.6875rem", textDecoration: "underline" }}>
+                          📄 {ins.fileName || "View File"}
+                        </button>
+                      )}
+                    </div>
+                    {ins.notes && <div style={{ fontSize: "0.6875rem", color: th.muted, padding: "0.25rem 0", whiteSpace: "pre-wrap" }}>{ins.notes}</div>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Notes */}
         {detailTab === "checklist" && (
@@ -11582,7 +11674,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                 <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                   <button onClick={() => {
                     const a = document.createElement("a");
-                    a.href = docViewerData.data;
+                    a.href = docBlobUrl || docViewerData.data;
                     a.download = docViewerData.name || "document.pdf";
                     document.body.appendChild(a); a.click(); document.body.removeChild(a);
                   }} style={{ background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", color: "#fff", fontSize: "0.75rem", fontWeight: 600, cursor: "pointer" }}>
@@ -11594,8 +11686,10 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
               <div style={{ flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f5f5" }}>
                 {docViewerData.type && docViewerData.type.startsWith("image/") ? (
                   <img src={docViewerData.data} alt={docViewerData.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                ) : docBlobUrl ? (
+                  <iframe src={docBlobUrl} style={{ width: "100%", height: "100%", border: "none" }} title={docViewerData.name || "Document"} />
                 ) : (
-                  <iframe src={docViewerData.data} style={{ width: "100%", height: "100%", border: "none" }} title={docViewerData.name || "Document"} />
+                  <div style={{ color: "#999", fontSize: "0.875rem" }}>Loading document...</div>
                 )}
               </div>
               <div style={{ padding: "0.5rem 1.25rem", borderTop: "1px solid #eee", background: th.card2, fontSize: "0.6875rem", color: th.muted, display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
@@ -25130,7 +25224,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v10.9
+            v10.91
           </div>
         )}
         {/* Collapse toggle — desktop only */}
