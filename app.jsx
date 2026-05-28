@@ -3286,6 +3286,8 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
   const [sortCol,      setSortCol]      = useState("pc");
   const [sortDir,      setSortDir]      = useState("asc");
   const [copiedId,     setCopiedId]     = useState(null);
+  const [cityData,     setCityData]     = useState(null);
+  const [cityLoading,  setCityLoading]  = useState(false);
 
   // Copy PC# / address / city-state-zip / Google Maps URL to clipboard.
   // Each field on its own line so users can paste into any text field.
@@ -3800,7 +3802,7 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
               </div>
 
               {/* Body */}
-              <div style={{ padding:"1.25rem 1.5rem", display:"grid", gridTemplateColumns:"1fr 1fr", gap:"14px 24px" }}>
+              <div style={{ padding:"1.25rem 1.5rem", display:"grid", gridTemplateColumns:"1fr 1fr", gap:"14px 24px", maxHeight:"60vh", overflowY:"auto" }}>
 
                 {/* PC + Paycor */}
                 <div>
@@ -3866,6 +3868,178 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
                     <div style={{ fontSize:"0.875rem", fontWeight:700, color:th.text }}>👥 {s.employees}</div>
                   </div>
                 )}
+
+                {/* ─── Philadelphia City Data ─── */}
+                {s.city === "Philadelphia" && (() => {
+                  const cd = cityData;
+                  const fmtCurr = n => n != null ? "$" + Number(n).toLocaleString() : "—";
+                  const fmtDate = d => d ? new Date(d).toLocaleDateString() : "—";
+                  const lbl = (l, v) => (
+                    <div style={{ padding:"0.35rem 0.5rem", borderRadius:"0.375rem", background:th.card2 }}>
+                      <div style={{ fontSize:"0.5625rem", fontWeight:600, color:th.muted, textTransform:"uppercase" }}>{l}</div>
+                      <div style={{ fontSize:"0.75rem", fontWeight:600, color:th.text }}>{v || "—"}</div>
+                    </div>
+                  );
+                  return (
+                    <div style={{ gridColumn:"1/-1", marginTop:"0.5rem" }}>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.5rem" }}>
+                        <div style={{ fontSize:"0.75rem", fontWeight:800, color:"#6366f1", textTransform:"uppercase", letterSpacing:1 }}>Philadelphia City Data</div>
+                        <button onClick={async () => {
+                          setCityLoading(true); setCityData(null);
+                          try {
+                            const res = await fetch(`/.netlify/functions/philly-data?address=${encodeURIComponent(s.address + ", Philadelphia PA " + s.zip)}`);
+                            const data = await res.json();
+                            setCityData(data);
+                          } catch (e) { setCityData({ error: e.message }); }
+                          setCityLoading(false);
+                        }} disabled={cityLoading} style={{ ...btn(th, { padding:"0.3rem 0.7rem", fontSize:"0.7rem", background:"#6366f1", color:"#fff" }) }}>
+                          {cityLoading ? "Loading..." : cd ? "Refresh" : "Load City Data"}
+                        </button>
+                      </div>
+
+                      {cd && !cd.error && (() => {
+                        const pr = cd.property;
+                        const openViol = (cd.violations || []).filter(v => v.violationstatus !== "COMPLIED");
+                        const activeLic = (cd.licenses || []).filter(l => l.licensestatus === "Active");
+                        const expiredLic = (cd.licenses || []).filter(l => l.licensestatus !== "Active");
+                        const crimeTop = Object.entries(cd.crime?.byType || {}).sort((a,b) => b[1]-a[1]).slice(0, 5);
+                        const sr311Top = Object.entries(cd.complaints311?.byType || {}).sort((a,b) => b[1]-a[1]).slice(0, 5);
+
+                        return (
+                          <div style={{ display:"flex", flexDirection:"column", gap:"0.5rem" }}>
+
+                            {/* Property Assessment */}
+                            {pr && (
+                              <div style={{ padding:"0.5rem 0.625rem", borderRadius:"0.5rem", background:"#10b98111", border:"1px solid #10b98133" }}>
+                                <div style={{ fontSize:"0.6875rem", fontWeight:700, color:"#10b981", marginBottom:"0.35rem" }}>Property Assessment</div>
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.35rem" }}>
+                                  {lbl("Market Value", fmtCurr(pr.market_value))}
+                                  {lbl("Last Sale", pr.sale_price ? `${fmtCurr(pr.sale_price)} (${fmtDate(pr.sale_date)})` : "—")}
+                                  {lbl("Year Built", pr.year_built || "—")}
+                                  {lbl("Building Type", pr.building_code_description || "—")}
+                                  {lbl("Stories", pr.number_stories || "—")}
+                                  {lbl("Total Area", pr.total_area ? Number(pr.total_area).toLocaleString() + " sq ft" : "—")}
+                                  {lbl("Zoning", pr.zoning || "—")}
+                                  {lbl("Owner", pr.owner_1 || "—")}
+                                  {lbl("Exterior", pr.exterior_condition || "—")}
+                                  {lbl("Interior", pr.interior_condition || "—")}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Business Licenses */}
+                            <div style={{ padding:"0.5rem 0.625rem", borderRadius:"0.5rem", background:"#f59e0b11", border:"1px solid #f59e0b33" }}>
+                              <div style={{ fontSize:"0.6875rem", fontWeight:700, color:"#f59e0b", marginBottom:"0.35rem" }}>
+                                Business Licenses ({(cd.licenses||[]).length} found — {activeLic.length} active)
+                              </div>
+                              {(cd.licenses||[]).length === 0 ? (
+                                <div style={{ fontSize:"0.6875rem", color:th.muted, fontStyle:"italic" }}>No licenses found at this address</div>
+                              ) : (
+                                <div style={{ display:"flex", flexDirection:"column", gap:"0.25rem" }}>
+                                  {(cd.licenses||[]).slice(0, 8).map((lic, i) => (
+                                    <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"0.3rem 0.5rem", borderRadius:"0.375rem", background:th.card2, gap:"0.5rem" }}>
+                                      <div style={{ fontSize:"0.6875rem", color:th.text, minWidth:0, flex:1 }}>{lic.licensetype}</div>
+                                      <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", flexShrink:0 }}>
+                                        <span style={{ fontSize:"0.6rem", fontWeight:700, padding:"0.15rem 0.4rem", borderRadius:999,
+                                          background: lic.licensestatus === "Active" ? "#22c55e22" : "#ef444422",
+                                          color: lic.licensestatus === "Active" ? "#22c55e" : "#ef4444" }}>
+                                          {lic.licensestatus}
+                                        </span>
+                                        {lic.expirationdate && <span style={{ fontSize:"0.6rem", color:th.muted }}>Exp: {fmtDate(lic.expirationdate)}</span>}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* L&I Violations */}
+                            <div style={{ padding:"0.5rem 0.625rem", borderRadius:"0.5rem", background: openViol.length > 0 ? "#ef444411" : "#22c55e11", border: `1px solid ${openViol.length > 0 ? "#ef444433" : "#22c55e33"}` }}>
+                              <div style={{ fontSize:"0.6875rem", fontWeight:700, color: openViol.length > 0 ? "#ef4444" : "#22c55e", marginBottom:"0.35rem" }}>
+                                L&I Violations ({(cd.violations||[]).length} total — {openViol.length} open)
+                              </div>
+                              {(cd.violations||[]).length === 0 ? (
+                                <div style={{ fontSize:"0.6875rem", color:th.muted, fontStyle:"italic" }}>No violations found at this address</div>
+                              ) : (
+                                <div style={{ display:"flex", flexDirection:"column", gap:"0.25rem" }}>
+                                  {(cd.violations||[]).slice(0, 6).map((v, i) => (
+                                    <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"0.3rem 0.5rem", borderRadius:"0.375rem", background:th.card2, gap:"0.5rem" }}>
+                                      <div style={{ fontSize:"0.6875rem", color:th.text, minWidth:0, flex:1 }}>{v.violationcodetitle || v.violationcode}</div>
+                                      <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", flexShrink:0 }}>
+                                        <span style={{ fontSize:"0.6rem", fontWeight:700, padding:"0.15rem 0.4rem", borderRadius:999,
+                                          background: v.violationstatus === "COMPLIED" ? "#22c55e22" : "#ef444422",
+                                          color: v.violationstatus === "COMPLIED" ? "#22c55e" : "#ef4444" }}>
+                                          {v.violationstatus}
+                                        </span>
+                                        <span style={{ fontSize:"0.6rem", color:th.muted }}>{fmtDate(v.violationdate)}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* 311 Complaints Nearby */}
+                            <div style={{ padding:"0.5rem 0.625rem", borderRadius:"0.5rem", background:"#8b5cf611", border:"1px solid #8b5cf633" }}>
+                              <div style={{ fontSize:"0.6875rem", fontWeight:700, color:"#8b5cf6", marginBottom:"0.35rem" }}>
+                                311 Activity Nearby (6 months — {cd.complaints311?.total || 0} reports)
+                              </div>
+                              {sr311Top.length === 0 ? (
+                                <div style={{ fontSize:"0.6875rem", color:th.muted, fontStyle:"italic" }}>No 311 reports nearby</div>
+                              ) : (
+                                <div style={{ display:"flex", flexWrap:"wrap", gap:"0.25rem" }}>
+                                  {sr311Top.map(([type, count]) => (
+                                    <span key={type} style={{ fontSize:"0.6rem", padding:"0.2rem 0.5rem", borderRadius:999, background:th.card2, color:th.text }}>
+                                      {type}: <b>{count}</b>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Crime Summary */}
+                            <div style={{ padding:"0.5rem 0.625rem", borderRadius:"0.5rem", background:"#f4433611", border:"1px solid #f4433633" }}>
+                              <div style={{ fontSize:"0.6875rem", fontWeight:700, color:"#f44336", marginBottom:"0.35rem" }}>
+                                Crime Nearby (90 days — {cd.crime?.total || 0} incidents)
+                              </div>
+                              {crimeTop.length === 0 ? (
+                                <div style={{ fontSize:"0.6875rem", color:th.muted, fontStyle:"italic" }}>No incidents reported nearby</div>
+                              ) : (
+                                <div style={{ display:"flex", flexWrap:"wrap", gap:"0.25rem" }}>
+                                  {crimeTop.map(([type, count]) => (
+                                    <span key={type} style={{ fontSize:"0.6rem", padding:"0.2rem 0.5rem", borderRadius:999, background:th.card2, color:th.text }}>
+                                      {type}: <b>{count}</b>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Zoning Appeals */}
+                            {(cd.appeals||[]).length > 0 && (
+                              <div style={{ padding:"0.5rem 0.625rem", borderRadius:"0.5rem", background:"#0ea5e911", border:"1px solid #0ea5e933" }}>
+                                <div style={{ fontSize:"0.6875rem", fontWeight:700, color:"#0ea5e9", marginBottom:"0.35rem" }}>
+                                  Zoning Appeals ({cd.appeals.length})
+                                </div>
+                                <div style={{ display:"flex", flexDirection:"column", gap:"0.25rem" }}>
+                                  {cd.appeals.slice(0, 4).map((a, i) => (
+                                    <div key={i} style={{ padding:"0.3rem 0.5rem", borderRadius:"0.375rem", background:th.card2 }}>
+                                      <div style={{ fontSize:"0.6875rem", color:th.text }}>{a.descriptionofproject || "Appeal #" + a.appealno}</div>
+                                      <div style={{ fontSize:"0.6rem", color:th.muted }}>{a.decision || a.applicstatus} — {fmtDate(a.processeddate || a.decisiondate)}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {cd?.error && <div style={{ fontSize:"0.6875rem", color:"#ef4444" }}>Error: {cd.error}</div>}
+                      {!cd && !cityLoading && <div style={{ fontSize:"0.6875rem", color:th.muted, fontStyle:"italic" }}>Click "Load City Data" to fetch property, license, violation, and neighborhood data from Philadelphia open data.</div>}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Footer actions */}
@@ -3929,7 +4103,7 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
 
               {/* Property name + NXT badge — clickable for detail popup */}
               <div style={{ display:"flex", flexDirection:"column", gap:"0.188rem" }}>
-                <button onClick={()=>setSelectedStore(s)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
+                <button onClick={()=>{setCityData(null);setSelectedStore(s);}} style={{ background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
                   <span style={{ fontSize:"1rem", fontWeight:600, color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block" }}
                     onMouseEnter={e=>{e.currentTarget.style.color=O;e.currentTarget.style.textDecoration="underline";}}
                     onMouseLeave={e=>{e.currentTarget.style.color=th.text;e.currentTarget.style.textDecoration="none";}}>
@@ -10329,6 +10503,8 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   const [permitDetailData, setPermitDetailData] = useState(null);
   const [docViewerData, setDocViewerData] = useState(null);
   const [planUploading, setPlanUploading] = useState(null);
+  const [projCityData, setProjCityData] = useState(null);
+  const [projCityLoading, setProjCityLoading] = useState(false);
   const pros = professionals || DEFAULT_PROFESSIONALS;
 
   // Deep-link: auto-open project from email link
@@ -10696,66 +10872,181 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                 </div>
               )}
 
-              {/* Philadelphia zoning summary + auto-populated info */}
-              {isZoning && isPhilly && (
+              {/* Philadelphia zoning classification */}
+              {isZoning && isPhilly && (() => {
+                const zi = p.zoningInfo;
+                return (
                 <div style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: "#6366f111", border: "1px solid #6366f133", marginBottom: "0.75rem" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
                     <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#6366f1" }}>🏛️ Philadelphia Zoning</div>
-                    <button onClick={() => setZoningOverlay(p.address)} style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem" })}>
-                      📄 Zoning Summary
-                    </button>
-                  </div>
-                  {p.zoningInfo && (
-                    <div style={{ marginTop: "0.5rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem" }}>
-                      {p.zoningInfo.opa_owner && (
-                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
-                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Owner</div>
-                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: th.text }}>{p.zoningInfo.opa_owner}</div>
-                        </div>
-                      )}
-                      {p.zoningInfo.commercialorresidential && (
-                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
-                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Type</div>
-                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: th.text }}>{p.zoningInfo.commercialorresidential}</div>
-                        </div>
-                      )}
-                      {p.zoningInfo.permittype && (
-                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
-                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Latest Permit Type</div>
-                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: th.text }}>{p.zoningInfo.permittype}</div>
-                        </div>
-                      )}
-                      {p.zoningInfo.status && (
-                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
-                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Status</div>
-                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: (p.zoningInfo.status === "Completed" || p.zoningInfo.status === "COMPLETED") ? "#22c55e" : "#3b82f6" }}>{p.zoningInfo.status}</div>
-                        </div>
-                      )}
-                      {p.zoningInfo.approvedscopeofwork && (
-                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2, gridColumn: "span 2" }}>
-                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Approved Scope</div>
-                          <div style={{ fontSize: "0.6875rem", color: th.text }}>{p.zoningInfo.approvedscopeofwork}</div>
-                        </div>
-                      )}
-                      {p.zoningInfo.contractorname && (
-                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
-                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Contractor on File</div>
-                          <div style={{ fontSize: "0.75rem", color: th.text }}>{p.zoningInfo.contractorname}</div>
-                        </div>
-                      )}
-                      {p.zoningInfo.permitissuedate && (
-                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
-                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Issued</div>
-                          <div style={{ fontSize: "0.75rem", color: th.text }}>{new Date(p.zoningInfo.permitissuedate).toLocaleDateString()}</div>
-                        </div>
-                      )}
+                    <div style={{ display: "flex", gap: "0.35rem" }}>
+                      <button onClick={async () => {
+                        setZoningLoading(true);
+                        try {
+                          const addr = encodeURIComponent((p.address || "").toUpperCase());
+                          const res = await fetch(`/.netlify/functions/philly-zoning?address=${addr}&type=zoning`);
+                          const data = await res.json();
+                          if (data.zoning) {
+                            updateItem(p.id, "zoningInfo", data.zoning);
+                            showAlert("success", `Zoning loaded: ${data.zoning.code} — ${data.zoning.description}`);
+                          } else {
+                            showAlert("info", "Address not found in Philadelphia zoning system");
+                          }
+                        } catch (e) { showAlert("error", "Zoning lookup failed: " + e.message); }
+                        setZoningLoading(false);
+                      }} style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem", background: "#6366f1", color: "#fff" })} disabled={zoningLoading}>
+                        {zoningLoading ? "Loading..." : zi?.code ? "🔄 Refresh" : "🔍 Lookup Zoning"}
+                      </button>
+                      <button onClick={() => setZoningOverlay(p.address)} style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem" })}>
+                        📄 Zoning Summary
+                      </button>
                     </div>
-                  )}
-                  {!p.zoningInfo && (
-                    <div style={{ marginTop: "0.35rem", fontSize: "0.6875rem", color: th.muted, fontStyle: "italic" }}>Use Lookup Permits in the Permitting phase to auto-populate zoning info.</div>
+                  </div>
+                  {zi?.code ? (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <div style={{ padding: "0.5rem 0.625rem", borderRadius: "0.375rem", background: th.card2, marginBottom: "0.4rem" }}>
+                        <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Base Zoning</div>
+                        <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "#6366f1" }}>{zi.code}</div>
+                        <div style={{ fontSize: "0.75rem", color: th.text, marginTop: "0.15rem" }}>{zi.description}</div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem" }}>
+                        {zi.owner && (
+                          <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                            <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Owner</div>
+                            <div style={{ fontSize: "0.75rem", fontWeight: 600, color: th.text }}>{zi.owner}</div>
+                          </div>
+                        )}
+                        {zi.opaAddress && (
+                          <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                            <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>City Address</div>
+                            <div style={{ fontSize: "0.75rem", color: th.text }}>{zi.opaAddress}</div>
+                          </div>
+                        )}
+                        {zi.liDistrict && (
+                          <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                            <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>L&I District</div>
+                            <div style={{ fontSize: "0.75rem", color: th.text }}>{zi.liDistrict}</div>
+                          </div>
+                        )}
+                        {zi.councilDistrict && (
+                          <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                            <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Council District</div>
+                            <div style={{ fontSize: "0.75rem", color: th.text }}>{zi.councilDistrict}</div>
+                          </div>
+                        )}
+                        {zi.planningDistrict && (
+                          <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                            <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Planning District</div>
+                            <div style={{ fontSize: "0.75rem", color: th.text }}>{zi.planningDistrict}</div>
+                          </div>
+                        )}
+                        {zi.historicDistrict && (
+                          <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                            <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Historic District</div>
+                            <div style={{ fontSize: "0.75rem", color: th.text }}>{zi.historicDistrict}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: "0.35rem", fontSize: "0.6875rem", color: th.muted, fontStyle: "italic" }}>Click "Lookup Zoning" to fetch zoning classification from Philadelphia AIS.</div>
                   )}
                 </div>
-              )}
+                );
+              })()}
+
+              {/* Philadelphia City Data (property, violations, licenses, 311, crime) — Zoning phase only */}
+              {isZoning && isPhilly && (() => {
+                const cd = projCityData;
+                const fmtCurr = n => n != null ? "$" + Number(n).toLocaleString() : "—";
+                const fmtDate = d => d ? new Date(d).toLocaleDateString() : "—";
+                return (
+                  <div style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: "#0ea5e911", border: "1px solid #0ea5e933", marginBottom: "0.75rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                      <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#0ea5e9" }}>📊 Philadelphia City Data</div>
+                      <button onClick={async () => {
+                        setProjCityLoading(true); setProjCityData(null);
+                        try {
+                          const addr = encodeURIComponent((p.address || "") + ", Philadelphia PA " + (p.zip || ""));
+                          const res = await fetch(`/.netlify/functions/philly-data?address=${addr}`);
+                          setProjCityData(await res.json());
+                        } catch (e) { setProjCityData({ error: e.message }); }
+                        setProjCityLoading(false);
+                      }} disabled={projCityLoading} style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem", background: "#0ea5e9", color: "#fff" })}>
+                        {projCityLoading ? "Loading..." : cd ? "Refresh" : "Load City Data"}
+                      </button>
+                    </div>
+
+                    {cd && !cd.error && (() => {
+                      const pr = cd.property;
+                      const openViol = (cd.violations || []).filter(v => v.violationstatus !== "COMPLIED");
+                      const activeLic = (cd.licenses || []).filter(l => l.licensestatus === "Active");
+                      const crimeTop = Object.entries(cd.crime?.byType || {}).sort((a,b) => b[1]-a[1]).slice(0, 5);
+                      const sr311Top = Object.entries(cd.complaints311?.byType || {}).sort((a,b) => b[1]-a[1]).slice(0, 5);
+                      return (
+                        <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                          {/* Property */}
+                          {pr && (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.35rem" }}>
+                              {[["Market Value", fmtCurr(pr.market_value)], ["Year Built", pr.year_built], ["Building", pr.building_code_description], ["Stories", pr.number_stories], ["Area", pr.total_area ? Number(pr.total_area).toLocaleString() + " sqft" : null], ["Owner", pr.owner_1]].map(([l,v]) => v ? (
+                                <div key={l} style={{ padding: "0.35rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                                  <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>{l}</div>
+                                  <div style={{ fontSize: "0.75rem", fontWeight: 600, color: th.text }}>{v}</div>
+                                </div>
+                              ) : null)}
+                            </div>
+                          )}
+                          {/* Violations */}
+                          <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: openViol.length > 0 ? "#ef444411" : "#22c55e11", border: `1px solid ${openViol.length > 0 ? "#ef444433" : "#22c55e33"}` }}>
+                            <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: openViol.length > 0 ? "#ef4444" : "#22c55e" }}>
+                              L&I Violations: {(cd.violations||[]).length} total, {openViol.length} open
+                            </div>
+                            {openViol.slice(0, 4).map((v, i) => (
+                              <div key={i} style={{ fontSize: "0.6875rem", color: th.text, marginTop: "0.15rem" }}>• {v.violationcodetitle || v.violationcode} ({fmtDate(v.violationdate)})</div>
+                            ))}
+                          </div>
+                          {/* Licenses */}
+                          <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: "#f59e0b11", border: "1px solid #f59e0b33" }}>
+                            <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#f59e0b" }}>
+                              Business Licenses: {(cd.licenses||[]).length} found, {activeLic.length} active
+                            </div>
+                            {(cd.licenses||[]).slice(0, 4).map((l, i) => (
+                              <div key={i} style={{ fontSize: "0.6875rem", color: th.text, marginTop: "0.15rem" }}>
+                                • {l.licensetype} — <span style={{ color: l.licensestatus === "Active" ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{l.licensestatus}</span>
+                                {l.expirationdate && <span style={{ color: th.muted }}> (exp {fmtDate(l.expirationdate)})</span>}
+                              </div>
+                            ))}
+                          </div>
+                          {/* 311 + Crime summary row */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.35rem" }}>
+                            <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: "#8b5cf611", border: "1px solid #8b5cf633" }}>
+                              <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#8b5cf6" }}>311 Nearby (6mo): {cd.complaints311?.total || 0}</div>
+                              {sr311Top.slice(0, 3).map(([t, c]) => <div key={t} style={{ fontSize: "0.625rem", color: th.muted }}>{t}: {c}</div>)}
+                            </div>
+                            <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: "#f4433611", border: "1px solid #f4433633" }}>
+                              <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#f44336" }}>Crime Nearby (90d): {cd.crime?.total || 0}</div>
+                              {crimeTop.slice(0, 3).map(([t, c]) => <div key={t} style={{ fontSize: "0.625rem", color: th.muted }}>{t}: {c}</div>)}
+                            </div>
+                          </div>
+                          {/* Zoning Appeals */}
+                          {(cd.appeals||[]).length > 0 && (
+                            <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                              <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#0ea5e9" }}>Zoning Appeals ({cd.appeals.length})</div>
+                              {cd.appeals.slice(0, 3).map((a, i) => (
+                                <div key={i} style={{ fontSize: "0.6875rem", color: th.text, marginTop: "0.15rem" }}>
+                                  • {a.descriptionofproject || "Appeal #" + a.appealno} — {a.decision || a.applicstatus} ({fmtDate(a.processeddate)})
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    {cd?.error && <div style={{ fontSize: "0.6875rem", color: "#ef4444", marginTop: "0.35rem" }}>Error: {cd.error}</div>}
+                    {!cd && !projCityLoading && <div style={{ marginTop: "0.35rem", fontSize: "0.6875rem", color: th.muted, fontStyle: "italic" }}>Loads property assessment, L&I violations, business licenses, 311 activity, crime, and zoning appeals from Philadelphia open data.</div>}
+                  </div>
+                );
+              })()}
 
               {/* Checklist items */}
               {!skipped && (
@@ -10887,7 +11178,6 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                         const data = await res.json();
                         if (data.rows && data.rows.length > 0) {
                           setZoningData(data.rows);
-                          updateItem(p.id, "zoningInfo", data.rows[0]);
                           const resolved = data.resolvedAddress;
                           const msg = resolved && resolved.toUpperCase() !== (p.address || "").toUpperCase()
                             ? `Found ${data.rows.length} permit(s) — city address: ${resolved}`
@@ -24672,7 +24962,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v10.5
+            v10.7
           </div>
         )}
         {/* Collapse toggle — desktop only */}

@@ -1,5 +1,24 @@
 const https = require('https');
 
+const ZONING_CODES = {
+  'RSA-1':'Residential Single-Family Attached (Larger Lots)','RSA-2':'Residential Single-Family Attached (Small Lots)',
+  'RSA-3':'Residential Single-Family Attached (Typical Row)','RSA-4':'Residential Single-Family Attached (Compact)',
+  'RSA-5':'Residential Single-Family Attached (Very Compact)','RSD-1':'Residential Single-Family Detached (Large Lots)',
+  'RSD-2':'Residential Single-Family Detached (Medium Lots)','RSD-3':'Residential Single-Family Detached (Small Lots)',
+  'RM-1':'Residential Multi-Family (Low Density)','RM-2':'Residential Multi-Family (Medium Density)',
+  'RM-3':'Residential Multi-Family (Medium-High Density)','RM-4':'Residential Multi-Family (High Density)',
+  'RTA-1':'Residential Two-Family Attached',
+  'CMX-1':'Neighborhood Commercial Mixed-Use (Smallest Scale)','CMX-2':'Neighborhood Commercial Mixed-Use',
+  'CMX-2.5':'Neighborhood Center Commercial Mixed-Use','CMX-3':'Community Commercial Mixed-Use',
+  'CMX-4':'Center City Commercial Mixed-Use','CMX-5':'Center City Core Commercial Mixed-Use',
+  'CA-1':'Auto-Oriented Commercial (Low Intensity)','CA-2':'Auto-Oriented Commercial (High Intensity)',
+  'I-1':'Light Industrial','I-2':'Medium Industrial','I-3':'Heavy Industrial',
+  'ICMX':'Industrial Commercial Mixed-Use','IRMX':'Industrial Residential Mixed-Use',
+  'SP-INS':'Special Purpose — Institutional','SP-STA':'Special Purpose — Stadium',
+  'SP-AIR':'Special Purpose — Airport','SP-ENT':'Special Purpose — Entertainment',
+  'SP-PO-A':'Special Purpose — Parks & Open Space (Active)','SP-PO-P':'Special Purpose — Parks & Open Space (Passive)',
+};
+
 function fetchJSON(url) {
   return new Promise((resolve, reject) => {
     https.get(url, res => {
@@ -13,19 +32,12 @@ function fetchJSON(url) {
   });
 }
 
-async function resolveAddress(address) {
-  try {
-    const aisUrl = `https://api.phila.gov/ais/v1/search/${encodeURIComponent(address)}`;
-    const data = await fetchJSON(aisUrl);
-    if (data.features && data.features.length > 0) {
-      const props = data.features[0].properties;
-      return {
-        opaAddress: props.opa_address || null,
-        streetAddress: props.street_address || null,
-        opaOwner: props.opa_owners ? props.opa_owners.join(', ') : null,
-      };
-    }
-  } catch (e) { /* fall through to direct query */ }
+async function getAISData(address) {
+  const aisUrl = `https://api.phila.gov/ais/v1/search/${encodeURIComponent(address)}`;
+  const data = await fetchJSON(aisUrl);
+  if (data.features && data.features.length > 0) {
+    return data.features[0].properties;
+  }
   return null;
 }
 
@@ -45,11 +57,6 @@ function buildAddressQuery(address) {
   return `address LIKE '${num}%' AND address LIKE '%${mainStreet}%'`;
 }
 
-function buildExactQuery(opaAddress) {
-  const clean = opaAddress.replace(/'/g, "''");
-  return `address = '${clean}'`;
-}
-
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -59,20 +66,39 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
 
   const address = (event.queryStringParameters?.address || '').trim();
+  const type = (event.queryStringParameters?.type || 'permits').toLowerCase();
+
   if (!address) {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'address parameter required' }) };
   }
 
   try {
-    const resolved = await resolveAddress(address);
-    const opaAddr = resolved?.opaAddress;
+    const ais = await getAISData(address);
 
-    let where;
-    if (opaAddr) {
-      where = buildExactQuery(opaAddr);
-    } else {
-      where = buildAddressQuery(address);
+    if (type === 'zoning') {
+      if (!ais) {
+        return { statusCode: 200, headers, body: JSON.stringify({ error: 'Address not found in Philadelphia AIS', zoning: null }) };
+      }
+      const code = ais.zoning || '';
+      return { statusCode: 200, headers, body: JSON.stringify({
+        zoning: {
+          code,
+          description: ZONING_CODES[code] || code,
+          owner: ais.opa_owners ? ais.opa_owners.join(', ') : '',
+          opaAddress: ais.opa_address || '',
+          opaAccountNum: ais.opa_account_num || '',
+          liDistrict: ais.li_district || '',
+          planningDistrict: ais.planning_district || '',
+          councilDistrict: ais.council_district_2024 || '',
+          historicDistrict: ais.historic_district || '',
+          zipCode: ais.zip_code || '',
+          rco: ais.zoning_rco || '',
+        }
+      })};
     }
+
+    const opaAddr = ais?.opa_address || null;
+    let where = opaAddr ? `address = '${opaAddr.replace(/'/g, "''")}'` : buildAddressQuery(address);
 
     const sql = `SELECT permitnumber, permitdescription, permittype, status, typeofwork, contractorname, contractoraddress1, address, permitissuedate, approvedscopeofwork, commercialorresidential, systemofrecord, opa_owner, posse_jobid FROM permits WHERE ${where} ORDER BY permitissuedate DESC LIMIT 25`;
     const url = `https://phl.carto.com/api/v2/sql?q=${encodeURIComponent(sql)}&format=json`;

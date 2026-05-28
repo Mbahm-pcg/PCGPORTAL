@@ -29,11 +29,11 @@
   html{font-size:clamp(13px, 1.1vw, 22px);}
   body{font-family:'Source Sans 3',sans-serif; font-size:1rem;}
   input,textarea,select{font-family:'Source Sans 3',sans-serif;}
-  ::-webkit-scrollbar{width:5px;height:5px;}
+  ::-webkit-scrollbar{width:12px;height:12px;}
   ::-webkit-scrollbar-track{background:transparent;}
-  ::-webkit-scrollbar-thumb{background:#FF671F44;border-radius:4px;}
-  ::-webkit-scrollbar-thumb:hover{background:#FF671F88;}
-  *{scrollbar-width:thin;scrollbar-color:#FF671F44 transparent;}
+  ::-webkit-scrollbar-thumb{background:#FF671F55;border-radius:6px;border:2px solid transparent;background-clip:padding-box;}
+  ::-webkit-scrollbar-thumb:hover{background:#FF671Faa;border:2px solid transparent;background-clip:padding-box;}
+  *{scrollbar-width:auto;scrollbar-color:#FF671F55 transparent;}
   .fade-in{animation:fadeIn .3s ease;}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.92)}}
