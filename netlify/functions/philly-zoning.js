@@ -13,6 +13,22 @@ function fetchJSON(url) {
   });
 }
 
+async function resolveAddress(address) {
+  try {
+    const aisUrl = `https://api.phila.gov/ais/v1/search/${encodeURIComponent(address)}`;
+    const data = await fetchJSON(aisUrl);
+    if (data.features && data.features.length > 0) {
+      const props = data.features[0].properties;
+      return {
+        opaAddress: props.opa_address || null,
+        streetAddress: props.street_address || null,
+        opaOwner: props.opa_owners ? props.opa_owners.join(', ') : null,
+      };
+    }
+  } catch (e) { /* fall through to direct query */ }
+  return null;
+}
+
 function buildAddressQuery(address) {
   const clean = address.toUpperCase().replace(/[^A-Z0-9 ]/g, '').trim();
   const parts = clean.split(/\s+/);
@@ -26,7 +42,12 @@ function buildAddressQuery(address) {
     return `address LIKE '${num}%'`;
   }
   const mainStreet = streetWords[0].replace(/'/g, "''");
-  return `address LIKE '${num} %' AND address LIKE '%${mainStreet}%'`;
+  return `address LIKE '${num}%' AND address LIKE '%${mainStreet}%'`;
+}
+
+function buildExactQuery(opaAddress) {
+  const clean = opaAddress.replace(/'/g, "''");
+  return `address = '${clean}'`;
 }
 
 exports.handler = async (event) => {
@@ -43,11 +64,29 @@ exports.handler = async (event) => {
   }
 
   try {
-    const where = buildAddressQuery(address);
-    const sql = `SELECT permitnumber, permitdescription, permittype, status, typeofwork, contractorname, address, permitissuedate, approvedscopeofwork, commercialorresidential FROM permits WHERE ${where} ORDER BY permitissuedate DESC LIMIT 25`;
+    const resolved = await resolveAddress(address);
+    const opaAddr = resolved?.opaAddress;
+
+    let where;
+    if (opaAddr) {
+      where = buildExactQuery(opaAddr);
+    } else {
+      where = buildAddressQuery(address);
+    }
+
+    const sql = `SELECT permitnumber, permitdescription, permittype, status, typeofwork, contractorname, contractoraddress1, address, permitissuedate, approvedscopeofwork, commercialorresidential, systemofrecord, opa_owner, posse_jobid FROM permits WHERE ${where} ORDER BY permitissuedate DESC LIMIT 25`;
     const url = `https://phl.carto.com/api/v2/sql?q=${encodeURIComponent(sql)}&format=json`;
     const data = await fetchJSON(url);
-    return { statusCode: 200, headers, body: JSON.stringify({ rows: data.rows || [], total: data.total_rows || 0, query: where }) };
+
+    if (data.rows?.length === 0 && opaAddr) {
+      const fallbackWhere = buildAddressQuery(opaAddr);
+      const fallbackSql = `SELECT permitnumber, permitdescription, permittype, status, typeofwork, contractorname, contractoraddress1, address, permitissuedate, approvedscopeofwork, commercialorresidential, systemofrecord, opa_owner, posse_jobid FROM permits WHERE ${fallbackWhere} ORDER BY permitissuedate DESC LIMIT 25`;
+      const fallbackUrl = `https://phl.carto.com/api/v2/sql?q=${encodeURIComponent(fallbackSql)}&format=json`;
+      const fallbackData = await fetchJSON(fallbackUrl);
+      return { statusCode: 200, headers, body: JSON.stringify({ rows: fallbackData.rows || [], total: fallbackData.total_rows || 0, query: fallbackWhere, resolvedAddress: opaAddr }) };
+    }
+
+    return { statusCode: 200, headers, body: JSON.stringify({ rows: data.rows || [], total: data.total_rows || 0, query: where, resolvedAddress: opaAddr || null }) };
   } catch (e) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: e.message }) };
   }

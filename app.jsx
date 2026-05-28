@@ -452,8 +452,24 @@ const EMPTY_PROJECT = {
   constructionCompleteBy: "", interiorDmbDate: "", exteriorDmbDate: "", cameraReinstallDate: "", installationDate: "",
   // Completion
   finalWalkthrough: false, dunkinApproval: false, grandOpeningDate: "",
+  // GC / Contractor
+  gc: "", gcPhone: "", gcEmail: "", gcCompany: "", gcContractAmount: "",
+  // Sub-Contractors
+  plumbingCompany: "", plumbingContact: "", plumbingPhone: "", plumbingEmail: "", plumbingContractAmount: "",
+  electricalCompany: "", electricalContact: "", electricalPhone: "", electricalEmail: "", electricalContractAmount: "",
+  mechanicalCompany: "", mechanicalContact: "", mechanicalPhone: "", mechanicalEmail: "", mechanicalContractAmount: "",
+  // Budget
+  totalBudget: "", spentToDate: "", contingency: "",
+  // Phase Notes
+  phaseNotes: {},
+  // Plans & Drawings (blob keys)
+  plans: {},
   // Permits (blob keys for uploaded files)
   permits: {},
+  // Utilities
+  utilities: {},
+  // Inspections
+  inspections: [],
   // Meta
   createdAt: "", createdBy: "", updatedAt: "",
   lastEditedBy: "", lastEditedAt: "",
@@ -10310,6 +10326,9 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   const [zoningLoading, setZoningLoading] = useState(false);
   const [zoningData, setZoningData] = useState(null);
   const [permitUploading, setPermitUploading] = useState(null);
+  const [permitDetailData, setPermitDetailData] = useState(null);
+  const [docViewerData, setDocViewerData] = useState(null);
+  const [planUploading, setPlanUploading] = useState(null);
   const pros = professionals || DEFAULT_PROFESSIONALS;
 
   // Deep-link: auto-open project from email link
@@ -10467,6 +10486,81 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
           )}
         </div>
 
+        {/* Budget & Contractor Summary */}
+        {detailTab === "checklist" && (
+          <div style={{ ...card(th), padding: "1.25rem", marginBottom: "1.25rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: "0.8125rem", color: th.text, marginBottom: "0.5rem" }}>Budget</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem" }}>
+                  <div style={{ padding: "0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                    <div style={{ fontSize: "0.625rem", fontWeight: 600, color: th.muted }}>Total Budget</div>
+                    {editable ? (
+                      <input placeholder="$0" value={p.totalBudget || ""} onChange={e => updateItem(p.id, "totalBudget", e.target.value)} style={{ ...inp(th, { fontSize: "0.8125rem", padding: "0.25rem 0.4rem", fontWeight: 700 }) }} />
+                    ) : (
+                      <div style={{ fontSize: "0.875rem", fontWeight: 700, color: th.text }}>{p.totalBudget ? `$${Number(p.totalBudget).toLocaleString()}` : "—"}</div>
+                    )}
+                  </div>
+                  <div style={{ padding: "0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                    <div style={{ fontSize: "0.625rem", fontWeight: 600, color: th.muted }}>Spent to Date</div>
+                    {editable ? (
+                      <input placeholder="$0" value={p.spentToDate || ""} onChange={e => updateItem(p.id, "spentToDate", e.target.value)} style={{ ...inp(th, { fontSize: "0.8125rem", padding: "0.25rem 0.4rem", fontWeight: 700 }) }} />
+                    ) : (
+                      <div style={{ fontSize: "0.875rem", fontWeight: 700, color: th.text }}>{p.spentToDate ? `$${Number(p.spentToDate).toLocaleString()}` : "—"}</div>
+                    )}
+                  </div>
+                  <div style={{ padding: "0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                    <div style={{ fontSize: "0.625rem", fontWeight: 600, color: th.muted }}>Contingency</div>
+                    {editable ? (
+                      <input placeholder="$0" value={p.contingency || ""} onChange={e => updateItem(p.id, "contingency", e.target.value)} style={{ ...inp(th, { fontSize: "0.8125rem", padding: "0.25rem 0.4rem", fontWeight: 700 }) }} />
+                    ) : (
+                      <div style={{ fontSize: "0.875rem", fontWeight: 700, color: th.text }}>{p.contingency ? `$${Number(p.contingency).toLocaleString()}` : "—"}</div>
+                    )}
+                  </div>
+                </div>
+                {p.totalBudget && p.spentToDate && (() => {
+                  const pct = Math.min(100, Math.round((Number(p.spentToDate) / Number(p.totalBudget)) * 100));
+                  return (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.625rem", fontWeight: 600, color: th.muted, marginBottom: "0.2rem" }}>
+                        <span>Budget Used</span><span style={{ color: pct > 90 ? "#f44336" : pct > 75 ? "#f59e0b" : "#22c55e" }}>{pct}%</span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: th.card3 }}>
+                        <div style={{ height: "100%", borderRadius: 3, width: pct + "%", background: pct > 90 ? "#f44336" : pct > 75 ? "#f59e0b" : "#22c55e", transition: "width .3s" }} />
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: "0.8125rem", color: th.text, marginBottom: "0.5rem" }}>Contractors</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                  {[
+                    { label: "General Contractor", company: p.gcCompany, contact: p.gc, phone: p.gcPhone, email: p.gcEmail, amount: p.gcContractAmount, color: O },
+                    { label: "Plumbing", company: p.plumbingCompany, contact: p.plumbingContact, phone: p.plumbingPhone, email: p.plumbingEmail, amount: p.plumbingContractAmount, color: "#3b82f6" },
+                    { label: "Electrical", company: p.electricalCompany, contact: p.electricalContact, phone: p.electricalPhone, email: p.electricalEmail, amount: p.electricalContractAmount, color: "#f59e0b" },
+                    { label: "Mechanical", company: p.mechanicalCompany, contact: p.mechanicalContact, phone: p.mechanicalPhone, email: p.mechanicalEmail, amount: p.mechanicalContractAmount, color: "#8b5cf6" },
+                  ].map(ct => (
+                    <div key={ct.label} style={{ padding: "0.5rem 0.625rem", borderRadius: "0.375rem", background: th.card2, fontSize: "0.75rem", color: th.muted }}>
+                      <div style={{ fontSize: "0.625rem", fontWeight: 700, color: ct.color, marginBottom: "0.2rem", textTransform: "uppercase", letterSpacing: 0.5 }}>{ct.label}</div>
+                      {ct.company || ct.contact ? (
+                        <div>
+                          {ct.company && <div style={{ fontWeight: 600, color: th.text, fontSize: "0.75rem" }}>{ct.company}</div>}
+                          {ct.contact && <div style={{ fontSize: "0.6875rem" }}>{ct.contact}</div>}
+                          {ct.phone && <div style={{ fontSize: "0.6875rem" }}>📞 {ct.phone}</div>}
+                          {ct.amount && <div style={{ marginTop: "0.15rem", fontWeight: 600, color: ct.color, fontSize: "0.75rem" }}>${Number(ct.amount).toLocaleString()}</div>}
+                        </div>
+                      ) : (
+                        <span style={{ fontStyle: "italic", fontSize: "0.6875rem" }}>Not assigned</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Detail sub-tabs: Checklist | Daily Reports | Chat */}
         <div style={{ display: "flex", borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}`, marginBottom: "1.25rem", alignSelf: "flex-start" }}>
           <button onClick={() => setDetailTab("checklist")} style={{ background: detailTab === "checklist" ? O : th.card, color: detailTab === "checklist" ? W : th.muted, border: "none", padding: "0.5rem 1rem", cursor: "pointer", fontSize: "0.8125rem", fontWeight: 600 }}>Checklist</button>
@@ -10574,9 +10668,10 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                     <select value={p.architect || ""} onChange={e => updateItem(p.id, "architect", e.target.value)} disabled={!editable}
                       style={{ ...inp(th, { fontSize: "0.8125rem" }) }}>
                       <option value="">— Select Architect —</option>
+                      <option value="n/a">N/A — Not Required</option>
                       {(pros.architects || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                     </select>
-                    {p.architect && (() => { const arc = (pros.architects || []).find(a => a.id === p.architect); return arc ? (
+                    {p.architect && p.architect !== "n/a" && (() => { const arc = (pros.architects || []).find(a => a.id === p.architect); return arc ? (
                       <div style={{ fontSize: "0.75rem", color: th.muted, marginTop: "0.35rem" }}>
                         {arc.phone && <span style={{ marginRight: "0.75rem" }}>📞 {arc.phone}</span>}
                         {arc.email && <span>✉ {arc.email}</span>}
@@ -10588,9 +10683,10 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                     <select value={p.engineer || ""} onChange={e => updateItem(p.id, "engineer", e.target.value)} disabled={!editable}
                       style={{ ...inp(th, { fontSize: "0.8125rem" }) }}>
                       <option value="">— Select Engineer —</option>
+                      <option value="n/a">N/A — Not Required</option>
                       {(pros.engineers || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                     </select>
-                    {p.engineer && (() => { const eng = (pros.engineers || []).find(a => a.id === p.engineer); return eng ? (
+                    {p.engineer && p.engineer !== "n/a" && (() => { const eng = (pros.engineers || []).find(a => a.id === p.engineer); return eng ? (
                       <div style={{ fontSize: "0.75rem", color: th.muted, marginTop: "0.35rem" }}>
                         {eng.phone && <span style={{ marginRight: "0.75rem" }}>📞 {eng.phone}</span>}
                         {eng.email && <span>✉ {eng.email}</span>}
@@ -10600,65 +10696,63 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                 </div>
               )}
 
-              {/* Philadelphia zoning auto-lookup + summary link */}
+              {/* Philadelphia zoning summary + auto-populated info */}
               {isZoning && isPhilly && (
                 <div style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: "#6366f111", border: "1px solid #6366f133", marginBottom: "0.75rem" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
                     <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#6366f1" }}>🏛️ Philadelphia Zoning</div>
-                    <div style={{ display: "flex", gap: "0.5rem" }}>
-                      <button onClick={async () => {
-                        setZoningLoading(true);
-                        try {
-                          const addr = encodeURIComponent((p.address || "").toUpperCase());
-                          const res = await fetch(`/.netlify/functions/philly-zoning?address=${addr}`);
-                          const data = await res.json();
-                          if (data.rows && data.rows.length > 0) {
-                            setZoningData(data.rows);
-                            updateItem(p.id, "zoningInfo", data.rows[0]);
-                            showAlert("success", `Found ${data.rows.length} permit(s) for this address`);
-                          } else {
-                            setZoningData([]);
-                            showAlert("info", "No permits found for this address");
-                          }
-                        } catch (e) { showAlert("error", "Zoning lookup failed: " + e.message); }
-                        setZoningLoading(false);
-                      }} style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem", background: "#6366f1", color: "#fff" })} disabled={zoningLoading}>
-                        {zoningLoading ? "Looking up..." : "🔍 Lookup Permits"}
-                      </button>
-                      <button onClick={() => setZoningOverlay(p.address)} style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem" })}>
-                        📄 Zoning Summary
-                      </button>
-                    </div>
+                    <button onClick={() => setZoningOverlay(p.address)} style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem" })}>
+                      📄 Zoning Summary
+                    </button>
                   </div>
-                  {zoningData && zoningData.length > 0 && (
-                    <div style={{ marginTop: "0.5rem", maxHeight: "300px", overflowY: "auto", borderRadius: "0.375rem" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.6875rem" }}>
-                        <thead><tr style={{ background: th.card2 }}>
-                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Permit #</th>
-                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Type</th>
-                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Status</th>
-                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Work</th>
-                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Issued</th>
-                        </tr></thead>
-                        <tbody>{zoningData.map((zi, idx) => (
-                          <tr key={idx} style={{ borderTop: `1px solid ${th.cardBorder}` }}>
-                            <td style={{ padding: "0.3rem 0.5rem", color: "#6366f1", fontWeight: 600 }}>{zi.permitnumber || "—"}</td>
-                            <td style={{ padding: "0.3rem 0.5rem", color: th.text }}>{zi.permittype || zi.permitdescription || "—"}</td>
-                            <td style={{ padding: "0.3rem 0.5rem" }}>
-                              <span style={{ padding: "0.1rem 0.375rem", borderRadius: "0.75rem", fontSize: "0.625rem", fontWeight: 600,
-                                background: zi.status === "Completed" ? "#22c55e22" : zi.status === "Issued" ? "#3b82f622" : "#f59e0b22",
-                                color: zi.status === "Completed" ? "#22c55e" : zi.status === "Issued" ? "#3b82f6" : "#f59e0b",
-                              }}>{zi.status || "—"}</span>
-                            </td>
-                            <td style={{ padding: "0.3rem 0.5rem", color: th.muted }}>{zi.typeofwork || "—"}</td>
-                            <td style={{ padding: "0.3rem 0.5rem", color: th.muted }}>{zi.permitissuedate ? new Date(zi.permitissuedate).toLocaleDateString() : "—"}</td>
-                          </tr>
-                        ))}</tbody>
-                      </table>
+                  {p.zoningInfo && (
+                    <div style={{ marginTop: "0.5rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem" }}>
+                      {p.zoningInfo.opa_owner && (
+                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Owner</div>
+                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: th.text }}>{p.zoningInfo.opa_owner}</div>
+                        </div>
+                      )}
+                      {p.zoningInfo.commercialorresidential && (
+                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Type</div>
+                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: th.text }}>{p.zoningInfo.commercialorresidential}</div>
+                        </div>
+                      )}
+                      {p.zoningInfo.permittype && (
+                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Latest Permit Type</div>
+                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: th.text }}>{p.zoningInfo.permittype}</div>
+                        </div>
+                      )}
+                      {p.zoningInfo.status && (
+                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Status</div>
+                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: (p.zoningInfo.status === "Completed" || p.zoningInfo.status === "COMPLETED") ? "#22c55e" : "#3b82f6" }}>{p.zoningInfo.status}</div>
+                        </div>
+                      )}
+                      {p.zoningInfo.approvedscopeofwork && (
+                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2, gridColumn: "span 2" }}>
+                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Approved Scope</div>
+                          <div style={{ fontSize: "0.6875rem", color: th.text }}>{p.zoningInfo.approvedscopeofwork}</div>
+                        </div>
+                      )}
+                      {p.zoningInfo.contractorname && (
+                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Contractor on File</div>
+                          <div style={{ fontSize: "0.75rem", color: th.text }}>{p.zoningInfo.contractorname}</div>
+                        </div>
+                      )}
+                      {p.zoningInfo.permitissuedate && (
+                        <div style={{ padding: "0.4rem 0.5rem", borderRadius: "0.375rem", background: th.card2 }}>
+                          <div style={{ fontSize: "0.5625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase" }}>Issued</div>
+                          <div style={{ fontSize: "0.75rem", color: th.text }}>{new Date(p.zoningInfo.permitissuedate).toLocaleDateString()}</div>
+                        </div>
+                      )}
                     </div>
                   )}
-                  {zoningData && zoningData.length === 0 && (
-                    <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: th.muted, fontStyle: "italic" }}>No permits found for this address in the Philadelphia database.</div>
+                  {!p.zoningInfo && (
+                    <div style={{ marginTop: "0.35rem", fontSize: "0.6875rem", color: th.muted, fontStyle: "italic" }}>Use Lookup Permits in the Permitting phase to auto-populate zoning info.</div>
                   )}
                 </div>
               )}
@@ -10706,11 +10800,22 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
               </div>
               )}
 
-              {/* Permit upload section for Zoning phase */}
-              {isZoning && !skipped && editable && (
+              {/* Permit upload section for Zoning phase — clickable document viewer */}
+              {isZoning && !skipped && (
                 <div style={{ marginTop: "0.75rem", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
-                  <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.35rem" }}>Zoning Permit Upload</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.35rem" }}>Zoning Permit</div>
+                  {(p.permits?.zoning) && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", padding: "0.5rem 0.625rem", borderRadius: "0.375rem", background: "#22c55e11", border: "1px solid #22c55e33", cursor: "pointer" }}
+                      onClick={async () => { const d = await cloudLoad(p.permits.zoning); if (d) setDocViewerData({ ...d, label: "Zoning Permit" }); else showAlert("error", "Could not load document"); }}>
+                      <span style={{ fontSize: "1rem" }}>📄</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#22c55e" }}>Zoning Permit</div>
+                        <div style={{ fontSize: "0.625rem", color: th.muted }}>Click to view / download</div>
+                      </div>
+                      <span style={{ fontSize: "0.875rem" }}>👁</span>
+                    </div>
+                  )}
+                  {editable && (
                     <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={async e => {
                       const file = e.target.files?.[0]; if (!file) return;
                       setPermitUploading("zoning");
@@ -10726,38 +10831,268 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                         reader.readAsDataURL(file);
                       } catch (err) { showAlert("error", "Upload failed"); setPermitUploading(null); }
                     }} style={{ fontSize: "0.75rem" }} disabled={permitUploading === "zoning"} />
-                    {(p.permits?.zoning) && <span style={{ fontSize: "0.6875rem", color: "#22c55e", fontWeight: 600 }}>✓ Uploaded</span>}
-                  </div>
+                  )}
                 </div>
               )}
 
-              {/* Permit uploads for Permitting phase */}
-              {isPermitting && !skipped && editable && (
+              {/* Permit uploads for Permitting phase — clickable document viewer */}
+              {isPermitting && !skipped && (
                 <div style={{ marginTop: "0.75rem", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
-                  <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.5rem" }}>Permit Uploads</div>
+                  <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.5rem" }}>Permit Documents</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
                     {["building", "electrical", "plumbing", "mechanical"].map(ptype => (
                       <div key={ptype} style={{ padding: "0.5rem", borderRadius: "0.375rem", background: th.card3 }}>
                         <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.text, marginBottom: "0.25rem", textTransform: "capitalize" }}>{ptype} Permit</div>
-                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={async e => {
-                          const file = e.target.files?.[0]; if (!file) return;
-                          setPermitUploading(ptype);
-                          try {
-                            const reader = new FileReader();
-                            reader.onload = async () => {
-                              const key = `pcg_permit_${p.id}_${ptype}`;
-                              await cloudSave(key, { name: file.name, type: file.type, size: file.size, data: reader.result, uploadedAt: new Date().toISOString(), uploadedBy: user?.name });
-                              updateItem(p.id, "permits", { ...(p.permits || {}), [ptype]: key });
-                              showAlert("success", `${ptype} permit uploaded`);
-                              setPermitUploading(null);
-                            };
-                            reader.readAsDataURL(file);
-                          } catch { showAlert("error", "Upload failed"); setPermitUploading(null); }
-                        }} style={{ fontSize: "0.6875rem", maxWidth: "100%" }} disabled={permitUploading === ptype} />
-                        {(p.permits?.[ptype]) && <span style={{ fontSize: "0.6875rem", color: "#22c55e", fontWeight: 600 }}>✓ Uploaded</span>}
+                        {(p.permits?.[ptype]) && (
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.35rem", padding: "0.3rem 0.5rem", borderRadius: "0.25rem", background: "#22c55e11", border: "1px solid #22c55e33", cursor: "pointer" }}
+                            onClick={async () => { const d = await cloudLoad(p.permits[ptype]); if (d) setDocViewerData({ ...d, label: `${ptype.charAt(0).toUpperCase() + ptype.slice(1)} Permit` }); else showAlert("error", "Could not load document"); }}>
+                            <span style={{ fontSize: "0.75rem" }}>📄</span>
+                            <span style={{ fontSize: "0.625rem", fontWeight: 600, color: "#22c55e", flex: 1 }}>View</span>
+                            <span style={{ fontSize: "0.625rem", color: th.muted }}>👁</span>
+                          </div>
+                        )}
+                        {editable && (
+                          <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={async e => {
+                            const file = e.target.files?.[0]; if (!file) return;
+                            setPermitUploading(ptype);
+                            try {
+                              const reader = new FileReader();
+                              reader.onload = async () => {
+                                const key = `pcg_permit_${p.id}_${ptype}`;
+                                await cloudSave(key, { name: file.name, type: file.type, size: file.size, data: reader.result, uploadedAt: new Date().toISOString(), uploadedBy: user?.name });
+                                updateItem(p.id, "permits", { ...(p.permits || {}), [ptype]: key });
+                                showAlert("success", `${ptype} permit uploaded`);
+                                setPermitUploading(null);
+                              };
+                              reader.readAsDataURL(file);
+                            } catch { showAlert("error", "Upload failed"); setPermitUploading(null); }
+                          }} style={{ fontSize: "0.6875rem", maxWidth: "100%" }} disabled={permitUploading === ptype} />
+                        )}
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Philadelphia Permit Lookup — inside Permitting phase */}
+              {isPermitting && isPhilly && !skipped && (
+                <div style={{ marginTop: "0.75rem", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: "#6366f111", border: "1px solid #6366f133" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                    <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#6366f1" }}>🔍 Philadelphia Permit Database</div>
+                    <button onClick={async () => {
+                      setZoningLoading(true);
+                      try {
+                        const addr = encodeURIComponent((p.address || "").toUpperCase());
+                        const res = await fetch(`/.netlify/functions/philly-zoning?address=${addr}`);
+                        const data = await res.json();
+                        if (data.rows && data.rows.length > 0) {
+                          setZoningData(data.rows);
+                          updateItem(p.id, "zoningInfo", data.rows[0]);
+                          const resolved = data.resolvedAddress;
+                          const msg = resolved && resolved.toUpperCase() !== (p.address || "").toUpperCase()
+                            ? `Found ${data.rows.length} permit(s) — city address: ${resolved}`
+                            : `Found ${data.rows.length} permit(s) for this address`;
+                          showAlert("success", msg);
+                        } else {
+                          setZoningData([]);
+                          showAlert("info", "No permits found for this address");
+                        }
+                      } catch (e) { showAlert("error", "Permit lookup failed: " + e.message); }
+                      setZoningLoading(false);
+                    }} style={btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem", background: "#6366f1", color: "#fff" })} disabled={zoningLoading}>
+                      {zoningLoading ? "Looking up..." : "🔍 Lookup Permits"}
+                    </button>
+                  </div>
+                  {zoningData && zoningData.length > 0 && (
+                    <div style={{ marginTop: "0.5rem", maxHeight: "300px", overflowY: "auto", borderRadius: "0.375rem" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.6875rem" }}>
+                        <thead><tr style={{ background: th.card2 }}>
+                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Permit #</th>
+                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Type</th>
+                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Status</th>
+                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Work</th>
+                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Issued</th>
+                        </tr></thead>
+                        <tbody>{zoningData.map((zi, idx) => (
+                          <tr key={idx} style={{ borderTop: `1px solid ${th.cardBorder}`, cursor: "pointer" }}
+                            onClick={() => setPermitDetailData(zi)}
+                            onMouseEnter={e => e.currentTarget.style.background = th.card3}
+                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                            <td style={{ padding: "0.3rem 0.5rem", color: "#6366f1", fontWeight: 600, textDecoration: "underline", cursor: "pointer" }}>{zi.permitnumber || "—"}</td>
+                            <td style={{ padding: "0.3rem 0.5rem", color: th.text }}>{zi.permittype || zi.permitdescription || "—"}</td>
+                            <td style={{ padding: "0.3rem 0.5rem" }}>
+                              <span style={{ padding: "0.1rem 0.375rem", borderRadius: "0.75rem", fontSize: "0.625rem", fontWeight: 600,
+                                background: (zi.status === "Completed" || zi.status === "COMPLETED") ? "#22c55e22" : zi.status === "Issued" ? "#3b82f622" : "#f59e0b22",
+                                color: (zi.status === "Completed" || zi.status === "COMPLETED") ? "#22c55e" : zi.status === "Issued" ? "#3b82f6" : "#f59e0b",
+                              }}>{zi.status || "—"}</span>
+                            </td>
+                            <td style={{ padding: "0.3rem 0.5rem", color: th.muted }}>{zi.typeofwork || "—"}</td>
+                            <td style={{ padding: "0.3rem 0.5rem", color: th.muted }}>{zi.permitissuedate ? new Date(zi.permitissuedate).toLocaleDateString() : "—"}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  )}
+                  {zoningData && zoningData.length === 0 && (
+                    <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: th.muted, fontStyle: "italic" }}>No permits found for this address in the Philadelphia database.</div>
+                  )}
+                  {zoningData && (
+                    <div style={{ marginTop: "0.35rem", fontSize: "0.5625rem", color: th.muted, opacity: 0.7 }}>Data from Philadelphia Open Data (CARTO). New permits may take 1–2 days to appear. Click any row for full details.</div>
+                  )}
+                </div>
+              )}
+
+              {/* Plans & Drawings for Pre-Construction */}
+              {isPreCon && !skipped && (
+                <div style={{ marginTop: "0.75rem", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
+                  <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.5rem" }}>Plans & Drawings</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                    {[{ key: "site_plan", label: "Site Plan" }, { key: "floor_plan", label: "Floor Plan" }, { key: "architectural", label: "Architectural Drawings" }, { key: "equipment_layout", label: "Equipment Layout" }].map(pt => (
+                      <div key={pt.key} style={{ padding: "0.5rem", borderRadius: "0.375rem", background: th.card3 }}>
+                        <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.text, marginBottom: "0.25rem" }}>{pt.label}</div>
+                        {(p.plans?.[pt.key]) && (
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.35rem", padding: "0.3rem 0.5rem", borderRadius: "0.25rem", background: "#3b82f611", border: "1px solid #3b82f633", cursor: "pointer" }}
+                            onClick={async () => { const d = await cloudLoad(p.plans[pt.key]); if (d) setDocViewerData({ ...d, label: pt.label }); else showAlert("error", "Could not load document"); }}>
+                            <span style={{ fontSize: "0.75rem" }}>📐</span>
+                            <span style={{ fontSize: "0.625rem", fontWeight: 600, color: "#3b82f6", flex: 1 }}>View</span>
+                            <span style={{ fontSize: "0.625rem", color: th.muted }}>👁</span>
+                          </div>
+                        )}
+                        {editable && (
+                          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.dwg" onChange={async e => {
+                            const file = e.target.files?.[0]; if (!file) return;
+                            setPlanUploading(pt.key);
+                            try {
+                              const reader = new FileReader();
+                              reader.onload = async () => {
+                                const key = `pcg_plan_${p.id}_${pt.key}`;
+                                await cloudSave(key, { name: file.name, type: file.type, size: file.size, data: reader.result, uploadedAt: new Date().toISOString(), uploadedBy: user?.name });
+                                updateItem(p.id, "plans", { ...(p.plans || {}), [pt.key]: key });
+                                showAlert("success", `${pt.label} uploaded`);
+                                setPlanUploading(null);
+                              };
+                              reader.readAsDataURL(file);
+                            } catch { showAlert("error", "Upload failed"); setPlanUploading(null); }
+                          }} style={{ fontSize: "0.6875rem", maxWidth: "100%" }} disabled={planUploading === pt.key} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Utility Tracking for Pre-Construction */}
+              {isPreCon && !skipped && (
+                <div style={{ marginTop: "0.75rem", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
+                  <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.5rem" }}>Utilities</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                    {[{ key: "electric", label: "Electric" }, { key: "gas", label: "Gas" }, { key: "watersewer", label: "Water / Sewer" }, { key: "telecom", label: "Telecom / Internet" }].map(util => {
+                      const uData = (p.utilities || {})[util.key] || {};
+                      return (
+                        <div key={util.key} style={{ padding: "0.5rem", borderRadius: "0.375rem", background: th.card3 }}>
+                          <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.text, marginBottom: "0.25rem" }}>{util.label}</div>
+                          {editable ? (
+                            <div style={{ display: "grid", gap: "0.25rem" }}>
+                              <input placeholder="Provider" value={uData.provider || ""} onChange={e => updateItem(p.id, "utilities", { ...(p.utilities || {}), [util.key]: { ...uData, provider: e.target.value } })} style={{ ...inp(th, { fontSize: "0.6875rem", padding: "0.25rem 0.5rem" }) }} />
+                              <input placeholder="Contact / Phone" value={uData.contact || ""} onChange={e => updateItem(p.id, "utilities", { ...(p.utilities || {}), [util.key]: { ...uData, contact: e.target.value } })} style={{ ...inp(th, { fontSize: "0.6875rem", padding: "0.25rem 0.5rem" }) }} />
+                              <select value={uData.status || ""} onChange={e => updateItem(p.id, "utilities", { ...(p.utilities || {}), [util.key]: { ...uData, status: e.target.value } })} style={{ ...inp(th, { fontSize: "0.6875rem", padding: "0.25rem 0.5rem" }) }}>
+                                <option value="">Status...</option>
+                                <option>Not Started</option><option>Application Filed</option><option>In Progress</option><option>Connected</option><option>Active</option>
+                              </select>
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: "0.625rem", color: th.muted }}>{uData.provider || "—"}{uData.status ? ` (${uData.status})` : ""}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Contractors for Construction phase */}
+              {phase.id === "construction" && !skipped && (
+                <div style={{ marginTop: "0.75rem", display: "grid", gap: "0.5rem" }}>
+                  {[
+                    { label: "General Contractor", prefix: "gc", contactKey: "gc", color: O },
+                    { label: "Plumbing Contractor", prefix: "plumbing", contactKey: "plumbingContact", color: "#3b82f6" },
+                    { label: "Electrical Contractor", prefix: "electrical", contactKey: "electricalContact", color: "#f59e0b" },
+                    { label: "Mechanical Contractor", prefix: "mechanical", contactKey: "mechanicalContact", color: "#8b5cf6" },
+                  ].map(ct => (
+                    <div key={ct.prefix} style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
+                      <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: ct.color, marginBottom: "0.35rem" }}>{ct.label}</div>
+                      {editable ? (
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.375rem" }}>
+                          <input placeholder="Company" value={p[ct.prefix + "Company"] || ""} onChange={e => updateItem(p.id, ct.prefix + "Company", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
+                          <input placeholder="Contact Name" value={p[ct.contactKey] || ""} onChange={e => updateItem(p.id, ct.contactKey, e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
+                          <input placeholder="Phone" value={p[ct.prefix + "Phone"] || ""} onChange={e => updateItem(p.id, ct.prefix + "Phone", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
+                          <input placeholder="Email" value={p[ct.prefix + "Email"] || ""} onChange={e => updateItem(p.id, ct.prefix + "Email", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) }} />
+                          <input placeholder="Contract Amount ($)" value={p[ct.prefix + "ContractAmount"] || ""} onChange={e => updateItem(p.id, ct.prefix + "ContractAmount", e.target.value)} style={{ ...inp(th, { fontSize: "0.75rem", padding: "0.35rem 0.5rem", gridColumn: "span 2" }) }} />
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                          {p[ct.prefix + "Company"] || p[ct.contactKey] ? (
+                            <span>{p[ct.prefix + "Company"] || ""}{p[ct.contactKey] ? ` — ${p[ct.contactKey]}` : ""}{p[ct.prefix + "Phone"] ? ` | ${p[ct.prefix + "Phone"]}` : ""}{p[ct.prefix + "ContractAmount"] ? ` | $${Number(p[ct.prefix + "ContractAmount"]).toLocaleString()}` : ""}</span>
+                          ) : "Not assigned"}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Inspection Tracking for Completion phase */}
+              {phase.id === "completion" && !skipped && (
+                <div style={{ marginTop: "0.75rem", padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+                    <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted }}>Inspections</div>
+                    {editable && (
+                      <button onClick={() => { const insp = [...(p.inspections || []), { id: Date.now(), type: "", date: "", result: "" }]; updateItem(p.id, "inspections", insp); }}
+                        style={btn(th, { padding: "0.2rem 0.5rem", fontSize: "0.625rem" })}>+ Add</button>
+                    )}
+                  </div>
+                  {(p.inspections || []).length === 0 && <div style={{ fontSize: "0.625rem", color: th.muted, fontStyle: "italic" }}>No inspections recorded.</div>}
+                  {(p.inspections || []).map((ins, ii) => (
+                    <div key={ins.id || ii} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: "0.35rem", marginBottom: "0.35rem", alignItems: "center" }}>
+                      {editable ? (
+                        <>
+                          <select value={ins.type || ""} onChange={e => { const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, type: e.target.value }; updateItem(p.id, "inspections", arr); }}
+                            style={{ ...inp(th, { fontSize: "0.6875rem", padding: "0.25rem 0.4rem" }) }}>
+                            <option value="">Type...</option>
+                            <option>Building</option><option>Fire</option><option>Health</option><option>Electrical</option><option>Plumbing</option><option>Final</option><option>Certificate of Occupancy</option>
+                          </select>
+                          <input type="date" value={ins.date || ""} onChange={e => { const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, date: e.target.value }; updateItem(p.id, "inspections", arr); }}
+                            style={{ ...inp(th, { fontSize: "0.6875rem", padding: "0.25rem 0.4rem" }) }} />
+                          <select value={ins.result || ""} onChange={e => { const arr = [...(p.inspections || [])]; arr[ii] = { ...ins, result: e.target.value }; updateItem(p.id, "inspections", arr); }}
+                            style={{ ...inp(th, { fontSize: "0.6875rem", padding: "0.25rem 0.4rem" }) }}>
+                            <option value="">Result...</option>
+                            <option>Passed</option><option>Failed</option><option>Conditional</option><option>Scheduled</option>
+                          </select>
+                          <button onClick={() => { const arr = (p.inspections || []).filter((_, i) => i !== ii); updateItem(p.id, "inspections", arr); }}
+                            style={{ background: "none", border: "none", color: "#ff4444", cursor: "pointer", fontSize: "0.75rem" }}>🗑</button>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ fontSize: "0.6875rem", color: th.text }}>{ins.type || "—"}</span>
+                          <span style={{ fontSize: "0.6875rem", color: th.muted }}>{ins.date || "—"}</span>
+                          <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: ins.result === "Passed" ? "#22c55e" : ins.result === "Failed" ? "#f44336" : th.muted }}>{ins.result || "—"}</span>
+                          <span />
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Per-Phase Notes */}
+              {!skipped && (
+                <div style={{ marginTop: "0.75rem" }}>
+                  {editable ? (
+                    <textarea value={(p.phaseNotes || {})[phase.id] || ""} onChange={e => updateItem(p.id, "phaseNotes", { ...(p.phaseNotes || {}), [phase.id]: e.target.value })}
+                      placeholder={`${phase.label} notes...`} style={{ ...inp(th, { fontSize: "0.75rem", minHeight: 50, resize: "vertical", padding: "0.5rem 0.75rem" }) }} />
+                  ) : (p.phaseNotes || {})[phase.id] ? (
+                    <div style={{ fontSize: "0.75rem", color: th.muted, padding: "0.5rem 0.75rem", borderRadius: "0.375rem", background: th.card2 }}>{(p.phaseNotes || {})[phase.id]}</div>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -10777,11 +11112,11 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
         </div>
         )}
 
-        {/* Zoning Summary Overlay (popup) */}
-        {zoningOverlay && (
-          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}
+        {/* Zoning Summary Overlay (popup) — portaled to body for proper fixed positioning */}
+        {zoningOverlay && ReactDOM.createPortal(
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}
             onClick={e => { if (e.target === e.currentTarget) setZoningOverlay(null); }}>
-            <div style={{ width: "75%", height: "80%", maxWidth: "1200px", background: "#fff", borderRadius: "1rem", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 48px rgba(0,0,0,0.3)" }}>
+            <div style={{ width: "80%", height: "80%", maxWidth: "1200px", background: "#fff", borderRadius: "1rem", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 48px rgba(0,0,0,0.3)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.65rem 1.25rem", background: "#1a365d", flexShrink: 0 }}>
                 <span style={{ fontWeight: 700, color: "#fff", fontSize: "0.875rem" }}>🏛️ Philadelphia Zoning Summary — {zoningOverlay}</span>
                 <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
@@ -10796,7 +11131,101 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                 style={{ flex: 1, border: "none", width: "100%", background: "#fff" }} title="Zoning Summary"
                 onError={() => { setZoningOverlay(null); window.open(`https://www.phila.gov/zoning-summary-generator/?address=${encodeURIComponent(zoningOverlay)}`, '_blank'); }} />
             </div>
-          </div>
+          </div>,
+          document.body
+        )}
+
+        {/* Permit Detail Popup — portaled to body for proper fixed positioning */}
+        {permitDetailData && ReactDOM.createPortal(
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={e => { if (e.target === e.currentTarget) setPermitDetailData(null); }}>
+            <div style={{ width: "600px", maxWidth: "90%", maxHeight: "85vh", background: th.card, borderRadius: "1rem", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 48px rgba(0,0,0,0.3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 1.25rem", background: "#1a365d", flexShrink: 0 }}>
+                <span style={{ fontWeight: 700, color: "#fff", fontSize: "0.875rem" }}>📋 Permit Detail — {permitDetailData.permitnumber}</span>
+                <button onClick={() => setPermitDetailData(null)} style={{ background: "#ff444444", border: "none", borderRadius: "0.5rem", padding: "0.35rem 0.75rem", cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: "0.875rem" }}>✕</button>
+              </div>
+              <div style={{ padding: "1.25rem", overflowY: "auto", flex: 1 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+                  {[
+                    { label: "Permit Number", value: permitDetailData.permitnumber },
+                    { label: "Type", value: permitDetailData.permittype || permitDetailData.permitdescription },
+                    { label: "Status", value: permitDetailData.status },
+                    { label: "Type of Work", value: permitDetailData.typeofwork },
+                    { label: "Date Issued", value: permitDetailData.permitissuedate ? new Date(permitDetailData.permitissuedate).toLocaleDateString() : "—" },
+                    { label: "Commercial/Residential", value: permitDetailData.commercialorresidential || "—" },
+                    { label: "Address", value: permitDetailData.address },
+                    { label: "System", value: permitDetailData.systemofrecord || "—" },
+                  ].map((field, fi) => (
+                    <div key={fi} style={{ padding: "0.5rem 0.625rem", borderRadius: "0.375rem", background: th.card2 }}>
+                      <div style={{ fontSize: "0.625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.15rem" }}>{field.label}</div>
+                      <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: field.label === "Status" ? ((field.value === "Completed" || field.value === "COMPLETED") ? "#22c55e" : field.value === "Issued" ? "#3b82f6" : "#f59e0b") : th.text }}>{field.value || "—"}</div>
+                    </div>
+                  ))}
+                </div>
+                {permitDetailData.contractorname && (
+                  <div style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2, marginBottom: "0.75rem" }}>
+                    <div style={{ fontSize: "0.625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.15rem" }}>Contractor</div>
+                    <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: th.text }}>{permitDetailData.contractorname}</div>
+                    {permitDetailData.contractoraddress1 && <div style={{ fontSize: "0.75rem", color: th.muted, marginTop: "0.15rem" }}>{(permitDetailData.contractoraddress1 || "").replace(/\r?\n/g, ", ")}</div>}
+                  </div>
+                )}
+                {permitDetailData.opa_owner && (
+                  <div style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2, marginBottom: "0.75rem" }}>
+                    <div style={{ fontSize: "0.625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.15rem" }}>Property Owner</div>
+                    <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: th.text }}>{permitDetailData.opa_owner}</div>
+                  </div>
+                )}
+                {permitDetailData.approvedscopeofwork && (
+                  <div style={{ padding: "0.625rem 0.75rem", borderRadius: "0.5rem", background: th.card2 }}>
+                    <div style={{ fontSize: "0.625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.15rem" }}>Approved Scope of Work</div>
+                    <div style={{ fontSize: "0.8125rem", color: th.text, lineHeight: 1.5 }}>{permitDetailData.approvedscopeofwork}</div>
+                  </div>
+                )}
+                <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem" }}>
+                  <a href={`https://atlas.phila.gov/${encodeURIComponent(permitDetailData.address || "")}`} target="_blank" rel="noreferrer"
+                    style={{ ...btn(th, { padding: "0.4rem 0.75rem", fontSize: "0.75rem", textDecoration: "none" }) }}>
+                    View on Atlas ↗
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+        {/* Document Viewer Popup — portaled to body for proper fixed positioning */}
+        {docViewerData && ReactDOM.createPortal(
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={e => { if (e.target === e.currentTarget) setDocViewerData(null); }}>
+            <div style={{ width: "80%", height: "80%", maxWidth: "1000px", background: th.card, borderRadius: "1rem", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 48px rgba(0,0,0,0.3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.65rem 1.25rem", background: "#1a365d", flexShrink: 0 }}>
+                <span style={{ fontWeight: 700, color: "#fff", fontSize: "0.875rem" }}>📄 {docViewerData.label || docViewerData.name || "Document"}</span>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <button onClick={() => {
+                    const a = document.createElement("a");
+                    a.href = docViewerData.data;
+                    a.download = docViewerData.name || "document.pdf";
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  }} style={{ background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", color: "#fff", fontSize: "0.75rem", fontWeight: 600, cursor: "pointer" }}>
+                    Download
+                  </button>
+                  <button onClick={() => setDocViewerData(null)} style={{ background: "#ff444444", border: "none", borderRadius: "0.5rem", padding: "0.35rem 0.75rem", cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: "0.875rem" }}>✕</button>
+                </div>
+              </div>
+              <div style={{ flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f5f5" }}>
+                {docViewerData.type && docViewerData.type.startsWith("image/") ? (
+                  <img src={docViewerData.data} alt={docViewerData.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                ) : (
+                  <iframe src={docViewerData.data} style={{ width: "100%", height: "100%", border: "none" }} title={docViewerData.name || "Document"} />
+                )}
+              </div>
+              <div style={{ padding: "0.5rem 1.25rem", borderTop: "1px solid #eee", background: th.card2, fontSize: "0.6875rem", color: th.muted, display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
+                <span>{docViewerData.name || "Document"}{docViewerData.size ? ` — ${(docViewerData.size / 1024).toFixed(0)} KB` : ""}</span>
+                <span>{docViewerData.uploadedBy ? `Uploaded by ${docViewerData.uploadedBy}` : ""}{docViewerData.uploadedAt ? ` on ${new Date(docViewerData.uploadedAt).toLocaleDateString()}` : ""}</span>
+              </div>
+            </div>
+          </div>,
+          document.body
         )}
       </div>
     );
@@ -24243,7 +24672,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v10.1
+            v10.5
           </div>
         )}
         {/* Collapse toggle — desktop only */}
