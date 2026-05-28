@@ -433,7 +433,7 @@ const PROJECTS_SEED = [
 
 const EMPTY_PROJECT = {
   id: 0, priority: 0, pc: "", address: "", city: "", state: "", zip: "", district: null,
-  nickname: "", type: "Remodel", dueDate: "", completionDate: "", notes: "", notifyEmails: "",
+  nickname: "", type: "Remodel", dueDate: "", completionDate: "", dunkinCompletionDate: "", notes: "", notifyEmails: "",
   // Zoning
   attorney: "", zoningClassification: false, zoningVarianceNeeded: false, zoningPermitFiled: false,
   zoningHearingDate: "", zoningApproved: false, zoningInfo: null,
@@ -10682,6 +10682,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             <div><strong style={{ color: th.text }}>Address:</strong> {p.address || "N/A"}{p.city ? `, ${p.city}` : ""}{p.state ? ` ${p.state}` : ""} {p.zip || ""}</div>
             <div><strong style={{ color: th.text }}>Due:</strong> {p.dueDate ? new Date(p.dueDate).toLocaleDateString() : "TBD"}</div>
             <div><strong style={{ color: th.text }}>Target Completion:</strong> {p.completionDate ? new Date(p.completionDate).toLocaleDateString() : "TBD"}</div>
+            <div><strong style={{ color: "#ff6b00" }}>Dunkin' Completion:</strong> <span style={{ color: p.dunkinCompletionDate ? th.text : th.muted, fontWeight: p.dunkinCompletionDate ? 600 : 400 }}>{p.dunkinCompletionDate ? new Date(p.dunkinCompletionDate).toLocaleDateString() : "Not Set"}</span></div>
             {store && <div><strong style={{ color: th.text }}>Manager:</strong> {store.mgr || "N/A"}</div>}
             {store && <div><strong style={{ color: th.text }}>District:</strong> {store.district || "N/A"}</div>}
             {p.notifyEmails && <div><strong style={{ color: th.text }}>Notify:</strong> {p.notifyEmails}</div>}
@@ -11853,6 +11854,101 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             📄 Export PDF
           </button>
         )}
+        {editable && (
+          <button onClick={() => {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+            const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+            const projectCards = sorted.map(p => {
+              const phase = getCurrentPhase(p);
+              const pct = getOverallCompletion(p);
+              const isOverdue = p.dueDate && !p.completed && new Date(p.dueDate) < new Date();
+              const missingItems = [];
+              PROJECT_PHASES.forEach(ph => {
+                if (isPhaseSkipped(p, ph)) return;
+                ph.items.forEach(it => {
+                  if (it.type === "bool" && !p[it.key]) missingItems.push({ phase: ph.label, item: it.label });
+                  if (it.type === "date" && !p[it.key]) missingItems.push({ phase: ph.label, item: it.label });
+                });
+              });
+              const keyDates = [];
+              if (p.dueDate) keyDates.push(`<span style="color:#6b7280;">Due:</span> <strong>${new Date(p.dueDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</strong>`);
+              if (p.completionDate) keyDates.push(`<span style="color:#6b7280;">Target:</span> <strong>${new Date(p.completionDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</strong>`);
+              if (p.dunkinCompletionDate) keyDates.push(`<span style="color:#ff6b00;">Dunkin':</span> <strong>${new Date(p.dunkinCompletionDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</strong>`);
+              if (p.grandOpeningDate) keyDates.push(`<span style="color:#22c55e;">Grand Opening:</span> <strong>${new Date(p.grandOpeningDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</strong>`);
+              if (p.constructionCompleteBy) keyDates.push(`<span style="color:#8b5cf6;">Const. Complete:</span> <strong>${new Date(p.constructionCompleteBy).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</strong>`);
+              const inspections = (p.inspections || []);
+              const inspPassed = inspections.filter(i => i.result === "Passed").length;
+              const inspFailed = inspections.filter(i => i.result === "Failed").length;
+              const contractors = [];
+              if (p.gcCompany || p.gc) contractors.push(`GC: ${p.gcCompany || p.gc}`);
+              if (p.plumbingCompany) contractors.push(`Plumb: ${p.plumbingCompany}`);
+              if (p.electricalCompany) contractors.push(`Elect: ${p.electricalCompany}`);
+              if (p.mechanicalCompany) contractors.push(`Mech: ${p.mechanicalCompany}`);
+              const budget = p.totalBudget ? `$${Number(p.totalBudget).toLocaleString()}` : null;
+              const topMissing = missingItems.slice(0, 5);
+              return `
+                <div style="page-break-inside:avoid;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:14px;${isOverdue ? "border-left:4px solid #ef4444;" : `border-left:4px solid ${PHASE_COLORS[phase.id]||"#666"};`}">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+                    <div>
+                      <div style="font-size:16px;font-weight:800;color:#1f2937;font-family:Raleway;">${p.nickname || p.pc}${isOverdue ? ' <span style="color:#ef4444;font-size:11px;font-weight:700;background:#ef444415;padding:1px 8px;border-radius:10px;margin-left:6px;">OVERDUE</span>' : ""}</div>
+                      <div style="font-size:11px;color:#9ca3af;">${p.address || ""}${p.city ? ", " + p.city : ""} · ${p.type} · PC# ${p.pc || "—"}</div>
+                    </div>
+                    <div style="text-align:right;">
+                      <span style="background:${(PHASE_COLORS[phase.id]||"#666")}18;color:${PHASE_COLORS[phase.id]||"#666"};padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;">${phase.icon} ${phase.label}</span>
+                      <div style="margin-top:4px;font-size:20px;font-weight:900;color:${pct===100?"#22c55e":"#1f2937"};">${pct}%</div>
+                    </div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                    <div style="flex:1;height:6px;border-radius:3px;background:#e2e8f0;"><div style="height:100%;border-radius:3px;width:${pct}%;background:${pct===100?"#22c55e":"#FF671F"};"></div></div>
+                  </div>
+                  ${keyDates.length ? `<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;margin-bottom:8px;">${keyDates.join(" · ")}</div>` : ""}
+                  ${contractors.length ? `<div style="font-size:10px;color:#6b7280;margin-bottom:6px;">${contractors.join(" · ")}</div>` : ""}
+                  ${budget ? `<div style="font-size:10px;color:#6b7280;margin-bottom:6px;">Budget: <strong>${budget}</strong></div>` : ""}
+                  ${inspections.length ? `<div style="font-size:10px;margin-bottom:6px;"><span style="color:#22c55e;font-weight:700;">${inspPassed} passed</span>${inspFailed ? ` · <span style="color:#ef4444;font-weight:700;">${inspFailed} failed</span>` : ""} · ${inspections.length} total inspections</div>` : ""}
+                  ${topMissing.length ? `<div style="font-size:10px;color:#9ca3af;"><span style="font-weight:700;color:#f59e0b;">Outstanding:</span> ${topMissing.map(m => m.item).join(" · ")}${missingItems.length > 5 ? ` · +${missingItems.length - 5} more` : ""}</div>` : '<div style="font-size:10px;color:#22c55e;font-weight:600;">All items complete</div>'}
+                </div>`;
+            }).join("");
+            const phaseCount = {};
+            PROJECT_PHASES.forEach(ph => { phaseCount[ph.label] = 0; });
+            phaseCount["Complete"] = 0;
+            sorted.forEach(p => { const ph = getCurrentPhase(p); phaseCount[ph.label] = (phaseCount[ph.label] || 0) + 1; });
+            const summaryPills = Object.entries(phaseCount).filter(([,v]) => v > 0).map(([k,v]) => `<span style="background:#f0f0f0;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;">${k}: ${v}</span>`).join("");
+            const overdueCount = sorted.filter(p => p.dueDate && !p.completed && new Date(p.dueDate) < new Date()).length;
+            const html = `<!DOCTYPE html><html><head><style>@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@600;700;800;900&family=Source+Sans+3:wght@400;600;700&display=swap');body{font-family:'Source Sans 3',sans-serif;margin:0;padding:36px;color:#1f2937;}@media print{body{padding:20px;}}</style></head><body>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #FF671F;">
+                <div>
+                  <h1 style="font-family:Raleway;font-weight:900;font-size:24px;margin:0;color:#1f2937;">Project At-A-Glance</h1>
+                  <p style="margin:4px 0 0;color:#9ca3af;font-size:12px;">People Capital Group — Pipeline Snapshot</p>
+                </div>
+                <div style="text-align:right;font-size:11px;color:#9ca3af;">
+                  <div>${dateStr} at ${timeStr}</div>
+                  <div>By: ${user?.name || "Unknown"}</div>
+                  <div><strong>${sorted.length}</strong> projects${overdueCount ? ` · <span style="color:#ef4444;font-weight:700;">${overdueCount} overdue</span>` : ""}</div>
+                </div>
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px;">${summaryPills}</div>
+              ${projectCards}
+              <div style="margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#9ca3af;text-align:center;">PCG Unified Operations Portal · Confidential</div>
+            </body></html>`;
+            const printWin = window.open("", "_blank");
+            printWin.document.write(html);
+            printWin.document.close();
+            printWin.focus();
+            setTimeout(() => printWin.print(), 400);
+          }} style={{
+            padding: "0.65rem 1.1rem",
+            fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7,
+            color: "#fff", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+            border: "none", borderRadius: "0.625rem",
+            cursor: "pointer", fontFamily: "'Source Sans 3'", transition: "all .2s",
+            boxShadow: "0 4px 12px rgba(99,102,241,0.35)",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(99,102,241,0.5)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(99,102,241,0.35)"; }}>
+            🔎 At-A-Glance
+          </button>
+        )}
       </div>
 
       {/* ─── KPI summary — click-to-filter phase cards ───────────── */}
@@ -11911,6 +12007,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Priority</label><input type="number" style={inp(th)} placeholder="1" value={form.priority || ""} onChange={e => setForm(f => ({ ...f, priority: parseInt(e.target.value) || 0 }))} /></div>
             <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Due Date</label><input type="date" style={inp(th)} value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} /></div>
             <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Target Completion</label><input type="date" style={inp(th)} value={form.completionDate} onChange={e => setForm(f => ({ ...f, completionDate: e.target.value }))} /></div>
+            <div><label style={{ fontSize: "0.6875rem", color: "#ff6b00", fontWeight: 600 }}>Dunkin' Completion Date</label><input type="date" style={inp(th)} value={form.dunkinCompletionDate || ""} onChange={e => setForm(f => ({ ...f, dunkinCompletionDate: e.target.value }))} /></div>
           </div>
           {(manualAddr || !stores.find(s => s.pc === form.pc)) && form.pc && (
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 0.5fr 0.75fr", gap: "0.75rem", marginBottom: "0.75rem" }} className="fade-in">
@@ -25224,7 +25321,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v10.91
+            v10.92
           </div>
         )}
         {/* Collapse toggle — desktop only */}
