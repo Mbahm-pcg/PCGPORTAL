@@ -13445,7 +13445,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
       {/* Expense Log */}
       <div style={{ marginTop: "1.25rem" }}>
-        <ExpenseLogSection th={th} />
+        <ExpenseLogSection th={th} user={user} />
       </div>
 
       </> /* end admin tab */}
@@ -13454,46 +13454,156 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 }
 
 // ── Expense Log Section ────────────────────────────────────────────────────
-function ExpenseLogSection({ th }) {
+// Lazy-loads a receipt image from Netlify Blobs by key and renders a thumbnail
+function ReceiptThumb({ receiptKey, size = 48, expandable = true }) {
+  const [src, setSrc] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(false);
+  React.useEffect(() => {
+    if (!receiptKey) return;
+    setLoading(true);
+    cloudLoad(receiptKey).then(data => {
+      if (data?.base64) setSrc(data.base64);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [receiptKey]);
+  if (!receiptKey) return null;
+  if (loading) return <span style={{ display:'inline-block', width:size, height:size, borderRadius:6, background:'#f59e0b22', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.65rem', color:'#f59e0b' }}>...</span>;
+  if (!src) return <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:size, height:size, borderRadius:6, background:'#ef444422', fontSize:'0.6rem', color:'#ef4444' }}>✗</span>;
+  return (
+    <>
+      <img onClick={() => expandable && setExpanded(true)} src={src} alt="Receipt" style={{ width:size, height:size, objectFit:'cover', borderRadius:6, border:'1px solid rgba(0,0,0,0.15)', cursor:expandable ? 'zoom-in' : 'default', flexShrink:0 }} />
+      {expanded && (
+        <div onClick={() => setExpanded(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:99999, display:'flex', alignItems:'center', justifyContent:'center', cursor:'zoom-out', padding:'1.5rem' }}>
+          <img src={src} alt="Receipt" style={{ maxWidth:'100%', maxHeight:'90vh', borderRadius:12, objectFit:'contain', boxShadow:'0 20px 60px rgba(0,0,0,0.5)' }} />
+        </div>
+      )}
+    </>
+  );
+}
+
+// Compress an image File to a base64 JPEG data-URL (max 600px, quality 0.72)
+async function compressImageToBase64(file, maxPx = 600, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxPx || h > maxPx) {
+          if (w > h) { h = Math.round(h * maxPx / w); w = maxPx; }
+          else { w = Math.round(w * maxPx / h); h = maxPx; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function ExpenseLogSection({ th, user }) {
   const O = '#FF671F';
   const GOLD = '#f59e0b';
+  const isVP = user?.userType === 'executive' || user?.userType === 'it';
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
   const [filterCat, setFilterCat] = React.useState('All');
   const [filterUser, setFilterUser] = React.useState('All');
+  const [filterApproval, setFilterApproval] = React.useState('All');
+  const [approvingId, setApprovingId] = React.useState(null);
 
-  // Pull all expenses from all tickets in localStorage
+  // Pull all expenses from all tickets via cloudLoad (authoritative) with localStorage fallback
+  const [allTickets, setAllTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); } catch { return []; } });
+  React.useEffect(() => {
+    if (!open) return;
+    cloudLoad('pcg_tickets_v1').then(data => { if (Array.isArray(data) && data.length > 0) { setAllTickets(data); try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(data)); } catch {} } }).catch(() => {});
+  }, [open]);
+
   const rows = React.useMemo(() => {
-    try {
-      const tickets = JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]');
-      const all = [];
-      tickets.forEach(t => {
-        (t.expenses || []).forEach(ex => {
-          all.push({
-            ticketNumber: t.number || t.id,
-            ticketTitle: t.title,
-            storeName: t.storeName,
-            storePC: t.storePC,
-            noExpense: ex.noExpense || false,
-            description: ex.description || '',
-            amount: ex.noExpense ? null : parseFloat(ex.amount || 0),
-            category: ex.category || (ex.noExpense ? 'None' : 'Other'),
-            addedBy: ex.addedBy || '—',
-            addedAt: ex.addedAt,
-            ticketStatus: t.status,
-          });
+    const all = [];
+    allTickets.forEach(t => {
+      (t.expenses || []).forEach(ex => {
+        all.push({
+          ticketId: t.id,
+          expenseId: ex.id,
+          ticketNumber: t.number || t.id,
+          ticketTitle: t.title,
+          storeName: t.storeName,
+          storePC: t.storePC,
+          noExpense: ex.noExpense || false,
+          description: ex.description || '',
+          amount: ex.noExpense ? null : parseFloat(ex.amount || 0),
+          category: ex.category || (ex.noExpense ? 'None' : 'Other'),
+          addedBy: ex.addedBy || '—',
+          addedAt: ex.addedAt,
+          receiptKey: ex.receiptKey || null,
+          approvalStatus: ex.approvalStatus || null,
+          approvedBy: ex.approvedBy || null,
+          approvedAt: ex.approvedAt || null,
+          submittedByUserId: ex.submittedByUserId || null,
+          ticketStatus: t.status,
         });
       });
-      return all.sort((a, b) => new Date(b.addedAt) - new Date(a.addedAt));
-    } catch { return []; }
-  }, [open]); // re-compute when opened
+    });
+    return all.sort((a, b) => new Date(b.addedAt) - new Date(a.addedAt));
+  }, [allTickets]);
+
+  const pendingCount = rows.filter(r => !r.noExpense && r.approvalStatus === 'pending').length;
+
+  const handleApprove = async (row, decision) => {
+    const id = `${row.ticketId}_${row.expenseId}`;
+    setApprovingId(id);
+    const now = new Date().toISOString();
+    const updatedTickets = allTickets.map(t => {
+      if (t.id !== row.ticketId) return t;
+      return {
+        ...t,
+        expenses: (t.expenses || []).map(ex => ex.id !== row.expenseId ? ex : {
+          ...ex,
+          approvalStatus: decision,
+          approvedBy: user?.name,
+          approvedAt: now,
+        }),
+        comments: [...(t.comments || []), { id: Date.now(), type: 'system', text: `Expense "${row.description}" ${decision} by ${user?.name}`, createdAt: now }],
+      };
+    });
+    setAllTickets(updatedTickets);
+    try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(updatedTickets)); } catch {}
+    await cloudSave('pcg_tickets_v1', updatedTickets);
+    // Push notification to submitter
+    if (row.submittedByUserId) {
+      try {
+        await fetch('/.netlify/functions/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send',
+            userIds: [row.submittedByUserId],
+            title: decision === 'approved' ? '✓ Expense Approved' : '✗ Expense Rejected',
+            body: `"${row.description || 'Expense'}" ($${parseFloat(row.amount||0).toFixed(2)}) was ${decision} by ${user?.name}`,
+            url: '/',
+            tag: `expense-${row.expenseId}`,
+          }),
+        });
+      } catch(e) { console.warn('[push] expense notification failed', e.message); }
+    }
+    setApprovingId(null);
+  };
 
   const categories = ['All', ...Array.from(new Set(rows.map(r => r.category)))];
   const users = ['All', ...Array.from(new Set(rows.map(r => r.addedBy).filter(Boolean)))];
 
   const filtered = rows.filter(r => {
+    if (r.noExpense) return false; // hide no-expense rows from log
     if (filterCat !== 'All' && r.category !== filterCat) return false;
     if (filterUser !== 'All' && r.addedBy !== filterUser) return false;
+    if (filterApproval !== 'All' && r.approvalStatus !== filterApproval) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!`${r.ticketNumber} ${r.ticketTitle} ${r.storeName} ${r.description} ${r.addedBy}`.toLowerCase().includes(q)) return false;
@@ -13501,8 +13611,8 @@ function ExpenseLogSection({ th }) {
     return true;
   });
 
-  const totalAmount = filtered.filter(r => !r.noExpense).reduce((s, r) => s + (r.amount || 0), 0);
-
+  const totalAmount = filtered.reduce((s, r) => s + (r.amount || 0), 0);
+  const approvedTotal = filtered.filter(r => r.approvalStatus === 'approved').reduce((s, r) => s + (r.amount || 0), 0);
   const catColor = c => ({ Parts:'#3b82f6', Labor:'#8b5cf6', Materials:'#f59e0b', Equipment:'#06b6d4', Contractor:'#ec4899', Other:'#6b7280', None:'#9ca3af' }[c] || '#6b7280');
 
   return (
@@ -13512,12 +13622,15 @@ function ExpenseLogSection({ th }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <span style={{ fontSize: '1.3rem' }}>💰</span>
           <div>
-            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: th.text }}>Expense Log</div>
-            <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: 1 }}>All ticket expenses across the network</div>
+            <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+              <span style={{ fontWeight: 800, fontSize: '0.95rem', color: th.text }}>Expense Log</span>
+              {pendingCount > 0 && <span style={{ background:'#f59e0b', color:'#fff', borderRadius:999, fontSize:'0.65rem', fontWeight:800, padding:'1px 7px', boxShadow:'0 0 8px #f59e0b66' }}>{pendingCount} pending</span>}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: 1 }}>All ticket expenses — VP approval required</div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {!open && rows.length > 0 && <span style={{ fontSize: '0.75rem', color: th.muted }}>{rows.length} entr{rows.length === 1 ? 'y' : 'ies'}</span>}
+          {!open && rows.length > 0 && <span style={{ fontSize: '0.75rem', color: th.muted }}>{rows.filter(r=>!r.noExpense).length} entr{rows.length === 1 ? 'y' : 'ies'}</span>}
           <button onClick={e => { e.stopPropagation(); setOpen(o => !o); }} style={{ background: O, border: 'none', borderRadius: 8, color: '#fff', padding: '0.35rem 0.875rem', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}>
             {open ? 'Close' : 'View Log'}
           </button>
@@ -13528,16 +13641,20 @@ function ExpenseLogSection({ th }) {
         <div style={{ borderTop: `1px solid ${th.cardBorder}`, paddingTop: '1rem', marginTop: '0.25rem' }}>
           {/* Filters */}
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem', alignItems: 'center' }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ticket, store, user..." style={{ flex: '1 1 180px', padding: '0.4rem 0.75rem', borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: '0.82rem' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ticket, store, user..." style={{ flex: '1 1 160px', padding: '0.4rem 0.75rem', borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: '0.82rem' }} />
+            <select value={filterApproval} onChange={e => setFilterApproval(e.target.value)} style={{ padding: '0.4rem 0.6rem', borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: '0.82rem' }}>
+              {['All','pending','approved','rejected'].map(s => <option key={s} value={s}>{s === 'All' ? 'All Statuses' : s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+            </select>
             <select value={filterCat} onChange={e => setFilterCat(e.target.value)} style={{ padding: '0.4rem 0.6rem', borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: '0.82rem' }}>
               {categories.map(c => <option key={c} value={c}>{c === 'All' ? 'All Categories' : c}</option>)}
             </select>
             <select value={filterUser} onChange={e => setFilterUser(e.target.value)} style={{ padding: '0.4rem 0.6rem', borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: '0.82rem' }}>
               {users.map(u => <option key={u} value={u}>{u === 'All' ? 'All Users' : u}</option>)}
             </select>
-            {filtered.filter(r => !r.noExpense).length > 0 && (
-              <div style={{ marginLeft: 'auto', fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: '#16a34a' }}>
-                Total: ${totalAmount.toFixed(2)}
+            {filtered.length > 0 && (
+              <div style={{ marginLeft: 'auto', display:'flex', flexDirection:'column', alignItems:'flex-end', gap:1 }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.88rem', color: th.muted }}>Total: <span style={{ color: th.text }}>${totalAmount.toFixed(2)}</span></div>
+                <div style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 700 }}>Approved: ${approvedTotal.toFixed(2)}</div>
               </div>
             )}
           </div>
@@ -13549,42 +13666,68 @@ function ExpenseLogSection({ th }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
                   <tr style={{ background: th.card2 }}>
-                    {['Date', 'User', 'Ticket', 'Store', 'Category', 'Description', 'Amount', 'Status'].map(h => (
+                    {['Receipt', 'Date', 'User', 'Ticket', 'Store', 'Category', 'Description', 'Amount', 'Approval', isVP && 'Actions'].filter(Boolean).map(h => (
                       <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: 700, color: th.muted, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.8, whiteSpace: 'nowrap', borderBottom: `1px solid ${th.cardBorder}` }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((r, i) => (
-                    <tr key={i} style={{ borderBottom: `1px solid ${th.cardBorder}`, background: i % 2 === 0 ? 'transparent' : th.card2 + '55' }}>
-                      <td style={{ padding: '0.5rem 0.75rem', color: th.muted, whiteSpace: 'nowrap' }}>
-                        {r.addedAt ? new Date(r.addedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                        <div style={{ fontSize: '0.68rem' }}>{r.addedAt ? new Date(r.addedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}</div>
-                      </td>
-                      <td style={{ padding: '0.5rem 0.75rem', fontWeight: 600, color: th.text, whiteSpace: 'nowrap' }}>{r.addedBy}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', whiteSpace: 'nowrap' }}>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: O, background: O+'18', padding: '1px 6px', borderRadius: 4 }}>{r.ticketNumber}</span>
-                        <div style={{ color: th.muted, fontSize: '0.72rem', marginTop: 2, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.ticketTitle}</div>
-                      </td>
-                      <td style={{ padding: '0.5rem 0.75rem', color: th.muted, fontSize: '0.78rem' }}>{r.storeName || '—'}</td>
-                      <td style={{ padding: '0.5rem 0.75rem' }}>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '2px 7px', borderRadius: 999, color: '#fff', background: catColor(r.category) }}>{r.category}</span>
-                      </td>
-                      <td style={{ padding: '0.5rem 0.75rem', color: th.text, maxWidth: 200 }}>
-                        {r.noExpense ? <span style={{ color: th.muted, fontStyle: 'italic' }}>No expense</span> : r.description}
-                      </td>
-                      <td style={{ padding: '0.5rem 0.75rem', fontWeight: 700, color: r.noExpense ? th.muted : '#16a34a', whiteSpace: 'nowrap' }}>
-                        {r.noExpense ? '—' : `$${(r.amount || 0).toFixed(2)}`}
-                      </td>
-                      <td style={{ padding: '0.5rem 0.75rem' }}>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '2px 7px', borderRadius: 999,
-                          color: r.ticketStatus === 'Closed' ? '#fff' : r.ticketStatus === 'In Progress' ? O : th.muted,
-                          background: r.ticketStatus === 'Closed' ? '#6b7280' : r.ticketStatus === 'In Progress' ? O+'22' : th.card2 }}>
-                          {r.ticketStatus}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {filtered.map((r, i) => {
+                    const rowId = `${r.ticketId}_${r.expenseId}`;
+                    const isApproving = approvingId === rowId;
+                    return (
+                      <tr key={i} style={{ borderBottom: `1px solid ${th.cardBorder}`, background: i % 2 === 0 ? 'transparent' : th.card2 + '55' }}>
+                        <td style={{ padding: '0.5rem 0.75rem' }}>
+                          {r.receiptKey ? <ReceiptThumb receiptKey={r.receiptKey} size={38} /> : <span style={{ color:th.muted, fontSize:'0.7rem' }}>—</span>}
+                        </td>
+                        <td style={{ padding: '0.5rem 0.75rem', color: th.muted, whiteSpace: 'nowrap' }}>
+                          {r.addedAt ? new Date(r.addedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                          <div style={{ fontSize: '0.68rem' }}>{r.addedAt ? new Date(r.addedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}</div>
+                        </td>
+                        <td style={{ padding: '0.5rem 0.75rem', fontWeight: 600, color: th.text, whiteSpace: 'nowrap' }}>{r.addedBy}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: O, background: O+'18', padding: '1px 6px', borderRadius: 4 }}>{r.ticketNumber}</span>
+                          <div style={{ color: th.muted, fontSize: '0.72rem', marginTop: 2, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.ticketTitle}</div>
+                        </td>
+                        <td style={{ padding: '0.5rem 0.75rem', color: th.muted, fontSize: '0.78rem' }}>{r.storeName || '—'}</td>
+                        <td style={{ padding: '0.5rem 0.75rem' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '2px 7px', borderRadius: 999, color: '#fff', background: catColor(r.category) }}>{r.category}</span>
+                        </td>
+                        <td style={{ padding: '0.5rem 0.75rem', color: th.text, maxWidth: 180 }}>{r.description}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', fontWeight: 700, color: '#16a34a', whiteSpace: 'nowrap' }}>${(r.amount || 0).toFixed(2)}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', whiteSpace: 'nowrap' }}>
+                          {r.approvalStatus ? (
+                            <div>
+                              <span style={{ fontSize:'0.7rem', fontWeight:700, padding:'2px 8px', borderRadius:999,
+                                background: r.approvalStatus==='approved' ? '#16a34a22' : r.approvalStatus==='rejected' ? '#ef444422' : '#f59e0b22',
+                                color: r.approvalStatus==='approved' ? '#16a34a' : r.approvalStatus==='rejected' ? '#ef4444' : '#f59e0b',
+                                border:`1px solid ${r.approvalStatus==='approved' ? '#16a34a' : r.approvalStatus==='rejected' ? '#ef4444' : '#f59e0b'}44`
+                              }}>
+                                {r.approvalStatus==='approved' ? '✓ Approved' : r.approvalStatus==='rejected' ? '✗ Rejected' : '⏳ Pending'}
+                              </span>
+                              {r.approvedBy && <div style={{ fontSize:'0.65rem', color:th.muted, marginTop:2 }}>{r.approvedBy}</div>}
+                            </div>
+                          ) : <span style={{ color:th.muted, fontSize:'0.75rem' }}>—</span>}
+                        </td>
+                        {isVP && (
+                          <td style={{ padding: '0.5rem 0.75rem', whiteSpace: 'nowrap' }}>
+                            {r.approvalStatus === 'pending' ? (
+                              <div style={{ display:'flex', gap:'0.35rem' }}>
+                                <button onClick={() => handleApprove(r, 'approved')} disabled={isApproving} style={{ background:'#16a34a', border:'none', borderRadius:6, color:'#fff', padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', opacity:isApproving?0.5:1 }}>
+                                  {isApproving ? '...' : '✓ Approve'}
+                                </button>
+                                <button onClick={() => handleApprove(r, 'rejected')} disabled={isApproving} style={{ background:'#ef444422', border:'1px solid #ef444444', borderRadius:6, color:'#ef4444', padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', opacity:isApproving?0.5:1 }}>
+                                  ✗ Reject
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize:'0.72rem', color:th.muted }}>—</span>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -14246,7 +14389,34 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const [detailTab, setDetailTab] = React.useState("details");
   const [newComment, setNewComment] = React.useState("");
   const [showExpenseModal, setShowExpenseModal] = React.useState(false);
-  const [expenseForm, setExpenseForm] = React.useState({ description: '', amount: '', category: 'Parts', noExpense: false });
+  const [expenseForm, setExpenseForm] = React.useState({ description: '', amount: '', category: 'Parts', noExpense: false, receiptBase64: '', receiptLoading: false });
+  const [expenseSaving, setExpenseSaving] = React.useState(false);
+  const handleSaveExpense = async () => {
+    if (expenseSaving) return;
+    const now = new Date().toISOString();
+    const expId = `exp_${Date.now()}_${Math.random().toString(36).slice(2,5)}`;
+    let receiptKey = null;
+    if (!expenseForm.noExpense && expenseForm.receiptBase64) {
+      setExpenseSaving(true);
+      try {
+        await cloudSave(`pcg_expense_receipt_${expId}`, { base64: expenseForm.receiptBase64, addedBy: user?.name, addedAt: now });
+        receiptKey = `pcg_expense_receipt_${expId}`;
+      } catch(e) { console.warn('[expense] receipt upload failed', e.message); }
+      setExpenseSaving(false);
+    }
+    const expense = expenseForm.noExpense
+      ? { id:expId, noExpense:true, addedBy:user?.name, addedAt:now }
+      : { id:expId, description:expenseForm.description.trim(), amount:expenseForm.amount, category:expenseForm.category, addedBy:user?.name, submittedByUserId:user?.id, addedAt:now, receiptKey, approvalStatus:'pending' };
+    const actMsg = expenseForm.noExpense
+      ? `${user?.name} marked: No expense for this ticket.`
+      : `${user?.name} logged expense: ${expenseForm.description.trim()} — $${parseFloat(expenseForm.amount).toFixed(2)} (${expenseForm.category}) — pending VP approval`;
+    const actEntry = { id:Date.now(), type:'system', text:actMsg, createdAt:now };
+    setTickets(ts => ts.map(t => t.id === selectedTicket.id
+      ? { ...t, expenses:[...(t.expenses||[]), expense], comments:[...(t.comments||[]), actEntry] }
+      : t));
+    setShowExpenseModal(false);
+    setExpenseForm({ description:'', amount:'', category:'Parts', noExpense:false, receiptBase64:'', receiptLoading:false });
+  };
   const [lightbox, setLightbox] = React.useState(null);
   const [issuePickerOpen, setIssuePickerOpen] = React.useState(false);
   const [showTemplates, setShowTemplates] = React.useState(false);
@@ -14830,17 +15000,28 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                   {!(selectedTicket.expenses||[]).length
                     ? <div style={{ fontSize:"0.78rem", color:th.muted, fontStyle:"italic" }}>No expenses logged yet.</div>
                     : (selectedTicket.expenses||[]).map((ex, i) => (
-                      <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", padding:"0.4rem 0", borderBottom:`1px solid ${th.cardBorder}` }}>
-                        <div>
-                          {ex.noExpense
-                            ? <div style={{ fontSize:"0.8rem", color:th.muted, fontStyle:"italic" }}>No expense — {ex.addedBy}</div>
-                            : <>
+                      <div key={i} style={{ padding:"0.5rem 0", borderBottom:`1px solid ${th.cardBorder}` }}>
+                        {ex.noExpense
+                          ? <div style={{ fontSize:"0.8rem", color:th.muted, fontStyle:"italic" }}>No expense — {ex.addedBy}</div>
+                          : <div style={{ display:"flex", gap:"0.5rem", alignItems:"flex-start" }}>
+                              <ReceiptThumb receiptKey={ex.receiptKey} size={42} />
+                              <div style={{ flex:1, minWidth:0 }}>
                                 <div style={{ fontSize:"0.82rem", fontWeight:600, color:th.text }}>{ex.description}</div>
                                 <div style={{ fontSize:"0.7rem", color:th.muted }}>{ex.category} · {ex.addedBy} · {new Date(ex.addedAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
-                              </>
-                          }
-                        </div>
-                        {!ex.noExpense && <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#16a34a", flexShrink:0, marginLeft:8 }}>${parseFloat(ex.amount||0).toFixed(2)}</div>}
+                                {ex.approvalStatus && (
+                                  <span style={{ display:"inline-block", marginTop:2, fontSize:"0.65rem", fontWeight:700, padding:"1px 6px", borderRadius:999,
+                                    background: ex.approvalStatus==='approved' ? '#16a34a22' : ex.approvalStatus==='rejected' ? '#ef444422' : '#f59e0b22',
+                                    color: ex.approvalStatus==='approved' ? '#16a34a' : ex.approvalStatus==='rejected' ? '#ef4444' : '#f59e0b',
+                                    border: `1px solid ${ex.approvalStatus==='approved' ? '#16a34a' : ex.approvalStatus==='rejected' ? '#ef4444' : '#f59e0b'}44`
+                                  }}>
+                                    {ex.approvalStatus==='approved' ? '✓ Approved' : ex.approvalStatus==='rejected' ? '✗ Rejected' : '⏳ Pending Approval'}
+                                  </span>
+                                )}
+                                {ex.approvedBy && <div style={{ fontSize:"0.68rem", color:th.muted, marginTop:1 }}>{ex.approvalStatus==='approved' ? `Approved by ${ex.approvedBy}` : `Rejected by ${ex.approvedBy}`}</div>}
+                              </div>
+                              <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#16a34a", flexShrink:0 }}>${parseFloat(ex.amount||0).toFixed(2)}</div>
+                            </div>
+                        }
                       </div>
                     ))
                   }
@@ -14928,12 +15109,15 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
       {/* Expense Modal */}
       {showExpenseModal && selectedTicket && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:1100, display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem" }}>
-          <div style={{ background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:16, padding:"1.5rem", width:"100%", maxWidth:400 }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:"1.05rem", color:th.text, marginBottom:"1rem" }}>Log Expense — {selectedTicket.number}</div>
+          <div style={{ background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:16, padding:"1.5rem", width:"100%", maxWidth:440, maxHeight:"90vh", overflowY:"auto" }}>
+            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:"1.05rem", color:th.text, marginBottom:"0.25rem" }}>Log Expense — {selectedTicket.number}</div>
+            <div style={{ fontSize:"0.72rem", color:"#f59e0b", fontWeight:600, marginBottom:"1rem", display:"flex", alignItems:"center", gap:5 }}>
+              <span>⏳</span> Submitted expenses require VP approval before reimbursement.
+            </div>
 
             {/* No Expense toggle */}
             <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"1rem", cursor:"pointer" }}>
-              <input type="checkbox" checked={expenseForm.noExpense} onChange={e=>setExpenseForm(p=>({...p, noExpense:e.target.checked}))} style={{ width:16, height:16, accentColor:"#16a34a" }} />
+              <input type="checkbox" checked={expenseForm.noExpense} onChange={e=>setExpenseForm(p=>({...p, noExpense:e.target.checked, receiptBase64:''}))} style={{ width:16, height:16, accentColor:"#16a34a" }} />
               <span style={{ fontSize:"0.88rem", color:th.text, fontWeight:600 }}>No expense for this ticket</span>
             </label>
 
@@ -14957,29 +15141,53 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                   </select>
                 </div>
               </div>
+
+              {/* Receipt upload */}
+              <div style={{ marginBottom:"0.75rem" }}>
+                <div style={{ fontSize:"0.75rem", fontWeight:700, color:th.muted, marginBottom:4 }}>
+                  Receipt / Photo {isMaintenance ? <span style={{ color:"#ef4444" }}>*</span> : <span style={{ color:th.muted }}>(recommended)</span>}
+                </div>
+                {expenseForm.receiptBase64 ? (
+                  <div style={{ position:"relative", display:"inline-block" }}>
+                    <img src={expenseForm.receiptBase64} alt="Receipt" style={{ maxHeight:120, maxWidth:"100%", borderRadius:8, border:`1px solid ${th.cardBorder}`, objectFit:"cover" }} />
+                    <button onClick={()=>setExpenseForm(p=>({...p, receiptBase64:''}))} style={{ position:"absolute", top:-6, right:-6, background:"#ef4444", border:"none", borderRadius:"50%", width:20, height:20, color:"#fff", fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", lineHeight:1 }}>×</button>
+                  </div>
+                ) : (
+                  <label style={{ display:"flex", alignItems:"center", gap:"0.5rem", padding:"0.6rem 0.75rem", borderRadius:8, border:`2px dashed ${th.cardBorder}`, cursor:"pointer", color:th.muted, fontSize:"0.82rem", fontWeight:600, transition:"border-color 0.15s" }}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor='#f59e0b'}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor=th.cardBorder}
+                  >
+                    {expenseForm.receiptLoading
+                      ? <span style={{ display:"inline-block", width:14, height:14, border:"2px solid #f59e0b44", borderTopColor:"#f59e0b", borderRadius:"50%", animation:"loginMeshShift 0.8s linear infinite" }} />
+                      : <span style={{ fontSize:"1.1rem" }}>📷</span>
+                    }
+                    {expenseForm.receiptLoading ? "Processing..." : "Upload receipt or take photo"}
+                    <input type="file" accept="image/*" capture="environment" style={{ display:"none" }}
+                      onChange={async e => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setExpenseForm(p=>({...p, receiptLoading:true}));
+                        try {
+                          const b64 = await compressImageToBase64(file);
+                          setExpenseForm(p=>({...p, receiptBase64:b64, receiptLoading:false}));
+                        } catch { setExpenseForm(p=>({...p, receiptLoading:false})); }
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
             </>)}
 
-            <div style={{ display:"flex", gap:"0.5rem", marginTop:"0.25rem" }}>
+            <div style={{ display:"flex", gap:"0.5rem", marginTop:"0.5rem" }}>
               <button
-                disabled={!expenseForm.noExpense && (!expenseForm.description.trim() || !expenseForm.amount)}
-                onClick={()=>{
-                  const now = new Date().toISOString();
-                  const expense = expenseForm.noExpense
-                    ? { noExpense:true, addedBy:user?.name, addedAt:now }
-                    : { description:expenseForm.description.trim(), amount:expenseForm.amount, category:expenseForm.category, addedBy:user?.name, addedAt:now };
-                  const activityMsg = expenseForm.noExpense
-                    ? `${user?.name} marked: No expense for this ticket.`
-                    : `${user?.name} logged expense: ${expenseForm.description.trim()} — $${parseFloat(expenseForm.amount).toFixed(2)} (${expenseForm.category})`;
-                  const activityEntry = { id: Date.now(), type:"system", text: activityMsg, createdAt: now };
-                  setTickets(ts=>ts.map(t=>t.id===selectedTicket.id
-                    ? { ...t, expenses:[...(t.expenses||[]), expense], comments:[...(t.comments||[]), activityEntry] }
-                    : t));
-                  setShowExpenseModal(false);
-                }}
-                style={{ flex:1, background:"#16a34a", border:"none", borderRadius:8, color:"#fff", padding:"0.6rem", cursor:"pointer", fontWeight:700, fontFamily:"'Source Sans 3'", opacity:(!expenseForm.noExpense && (!expenseForm.description.trim() || !expenseForm.amount)) ? 0.45 : 1 }}>
-                {expenseForm.noExpense ? "Mark No Expense" : "Save Expense"}
+                disabled={expenseSaving || expenseForm.receiptLoading || (!expenseForm.noExpense && (!expenseForm.description.trim() || !expenseForm.amount || (isMaintenance && !expenseForm.receiptBase64)))}
+                onClick={handleSaveExpense}
+                style={{ flex:1, background:"#16a34a", border:"none", borderRadius:8, color:"#fff", padding:"0.6rem", cursor:"pointer", fontWeight:700, fontFamily:"'Source Sans 3'",
+                  opacity:(expenseSaving || expenseForm.receiptLoading || (!expenseForm.noExpense && (!expenseForm.description.trim() || !expenseForm.amount || (isMaintenance && !expenseForm.receiptBase64)))) ? 0.45 : 1, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                {expenseSaving && <span style={{ display:"inline-block", width:12, height:12, border:"2px solid #ffffff44", borderTopColor:"#fff", borderRadius:"50%", animation:"loginMeshShift 0.8s linear infinite" }} />}
+                {expenseForm.noExpense ? "Mark No Expense" : expenseSaving ? "Uploading..." : "Submit for Approval"}
               </button>
-              <button onClick={()=>setShowExpenseModal(false)} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:8, color:th.muted, padding:"0.6rem 1rem", cursor:"pointer" }}>Cancel</button>
+              <button onClick={()=>{ setShowExpenseModal(false); setExpenseForm({ description:'', amount:'', category:'Parts', noExpense:false, receiptBase64:'', receiptLoading:false }); }} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:8, color:th.muted, padding:"0.6rem 1rem", cursor:"pointer" }}>Cancel</button>
             </div>
           </div>
         </div>
@@ -23398,6 +23606,24 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
   const isExec = user?.userType === 'executive' || user?.userType === 'it';
   const initials = (user?.name || '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
+  // District-scoped open tickets (maintenance tickets for DM's stores)
+  const districtTickets = React.useMemo(() => {
+    try {
+      const all = JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]');
+      const open = all.filter(t => t.status !== 'Closed');
+      if (isExec || !district) return open;
+      const distPCs = (stores || []).filter(s => Number(s.district) === district).map(s => String(s.pc));
+      return open.filter(t => distPCs.includes(String(t.storePC)));
+    } catch { return []; }
+  }, [district, stores]);
+
+  // Case-insensitive status matcher
+  const caseStatusMatch = c => {
+    const s = (c.status || '').toLowerCase();
+    if (caseFilter === 'open') return !c.status || ['new', 'open', 'in review'].includes(s);
+    return s === caseFilter.toLowerCase();
+  };
+
   React.useEffect(() => {
     (async () => {
       setLoading(true);
@@ -23604,15 +23830,9 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
             </div>
             {loading ? (
               <div style={{ color: th.muted, fontSize: 13, textAlign: 'center', padding: 24 }}>Loading cases...</div>
-            ) : cases.filter(c => {
-              if (caseFilter === 'open') return !c.status || c.status === 'open' || c.status === 'new';
-              return c.status === caseFilter;
-            }).length === 0 ? (
+            ) : cases.filter(caseStatusMatch).length === 0 && !(caseFilter === 'open' && districtTickets.length > 0) ? (
               <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 24, textAlign: 'center', color: th.muted, fontSize: 13 }}>No {caseFilter} cases</div>
-            ) : cases.filter(c => {
-              if (caseFilter === 'open') return !c.status || c.status === 'open' || c.status === 'new';
-              return c.status === caseFilter;
-            }).map(c => (
+            ) : cases.filter(caseStatusMatch).map(c => (
               <div key={c.id} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 14, marginBottom: 10, borderLeft: `3px solid ${severityColor(c.severity)}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 5 }}>
                   <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 14, color: th.text, flex: 1, paddingRight: 8, lineHeight: 1.3 }}>{c.title}</div>
@@ -23620,7 +23840,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
                 </div>
                 <div style={{ fontSize: 11, color: th.muted, marginBottom: 7 }}>{c.storeName}{c.district ? ` · D${c.district}` : ''}</div>
                 {c.description && <div style={{ fontSize: 12.5, color: '#999', lineHeight: 1.5, marginBottom: 10 }}>{c.description}</div>}
-                {(!c.status || c.status === 'open' || c.status === 'new') && (
+                {caseStatusMatch(c) && caseFilter === 'open' && (
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={() => updateCase(c.id, 'dismissed')} style={{ flex: 1, padding: 7, borderRadius: 9, border: `1px solid ${th.cardBorder}`, background: 'none', color: th.muted, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Dismiss</button>
                     <button onClick={() => updateCase(c.id, 'accepted')} style={{ flex: 1, padding: 7, borderRadius: 9, border: `1px solid #4caf5044`, background: '#4caf5010', color: '#4caf50', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Accept</button>
@@ -23628,6 +23848,30 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
                 )}
               </div>
             ))}
+
+            {/* Open maintenance tickets for this district */}
+            {caseFilter === 'open' && districtTickets.length > 0 && (
+              <div style={{ marginTop: cases.filter(caseStatusMatch).length > 0 ? 16 : 0 }}>
+                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>
+                  Open Tickets · {districtTickets.length}
+                </div>
+                {districtTickets.map(t => {
+                  const PRIORITY_COLOR = { Emergency: '#ef4444', High: '#f97316', Medium: '#3b82f6', Low: '#22c55e' };
+                  const tColor = t.status === 'In Progress' ? '#22c55e' : PRIORITY_COLOR[t.priority] || '#6366f1';
+                  return (
+                    <div key={t.id} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 14, marginBottom: 10, borderLeft: `3px solid ${tColor}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                        <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 14, color: th.text, flex: 1, paddingRight: 8, lineHeight: 1.3 }}>{t.title}</div>
+                        <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: tColor + '22', color: tColor, whiteSpace: 'nowrap' }}>{t.status}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: th.muted, marginBottom: 4 }}>{t.storeName} {t.priority ? `· ${t.priority}` : ''} {t.category ? `· ${t.category}` : ''}</div>
+                      {t.startedBy && <div style={{ fontSize: 11, color: '#22c55e' }}>Started by {t.startedBy}</div>}
+                      {t.dueDate && <div style={{ fontSize: 11, color: '#f97316', marginTop: 2 }}>Due {new Date(t.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -23731,6 +23975,783 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ── Maintenance Mobile View ───────────────────────────────────────────────────
+function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
+  const O = '#FF671F';
+  const PURPLE = '#FF671F';
+  const PRIORITY_COLOR = { Emergency: '#ef4444', High: '#f97316', Medium: '#3b82f6', Low: '#22c55e' };
+
+  const [activeTab, setActiveTab] = React.useState('calendar');
+  const [tickets, setTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); } catch { return []; } });
+  const [selectedDay, setSelectedDay] = React.useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
+  const [weekOffset, setWeekOffset] = React.useState(0);
+  const [selectedTicket, setSelectedTicket] = React.useState(null);
+  const [detailOpen, setDetailOpen] = React.useState(false);
+  const [ticketFilter, setTicketFilter] = React.useState('All');
+  const [orionInput, setOrionInput] = React.useState('');
+  const [orionAnswer, setOrionAnswer] = React.useState(null);
+  const [orionLoading, setOrionLoading] = React.useState(false);
+  const [showMobileExpenseForm, setShowMobileExpenseForm] = React.useState(false);
+  const [mobileExpenseForm, setMobileExpenseForm] = React.useState({ description: '', amount: '', category: 'Parts', noExpense: false, receiptBase64: '', receiptLoading: false });
+  const [mobileExpenseSaving, setMobileExpenseSaving] = React.useState(false);
+  const [storeInfoOpen, setStoreInfoOpen] = React.useState(false);
+  const [showPhotoUpload, setShowPhotoUpload] = React.useState(false);
+  const [photoForm, setPhotoForm] = React.useState({ label: 'Progress', base64: '', loading: false });
+  const [photoSaving, setPhotoSaving] = React.useState(false);
+  const [quickComment, setQuickComment] = React.useState('');
+  const [commentSaving, setCommentSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    const refresh = () => { try { setTickets(JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]')); } catch {} };
+    const id = setInterval(refresh, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const ticketColor = t => {
+    if (t.status === 'In Progress') return '#22c55e';
+    if (t.status === 'Pending') return '#a855f7';
+    return PRIORITY_COLOR[t.priority] || '#6366f1';
+  };
+
+  const openTickets = tickets.filter(t => t.status !== 'Closed');
+
+  const getWeekStart = (offset = 0) => {
+    const d = new Date(); d.setHours(0,0,0,0);
+    const dow = d.getDay();
+    const mon = new Date(d); mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1) + offset * 7);
+    return mon;
+  };
+  const weekStart = getWeekStart(weekOffset);
+  const weekDays = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
+  const DAY_ABBR = ['M','T','W','T','F','S','S'];
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DAYS_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const isToday = d => d.getTime() === today.getTime();
+  const isSelected = d => d.getTime() === selectedDay.getTime();
+  const dayStr = selectedDay.toISOString().slice(0,10);
+
+  const ticketDots = d => {
+    const ds = d.toISOString().slice(0,10);
+    return openTickets.filter(t => t.createdAt?.slice(0,10) === ds || t.dueDate === ds).slice(0,3).map(t => ticketColor(t));
+  };
+
+  const dayTickets = openTickets.filter(t => t.createdAt?.slice(0,10) === dayStr || t.dueDate === dayStr);
+  const urgentCount = dayTickets.filter(t => t.priority === 'Emergency' || t.priority === 'High').length;
+  const dueTodayCount = dayTickets.filter(t => t.dueDate === dayStr).length;
+  const heroSub = [urgentCount > 0 && `${urgentCount} urgent`, dueTodayCount > 0 && `${dueTodayCount} due today`].filter(Boolean).join(' · ') || 'Clear for this day';
+
+  const getInitials = n => (n || '').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+  const userInitials = getInitials(user?.name || '');
+
+  const updateTicketStatus = (ticketId, newStatus) => {
+    setTickets(ts => {
+      const now = new Date().toISOString();
+      const updated = ts.map(t => {
+        if (t.id !== ticketId) return t;
+        const extra = newStatus === 'In Progress' && t.status !== 'In Progress' ? { startedBy: user?.name, startedAt: now }
+          : newStatus === 'Closed' ? { closedBy: user?.name, closedAt: now }
+          : newStatus === 'Open' ? { startedBy: null, startedAt: null, closedBy: null, closedAt: null } : {};
+        const actEntry = { id: `act_${Date.now()}`, type: 'system', text: `${user?.name} changed status to ${newStatus}`, ts: now };
+        return { ...t, status: newStatus, updatedAt: now, ...extra, comments: [...(t.comments || []), actEntry] };
+      });
+      try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    if (selectedTicket?.id === ticketId) setSelectedTicket(prev => ({ ...prev, status: newStatus }));
+  };
+
+  const handleMobileAddExpense = async () => {
+    if (mobileExpenseSaving || !selectedTicket) return;
+    setMobileExpenseSaving(true);
+    const now = new Date().toISOString();
+    const expId = `exp_${Date.now()}_${Math.random().toString(36).slice(2,5)}`;
+    let receiptKey = null;
+    if (!mobileExpenseForm.noExpense && mobileExpenseForm.receiptBase64) {
+      try {
+        await cloudSave(`pcg_expense_receipt_${expId}`, { base64: mobileExpenseForm.receiptBase64, addedBy: user?.name, addedAt: now });
+        receiptKey = `pcg_expense_receipt_${expId}`;
+      } catch(e) { console.warn('[mobile-expense] receipt upload failed', e.message); }
+    }
+    const expense = mobileExpenseForm.noExpense
+      ? { id: expId, noExpense: true, addedBy: user?.name, addedAt: now }
+      : { id: expId, description: mobileExpenseForm.description.trim(), amount: mobileExpenseForm.amount, category: mobileExpenseForm.category, addedBy: user?.name, submittedByUserId: user?.id, addedAt: now, receiptKey, approvalStatus: 'pending' };
+    const actEntry = { id: `act_${Date.now()}`, type: 'system', text: `${user?.name} added expense: ${mobileExpenseForm.noExpense ? 'No expense' : `$${mobileExpenseForm.amount} (${mobileExpenseForm.category})`}`, ts: now };
+    setTickets(ts => {
+      const updated = ts.map(t => {
+        if (t.id !== selectedTicket.id) return t;
+        return { ...t, expenses: [...(t.expenses || []), expense], comments: [...(t.comments || []), actEntry], updatedAt: now };
+      });
+      try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(updated)); } catch {}
+      cloudSave('pcg_tickets_v1', updated).catch(e => console.warn('[mobile-expense] cloudSave failed', e.message));
+      return updated;
+    });
+    setMobileExpenseForm({ description: '', amount: '', category: 'Parts', noExpense: false, receiptBase64: '', receiptLoading: false });
+    setShowMobileExpenseForm(false);
+    setMobileExpenseSaving(false);
+  };
+
+  const handleAddPhoto = async () => {
+    if (photoSaving || !selectedTicket || !photoForm.base64) return;
+    setPhotoSaving(true);
+    const now = new Date().toISOString();
+    const photoId = `ph_${Date.now()}_${Math.random().toString(36).slice(2,5)}`;
+    const photoKey = `pcg_ticket_photo_${selectedTicket.id}_${photoId}`;
+    try {
+      await cloudSave(photoKey, { base64: photoForm.base64, label: photoForm.label, addedBy: user?.name, addedAt: now });
+    } catch(e) { console.warn('[photo] upload failed', e.message); setPhotoSaving(false); return; }
+    const photo = { id: photoId, key: photoKey, label: photoForm.label, addedBy: user?.name, addedAt: now };
+    const actEntry = { id: `act_${Date.now()}`, type: 'system', text: `${user?.name} added a ${photoForm.label.toLowerCase()} photo`, ts: now };
+    setTickets(ts => {
+      const updated = ts.map(t => {
+        if (t.id !== selectedTicket.id) return t;
+        return { ...t, photos: [...(t.photos || []), photo], comments: [...(t.comments || []), actEntry], updatedAt: now };
+      });
+      try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(updated)); } catch {}
+      cloudSave('pcg_tickets_v1', updated).catch(e => console.warn('[photo] tickets cloudSave failed', e.message));
+      return updated;
+    });
+    setPhotoForm({ label: 'Progress', base64: '', loading: false });
+    setShowPhotoUpload(false);
+    setPhotoSaving(false);
+  };
+
+  const handleQuickComment = async () => {
+    const text = quickComment.trim();
+    if (!text || commentSaving || !selectedTicket) return;
+    setCommentSaving(true);
+    const now = new Date().toISOString();
+    const entry = { id: `act_${Date.now()}`, type: 'comment', text: `${user?.name}: ${text}`, ts: now };
+    setTickets(ts => {
+      const updated = ts.map(t => {
+        if (t.id !== selectedTicket.id) return t;
+        return { ...t, comments: [...(t.comments || []), entry], updatedAt: now };
+      });
+      try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(updated)); } catch {}
+      cloudSave('pcg_tickets_v1', updated).catch(e => console.warn('[comment] cloudSave failed', e.message));
+      return updated;
+    });
+    setQuickComment('');
+    setCommentSaving(false);
+  };
+
+  const askOrion = async (q) => {
+    const text = (q || orionInput).trim();
+    if (!text || orionLoading) return;
+    setOrionInput(''); setOrionAnswer(null); setOrionLoading(true);
+    try {
+      const res = await fetch('/.netlify/functions/analyst', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ask', question: text, userId: user?.id, userRole: 'maintenance' }),
+      });
+      const data = await res.json();
+      setOrionAnswer({ question: text, answer: data.answer || data.text || 'No answer returned.' });
+    } catch { setOrionAnswer({ question: text, answer: 'Something went wrong. Please try again.' }); }
+    setOrionLoading(false);
+  };
+
+  const filteredTickets = ticketFilter === 'All' ? openTickets
+    : ticketFilter === 'Urgent' ? openTickets.filter(t => t.priority === 'Emergency' || t.priority === 'High')
+    : openTickets.filter(t => t.status === ticketFilter);
+
+  // ── Initials stack ──
+  const InitialsStack = ({ ticket }) => {
+    const names = [ticket.createdBy, ticket.startedBy && ticket.startedBy !== ticket.createdBy ? ticket.startedBy : null].filter(Boolean);
+    if (!names.length) return null;
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+        {names.slice(0,3).map((n, i) => (
+          <div key={i} style={{ width: 26, height: 26, borderRadius: '50%', background: [O, PURPLE, '#3b82f6'][i % 3], border: '2px solid rgba(0,0,0,0.3)', marginLeft: i > 0 ? -9 : 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.62rem', fontWeight: 800, color: '#fff', position: 'relative', zIndex: 10 - i }}>{getInitials(n)}</div>
+        ))}
+      </div>
+    );
+  };
+
+  // ── Ticket card ──
+  const TicketCard = ({ ticket }) => {
+    const color = ticketColor(ticket);
+    const dueLabel = ticket.dueDate ? new Date(ticket.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+    return (
+      <div onClick={() => { setSelectedTicket(ticket); setDetailOpen(true); }} style={{ background: color, borderRadius: '1.1rem', padding: '1rem 1.1rem', marginBottom: '0.7rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '0.45rem', boxShadow: `0 4px 18px ${color}55`, position: 'relative', overflow: 'hidden', transition: 'transform 0.15s', WebkitTapHighlightColor: 'transparent' }}
+        onTouchStart={e => e.currentTarget.style.transform = 'scale(0.97)'} onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
+        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'} onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+      >
+        <div style={{ position: 'absolute', top: 0, right: 0, width: '35%', height: '100%', background: 'rgba(255,255,255,0.07)', borderRadius: '0 1.1rem 1.1rem 0', pointerEvents: 'none' }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ flex: 1, paddingRight: '0.5rem' }}>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff', fontFamily: "'Raleway'", lineHeight: 1.25 }}>{ticket.title}</div>
+            <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.82)', fontWeight: 500, marginTop: '0.15rem' }}>{ticket.storeName || 'Unknown Store'}</div>
+          </div>
+          <InitialsStack ticket={ticket} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+            <span style={{ background: 'rgba(0,0,0,0.25)', color: '#fff', padding: '0.18rem 0.55rem', borderRadius: '2rem', fontSize: '0.68rem', fontWeight: 700 }}>{ticket.status}</span>
+            {ticket.priority && <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', padding: '0.18rem 0.55rem', borderRadius: '2rem', fontSize: '0.68rem', fontWeight: 600 }}>{ticket.priority}</span>}
+            {ticket.category && <span style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.88)', padding: '0.18rem 0.55rem', borderRadius: '2rem', fontSize: '0.68rem', fontWeight: 500 }}>{ticket.category}</span>}
+          </div>
+          {dueLabel && <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.85)', fontWeight: 700, flexShrink: 0 }}>Due {dueLabel}</span>}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Ticket detail sheet ──
+  const renderDetailSheet = () => {
+    if (!selectedTicket || !detailOpen) return null;
+    const t = tickets.find(tk => tk.id === selectedTicket.id) || selectedTicket;
+    const color = ticketColor(t);
+    const expenses = t.expenses || [];
+    const totalExp = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+    const comments = (t.comments || []).slice().sort((a, b) => new Date(a.ts) - new Date(b.ts));
+    // Closure validation: must have at least one expense entry to close
+    const canClose = expenses.length > 0;
+    const storeData = (stores || []).find(s => String(s.pc) === String(t.storePC));
+    const closeSheet = () => { setDetailOpen(false); setShowMobileExpenseForm(false); setStoreInfoOpen(false); setShowPhotoUpload(false); setQuickComment(''); };
+
+    const SectionLabel = ({ children }) => (
+      <div style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.1, color: th.muted, marginBottom: 8 }}>{children}</div>
+    );
+
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9000, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={closeSheet} />
+        <div style={{ position: 'relative', zIndex: 1, background: th.bg, borderRadius: '1.5rem 1.5rem 0 0', maxHeight: '92dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 'env(safe-area-inset-bottom, 20px)' }}>
+
+          {/* Drag handle */}
+          <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 10, paddingBottom: 4 }}>
+            <div style={{ width: 36, height: 4, borderRadius: 999, background: th.cardBorder }} />
+          </div>
+
+          {/* Header */}
+          <div style={{ padding: '0.5rem 1rem 0.875rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+              <div style={{ flex: 1, paddingRight: 10 }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.2rem', color: th.text, lineHeight: 1.2, marginBottom: 3 }}>{t.title}</div>
+                <div style={{ fontSize: '0.75rem', color: th.muted }}>#{t.number || (t.id || '').slice(-4)}</div>
+              </div>
+              <button onClick={closeSheet} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '50%', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: th.muted, fontSize: '1rem', flexShrink: 0 }}>×</button>
+            </div>
+            {/* Status + priority + category badges */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                { label: t.status, bg: color },
+                { label: t.priority || 'Normal', bg: PRIORITY_COLOR[t.priority] || '#6366f1' },
+                t.category && { label: t.category, bg: '#475569' },
+              ].filter(Boolean).map((b, i) => (
+                <span key={i} style={{ background: `${b.bg}22`, border: `1px solid ${b.bg}55`, color: b.bg === '#475569' ? th.text : b.bg, borderRadius: '2rem', padding: '0.22rem 0.65rem', fontSize: '0.73rem', fontWeight: 700, fontFamily: "'Source Sans 3'" }}>{b.label}</span>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ padding: '0.875rem 1rem' }}>
+
+            {/* Store info row — clickable */}
+            <div onClick={() => setStoreInfoOpen(v => !v)} style={{ background: th.card, border: `1px solid ${storeInfoOpen ? PURPLE+'66' : th.cardBorder}`, borderRadius: '0.875rem', padding: '0.65rem 0.875rem', marginBottom: '0.875rem', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'border-color 0.15s' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: `${PURPLE}22`, border: `1px solid ${PURPLE}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', flexShrink: 0 }}>📍</div>
+                <div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: th.text }}>{t.storeName || 'Unknown Store'}</div>
+                  {storeData?.address && <div style={{ fontSize: '0.7rem', color: th.muted }}>{storeData.address}, {storeData.city}</div>}
+                </div>
+              </div>
+              <div style={{ color: storeInfoOpen ? PURPLE : th.muted, fontSize: '0.8rem', transition: 'transform 0.2s', transform: storeInfoOpen ? 'rotate(90deg)' : 'rotate(0deg)', flexShrink: 0 }}>›</div>
+            </div>
+            {storeInfoOpen && storeData && (
+              <div style={{ background: `${PURPLE}0d`, border: `1px solid ${PURPLE}33`, borderRadius: '0.875rem', padding: '0.875rem', marginTop: -6, marginBottom: '0.875rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', marginBottom: storeData.mgr ? '0.65rem' : 0 }}>
+                  {[
+                    storeData.address && { icon: '🏪', label: 'Address', value: `${storeData.address}, ${storeData.city}, ${storeData.state} ${storeData.zip}` },
+                    storeData.district && { icon: '🗂️', label: 'District', value: `District ${storeData.district}` },
+                    storeData.baseAsset && { icon: '🏗️', label: 'Type', value: storeData.baseAsset === 'DT' ? 'Drive-Thru' : storeData.baseAsset === 'IL' ? 'Inline' : storeData.baseAsset === 'FS' ? 'Freestanding' : storeData.baseAsset },
+                    storeData.dmName && { icon: '👤', label: 'District Manager', value: storeData.dmName },
+                  ].filter(Boolean).map((item, i) => (
+                    <div key={i} style={{ gridColumn: item.label === 'Address' ? '1 / -1' : 'auto' }}>
+                      <div style={{ fontSize: '0.6rem', color: PURPLE, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>{item.label}</div>
+                      <div style={{ fontSize: '0.78rem', color: th.text, fontWeight: 500, lineHeight: 1.4 }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                {storeData.mgr && (
+                  <div style={{ borderTop: `1px solid ${PURPLE}22`, paddingTop: '0.65rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '0.6rem', color: PURPLE, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>Store Manager</div>
+                      <div style={{ fontSize: '0.82rem', color: th.text, fontWeight: 600 }}>{storeData.mgr}</div>
+                    </div>
+                    {storeData.mgrPhone && (
+                      <a href={`tel:${storeData.mgrPhone}`} style={{ background: '#22c55e22', border: '1px solid #22c55e55', color: '#22c55e', borderRadius: '2rem', padding: '0.3rem 0.75rem', fontSize: '0.75rem', fontWeight: 700, textDecoration: 'none', fontFamily: "'Source Sans 3'" }}>📞 Call</a>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Dates */}
+            {(t.createdAt || t.dueDate || t.startedBy || t.closedBy) && (
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '0.65rem 0.875rem', marginBottom: '0.875rem' }}>
+                <SectionLabel>Timeline</SectionLabel>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                  {t.createdAt && <div style={{ fontSize: '0.78rem', color: th.muted, display: 'flex', gap: 6 }}><span style={{ color: th.text, fontWeight: 600, minWidth: 52 }}>Created</span>{new Date(t.createdAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {t.createdBy || 'Unknown'}</div>}
+                  {t.dueDate && <div style={{ fontSize: '0.78rem', color: th.muted, display: 'flex', gap: 6 }}><span style={{ color: '#f97316', fontWeight: 600, minWidth: 52 }}>Due</span>{new Date(t.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>}
+                  {t.startedBy && <div style={{ fontSize: '0.78rem', color: th.muted, display: 'flex', gap: 6 }}><span style={{ color: '#22c55e', fontWeight: 600, minWidth: 52 }}>Started</span>{t.startedAt ? new Date(t.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} · {t.startedBy}</div>}
+                  {t.closedBy && <div style={{ fontSize: '0.78rem', color: th.muted, display: 'flex', gap: 6 }}><span style={{ color: '#9ca3af', fontWeight: 600, minWidth: 52 }}>Closed</span>{t.closedAt ? new Date(t.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} · {t.closedBy}</div>}
+                </div>
+              </div>
+            )}
+
+            {/* Description */}
+            {t.description && (
+              <div style={{ marginBottom: '0.875rem' }}>
+                <SectionLabel>Description</SectionLabel>
+                <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '0.75rem 0.875rem', fontSize: '0.84rem', color: th.text, lineHeight: 1.65 }}>{t.description}</div>
+              </div>
+            )}
+
+            {/* Status actions */}
+            {t.status !== 'Closed' && (
+              <div style={{ marginBottom: '0.875rem' }}>
+                <SectionLabel>Update Status</SectionLabel>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {['Open','In Progress','Pending','Closed'].filter(s => s !== t.status).map(s => {
+                    const sColor = s === 'In Progress' ? '#22c55e' : s === 'Closed' ? '#6b7280' : s === 'Pending' ? '#a855f7' : '#3b82f6';
+                    const isClose = s === 'Closed';
+                    const blocked = isClose && !canClose;
+                    return (
+                      <div key={s} style={{ position: 'relative' }}>
+                        <button onClick={() => !blocked && updateTicketStatus(t.id, s)}
+                          title={blocked ? 'Add an expense or mark "No expense" before closing' : undefined}
+                          style={{ background: blocked ? `${sColor}0d` : `${sColor}22`, border: `1px solid ${blocked ? sColor+'33' : sColor+'66'}`, color: blocked ? `${sColor}55` : sColor, borderRadius: '2rem', padding: '0.42rem 0.95rem', fontSize: '0.78rem', fontWeight: 700, cursor: blocked ? 'not-allowed' : 'pointer', fontFamily: "'Source Sans 3'", display: 'flex', alignItems: 'center', gap: 5 }}>
+                          {blocked && <span style={{ fontSize: '0.8rem' }}>🔒</span>}
+                          {s === 'In Progress' ? '▶ In Progress' : s === 'Closed' ? '✓ Close' : s === 'Pending' ? '⏸ Pending' : '↩ Reopen'}
+                        </button>
+                        {blocked && (
+                          <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', padding: '0.3rem 0.5rem', fontSize: '0.65rem', color: th.muted, whiteSpace: 'nowrap', zIndex: 1, boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>Add expense or mark "No expense" first</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Expenses */}
+            <div style={{ marginBottom: '0.875rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <SectionLabel>{totalExp > 0 ? `Expenses · $${totalExp.toFixed(2)}` : 'Expenses'}</SectionLabel>
+                {t.status !== 'Closed' && (
+                  <button onClick={() => { setShowMobileExpenseForm(v => !v); setMobileExpenseForm({ description: '', amount: '', category: 'Parts', noExpense: false, receiptBase64: '', receiptLoading: false }); }}
+                    style={{ background: showMobileExpenseForm ? `${PURPLE}22` : `${PURPLE}0d`, border: `1px solid ${PURPLE}${showMobileExpenseForm ? '66' : '33'}`, color: PURPLE, borderRadius: '2rem', padding: '0.25rem 0.65rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'", marginTop: -6 }}>
+                    {showMobileExpenseForm ? '✕ Cancel' : '+ Add'}
+                  </button>
+                )}
+              </div>
+
+              {expenses.length === 0 && !showMobileExpenseForm && t.status !== 'Closed' && (
+                <div style={{ background: '#f59e0b0d', border: '1px dashed #f59e0b55', borderRadius: '0.75rem', padding: '0.7rem 0.875rem', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: '1rem' }}>⚠️</span>
+                  <span style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600 }}>Required to close — add an expense or mark "No expense"</span>
+                </div>
+              )}
+
+              {/* Inline expense form */}
+              {showMobileExpenseForm && (
+                <div style={{ background: th.card, border: `1px solid ${PURPLE}44`, borderRadius: '0.875rem', padding: '0.875rem', marginBottom: '0.5rem' }}>
+                  <div style={{ fontSize: '0.68rem', color: PURPLE, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>New Expense — VP approval required</div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={mobileExpenseForm.noExpense} onChange={e => setMobileExpenseForm(f => ({ ...f, noExpense: e.target.checked, receiptBase64: '' }))} style={{ accentColor: PURPLE, width: 16, height: 16 }} />
+                    <span style={{ fontSize: '0.82rem', color: th.text }}>No expense for this ticket</span>
+                  </label>
+                  {!mobileExpenseForm.noExpense && (<>
+                    <input type="text" placeholder="What was the expense for?" value={mobileExpenseForm.description} onChange={e => setMobileExpenseForm(f => ({ ...f, description: e.target.value }))} style={{ width: '100%', background: th.bg, border: `1px solid ${th.cardBorder}`, borderRadius: '0.625rem', padding: '0.6rem 0.75rem', color: th.text, fontSize: '0.85rem', fontFamily: "'Source Sans 3'", outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                      <input type="number" placeholder="Amount ($)" value={mobileExpenseForm.amount} onChange={e => setMobileExpenseForm(f => ({ ...f, amount: e.target.value }))} style={{ background: th.bg, border: `1px solid ${th.cardBorder}`, borderRadius: '0.625rem', padding: '0.6rem 0.75rem', color: th.text, fontSize: '0.85rem', fontFamily: "'Source Sans 3'", outline: 'none' }} />
+                      <select value={mobileExpenseForm.category} onChange={e => setMobileExpenseForm(f => ({ ...f, category: e.target.value }))} style={{ background: th.bg, border: `1px solid ${th.cardBorder}`, borderRadius: '0.625rem', padding: '0.6rem 0.5rem', color: th.text, fontSize: '0.85rem', fontFamily: "'Source Sans 3'", outline: 'none' }}>
+                        {['Parts','Labor','Equipment','Supplies','Contractor','Other'].map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: 5, display: 'flex', gap: 4 }}>Receipt photo <span style={{ color: '#ef4444' }}>*</span></div>
+                      {mobileExpenseForm.receiptBase64 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#22c55e0d', border: '1px solid #22c55e44', borderRadius: '0.625rem', padding: '0.45rem 0.7rem' }}>
+                          <img src={mobileExpenseForm.receiptBase64} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: '0.375rem', border: `1px solid ${th.cardBorder}`, flexShrink: 0 }} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '0.78rem', color: '#22c55e', fontWeight: 700 }}>✓ Receipt ready</div>
+                            <button onClick={() => setMobileExpenseForm(f => ({ ...f, receiptBase64: '' }))} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '0.7rem', cursor: 'pointer', padding: 0, fontFamily: "'Source Sans 3'" }}>Remove photo</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, background: th.bg, border: `1px dashed ${th.cardBorder}`, borderRadius: '0.625rem', padding: '0.65rem 0.75rem', cursor: 'pointer' }}>
+                          <div style={{ width: 36, height: 36, borderRadius: '0.5rem', background: `${PURPLE}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 }}>📷</div>
+                          <div>
+                            <div style={{ fontSize: '0.8rem', color: th.text, fontWeight: 600 }}>{mobileExpenseForm.receiptLoading ? 'Processing…' : 'Take or upload photo'}</div>
+                            <div style={{ fontSize: '0.68rem', color: th.muted }}>Receipt, invoice, or proof of purchase</div>
+                          </div>
+                          <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={async e => {
+                            const file = e.target.files?.[0]; if (!file) return;
+                            setMobileExpenseForm(f => ({ ...f, receiptLoading: true }));
+                            try { const b64 = await compressImageToBase64(file); setMobileExpenseForm(f => ({ ...f, receiptBase64: b64, receiptLoading: false })); }
+                            catch { setMobileExpenseForm(f => ({ ...f, receiptLoading: false })); }
+                          }} />
+                        </label>
+                      )}
+                    </div>
+                  </>)}
+                  <button onClick={handleMobileAddExpense} disabled={mobileExpenseSaving || (!mobileExpenseForm.noExpense && (!mobileExpenseForm.description.trim() || !mobileExpenseForm.amount || !mobileExpenseForm.receiptBase64))}
+                    style={{ width: '100%', background: `linear-gradient(135deg, ${PURPLE}, #ff9a5c)`, border: 'none', borderRadius: '0.625rem', padding: '0.65rem', color: '#fff', fontSize: '0.875rem', fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'", opacity: (mobileExpenseSaving || (!mobileExpenseForm.noExpense && (!mobileExpenseForm.description.trim() || !mobileExpenseForm.amount || !mobileExpenseForm.receiptBase64))) ? 0.45 : 1 }}>
+                    {mobileExpenseSaving ? 'Uploading receipt…' : '↑ Submit for VP Approval'}
+                  </button>
+                </div>
+              )}
+
+              {/* Expense list */}
+              {expenses.map((exp, i) => {
+                const isNoExp = exp.noExpense;
+                const apprColor = isNoExp ? '#6b7280' : exp.approvalStatus === 'approved' ? '#22c55e' : exp.approvalStatus === 'rejected' ? '#ef4444' : '#f59e0b';
+                const apprLabel = isNoExp ? '— No expense' : exp.approvalStatus === 'approved' ? '✓ Approved' : exp.approvalStatus === 'rejected' ? '✗ Rejected' : '⏳ Pending VP';
+                return (
+                  <div key={i} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.75rem', padding: '0.65rem 0.75rem', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    {/* Receipt thumb or icon */}
+                    {exp.receiptKey
+                      ? <div style={{ flexShrink: 0 }}><ReceiptThumb receiptKey={exp.receiptKey} size={40} expandable={true} /></div>
+                      : <div style={{ width: 40, height: 40, borderRadius: '0.5rem', background: `${apprColor}14`, border: `1px solid ${apprColor}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>{isNoExp ? '✓' : '🧾'}</div>
+                    }
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isNoExp ? 'No expense' : (exp.description || '—')}</div>
+                      <div style={{ fontSize: '0.68rem', color: th.muted, marginTop: 1 }}>{[exp.category, exp.addedBy].filter(Boolean).join(' · ')}</div>
+                    </div>
+                    {/* Amount + badge */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
+                      {!isNoExp && exp.amount && <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '0.92rem', color: '#f59e0b' }}>${parseFloat(exp.amount).toFixed(2)}</div>}
+                      <span style={{ fontSize: '0.62rem', fontWeight: 700, color: apprColor, background: `${apprColor}18`, border: `1px solid ${apprColor}44`, borderRadius: '2rem', padding: '0.1rem 0.4rem', whiteSpace: 'nowrap' }}>{apprLabel}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Photos */}
+            <div style={{ marginBottom: '0.875rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <SectionLabel>{(() => { const p = t.photos || []; return p.length > 0 ? `Photos (${p.length})` : 'Photos'; })()}</SectionLabel>
+                {t.status !== 'Closed' && (
+                  <button onClick={() => { setShowPhotoUpload(v => !v); setPhotoForm({ label: 'Progress', base64: '', loading: false }); }}
+                    style={{ background: showPhotoUpload ? `${PURPLE}22` : `${PURPLE}0d`, border: `1px solid ${PURPLE}${showPhotoUpload ? '66' : '33'}`, color: PURPLE, borderRadius: '2rem', padding: '0.25rem 0.65rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'", marginTop: -6 }}>
+                    {showPhotoUpload ? '✕ Cancel' : '📷 Add Photo'}
+                  </button>
+                )}
+              </div>
+              {/* Photo upload form */}
+              {showPhotoUpload && (
+                <div style={{ background: th.card, border: `1px solid ${PURPLE}44`, borderRadius: '0.875rem', padding: '0.875rem', marginBottom: '0.55rem' }}>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                    {['Before','Progress','After','General'].map(lbl => (
+                      <button key={lbl} onClick={() => setPhotoForm(f => ({ ...f, label: lbl }))}
+                        style={{ background: photoForm.label === lbl ? PURPLE : `${PURPLE}14`, border: `1px solid ${photoForm.label === lbl ? PURPLE : PURPLE+'33'}`, color: photoForm.label === lbl ? '#fff' : PURPLE, borderRadius: '2rem', padding: '0.22rem 0.65rem', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                  {photoForm.base64 ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#22c55e0d', border: '1px solid #22c55e44', borderRadius: '0.625rem', padding: '0.5rem 0.75rem', marginBottom: 10 }}>
+                      <img src={photoForm.base64} style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: '0.5rem', flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.78rem', color: '#22c55e', fontWeight: 700 }}>✓ Photo ready — {photoForm.label}</div>
+                        <button onClick={() => setPhotoForm(f => ({ ...f, base64: '' }))} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '0.7rem', cursor: 'pointer', padding: 0, fontFamily: "'Source Sans 3'" }}>Change photo</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, background: th.bg, border: `1px dashed ${th.cardBorder}`, borderRadius: '0.625rem', padding: '0.65rem 0.75rem', cursor: 'pointer', marginBottom: 10 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: '0.5rem', background: `${PURPLE}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>📷</div>
+                      <div>
+                        <div style={{ fontSize: '0.82rem', color: th.text, fontWeight: 600 }}>{photoForm.loading ? 'Processing…' : 'Take or upload a photo'}</div>
+                        <div style={{ fontSize: '0.68rem', color: th.muted }}>Label: {photoForm.label}</div>
+                      </div>
+                      <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={async e => {
+                        const file = e.target.files?.[0]; if (!file) return;
+                        setPhotoForm(f => ({ ...f, loading: true }));
+                        try { const b64 = await compressImageToBase64(file, 900, 0.82); setPhotoForm(f => ({ ...f, base64: b64, loading: false })); }
+                        catch { setPhotoForm(f => ({ ...f, loading: false })); }
+                      }} />
+                    </label>
+                  )}
+                  <button onClick={handleAddPhoto} disabled={photoSaving || !photoForm.base64}
+                    style={{ width: '100%', background: `linear-gradient(135deg, ${PURPLE}, #ff9a5c)`, border: 'none', borderRadius: '0.625rem', padding: '0.65rem', color: '#fff', fontSize: '0.875rem', fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'", opacity: (photoSaving || !photoForm.base64) ? 0.45 : 1 }}>
+                    {photoSaving ? 'Uploading…' : `Save ${photoForm.label} Photo`}
+                  </button>
+                </div>
+              )}
+              {/* Photo grid */}
+              {(t.photos || []).length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                  {(t.photos || []).map((ph, i) => (
+                    <div key={i} style={{ position: 'relative', borderRadius: '0.625rem', overflow: 'hidden', width: 88, height: 88, flexShrink: 0, background: th.card, border: `1px solid ${th.cardBorder}` }}>
+                      <ReceiptThumb receiptKey={ph.key} size={88} expandable={true} />
+                      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '1.5rem 4px 3px', pointerEvents: 'none' }}>
+                        <div style={{ fontSize: '0.55rem', fontWeight: 800, color: '#fff', textTransform: 'uppercase', letterSpacing: 0.6, lineHeight: 1.2 }}>{ph.label}</div>
+                        <div style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.75)' }}>{ph.addedBy?.split(' ')[0]}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                !showPhotoUpload && (
+                  <div style={{ background: th.card, border: `1px dashed ${th.cardBorder}`, borderRadius: '0.75rem', padding: '0.75rem', textAlign: 'center', color: th.muted, fontSize: '0.78rem' }}>
+                    No photos yet — document before, progress, and after shots
+                  </div>
+                )
+              )}
+            </div>
+
+            {/* Activity */}
+            <div style={{ marginBottom: '5rem' }}>
+              {comments.length > 0 && (<>
+                <SectionLabel>Activity</SectionLabel>
+                <div style={{ position: 'relative', paddingLeft: 22 }}>
+                  <div style={{ position: 'absolute', left: 7, top: 0, bottom: 0, width: 1, background: th.cardBorder }} />
+                  {comments.slice(-10).map((c, i) => (
+                    <div key={i} style={{ position: 'relative', marginBottom: '0.55rem' }}>
+                      <div style={{ position: 'absolute', left: -22, top: 6, width: 8, height: 8, borderRadius: '50%', background: c.type === 'comment' ? O : PURPLE, border: `2px solid ${th.bg}`, zIndex: 1 }} />
+                      <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.625rem', padding: '0.45rem 0.65rem' }}>
+                        <div style={{ fontSize: '0.78rem', color: th.text, lineHeight: 1.4 }}>{c.text}</div>
+                        {(c.ts || c.createdAt) && <div style={{ fontSize: '0.63rem', color: th.muted, marginTop: 2 }}>{new Date(c.ts || c.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>)}
+            </div>
+
+          </div>
+
+          {/* Pinned comment bar */}
+          <div style={{ position: 'sticky', bottom: 0, background: th.bg, borderTop: `1px solid ${th.cardBorder}`, padding: '0.625rem 1rem', paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '1.5rem', padding: '0.45rem 0.875rem', gap: 8 }}>
+              <div style={{ width: 22, height: 22, borderRadius: '50%', background: `linear-gradient(135deg, ${PURPLE}, #ff9a5c)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.55rem', color: '#fff', flexShrink: 0 }}>{userInitials}</div>
+              <input value={quickComment} onChange={e => setQuickComment(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleQuickComment()}
+                placeholder="Add a comment…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: th.text, fontSize: '0.875rem', fontFamily: "'Source Sans 3'" }} />
+            </div>
+            <button onClick={handleQuickComment} disabled={commentSaving || !quickComment.trim()}
+              style={{ width: 38, height: 38, borderRadius: '50%', background: quickComment.trim() ? PURPLE : `${PURPLE}22`, border: 'none', cursor: quickComment.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.15s', opacity: commentSaving ? 0.5 : 1 }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke={quickComment.trim() ? '#fff' : PURPLE} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+
+        </div>
+      </div>
+    );
+  };
+
+  // ── Bottom nav ──
+  const NAV = [
+    { id: 'calendar', label: 'Calendar', icon: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
+    { id: 'tickets', label: 'Tickets', badge: openTickets.length, icon: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg> },
+    { id: 'orion', label: 'Orion', icon: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> },
+    { id: 'portal', label: 'Full Portal', icon: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: th.bg, fontFamily: "'Source Sans 3', sans-serif", overflow: 'hidden', maxWidth: 480, margin: '0 auto', position: 'relative' }}>
+
+      {/* Top bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px 8px', background: th.sidebar, borderBottom: `1px solid ${th.sidebarBorder}`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 18, color: PURPLE, letterSpacing: -0.5 }}>PCG</div>
+          <span style={{ color: th.muted, fontSize: 13, fontWeight: 500 }}>· Maintenance</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={onLogout} style={{ background: 'none', border: 'none', color: th.muted, cursor: 'pointer', fontSize: 12, fontFamily: "'Source Sans 3'", padding: '4px 6px' }}>Sign out</button>
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: `linear-gradient(135deg, ${PURPLE}, #ff9a5c)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Raleway'", fontWeight: 800, fontSize: 12, color: '#fff' }}>{userInitials}</div>
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', WebkitOverflowScrolling: 'touch', paddingBottom: 96 }}>
+
+        {/* ── CALENDAR TAB ── */}
+        {activeTab === 'calendar' && (
+          <div>
+            {/* Week strip */}
+            <div style={{ padding: '10px 14px 0', background: th.sidebar }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <button onClick={() => setWeekOffset(w => w - 1)} style={{ background: 'none', border: 'none', color: th.muted, cursor: 'pointer', fontSize: 20, padding: '0 6px', lineHeight: 1 }}>‹</button>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 14, color: th.text, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  {MONTHS_FULL[weekDays[0].getMonth()]} {weekDays[0].getFullYear()}
+                </div>
+                <button onClick={() => setWeekOffset(w => w + 1)} style={{ background: 'none', border: 'none', color: th.muted, cursor: 'pointer', fontSize: 20, padding: '0 6px', lineHeight: 1 }}>›</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, paddingBottom: 10 }}>
+                {weekDays.map((d, i) => {
+                  const sel = isSelected(d); const tod = isToday(d);
+                  const dots = ticketDots(d);
+                  return (
+                    <div key={i} onClick={() => setSelectedDay(new Date(d))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, cursor: 'pointer', padding: '6px 2px', borderRadius: '0.75rem', background: sel ? PURPLE : tod && !sel ? `${PURPLE}22` : 'transparent', transition: 'background 0.15s', userSelect: 'none' }}>
+                      <div style={{ fontSize: '0.6rem', fontWeight: 700, color: sel ? '#fff' : th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{DAY_ABBR[i]}</div>
+                      <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1rem', color: sel ? '#fff' : tod ? PURPLE : th.text }}>{d.getDate()}</div>
+                      <div style={{ display: 'flex', gap: 2, height: 5, alignItems: 'center' }}>
+                        {dots.slice(0,3).map((c, j) => <div key={j} style={{ width: 5, height: 5, borderRadius: '50%', background: sel ? 'rgba(255,255,255,0.7)' : c }} />)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Day hero */}
+            <div style={{ padding: '16px 16px 10px' }}>
+              <div style={{ fontSize: '0.72rem', color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>
+                {DAYS_FULL[selectedDay.getDay()].toUpperCase()}, {selectedDay.getDate()} {MONTHS[selectedDay.getMonth()].toUpperCase()}
+              </div>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2.2rem', color: O, lineHeight: 1, letterSpacing: -1, marginBottom: 3 }}>
+                {dayTickets.length} {dayTickets.length === 1 ? 'TICKET' : 'TICKETS'}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: th.muted }}>{heroSub}</div>
+            </div>
+
+            {/* Tickets for selected day */}
+            <div style={{ padding: '0 14px' }}>
+              {dayTickets.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2rem 1rem', color: th.muted, fontSize: '0.875rem' }}>
+                  <div style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>✓</div>
+                  No tickets for this day
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                    {isToday(selectedDay) ? "Today's Tickets" : `${MONTHS[selectedDay.getMonth()]} ${selectedDay.getDate()} Tickets`}
+                  </div>
+                  {dayTickets.map(t => <TicketCard key={t.id} ticket={t} />)}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── TICKETS TAB ── */}
+        {activeTab === 'tickets' && (
+          <div>
+            <div style={{ padding: '10px 14px 6px', display: 'flex', gap: '0.45rem', overflowX: 'auto', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
+              {['All','Open','In Progress','Pending','Urgent'].map(f => (
+                <button key={f} onClick={() => setTicketFilter(f)} style={{ background: ticketFilter === f ? PURPLE : th.card, color: ticketFilter === f ? '#fff' : th.muted, border: ticketFilter === f ? 'none' : `1px solid ${th.cardBorder}`, borderRadius: '2rem', padding: '0.32rem 0.8rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, fontFamily: "'Source Sans 3'", transition: 'all 0.15s' }}>
+                  {f} ({f === 'All' ? openTickets.length : f === 'Urgent' ? openTickets.filter(t => t.priority === 'Emergency' || t.priority === 'High').length : openTickets.filter(t => t.status === f).length})
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: '4px 14px' }}>
+              {filteredTickets.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: th.muted, fontSize: '0.875rem' }}>
+                  <div style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>✓</div>
+                  No {ticketFilter === 'All' ? '' : ticketFilter.toLowerCase()} tickets
+                </div>
+              ) : filteredTickets.map(t => <TicketCard key={t.id} ticket={t} />)}
+            </div>
+          </div>
+        )}
+
+        {/* ── ORION TAB ── */}
+        {activeTab === 'orion' && (
+          <div style={{ padding: '12px 14px' }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 22, color: O, marginBottom: 3 }}>Ask Orion</div>
+            <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: 14 }}>Your AI operations assistant</div>
+            {!orionAnswer && !orionLoading && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>Quick Questions</div>
+                {['What tickets are open right now?','Which stores have the most urgent issues?','What equipment tickets are due this week?','Summarize this week\'s maintenance activity'].map((s, i) => (
+                  <button key={i} onClick={() => askOrion(s)} style={{ width: '100%', background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.75rem', padding: '0.7rem', marginBottom: '0.45rem', textAlign: 'left', cursor: 'pointer', color: th.text, fontSize: '0.875rem', fontFamily: "'Source Sans 3'", lineHeight: 1.4, display: 'flex', alignItems: 'center', gap: 10 }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = PURPLE} onMouseLeave={e => e.currentTarget.style.borderColor = th.cardBorder}
+                  >
+                    <span style={{ color: O, flexShrink: 0 }}>🔮</span>{s}
+                  </button>
+                ))}
+              </div>
+            )}
+            {orionLoading && (
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '1.25rem', textAlign: 'center', color: th.muted, marginBottom: 12 }}>
+                <span style={{ display: 'inline-block', width: 18, height: 18, border: `3px solid ${O}33`, borderTopColor: O, borderRadius: '50%', animation: 'loginMeshShift 0.8s linear infinite', marginBottom: 8 }} />
+                <div style={{ fontSize: '0.85rem' }}>Orion is thinking...</div>
+              </div>
+            )}
+            {orionAnswer && !orionLoading && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '0.7rem', marginBottom: '0.55rem' }}>
+                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 700, marginBottom: 3 }}>You asked</div>
+                  <div style={{ fontSize: '0.875rem', color: th.text }}>{orionAnswer.question}</div>
+                </div>
+                <div style={{ background: th.card, border: `1px solid ${O}33`, borderRadius: '0.875rem', padding: '0.875rem', borderLeft: `3px solid ${O}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <span style={{ color: O }}>🔮</span>
+                    <span style={{ fontSize: '0.68rem', color: O, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>Orion</span>
+                  </div>
+                  <div style={{ fontSize: '0.875rem', color: th.text, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{orionAnswer.answer}</div>
+                </div>
+                <button onClick={() => setOrionAnswer(null)} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', padding: '0.38rem 0.75rem', color: th.muted, fontSize: '0.77rem', cursor: 'pointer', marginTop: 8, fontFamily: "'Source Sans 3'" }}>Ask another</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Orion input bar */}
+      {activeTab === 'orion' && (
+        <div style={{ padding: '8px 14px', background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0, paddingBottom: 'max(8px, env(safe-area-inset-bottom))', marginBottom: 64 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '0.5rem 0.75rem' }}>
+            <input value={orionInput} onChange={e => setOrionInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && askOrion()} placeholder="Ask anything about your tickets..." style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: th.text, fontSize: '0.9rem', fontFamily: "'Source Sans 3'" }} />
+            <button onClick={() => askOrion()} disabled={orionLoading || !orionInput.trim()} style={{ background: O, border: 'none', borderRadius: '0.5rem', padding: '0.32rem 0.7rem', color: '#fff', fontSize: '0.77rem', fontWeight: 700, cursor: 'pointer', opacity: (orionLoading || !orionInput.trim()) ? 0.5 : 1, fontFamily: "'Source Sans 3'" }}>Ask</button>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom nav — curved floating-circle design */}
+      {(() => {
+        const NAV_BG = '#111111';
+        const activeIdx = NAV.findIndex(n => n.id === activeTab);
+        const safeIdx = activeIdx >= 0 ? activeIdx : 0;
+        const circleLeft = `calc(${(safeIdx + 0.5) * 25}% - 28px)`;
+        const notchLeft  = `calc(${(safeIdx + 0.5) * 25}% - 36px)`;
+        const spring = '0.38s cubic-bezier(0.34, 1.4, 0.64, 1)';
+        return (
+          <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, zIndex: 100 }}>
+            {/* Notch — background-color circle that "cuts into" the bar */}
+            <div style={{ position: 'absolute', width: 72, height: 72, borderRadius: '50%', background: th.bg, top: -38, left: notchLeft, transition: `left ${spring}`, zIndex: 1, pointerEvents: 'none' }} />
+            {/* Floating active icon circle */}
+            <div style={{ position: 'absolute', width: 56, height: 56, borderRadius: '50%', background: `linear-gradient(135deg, ${PURPLE}, #ff9a5c)`, top: -40, left: circleLeft, transition: `left ${spring}`, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 6px 24px ${PURPLE}88`, color: '#fff', pointerEvents: 'none' }}>
+              {NAV[safeIdx]?.icon()}
+              {NAV[safeIdx]?.badge > 0 && (
+                <div style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444', color: '#fff', borderRadius: 999, fontSize: '0.5rem', fontWeight: 800, minWidth: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{NAV[safeIdx].badge}</div>
+              )}
+            </div>
+            {/* Bar */}
+            <div style={{ background: NAV_BG, borderRadius: '1.375rem 1.375rem 0 0', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', paddingBottom: 'env(safe-area-inset-bottom, 0px)', height: 64, position: 'relative', zIndex: 0, boxShadow: '0 -6px 30px rgba(0,0,0,0.22)' }}>
+              {NAV.map((item, i) => {
+                const isActive = item.id === activeTab;
+                return (
+                  <button key={item.id} onClick={() => item.id === 'portal' ? onFullPortal() : setActiveTab(item.id)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '0 4px 10px', gap: 2, color: isActive ? '#fff' : 'rgba(255,255,255,0.38)', fontFamily: "'Source Sans 3'", position: 'relative', WebkitTapHighlightColor: 'transparent' }}>
+                    {/* Inactive icon */}
+                    {!isActive && <div style={{ transition: 'opacity 0.2s' }}>{item.icon()}</div>}
+                    {/* Space holder when active (floating circle fills this visually) */}
+                    {isActive && <div style={{ height: 22 }} />}
+                    {/* Badge on inactive tickets */}
+                    {!isActive && item.badge > 0 && (
+                      <div style={{ position: 'absolute', top: 8, right: '18%', background: '#ef4444', color: '#fff', borderRadius: 999, fontSize: '0.5rem', fontWeight: 800, minWidth: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{item.badge}</div>
+                    )}
+                    <span style={{ fontSize: '0.57rem', fontWeight: isActive ? 800 : 400, letterSpacing: 0.5, textTransform: 'uppercase', lineHeight: 1, color: isActive ? '#fff' : 'rgba(255,255,255,0.45)' }}>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {renderDetailSheet()}
     </div>
   );
 }
@@ -24079,7 +25100,7 @@ function PCGPortal() {
   const [districts, setDistricts] = useState(() => { const s=loadFromStorage(); return s?.districts || DISTRICTS_SEED; });
   const [contacts, setContacts] = useState(() => { const s=loadFromStorage(); return s?.contacts || CONTACTS_SEED; });
   const [vendors, setVendors]   = useState(() => { const s=loadFromStorage(); return s?.vendors  || VENDORS_SEED; });
-  const [dark, setDark]         = useState(() => { const s=loadFromStorage(); return s?.dark     ?? false; });
+  const [dark, setDark]         = useState(() => { try { const v=localStorage.getItem('pcg_dark_mode'); if(v!==null) return JSON.parse(v); } catch {} const s=loadFromStorage(); return s?.dark??false; });
   const [projects, setProjects] = useState(() => { const s=loadFromStorage(); const p = s?.projects; return (p && p.length > 0) ? p : PROJECTS_SEED; });
   const [notifications, setNotifications] = useState(() => { const s=loadFromStorage(); return s?.notifications || []; });
   const [dailyReports, setDailyReports] = useState(() => { const s=loadFromStorage(); return s?.dailyReports || []; });
@@ -24128,6 +25149,9 @@ function PCGPortal() {
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [dailyReportSyncStatus]);
+
+  // Persist dark mode immediately to its own key so login-screen toggles survive login
+  useEffect(() => { try { localStorage.setItem('pcg_dark_mode', JSON.stringify(dark)); } catch {} }, [dark]);
 
   // Restore sidebar scroll position after every re-render
   useEffect(() => {
@@ -25294,7 +26318,7 @@ function PCGPortal() {
     }
   }, [dark]);
 
-  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.darkMode !== undefined) setDark(u.darkMode); if (u.userType === "vendor") setTab("projects"); logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType }); }} dark={dark} users={users} toggleDark={() => {
+  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.userType === "vendor") setTab("projects"); logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType }); }} dark={dark} users={users} toggleDark={() => {
     const newDark = !dark;
     setDark(newDark);
   }} />;
@@ -25302,6 +26326,18 @@ function PCGPortal() {
   // ── First-Login Setup ──────────────────────────────────────────────────────
   if (user.mustSetup) {
     return <FirstLoginSetup user={user} setUser={setUser} setUsers={setUsers} th={th} />;
+  }
+
+  if (user.userType === "maintenance" && !preferFullPortal) {
+    return (
+      <MaintenanceMobileView
+        th={th}
+        user={user}
+        stores={stores}
+        onFullPortal={() => togglePortalMode(true)}
+        onLogout={handleLogout}
+      />
+    );
   }
 
   if (user.userType === "manager" && (isMobile && !preferFullPortal)) {
@@ -25925,7 +26961,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v11.7
+            v12.5
           </div>
         )}
         {/* Collapse toggle — desktop only */}

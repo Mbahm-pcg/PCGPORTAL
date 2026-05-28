@@ -21,8 +21,8 @@ exports.handler = async (event) => {
   const { action, key, data } = payload;
   if (!action || !key) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing action or key' }) };
 
-  // Sanitize key — only allow alphanumeric + underscore + hyphen
-  const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+  // Sanitize key — allow alphanumeric, underscore, hyphen, slash, dot (for path-style keys like analyst/briefs/...)
+  const safeKey = key.replace(/[^a-zA-Z0-9_\-/.]/g, '_').slice(0, 128);
 
   try {
     const store = getStore({
