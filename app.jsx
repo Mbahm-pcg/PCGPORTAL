@@ -10630,18 +10630,35 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                       </button>
                     </div>
                   </div>
-                  {(zoningData || p.zoningInfo) && (
-                    <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: th.muted }}>
-                      {(() => { const zi = (zoningData && zoningData[0]) || p.zoningInfo; return zi ? (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.35rem" }}>
-                          {zi.permitdescription && <div><strong>Type:</strong> {zi.permitdescription}</div>}
-                          {zi.status && <div><strong>Status:</strong> {zi.status}</div>}
-                          {zi.permitnumber && <div><strong>Permit #:</strong> {zi.permitnumber}</div>}
-                          {zi.typeofwork && <div><strong>Work:</strong> {zi.typeofwork}</div>}
-                          {zi.contractorname && <div><strong>Contractor:</strong> {zi.contractorname}</div>}
-                        </div>
-                      ) : null; })()}
+                  {zoningData && zoningData.length > 0 && (
+                    <div style={{ marginTop: "0.5rem", maxHeight: "300px", overflowY: "auto", borderRadius: "0.375rem" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.6875rem" }}>
+                        <thead><tr style={{ background: th.card2 }}>
+                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Permit #</th>
+                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Type</th>
+                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Status</th>
+                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Work</th>
+                          <th style={{ padding: "0.35rem 0.5rem", textAlign: "left", color: th.muted, fontWeight: 600 }}>Issued</th>
+                        </tr></thead>
+                        <tbody>{zoningData.map((zi, idx) => (
+                          <tr key={idx} style={{ borderTop: `1px solid ${th.cardBorder}` }}>
+                            <td style={{ padding: "0.3rem 0.5rem", color: "#6366f1", fontWeight: 600 }}>{zi.permitnumber || "—"}</td>
+                            <td style={{ padding: "0.3rem 0.5rem", color: th.text }}>{zi.permittype || zi.permitdescription || "—"}</td>
+                            <td style={{ padding: "0.3rem 0.5rem" }}>
+                              <span style={{ padding: "0.1rem 0.375rem", borderRadius: "0.75rem", fontSize: "0.625rem", fontWeight: 600,
+                                background: zi.status === "Completed" ? "#22c55e22" : zi.status === "Issued" ? "#3b82f622" : "#f59e0b22",
+                                color: zi.status === "Completed" ? "#22c55e" : zi.status === "Issued" ? "#3b82f6" : "#f59e0b",
+                              }}>{zi.status || "—"}</span>
+                            </td>
+                            <td style={{ padding: "0.3rem 0.5rem", color: th.muted }}>{zi.typeofwork || "—"}</td>
+                            <td style={{ padding: "0.3rem 0.5rem", color: th.muted }}>{zi.permitissuedate ? new Date(zi.permitissuedate).toLocaleDateString() : "—"}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
                     </div>
+                  )}
+                  {zoningData && zoningData.length === 0 && (
+                    <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: th.muted, fontStyle: "italic" }}>No permits found for this address in the Philadelphia database.</div>
                   )}
                 </div>
               )}
@@ -10760,15 +10777,25 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
         </div>
         )}
 
-        {/* Zoning Summary Overlay (iframe) */}
+        {/* Zoning Summary Overlay (popup) */}
         {zoningOverlay && (
-          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, background: "rgba(0,0,0,0.7)", display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 1.25rem", background: th.sidebar }}>
-              <span style={{ fontWeight: 700, color: "#fff", fontSize: "0.875rem" }}>🏛️ Philadelphia Zoning Summary — {zoningOverlay}</span>
-              <button onClick={() => setZoningOverlay(null)} style={{ background: "#ff444444", border: "none", borderRadius: "0.5rem", padding: "0.4rem 0.85rem", cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: "0.875rem" }}>✕ Close</button>
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={e => { if (e.target === e.currentTarget) setZoningOverlay(null); }}>
+            <div style={{ width: "75%", height: "80%", maxWidth: "1200px", background: "#fff", borderRadius: "1rem", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 48px rgba(0,0,0,0.3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.65rem 1.25rem", background: "#1a365d", flexShrink: 0 }}>
+                <span style={{ fontWeight: 700, color: "#fff", fontSize: "0.875rem" }}>🏛️ Philadelphia Zoning Summary — {zoningOverlay}</span>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <a href={`https://www.phila.gov/zoning-summary-generator/?address=${encodeURIComponent(zoningOverlay)}`} target="_blank" rel="noreferrer"
+                    style={{ background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", color: "#fff", fontSize: "0.75rem", fontWeight: 600, textDecoration: "none", cursor: "pointer" }}>
+                    Open in New Tab ↗
+                  </a>
+                  <button onClick={() => setZoningOverlay(null)} style={{ background: "#ff444444", border: "none", borderRadius: "0.5rem", padding: "0.35rem 0.75rem", cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: "0.875rem" }}>✕</button>
+                </div>
+              </div>
+              <iframe src={`https://www.phila.gov/zoning-summary-generator/?address=${encodeURIComponent(zoningOverlay)}`}
+                style={{ flex: 1, border: "none", width: "100%", background: "#fff" }} title="Zoning Summary"
+                onError={() => { setZoningOverlay(null); window.open(`https://www.phila.gov/zoning-summary-generator/?address=${encodeURIComponent(zoningOverlay)}`, '_blank'); }} />
             </div>
-            <iframe src={`https://www.phila.gov/zoning-summary-generator/?address=${encodeURIComponent(zoningOverlay)}`}
-              style={{ flex: 1, border: "none", width: "100%", background: "#fff" }} title="Zoning Summary" />
           </div>
         )}
       </div>
@@ -10927,7 +10954,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
       </div>
 
       {/* ─── KPI summary — click-to-filter phase cards ───────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(105px, 1fr))", gap: "0.5rem", marginBottom: "1.5rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(9, 1fr)", gap: "0.5rem", marginBottom: "1.5rem" }} className="projects-kpi-grid">
         {[
           { label: "Total", value: filtered.length, color: O, phase: "All" },
           { label: "Zoning", value: (phaseGroups.zoning || []).length, color: "#6366f1", phase: "zoning" },
@@ -11195,9 +11222,16 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
       )}
 
       <style>{`
+        @media (max-width: 1200px) {
+          .projects-kpi-grid { grid-template-columns: repeat(5, 1fr) !important; }
+        }
         @media (max-width: 768px) {
+          .projects-kpi-grid { grid-template-columns: repeat(3, 1fr) !important; }
           .projects-board { flex-direction: column !important; overflow-x: visible !important; }
           .projects-board > div { min-width: 100% !important; flex: 1 1 auto !important; }
+        }
+        @media (max-width: 480px) {
+          .projects-kpi-grid { grid-template-columns: repeat(3, 1fr) !important; }
         }
       `}</style>
     </div>
@@ -24209,7 +24243,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v10.0
+            v10.1
           </div>
         )}
         {/* Collapse toggle — desktop only */}
