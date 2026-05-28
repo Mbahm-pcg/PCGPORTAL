@@ -42,9 +42,9 @@
 [functions.weather-forecast-cron]
   schedule = "0 12 * * *"
 
-# Email sync — hourly Gmail inbox poll
-[functions.email-sync-cron]
-  schedule = "0 * * * *"
+# Email sync — disabled until env vars configured
+# [functions.email-sync-cron]
+#   schedule = "0 * * * *"
 
 # Google Reviews + sentiment — Sunday 1 AM ET (05:00 UTC)
 [functions.reviews-cron]
