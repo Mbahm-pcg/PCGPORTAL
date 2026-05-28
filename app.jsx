@@ -5576,6 +5576,52 @@ async function cloudDelete(key) {
   } catch {}
 }
 
+// ─── Chunked file upload/download ─────────────────────────────────
+// Large files (>4 MB) exceed the Netlify Function 6 MB request/response
+// body limit. We split the base64 data into ~4 MB string chunks, store
+// each as a separate blob, and keep a metadata blob with chunk count.
+const FILE_CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB of base64 text per chunk
+
+async function cloudSaveFile(key, file, uploaderName) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+  const base64 = dataUrl.split(',')[1] || '';
+  const prefix = dataUrl.split(',')[0] + ',';
+  const totalChunks = Math.ceil(base64.length / FILE_CHUNK_SIZE) || 1;
+
+  for (let i = 0; i < totalChunks; i++) {
+    const chunk = base64.slice(i * FILE_CHUNK_SIZE, (i + 1) * FILE_CHUNK_SIZE);
+    const ok = await cloudSave(`${key}_c${i}`, chunk);
+    if (!ok) throw new Error(`Chunk ${i} failed`);
+  }
+  await cloudSave(`${key}_meta`, {
+    name: file.name, type: file.type, size: file.size,
+    chunks: totalChunks, prefix,
+    uploadedAt: new Date().toISOString(), uploadedBy: uploaderName || '',
+  });
+  return true;
+}
+
+async function cloudLoadFile(key) {
+  const meta = await cloudLoad(`${key}_meta`);
+  if (meta && meta.chunks) {
+    const parts = [];
+    for (let i = 0; i < meta.chunks; i++) {
+      const chunk = await cloudLoad(`${key}_c${i}`);
+      if (!chunk) return null;
+      parts.push(chunk);
+    }
+    const dataUrl = (meta.prefix || 'data:application/octet-stream;base64,') + parts.join('');
+    return { name: meta.name, type: meta.type, size: meta.size, data: dataUrl, uploadedAt: meta.uploadedAt, uploadedBy: meta.uploadedBy };
+  }
+  const legacy = await cloudLoad(key);
+  return legacy;
+}
+
 // ─── Per-report cloud helpers ─────────────────────────────────────
 // Reports are stored as TWO blobs per report to stay well under the 6 MB
 // Netlify Lambda request-body limit:
@@ -11098,7 +11144,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                   <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.muted, marginBottom: "0.35rem" }}>Zoning Permit</div>
                   {(p.permits?.zoning) && (
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", padding: "0.5rem 0.625rem", borderRadius: "0.375rem", background: "#22c55e11", border: "1px solid #22c55e33", cursor: "pointer" }}
-                      onClick={async () => { const d = await cloudLoad(p.permits.zoning); if (d) setDocViewerData({ ...d, label: "Zoning Permit" }); else showAlert("error", "Could not load document"); }}>
+                      onClick={async () => { setPermitUploading("zoning_load"); const d = await cloudLoadFile(p.permits.zoning); setPermitUploading(null); if (d) setDocViewerData({ ...d, label: "Zoning Permit" }); else showAlert("error", "Could not load document"); }}>
                       <span style={{ fontSize: "1rem" }}>📄</span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#22c55e" }}>Zoning Permit</div>
@@ -11112,17 +11158,13 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                       const file = e.target.files?.[0]; if (!file) return;
                       setPermitUploading("zoning");
                       try {
-                        const reader = new FileReader();
-                        reader.onload = async () => {
-                          const key = `pcg_permit_${p.id}_zoning`;
-                          await cloudSave(key, { name: file.name, type: file.type, size: file.size, data: reader.result, uploadedAt: new Date().toISOString(), uploadedBy: user?.name });
-                          updateItem(p.id, "permits", { ...(p.permits || {}), zoning: key });
-                          showAlert("success", "Zoning permit uploaded");
-                          setPermitUploading(null);
-                        };
-                        reader.readAsDataURL(file);
-                      } catch (err) { showAlert("error", "Upload failed"); setPermitUploading(null); }
-                    }} style={{ fontSize: "0.75rem" }} disabled={permitUploading === "zoning"} />
+                        const key = `pcg_permit_${p.id}_zoning`;
+                        await cloudSaveFile(key, file, user?.name);
+                        updateItem(p.id, "permits", { ...(p.permits || {}), zoning: key });
+                        showAlert("success", `Zoning permit uploaded (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+                      } catch (err) { showAlert("error", "Upload failed: " + err.message); }
+                      setPermitUploading(null);
+                    }} style={{ fontSize: "0.75rem" }} disabled={!!permitUploading} />
                   )}
                 </div>
               )}
@@ -11137,7 +11179,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                         <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.text, marginBottom: "0.25rem", textTransform: "capitalize" }}>{ptype} Permit</div>
                         {(p.permits?.[ptype]) && (
                           <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.35rem", padding: "0.3rem 0.5rem", borderRadius: "0.25rem", background: "#22c55e11", border: "1px solid #22c55e33", cursor: "pointer" }}
-                            onClick={async () => { const d = await cloudLoad(p.permits[ptype]); if (d) setDocViewerData({ ...d, label: `${ptype.charAt(0).toUpperCase() + ptype.slice(1)} Permit` }); else showAlert("error", "Could not load document"); }}>
+                            onClick={async () => { setPermitUploading(ptype + "_load"); const d = await cloudLoadFile(p.permits[ptype]); setPermitUploading(null); if (d) setDocViewerData({ ...d, label: `${ptype.charAt(0).toUpperCase() + ptype.slice(1)} Permit` }); else showAlert("error", "Could not load document"); }}>
                             <span style={{ fontSize: "0.75rem" }}>📄</span>
                             <span style={{ fontSize: "0.625rem", fontWeight: 600, color: "#22c55e", flex: 1 }}>View</span>
                             <span style={{ fontSize: "0.625rem", color: th.muted }}>👁</span>
@@ -11148,17 +11190,13 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                             const file = e.target.files?.[0]; if (!file) return;
                             setPermitUploading(ptype);
                             try {
-                              const reader = new FileReader();
-                              reader.onload = async () => {
-                                const key = `pcg_permit_${p.id}_${ptype}`;
-                                await cloudSave(key, { name: file.name, type: file.type, size: file.size, data: reader.result, uploadedAt: new Date().toISOString(), uploadedBy: user?.name });
-                                updateItem(p.id, "permits", { ...(p.permits || {}), [ptype]: key });
-                                showAlert("success", `${ptype} permit uploaded`);
-                                setPermitUploading(null);
-                              };
-                              reader.readAsDataURL(file);
-                            } catch { showAlert("error", "Upload failed"); setPermitUploading(null); }
-                          }} style={{ fontSize: "0.6875rem", maxWidth: "100%" }} disabled={permitUploading === ptype} />
+                              const key = `pcg_permit_${p.id}_${ptype}`;
+                              await cloudSaveFile(key, file, user?.name);
+                              updateItem(p.id, "permits", { ...(p.permits || {}), [ptype]: key });
+                              showAlert("success", `${ptype} permit uploaded (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+                            } catch (err) { showAlert("error", "Upload failed: " + err.message); }
+                            setPermitUploading(null);
+                          }} style={{ fontSize: "0.6875rem", maxWidth: "100%" }} disabled={!!permitUploading} />
                         )}
                       </div>
                     ))}
@@ -11242,10 +11280,18 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                       <div key={pt.key} style={{ padding: "0.5rem", borderRadius: "0.375rem", background: th.card3 }}>
                         <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: th.text, marginBottom: "0.25rem" }}>{pt.label}</div>
                         {(p.plans?.[pt.key]) && (
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.35rem", padding: "0.3rem 0.5rem", borderRadius: "0.25rem", background: "#3b82f611", border: "1px solid #3b82f633", cursor: "pointer" }}
-                            onClick={async () => { const d = await cloudLoad(p.plans[pt.key]); if (d) setDocViewerData({ ...d, label: pt.label }); else showAlert("error", "Could not load document"); }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.35rem", padding: "0.3rem 0.5rem", borderRadius: "0.25rem", background: "#3b82f611", border: "1px solid #3b82f633", cursor: planUploading === pt.key + "_load" ? "wait" : "pointer" }}
+                            onClick={async () => {
+                              setPlanUploading(pt.key + "_load");
+                              try {
+                                const d = await cloudLoadFile(p.plans[pt.key]);
+                                if (d) setDocViewerData({ ...d, label: pt.label });
+                                else showAlert("error", "Could not load document");
+                              } catch { showAlert("error", "Failed to load document"); }
+                              setPlanUploading(null);
+                            }}>
                             <span style={{ fontSize: "0.75rem" }}>📐</span>
-                            <span style={{ fontSize: "0.625rem", fontWeight: 600, color: "#3b82f6", flex: 1 }}>View</span>
+                            <span style={{ fontSize: "0.625rem", fontWeight: 600, color: "#3b82f6", flex: 1 }}>{planUploading === pt.key + "_load" ? "Loading..." : "View"}</span>
                             <span style={{ fontSize: "0.625rem", color: th.muted }}>👁</span>
                           </div>
                         )}
@@ -11254,17 +11300,13 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                             const file = e.target.files?.[0]; if (!file) return;
                             setPlanUploading(pt.key);
                             try {
-                              const reader = new FileReader();
-                              reader.onload = async () => {
-                                const key = `pcg_plan_${p.id}_${pt.key}`;
-                                await cloudSave(key, { name: file.name, type: file.type, size: file.size, data: reader.result, uploadedAt: new Date().toISOString(), uploadedBy: user?.name });
-                                updateItem(p.id, "plans", { ...(p.plans || {}), [pt.key]: key });
-                                showAlert("success", `${pt.label} uploaded`);
-                                setPlanUploading(null);
-                              };
-                              reader.readAsDataURL(file);
-                            } catch { showAlert("error", "Upload failed"); setPlanUploading(null); }
-                          }} style={{ fontSize: "0.6875rem", maxWidth: "100%" }} disabled={planUploading === pt.key} />
+                              const key = `pcg_plan_${p.id}_${pt.key}`;
+                              await cloudSaveFile(key, file, user?.name);
+                              updateItem(p.id, "plans", { ...(p.plans || {}), [pt.key]: key });
+                              showAlert("success", `${pt.label} uploaded (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+                            } catch (err) { showAlert("error", "Upload failed: " + err.message); }
+                            setPlanUploading(null);
+                          }} style={{ fontSize: "0.6875rem", maxWidth: "100%" }} disabled={!!planUploading} />
                         )}
                       </div>
                     ))}
@@ -25088,7 +25130,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v10.8
+            v10.9
           </div>
         )}
         {/* Collapse toggle — desktop only */}
