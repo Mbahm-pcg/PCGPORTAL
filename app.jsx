@@ -231,6 +231,7 @@ function logClientEvent(userId, userRole, event, meta) {
 
 // Theme definitions
 const DARK = {
+  dark: true,
   bg: "#0f0f0f",
   sidebar: "#0f0f0f",
   sidebarBorder: "#1e1e1e",
@@ -251,6 +252,7 @@ const DARK = {
 };
 
 const LIGHT = {
+  dark: false,
   bg: "#f0ede8",
   sidebar: "#ffffff",
   sidebarBorder: "#e8e5e0",
@@ -2779,6 +2781,66 @@ function Todos({ todos, setTodos, user, users, th, deepLinkRef }) {
 
 // ─── Admin seed data ────────────────────────────────────────────────────────
 
+const STORE_COORDS = {
+  "339616":{ lat:40.081249,  lng:-75.171300 },
+  "336372":{ lat:40.070214,  lng:-75.099080 },
+  "345986":{ lat:40.056869,  lng:-75.014123 },
+  "340794":{ lat:40.044790,  lng:-75.118878 },
+  "345489":{ lat:40.032469,  lng:-75.085374 },
+  "351099":{ lat:40.149309,  lng:-74.999263 },
+  "351259":{ lat:40.189415,  lng:-75.102678 },
+  "302642":{ lat:40.170849,  lng:-75.071724 },
+  "352894":{ lat:40.149306,  lng:-74.999243 },
+  "341350":{ lat:40.232895,  lng:-74.884906 },
+  "337839":{ lat:40.222060,  lng:-75.140448 },
+  "330338":{ lat:39.953809,  lng:-75.322703 },
+  "337063":{ lat:39.909421,  lng:-75.273140 },
+  "343832":{ lat:39.938718,  lng:-75.271156 },
+  "304669":{ lat:39.918152,  lng:-75.265264 },
+  "355146":{ lat:39.951976,  lng:-75.155699 },
+  "300496":{ lat:39.923575,  lng:-75.245259 },
+  "341167":{ lat:40.012496,  lng:-75.135535 },
+  "340870":{ lat:40.014676,  lng:-75.130366 },
+  "335981":{ lat:39.992072,  lng:-75.141829 },
+  "353150":{ lat:40.007677,  lng:-75.174439 },
+  "351050":{ lat:40.003525,  lng:-75.165597 },
+  "345985":{ lat:40.019930,  lng:-75.174425 },
+  "356374":{ lat:40.245704,  lng:-75.244083 },
+  "353843":{ lat:40.416687,  lng:-75.344213 },
+  "353047":{ lat:40.349092,  lng:-75.269717 },
+  "340538":{ lat:40.666038,  lng:-75.307854 },
+  "343079":{ lat:40.032378,  lng:-75.677731 },
+  "342144":{ lat:39.963624,  lng:-75.627727 },
+  "364295":{ lat:40.059648,  lng:-75.653530 },
+  "365361":{ lat:40.072938,  lng:-75.033259 },
+  "310382":{ lat:40.087355,  lng:-75.040006 },
+  "332941":{ lat:40.093137,  lng:-75.032043 },
+  "343497":{ lat:40.103057,  lng:-75.030210 },
+  "302446":{ lat:40.095737,  lng:-75.015011 },
+  "337079":{ lat:40.057981,  lng:-75.029172 },
+  "304863":{ lat:39.918029,  lng:-75.177867 },
+  "354561":{ lat:39.917340,  lng:-75.172555 },
+  "332393":{ lat:39.904873,  lng:-75.238370 },
+  "358933":{ lat:39.891063,  lng:-75.018607 },
+  "354865":{ lat:40.442810,  lng:-75.341000 },
+  "353689":{ lat:40.133440,  lng:-75.205910 },
+  "342184":{ lat:40.265063,  lng:-75.228189 },
+  "356316":{ lat:40.099647,  lng:-75.023782 },
+  "364412":{ lat:40.060199,  lng:-75.045759 },
+};
+
+const DISTRICT_WEATHER_COORDS = {
+  1: { lat: 40.205, lng: -75.092 },
+  2: { lat: 40.200, lng: -75.070 },
+  3: { lat: 39.925, lng: -75.275 },
+  4: { lat: 40.000, lng: -75.150 },
+  5: { lat: 40.240, lng: -75.340 },
+  6: { lat: 40.010, lng: -75.530 },
+  7: { lat: 40.070, lng: -75.020 },
+  8: { lat: 40.310, lng: -75.230 },
+};
+const WEATHER_EMOJI = { clear:'☀️', cloudy:'⛅', fog:'🌫️', rain:'🌧️', snow:'❄️', storm:'⛈️' };
+
 const STORES_SEED = [
   { id:1, pc:"339616", paycor:"193919", legal:"KJ Donuts Inc.", name:"Wadsworth", address:"1630 W Wadsworth Ave", city:"Philadelphia", state:"PA", zip:"19150", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Clarence Jackson", mgrPhone:"", email:"339616@rgi.life", district:1, dmName:"Taylor Cormier", status:"Open", employees:0, sales:0 },
   { id:2, pc:"340794", paycor:"193904", legal:"PCG 6 LLC", name:"Front", address:"6190 North Front Street", city:"Philadelphia", state:"PA", zip:"19120", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Siani Lopez", mgrPhone:"", email:"340794@peoplecapitalgroup.com", district:1, dmName:"Taylor Cormier", status:"Open", employees:0, sales:0 },
@@ -3280,6 +3342,245 @@ function dmFirstName(districts, num) {
   return d.name.split(" ")[0];
 }
 
+function StoreMap({ stores, th }) {
+  const [mapOpen,      setMapOpen]      = React.useState(true);
+  const [selectedStore, setSelectedStore] = React.useState(null);
+  const [laborData,    setLaborData]    = React.useState(null);
+  const [ticketCounts, setTicketCounts] = React.useState({});
+  const [weatherData,  setWeatherData]  = React.useState(null);
+  const [filterPerf,   setFilterPerf]   = React.useState(null); // null | 'green' | 'yellow' | 'red'
+  const containerRef  = React.useRef(null);
+  const mapRef        = React.useRef(null);
+  const markersRef    = React.useRef([]);
+  const tileRef       = React.useRef(null);
+  const selectRef     = React.useRef(null);
+  const tileSwapReady = React.useRef(false); // skip tile swap on first mount
+  selectRef.current   = setSelectedStore;
+
+  // Clear snapshot when filter changes
+  React.useEffect(() => { setSelectedStore(null); }, [filterPerf]);
+
+  // Load live data once on mount
+  React.useEffect(() => {
+    cloudLoad('pcg_labor_v1').then(d => { if (d?.stores) setLaborData(d.stores); }).catch(() => {});
+    cloudLoad('pcg_weather_forecast').then(d => { if (d) setWeatherData(d); }).catch(() => {});
+    cloudLoad('pcg_tickets_v1').then(tix => {
+      if (!Array.isArray(tix)) return;
+      const counts = {};
+      tix.forEach(t => {
+        if (t.status === 'Closed') return;
+        const pc = t.storePC;
+        if (pc) counts[pc] = (counts[pc] || 0) + 1;
+      });
+      setTicketCounts(counts);
+    }).catch(() => {});
+  }, []);
+
+  // Initialize map once
+  React.useEffect(() => {
+    const L = window.L;
+    if (!L || !containerRef.current || mapRef.current) return;
+    mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false, attributionControl: false }).setView([40.12, -75.18], 10);
+    tileRef.current = L.tileLayer(
+      th.dark
+        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      th.dark
+        ? { attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>', maxZoom: 19, subdomains: 'abcd', detectRetina: true }
+        : { attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18 }
+    ).addTo(mapRef.current);
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+  }, []);
+
+  // Swap tile layer when theme toggles (skip on initial mount — init effect already set it)
+  React.useEffect(() => {
+    if (!tileSwapReady.current) { tileSwapReady.current = true; return; }
+    const L = window.L;
+    if (!L || !mapRef.current) return;
+    if (tileRef.current) { tileRef.current.remove(); tileRef.current = null; }
+    tileRef.current = L.tileLayer(
+      th.dark
+        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      th.dark
+        ? { attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>', maxZoom: 19, subdomains: 'abcd', detectRetina: true }
+        : { attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18 }
+    ).addTo(mapRef.current);
+  }, [th.dark]);
+
+  // Sync markers with stores — color by labor % performance, matching portal thresholds
+  React.useEffect(() => {
+    const L = window.L;
+    if (!L || !mapRef.current) return;
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
+    stores.forEach(s => {
+      const c = STORE_COORDS[s.pc];
+      if (!c) return;
+      const lPct = laborData?.[s.pc]?.today?.laborPct ?? null;
+      // Filter by selected performance tier
+      if (filterPerf) {
+        if (filterPerf === 'green'  && !(lPct !== null && lPct < 23)) return;
+        if (filterPerf === 'yellow' && !(lPct !== null && lPct >= 23 && lPct < 26)) return;
+        if (filterPerf === 'red'    && !(lPct !== null && lPct >= 26)) return;
+      }
+      let color;
+      if (s.status !== 'Open' && s.status !== 'Remodel') {
+        color = '#6b7280'; // not operational
+      } else if (lPct === null) {
+        color = '#94a3b8'; // no data yet
+      } else if (lPct < 23) {
+        color = '#22c55e'; // on target
+      } else if (lPct < 26) {
+        color = '#f59e0b'; // watch
+      } else {
+        color = '#ef4444'; // intervention needed
+      }
+      const hasAlert = (ticketCounts[s.pc] || 0) > 0;
+      const pinHtml = `<div style="position:relative;width:16px;height:16px;">
+        <div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.5);"></div>
+        ${hasAlert ? `<div style="position:absolute;top:-3px;right:-3px;width:7px;height:7px;border-radius:50%;background:#ef4444;border:1.5px solid #fff;"></div>` : ''}
+      </div>`;
+      const icon = L.divIcon({ className: '', html: pinHtml, iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -12] });
+      const marker = L.marker([c.lat, c.lng], { icon })
+        .addTo(mapRef.current)
+        .on('click', () => {
+          if (selectRef.current) selectRef.current(s);
+          mapRef.current.panTo([c.lat, c.lng], { animate: true, duration: 0.4 });
+        });
+      markersRef.current.push(marker);
+    });
+  }, [stores, ticketCounts, laborData, filterPerf]);
+
+
+  // Style zoom controls to match theme
+  React.useEffect(() => {
+    const id = 'pcg-leaflet-zoom-theme';
+    let s = document.getElementById(id);
+    if (!s) { s = document.createElement('style'); s.id = id; document.head.appendChild(s); }
+    s.textContent = `
+      .leaflet-bar { border: 1px solid ${th.cardBorder} !important; box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important; border-radius: 0.5rem !important; overflow: hidden; }
+      .leaflet-control-zoom-in, .leaflet-control-zoom-out { background: ${th.card} !important; color: ${th.text} !important; border-bottom: 1px solid ${th.cardBorder} !important; }
+      .leaflet-control-zoom-in:hover, .leaflet-control-zoom-out:hover { background: ${th.card2} !important; color: #FF671F !important; }
+    `;
+  }, [th.dark]);
+
+  // Invalidate size when panel expands
+  React.useEffect(() => {
+    if (mapOpen && mapRef.current) setTimeout(() => mapRef.current && mapRef.current.invalidateSize(), 320);
+  }, [mapOpen]);
+
+  const legend = laborData
+    ? (() => {
+        let green = 0, yellow = 0, red = 0, noData = 0, notOp = 0;
+        stores.forEach(s => {
+          if (s.status !== 'Open' && s.status !== 'Remodel') { notOp++; return; }
+          const lPct = laborData?.[s.pc]?.today?.laborPct ?? null;
+          if (lPct === null) { noData++; return; }
+          if (lPct < 23) green++; else if (lPct < 26) yellow++; else red++;
+        });
+        return [
+          { color: '#22c55e', label: 'On Target',     sublabel: '<23%',  count: green,  filter: 'green'  },
+          { color: '#f59e0b', label: 'Watch',          sublabel: '23–26%',count: yellow, filter: 'yellow' },
+          { color: '#ef4444', label: 'Intervention',   sublabel: '≥26%',  count: red,    filter: 'red'    },
+          { color: '#94a3b8', label: 'No Data',        sublabel: null,    count: noData, filter: null     },
+          { color: '#6b7280', label: 'Not Operational',sublabel: null,    count: notOp,  filter: null     },
+        ].filter(l => l.count > 0);
+      })()
+    : [{ color: '#94a3b8', label: 'Loading…', sublabel: null, count: stores.length, filter: null }];
+
+  // Snapshot panel for selected store
+  const SnapshotPanel = () => {
+    if (!selectedStore) return null;
+    const s = selectedStore;
+    const ld = laborData?.[s.pc]?.today;
+    const openTix = ticketCounts[s.pc] || 0;
+    const lPct = ld?.laborPct ?? null;
+    const lColor = lPct === null ? th.muted : lPct < 23 ? '#22c55e' : lPct < 26 ? '#f59e0b' : '#ef4444';
+    const statusColor = s.status === 'Open' ? '#22c55e' : s.status === 'Remodel' ? '#f59e0b' : '#6b7280';
+    const todayWeather = weatherData?.[s.district]?.days?.[0];
+    return (
+      <div style={{ borderTop: `1px solid ${th.cardBorder}`, padding: '1rem 1.25rem', display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        {/* Store info */}
+        <div style={{ flex: '1 1 200px', minWidth: 180 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+            <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1rem', color: th.text }}>{s.name}</span>
+            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: statusColor, background: statusColor + '22', padding: '0.1rem 0.45rem', borderRadius: '0.75rem' }}>{s.status}</span>
+            {openTix > 0 && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#ef4444', background: '#ef444422', padding: '0.1rem 0.45rem', borderRadius: '0.75rem' }}>🔧 {openTix} open</span>}
+          </div>
+          <div style={{ fontSize: '0.78rem', color: th.muted }}>{s.address}, {s.city}, {s.state}</div>
+          <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '0.2rem' }}>District {s.district || '—'} · PC# {s.pc}</div>
+          {s.mgr && <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '0.15rem' }}>MGR: {s.mgr}</div>}
+          {todayWeather && (
+            <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <span>{WEATHER_EMOJI[todayWeather.condition] || '🌤️'}</span>
+              <span style={{ textTransform: 'capitalize' }}>{todayWeather.condition}</span>
+              <span>·</span>
+              <span>{todayWeather.tempHighF}° / {todayWeather.tempLowF}°F</span>
+              {todayWeather.precipMm > 0 && <span style={{ color: '#60a5fa' }}>💧 {todayWeather.precipMm}mm</span>}
+            </div>
+          )}
+        </div>
+        {/* Live stats */}
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {[
+            { label: 'Today Sales',  value: ld ? fmtDollars(ld.sales) : '—',                           color: th.text  },
+            { label: 'Labor %',      value: lPct !== null ? lPct.toFixed(1) + '%' : '—',               color: lColor   },
+            { label: 'Clocked In',   value: ld ? String(ld.employeesOnClock ?? '—') : '—',             color: th.text  },
+            { label: 'Sched Now',    value: ld ? String(ld.scheduledNow ?? '—') : '—',                 color: th.muted },
+            { label: 'Open Tickets', value: String(openTix),                                            color: openTix > 0 ? '#ef4444' : th.muted },
+          ].map(k => (
+            <div key={k.label} style={{ textAlign: 'center', minWidth: 72 }}>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: k.color, lineHeight: 1 }}>{k.value}</div>
+              <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: '0.2rem', fontWeight: 600 }}>{k.label}</div>
+            </div>
+          ))}
+        </div>
+        {/* Close */}
+        <button onClick={() => setSelectedStore(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: th.muted, fontSize: '1rem', padding: '0.25rem', alignSelf: 'flex-start', marginLeft: 'auto' }}>✕</button>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ ...card(th), marginBottom: '1.5rem', overflow: 'hidden' }}>
+      {/* Header */}
+      <div
+        onClick={() => setMapOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.9rem 1.25rem', cursor: 'pointer', userSelect: 'none' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text }}>🗺️ Operations Map</span>
+          <span style={{ fontSize: '0.75rem', color: th.muted }}>{stores.length} location{stores.length !== 1 ? 's' : ''}</span>
+          {mapOpen && legend.map(l => {
+            const isActive = filterPerf === l.filter && l.filter !== null;
+            const isClickable = l.filter !== null;
+            return (
+              <button key={l.label}
+                onClick={isClickable ? e => { e.stopPropagation(); setFilterPerf(p => p === l.filter ? null : l.filter); } : undefined}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', background: isActive ? l.color + '22' : 'transparent', border: isActive ? `1px solid ${l.color}66` : '1px solid transparent', borderRadius: '0.4rem', padding: isClickable ? '0.2rem 0.5rem' : '0.2rem 0', cursor: isClickable ? 'pointer' : 'default', color: isActive ? l.color : th.muted, fontWeight: isActive ? 700 : 400, transition: 'all 0.15s' }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: l.color, display: 'inline-block', flexShrink: 0, opacity: isActive ? 1 : 0.75 }} />
+                {l.count} {l.label}{l.sublabel && <span style={{ opacity: 0.7 }}> {l.sublabel}</span>}
+              </button>
+            );
+          })}
+          {mapOpen && filterPerf && (
+            <button onClick={e => { e.stopPropagation(); setFilterPerf(null); }} style={{ fontSize: '0.68rem', color: th.muted, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>show all</button>
+          )}
+        </div>
+        <span style={{ fontSize: '0.75rem', color: th.muted, fontWeight: 600 }}>{mapOpen ? '▲ Collapse' : '▼ Expand'}</span>
+      </div>
+      {/* Map */}
+      <div style={{ height: mapOpen ? '400px' : '0px', transition: 'height 0.3s ease', overflow: 'hidden' }}>
+        <div ref={containerRef} style={{ width: '100%', height: '400px' }} />
+      </div>
+      {/* Snapshot panel — slides in below map when a pin is selected */}
+      {mapOpen && <SnapshotPanel />}
+    </div>
+  );
+}
+
 function AdminLocations({ stores, setStores, districts, user, th }) {
   const [filterState,  setFilterState]  = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
@@ -3424,6 +3725,8 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
 
   return (
     <div className="fade-in">
+      {/* Operations Map */}
+      <StoreMap stores={baseStores} th={th} />
       {/* KPI row */}
       {(() => {
         const nxtCount = baseStores.filter(s => s.isNextGen).length;
@@ -26961,7 +27264,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v12.5
+            v13.10
           </div>
         )}
         {/* Collapse toggle — desktop only */}
