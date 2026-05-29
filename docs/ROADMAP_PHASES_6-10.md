@@ -9,10 +9,8 @@
 
 ### 6.1 Action Queue
 ✅- AI-prioritized list of items needing human attention, ranked by business impact
-✅- "Store 412 above 28% labor for 3 consecutive days" — multi-day streak tracking built
-- "5 stores haven't submitted daily reports" — not yet implemented
-✅- One-click actions: call manager (📞), acknowledge (✓ snooze 4h), delegate to DM (📤 push)
-- Adjust schedule action — not yet (navigates to Labor tab instead)
+✅- "Store 412 above 28% labor for 3 consecutive days" — multi-day streak tracking built "5 stores haven't submitted daily reports" — not yet implemented
+✅- One-click actions: call manager (📞), acknowledge (✓ snooze 4h), delegate to DM (📤 push) Adjust schedule action — not yet (navigates to Labor tab instead)
 ✅- Track resolution time per DM — ack time logged to pcg_action_log, 7-day scorecard per district
 
 ### 6.2 AI Sales Forecasting Engine
@@ -34,10 +32,10 @@
 ✅- Overlay weather conditions
 
 ### 6.5 Anomaly Detection 2.0
-- Move from static thresholds to rolling baselines per store
-- "Store 345 sales are 22% below forecast at 11 AM — unusual for a Tuesday"
-- Cash handling anomalies: high voids, unusual refund rates, cash vs card ratio shifts
-- Employee clock-in pattern anomalies: buddy punching detection, ghost shifts
+✅ - Move from static thresholds to rolling baselines per store
+✅ - "Store 345 sales are 22% below forecast at 11 AM — unusual for a Tuesday"
+✅ - Cash handling anomalies: high voids, unusual refund rates, cash vs card ratio shifts
+✅ - Employee clock-in pattern anomalies: buddy punching detection, ghost shifts
 
 ---
 

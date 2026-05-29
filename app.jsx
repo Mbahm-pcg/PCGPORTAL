@@ -44,6 +44,7 @@ const ICONS = {
   todos: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M22 11.08V12a10 10 0 1 1-5.93-9.14"})}{React.createElement("polyline",{points:"22 4 12 14.01 9 11.01"})}</>} />,
   chat: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"})}</>} />,
   announcements: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"})}{React.createElement("path",{d:"M13.73 21a2 2 0 0 1-3.46 0"})}</>} />,
+  anomalies: (c) => <Icon color={c} d={<>{React.createElement("polyline",{points:"22 12 18 12 15 21 9 3 6 12 2 12"})}</>} />,
   map: (c) => <Icon color={c} d={<>{React.createElement("polygon",{points:"1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"18"})}{React.createElement("line",{x1:"16",y1:"6",x2:"16",y2:"22"})}</>} />,
   locations: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"})}{React.createElement("circle",{cx:"12",cy:"10",r:"3"})}</>} />,
   analytics: (c) => <Icon color={c} d={<>{React.createElement("line",{x1:"18",y1:"20",x2:"18",y2:"10"})}{React.createElement("line",{x1:"12",y1:"20",x2:"12",y2:"4"})}{React.createElement("line",{x1:"6",y1:"20",x2:"6",y2:"14"})}</>} />,
@@ -15812,6 +15813,7 @@ const getTabs = (user) => {
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
+    { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
     { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
@@ -15828,6 +15830,7 @@ const getTabs = (user) => {
     { id: "map",       label: "Map",       icon: '🗺️' },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
+    { id: "anomalies", label: "Anomalies", icon: (c) => ICONS.anomalies(c) },
     { id: "pulse",     label: "Pulse",     icon: (c) => ICONS.pulse(c), green: true },
     { id: "labor",     label: "Labor",     icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
@@ -15842,6 +15845,7 @@ const getTabs = (user) => {
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
+    { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash",         icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
@@ -18448,6 +18452,291 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+// ── 6.5 Anomaly Detection 2.0 ────────────────────────────────────────────────
+const DOW_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+function computeBaseline(daily, dayOfWeek, metric) {
+  const same = daily
+    .filter(e => {
+      if (!e.date) return false;
+      const d = new Date(e.date + 'T12:00:00');
+      return d.getDay() === dayOfWeek && typeof e[metric] === 'number' && e[metric] > 0;
+    })
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 8);
+  if (same.length < 3) return null;
+  const values = same.map(e => e[metric]);
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+  const stdDev = Math.sqrt(variance);
+  if (stdDev < 0.01) return null;
+  return { mean, stdDev, sampleSize: values.length };
+}
+
+function AnomaliesTab({ stores, th, user, setTab }) {
+  const [laborData,      setLaborData]      = React.useState(null);
+  const [laborMeta,      setLaborMeta]      = React.useState(null); // full blob for lastUpdated
+  const [storeHistories, setStoreHistories] = React.useState({});
+  const [loading,        setLoading]        = React.useState(true);
+  const [loadingStores,  setLoadingStores]  = React.useState(false);
+  const [refreshing,     setRefreshing]     = React.useState(false);
+  const [filterType,     setFilterType]     = React.useState('all');
+  const O = '#FF671F';
+
+  const loadLaborData = React.useCallback((blob) => {
+    if (blob?.stores) setLaborData(blob.stores);
+    setLaborMeta(blob);
+  }, []);
+
+  React.useEffect(() => {
+    cloudLoad('pcg_labor_v1').then(d => {
+      loadLaborData(d);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [loadLaborData]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    const prevUpdated = laborMeta?.lastUpdated || '';
+    try {
+      fetch('/.netlify/functions/labor-cron-background', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manual: true }),
+      }).catch(() => {});
+      // Poll every 5s for up to 3 min until blob updates
+      for (let i = 0; i < 36; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const fresh = await cloudLoad('pcg_labor_v1');
+        if (fresh?.lastUpdated && fresh.lastUpdated !== prevUpdated) {
+          loadLaborData(fresh);
+          setStoreHistories({}); // clear cached histories so they reload
+          break;
+        }
+      }
+    } catch {}
+    setRefreshing(false);
+  };
+
+  React.useEffect(() => {
+    if (!laborData) return;
+    const candidates = stores
+      .filter(s => (s.status === 'Open' || s.status === 'Remodel') && laborData[s.pc]?.today != null)
+      .slice(0, 25);
+    if (candidates.length === 0) return;
+    setLoadingStores(true);
+    Promise.all(candidates.map(s =>
+      cloudLoad(`pcg_labor_store_${s.pc}`)
+        .then(d => ({ pc: s.pc, daily: d?.daily || [] }))
+        .catch(() => ({ pc: s.pc, daily: [] }))
+    )).then(results => {
+      const h = {};
+      results.forEach(({ pc, daily }) => { h[pc] = daily; });
+      setStoreHistories(h);
+      setLoadingStores(false);
+    });
+  }, [laborData, stores]);
+
+  const todayDow = new Date().getDay();
+
+  const anomalies = React.useMemo(() => {
+    if (!laborData || Object.keys(storeHistories).length === 0) return [];
+    const results = [];
+    stores.forEach(s => {
+      if (s.status !== 'Open' && s.status !== 'Remodel') return;
+      const td = laborData[s.pc]?.today;
+      if (!td) return;
+      const history = storeHistories[s.pc];
+      if (!history || history.length < 4) return;
+
+      // Sales anomaly
+      if (td.sales > 0) {
+        const b = computeBaseline(history, todayDow, 'sales');
+        if (b) {
+          const z = (td.sales - b.mean) / b.stdDev;
+          if (z < -2) {
+            const pctBelow = Math.round(((b.mean - td.sales) / b.mean) * 100);
+            results.push({
+              key: `anom_sales_${s.pc}`, subtype: 'sales', store: s, z,
+              severity: Math.abs(z) >= 3 ? 0 : 1,
+              msg: `Sales ${pctBelow}% below ${DOW_NAMES[todayDow]} baseline`,
+              detail: `$${Math.round(td.sales).toLocaleString()} today vs $${Math.round(b.mean).toLocaleString()} avg (${Math.abs(z).toFixed(1)}σ, ${b.sampleSize} ${DOW_NAMES[todayDow]}s)`,
+              color: Math.abs(z) >= 3 ? '#ef4444' : '#f97316',
+            });
+          }
+        }
+      }
+
+      // Labor anomaly — store's own baseline, not network threshold
+      if (td.laborPct > 0) {
+        const b = computeBaseline(history, todayDow, 'laborPct');
+        if (b) {
+          const z = (td.laborPct - b.mean) / b.stdDev;
+          if (z > 2) {
+            results.push({
+              key: `anom_labor_${s.pc}`, subtype: 'labor', store: s, z,
+              severity: Math.abs(z) >= 3 ? 0 : 1,
+              msg: `Labor ${Math.abs(z).toFixed(1)}σ above this store's ${DOW_NAMES[todayDow]} norm`,
+              detail: `${td.laborPct.toFixed(1)}% today vs ${b.mean.toFixed(1)}% avg (${b.sampleSize} ${DOW_NAMES[todayDow]}s)`,
+              color: Math.abs(z) >= 3 ? '#ef4444' : '#f97316',
+            });
+          }
+        }
+      }
+
+      // ── Shift anomalies ────────────────────────────────────────────────────
+      const scheduled = td.scheduledNow || 0;
+      const clocked   = td.employeesOnClock || 0;
+
+      // No-show: people scheduled but nobody clocked in
+      if (scheduled > 2 && clocked === 0) {
+        results.push({
+          key: `anom_noshow_${s.pc}`, subtype: 'shifts', store: s, z: 4.5,
+          severity: 0,
+          msg: `No staff clocked in — ${scheduled} scheduled right now`,
+          detail: 'All scheduled employees absent or failed to clock in',
+          color: '#ef4444',
+        });
+      // Under-staffed: fewer than half of scheduled are on clock
+      } else if (scheduled > 3 && clocked < Math.round(scheduled * 0.5)) {
+        results.push({
+          key: `anom_understaffed_${s.pc}`, subtype: 'shifts', store: s, z: 2.8,
+          severity: 1,
+          msg: `Understaffed — ${clocked} of ${scheduled} scheduled on clock`,
+          detail: `${scheduled - clocked} scheduled employee${scheduled-clocked!==1?'s':''} not yet clocked in`,
+          color: '#f97316',
+        });
+      }
+
+      // Ghost punches: employees who worked less than 15 minutes today
+      if (history && history.length > 0) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayEntry = history.find(e => e.date === todayStr) || history[0];
+        if (todayEntry?.employees) {
+          const ghosts = todayEntry.employees.filter(e =>
+            typeof e.hoursToday === 'number' && e.hoursToday > 0 && e.hoursToday < 0.25
+          );
+          if (ghosts.length > 0) {
+            const names = ghosts.map(e => {
+              const n = typeof e.name === 'string' ? e.name.split(' ')[0] : 'Unknown';
+              return `${n} (${Math.round((e.hoursToday||0)*60)}min)`;
+            }).join(' · ');
+            results.push({
+              key: `anom_ghost_${s.pc}`, subtype: 'shifts', store: s, z: 3.2,
+              severity: ghosts.length >= 2 ? 0 : 1,
+              msg: `${ghosts.length} employee${ghosts.length>1?'s':''} clocked in for under 15 minutes`,
+              detail: names,
+              color: ghosts.length >= 2 ? '#ef4444' : '#f97316',
+            });
+          }
+        }
+      }
+    });
+    return results.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+  }, [laborData, storeHistories, stores, todayDow]);
+
+  const filtered    = filterType === 'all' ? anomalies : anomalies.filter(a => a.subtype === filterType);
+  const critCount   = anomalies.filter(a => a.severity === 0).length;
+  const salesCount  = anomalies.filter(a => a.subtype === 'sales').length;
+  const laborCount  = anomalies.filter(a => a.subtype === 'labor').length;
+  const shiftsCount = anomalies.filter(a => a.subtype === 'shifts').length;
+
+  return (
+    <div className="fade-in">
+      {/* Header */}
+      <div style={{ ...card(th), padding:'1.25rem 1.5rem', marginBottom:'1.25rem' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:'0.75rem' }}>
+          <div>
+            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.25rem', color:th.text }}>
+              🔍 Anomaly Detection
+            </div>
+            <div style={{ fontSize:'0.78rem', color:th.muted, marginTop:'0.2rem' }}>
+              Rolling 4-week baselines · day-of-week aware · {stores.filter(s=>s.status==='Open').length} stores monitored
+            </div>
+          </div>
+          <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap' }}>
+            {(loading || loadingStores) && <span style={{ fontSize:'0.75rem', color:th.muted }}>⏳ Computing baselines…</span>}
+            {!loading && !loadingStores && critCount > 0 && <span style={{ fontSize:'0.72rem', fontWeight:700, color:'#ef4444', background:'#ef444420', border:'1px solid #ef444440', borderRadius:'1rem', padding:'0.2rem 0.6rem' }}>🔴 {critCount} critical</span>}
+            {!loading && !loadingStores && <span style={{ fontSize:'0.72rem', color:th.muted }}>{anomalies.length} anomal{anomalies.length===1?'y':'ies'}</span>}
+            {laborMeta?.lastUpdated && <span style={{ fontSize:'0.68rem', color:th.muted }}>· {new Date(laborMeta.lastUpdated).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</span>}
+            <button onClick={handleRefresh} disabled={refreshing || loading}
+              style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.72rem', fontWeight:700, padding:'0.3rem 0.75rem', borderRadius:'0.5rem', border:`1px solid ${O}55`, background:refreshing ? th.card2 : O+'18', color:refreshing ? th.muted : O, cursor: refreshing ? 'default' : 'pointer', fontFamily:"'Source Sans 3'", opacity: loading ? 0.5 : 1 }}>
+              <span style={{ display:'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↺</span>
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:'0.4rem', marginTop:'0.875rem', flexWrap:'wrap' }}>
+          {[
+            { id:'all',    label:`All (${anomalies.length})` },
+            { id:'sales',  label:`📉 Sales (${salesCount})` },
+            { id:'labor',  label:`⚠️ Labor (${laborCount})` },
+            { id:'shifts', label:`👥 Shifts (${shiftsCount})` },
+          ].map(f => (
+            <button key={f.id} onClick={() => setFilterType(f.id)} style={{
+              padding:'0.3rem 0.85rem', borderRadius:'2rem', cursor:'pointer', transition:'all 0.15s',
+              border:`1px solid ${filterType===f.id ? O : th.cardBorder}`,
+              background: filterType===f.id ? O+'22' : th.card2,
+              color: filterType===f.id ? O : th.muted,
+              fontFamily:"'Source Sans 3'", fontSize:'0.75rem', fontWeight: filterType===f.id ? 700 : 400,
+            }}>{f.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* List */}
+      {loading || loadingStores ? (
+        <div style={{ ...card(th), padding:'3rem', textAlign:'center', color:th.muted }}>
+          <div style={{ fontSize:'1.5rem', marginBottom:'0.5rem' }}>⏳</div>
+          Loading per-store baselines…
+        </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ ...card(th), padding:'3rem', textAlign:'center' }}>
+          <div style={{ fontSize:'2rem', marginBottom:'0.5rem' }}>✅</div>
+          <div style={{ fontFamily:"'Raleway'", fontWeight:700, color:th.text, marginBottom:'0.25rem' }}>All stores within normal range</div>
+          <div style={{ fontSize:'0.78rem', color:th.muted }}>No {filterType!=='all'?filterType+' ':''}anomalies detected for today</div>
+        </div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem', marginBottom:'1.25rem' }}>
+          {filtered.map(item => (
+            <div key={item.key} style={{ ...card(th), padding:'0.875rem 1.25rem', borderLeft:`3px solid ${item.color}`, display:'flex', alignItems:'center', gap:'1rem' }}>
+              <div style={{ textAlign:'center', minWidth:52, flexShrink:0 }}>
+                <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.3rem', color:item.color, lineHeight:1 }}>{Math.abs(item.z).toFixed(1)}σ</div>
+                <div style={{ fontSize:'0.55rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.5, marginTop:2 }}>z-score</div>
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', flexWrap:'wrap', marginBottom:'0.2rem' }}>
+                  <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.95rem', color:th.text }}>{item.store.name}</span>
+                  <span style={{ fontSize:'0.62rem', color:th.muted }}>D{item.store.district}</span>
+                  <span style={{ fontSize:'0.6rem', fontWeight:700, color:item.color, background:item.color+'18', border:`1px solid ${item.color}33`, borderRadius:'0.3rem', padding:'0.05rem 0.4rem' }}>{item.severity===0?'Critical':'Watch'}</span>
+                  <span style={{ fontSize:'0.6rem', fontWeight:600, color:item.subtype==='sales'?'#74c0fc':'#f59e0b', background:item.subtype==='sales'?'#74c0fc18':'#f59e0b18', borderRadius:'0.3rem', padding:'0.05rem 0.4rem' }}>
+                    {item.subtype==='sales'?'📉 Sales':'⚠️ Labor'}
+                  </span>
+                </div>
+                <div style={{ fontSize:'0.82rem', color:th.text, fontWeight:500 }}>{item.msg}</div>
+                <div style={{ fontSize:'0.72rem', color:th.muted, marginTop:'0.15rem' }}>{item.detail}</div>
+              </div>
+              <div style={{ display:'flex', gap:'0.3rem', flexShrink:0 }}>
+                {item.subtype==='labor'  && <button onClick={() => setTab('labor')}   style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:'#3b82f618', color:'#3b82f6', border:'1px solid #3b82f633', cursor:'pointer' }}>📊</button>}
+                {item.subtype==='sales'  && <button onClick={() => setTab('pulse')}   style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:'#22c55e18', color:'#22c55e', border:'1px solid #22c55e33', cursor:'pointer' }}>⚡</button>}
+                {item.subtype==='shifts' && <button onClick={() => setTab('labor')}   style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:'#8b5cf618', color:'#8b5cf6', border:'1px solid #8b5cf633', cursor:'pointer' }}>👥</button>}
+                {item.store.mgrPhone && <a href={`tel:${item.store.mgrPhone.replace(/\D/g,'')}`} style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:th.card2, color:th.muted, border:`1px solid ${th.cardBorder}`, textDecoration:'none', display:'flex', alignItems:'center' }}>📞</a>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* How it works */}
+      <div style={{ ...card(th), padding:'0.875rem 1.25rem', display:'flex', gap:'0.75rem', alignItems:'flex-start' }}>
+        <span style={{ fontSize:'1rem', flexShrink:0 }}>ℹ️</span>
+        <div style={{ fontSize:'0.75rem', color:th.muted, lineHeight:1.6 }}>
+          <strong style={{ color:th.text }}>How baselines work:</strong> Each store's normal range is computed from the last 4–8 occurrences of the same day of week (e.g., last 8 Tuesdays). A z-score of 2.0 means today is 2 standard deviations from that store's own baseline — not a network-wide threshold. Cash void and employee pattern anomalies coming in a future update.
+        </div>
+      </div>
     </div>
   );
 }
@@ -27230,7 +27519,7 @@ function PCGPortal() {
 
   // ─── Admin groups config ──────────────────────────────────────────────────
   const ADMIN_GROUPS = [
-    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics'] },
+    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics', 'anomalies'] },
     { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['cash', 'recon'] },
     { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'projects', 'users'] },
     { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'settings'] },
@@ -27670,7 +27959,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.34
+            v13.38
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -27790,6 +28079,7 @@ function PCGPortal() {
                 {tab === "chat" && "Team messaging and direct messages."}
                 {tab === "announcements" && "Company-wide announcements and updates."}
                 {tab === "map"       && "Real-time view of all 45+ stores — color-coded by labor %, live who's clocked in, open tickets per pin."}
+                {tab === "anomalies" && "Rolling per-store baselines — flags unusual sales or labor patterns for this store's day-of-week history."}
                 {tab === "locations" && "Store locations and operational details."}
                 {tab === "analytics" && "Sales data and performance metrics."}
                 {tab === "pulse" && "Live sales monitoring and weekly trends."}
@@ -28041,6 +28331,7 @@ function PCGPortal() {
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
           {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district)} th={th} setTab={setTab} />}
+          {tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? stores : stores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
           {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
