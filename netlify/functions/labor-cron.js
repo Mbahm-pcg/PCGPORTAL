@@ -510,13 +510,13 @@ async function processStore(store, busDt, { skipSchedules = false } = {}) {
     console.warn(`[labor-cron] ${name}: fetchEmployees failed:`, e.message);
   }
 
-  // 2b. Fetch today's scheduling shifts (skip on manual triggers to stay under timeout)
+  // 2b. Fetch 7-day scheduling shifts (skip on manual triggers to stay under timeout)
   let todayShifts = [];
   if (!skipSchedules) {
     try {
-      const tomorrow = new Date(new Date(busDt + 'T12:00:00').getTime() + 86400000);
-      const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,'0')}-${String(tomorrow.getDate()).padStart(2,'0')}`;
-      todayShifts = await fetchSchedulingShifts(legalEntityId, busDt, tomorrowStr);
+      const sevenDays = new Date(new Date(busDt + 'T12:00:00').getTime() + 7 * 86400000);
+      const endStr = `${sevenDays.getFullYear()}-${String(sevenDays.getMonth()+1).padStart(2,'0')}-${String(sevenDays.getDate()).padStart(2,'0')}`;
+      todayShifts = await fetchSchedulingShifts(legalEntityId, busDt, endStr);
     } catch (e) {
       console.warn(`[labor-cron] ${name}: fetchSchedulingShifts failed:`, e.message);
     }
@@ -740,6 +740,14 @@ async function processStore(store, busDt, { skipSchedules = false } = {}) {
       laborPct:     Math.round(wtdLaborPct * 10) / 10,
     },
     employeeDetails,
+    scheduleShifts: todayShifts.map(s => ({
+      employeeId:    s.employeeId   || s.EmployeeId   || null,
+      employeeName:  s.employeeName || (s.firstName && s.lastName ? `${s.firstName} ${s.lastName}` : null) || s.EmployeeName || null,
+      startDateTime: s.startDateTime || s.StartDateTime || null,
+      endDateTime:   s.endDateTime   || s.EndDateTime   || null,
+      date:          (s.startDateTime || s.StartDateTime || '').slice(0, 10),
+      jobTitle:      s.schedulingJobName || s.jobTitle || s.JobTitle || null,
+    })).filter(s => s.employeeId && s.startDateTime),
   };
 }
 
@@ -949,6 +957,14 @@ exports.handler = async (event) => {
 
         const merged = mergeStoreBlob(existing, dailyEntry, weeklyEntry);
         await blobStore.setJSON(key, { savedAt: new Date().toISOString(), data: merged });
+
+        // Save 7-day schedule blob (skip if no shifts fetched)
+        if (r.scheduleShifts && r.scheduleShifts.length > 0) {
+          const schedKey = `pcg_schedule_${r.pc}`;
+          await blobStore.setJSON(schedKey, { savedAt: new Date().toISOString(), data: {
+            busDt, updatedAt: new Date().toISOString(), shifts: r.scheduleShifts,
+          }});
+        }
       }));
     }
     console.log('[labor-cron] Wrote per-store blobs for', storeResults.length, 'stores');
