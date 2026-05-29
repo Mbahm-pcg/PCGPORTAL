@@ -44,6 +44,7 @@ const ICONS = {
   todos: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M22 11.08V12a10 10 0 1 1-5.93-9.14"})}{React.createElement("polyline",{points:"22 4 12 14.01 9 11.01"})}</>} />,
   chat: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"})}</>} />,
   announcements: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"})}{React.createElement("path",{d:"M13.73 21a2 2 0 0 1-3.46 0"})}</>} />,
+  map: (c) => <Icon color={c} d={<>{React.createElement("polygon",{points:"1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"18"})}{React.createElement("line",{x1:"16",y1:"6",x2:"16",y2:"22"})}</>} />,
   locations: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"})}{React.createElement("circle",{cx:"12",cy:"10",r:"3"})}</>} />,
   analytics: (c) => <Icon color={c} d={<>{React.createElement("line",{x1:"18",y1:"20",x2:"18",y2:"10"})}{React.createElement("line",{x1:"12",y1:"20",x2:"12",y2:"4"})}{React.createElement("line",{x1:"6",y1:"20",x2:"6",y2:"14"})}</>} />,
   pulse: (c) => <Icon color={c} d="M22 12h-4l-3 9L9 3l-3 9H2" />,
@@ -3345,45 +3346,64 @@ function dmFirstName(districts, num) {
   return d.name.split(" ")[0];
 }
 
-function StoreMap({ stores, th }) {
-  const [mapOpen,      setMapOpen]      = React.useState(true);
-  const [selectedStore, setSelectedStore] = React.useState(null);
-  const [laborData,    setLaborData]    = React.useState(null);
-  const [ticketCounts, setTicketCounts] = React.useState({});
-  const [weatherData,  setWeatherData]  = React.useState(null);
-  const [filterPerf,   setFilterPerf]   = React.useState(null); // null | 'green' | 'yellow' | 'red'
+function StoreMap({ stores, th, setTab }) {
+  const [selectedStore,    setSelectedStore]    = React.useState(null);
+  const [laborData,        setLaborData]        = React.useState(null);
+  const [allTickets,       setAllTickets]       = React.useState([]);
+  const [weatherData,      setWeatherData]      = React.useState(null);
+  const [filterPerf,       setFilterPerf]       = React.useState(null);
+  const [storeEmps,        setStoreEmps]        = React.useState(null);
+  const [storeEmpsLoading, setStoreEmpsLoading] = React.useState(false);
   const containerRef  = React.useRef(null);
   const mapRef        = React.useRef(null);
   const markersRef    = React.useRef([]);
   const tileRef       = React.useRef(null);
   const selectRef     = React.useRef(null);
-  const tileSwapReady = React.useRef(false); // skip tile swap on first mount
+  const tileSwapReady = React.useRef(false);
   selectRef.current   = setSelectedStore;
 
-  // Clear snapshot when filter changes
+  // Clear selection when filter changes
   React.useEffect(() => { setSelectedStore(null); }, [filterPerf]);
 
   // Load live data once on mount
   React.useEffect(() => {
     cloudLoad('pcg_labor_v1').then(d => { if (d?.stores) setLaborData(d.stores); }).catch(() => {});
     cloudLoad('pcg_weather_forecast').then(d => { if (d) setWeatherData(d); }).catch(() => {});
-    cloudLoad('pcg_tickets_v1').then(tix => {
-      if (!Array.isArray(tix)) return;
-      const counts = {};
-      tix.forEach(t => {
-        if (t.status === 'Closed') return;
-        const pc = t.storePC;
-        if (pc) counts[pc] = (counts[pc] || 0) + 1;
-      });
-      setTicketCounts(counts);
-    }).catch(() => {});
+    cloudLoad('pcg_tickets_v1').then(tix => { if (Array.isArray(tix)) setAllTickets(tix); }).catch(() => {});
   }, []);
+
+  // Load per-store employee data when a pin is selected
+  React.useEffect(() => {
+    if (!selectedStore) { setStoreEmps(null); return; }
+    setStoreEmps(null);
+    setStoreEmpsLoading(true);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    cloudLoad(`pcg_labor_store_${selectedStore.pc}`).then(d => {
+      if (d?.daily?.length) {
+        const entry = d.daily.find(e => e.date === todayStr) || d.daily[0];
+        setStoreEmps(entry?.employees || []);
+      } else setStoreEmps([]);
+      setStoreEmpsLoading(false);
+    }).catch(() => { setStoreEmps([]); setStoreEmpsLoading(false); });
+  }, [selectedStore?.pc]);
+
+  // Ticket counts for pin alert dots (derived from allTickets)
+  const ticketCounts = React.useMemo(() => {
+    const counts = {};
+    allTickets.forEach(t => { if (t.status !== 'Closed' && t.storePC) counts[t.storePC] = (counts[t.storePC] || 0) + 1; });
+    return counts;
+  }, [allTickets]);
+
+  // Invalidate map size when panel opens/closes
+  React.useEffect(() => {
+    setTimeout(() => mapRef.current && mapRef.current.invalidateSize(), 350);
+  }, [!!selectedStore]);
 
   // Initialize map once
   React.useEffect(() => {
     const L = window.L;
     if (!L || !containerRef.current || mapRef.current) return;
-    mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false, attributionControl: false }).setView([40.12, -75.18], 10);
+    mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: true, attributionControl: false }).setView([40.12, -75.18], 11);
     tileRef.current = L.tileLayer(
       th.dark
         ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
@@ -3468,11 +3488,6 @@ function StoreMap({ stores, th }) {
     `;
   }, [th.dark]);
 
-  // Invalidate size when panel expands
-  React.useEffect(() => {
-    if (mapOpen && mapRef.current) setTimeout(() => mapRef.current && mapRef.current.invalidateSize(), 320);
-  }, [mapOpen]);
-
   const legend = laborData
     ? (() => {
         let green = 0, yellow = 0, red = 0, noData = 0, notOp = 0;
@@ -3492,99 +3507,180 @@ function StoreMap({ stores, th }) {
       })()
     : [{ color: '#94a3b8', label: 'Loading…', sublabel: null, count: stores.length, filter: null }];
 
-  // Snapshot panel for selected store
-  const SnapshotPanel = () => {
-    if (!selectedStore) return null;
-    const s = selectedStore;
-    const ld = laborData?.[s.pc]?.today;
-    const openTix = ticketCounts[s.pc] || 0;
-    const lPct = ld?.laborPct ?? null;
-    const lColor = lPct === null ? th.muted : lPct < 23 ? '#22c55e' : lPct < 26 ? '#f59e0b' : '#ef4444';
-    const statusColor = s.status === 'Open' ? '#22c55e' : s.status === 'Remodel' ? '#f59e0b' : '#6b7280';
-    const todayWeather = weatherData?.[s.district]?.days?.[0];
-    return (
-      <div style={{ borderTop: `1px solid ${th.cardBorder}`, padding: '1rem 1.25rem', display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        {/* Store info */}
-        <div style={{ flex: '1 1 200px', minWidth: 180 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-            <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1rem', color: th.text }}>{s.name}</span>
-            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: statusColor, background: statusColor + '22', padding: '0.1rem 0.45rem', borderRadius: '0.75rem' }}>{s.status}</span>
-            {openTix > 0 && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#ef4444', background: '#ef444422', padding: '0.1rem 0.45rem', borderRadius: '0.75rem' }}>🔧 {openTix} open</span>}
-          </div>
-          <div style={{ fontSize: '0.78rem', color: th.muted }}>{s.address}, {s.city}, {s.state}</div>
-          <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '0.2rem' }}>District {s.district || '—'} · PC# {s.pc}</div>
-          {s.mgr && <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '0.15rem' }}>MGR: {s.mgr}</div>}
-          {todayWeather && (
-            <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <span>{WEATHER_EMOJI[todayWeather.condition] || '🌤️'}</span>
-              <span style={{ textTransform: 'capitalize' }}>{todayWeather.condition}</span>
-              <span>·</span>
-              <span>{todayWeather.tempHighF}° / {todayWeather.tempLowF}°F</span>
-              {todayWeather.precipMm > 0 && <span style={{ color: '#60a5fa' }}>💧 {todayWeather.precipMm}mm</span>}
-            </div>
-          )}
-        </div>
-        {/* Live stats */}
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          {[
-            { label: 'Today Sales',  value: ld ? fmtDollars(ld.sales) : '—',                           color: th.text  },
-            { label: 'Labor %',      value: lPct !== null ? lPct.toFixed(1) + '%' : '—',               color: lColor   },
-            { label: 'Clocked In',   value: ld ? String(ld.employeesOnClock ?? '—') : '—',             color: th.text  },
-            { label: 'Sched Now',    value: ld ? String(ld.scheduledNow ?? '—') : '—',                 color: th.muted },
-            { label: 'Open Tickets', value: String(openTix),                                            color: openTix > 0 ? '#ef4444' : th.muted },
-          ].map(k => (
-            <div key={k.label} style={{ textAlign: 'center', minWidth: 72 }}>
-              <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: k.color, lineHeight: 1 }}>{k.value}</div>
-              <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: '0.2rem', fontWeight: 600 }}>{k.label}</div>
-            </div>
-          ))}
-        </div>
-        {/* Close */}
-        <button onClick={() => setSelectedStore(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: th.muted, fontSize: '1rem', padding: '0.25rem', alignSelf: 'flex-start', marginLeft: 'auto' }}>✕</button>
-      </div>
-    );
-  };
+  const storeTickets = selectedStore
+    ? allTickets.filter(t => t.storePC === selectedStore.pc && t.status !== 'Closed')
+    : [];
+  const PRIORITY_COLOR = { Emergency:'#ef4444', High:'#f97316', Medium:'#3b82f6', Low:'#22c55e' };
+
+  // Pre-compute store detail vars (safe when selectedStore is null)
+  const detailLd      = selectedStore ? laborData?.[selectedStore.pc]?.today : null;
+  const detailLPct    = detailLd?.laborPct ?? null;
+  const detailLColor  = detailLPct===null ? th.muted : detailLPct<23 ? '#22c55e' : detailLPct<26 ? '#f59e0b' : '#ef4444';
+  const detailSColor  = !selectedStore ? '#6b7280' : selectedStore.status==='Open' ? '#22c55e' : selectedStore.status==='Remodel' ? '#f59e0b' : '#6b7280';
+  const detailWeather = selectedStore ? weatherData?.[selectedStore.district]?.days?.[0] : null;
 
   return (
-    <div style={{ ...card(th), marginBottom: '1.5rem', overflow: 'hidden' }}>
-      {/* Header */}
-      <div
-        onClick={() => setMapOpen(o => !o)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.9rem 1.25rem', cursor: 'pointer', userSelect: 'none' }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text }}>🗺️ Operations Map</span>
-          <span style={{ fontSize: '0.75rem', color: th.muted }}>{stores.length} location{stores.length !== 1 ? 's' : ''}</span>
-          {mapOpen && legend.map(l => {
-            const isActive = filterPerf === l.filter && l.filter !== null;
-            const isClickable = l.filter !== null;
-            return (
-              <button key={l.label}
-                onClick={isClickable ? e => { e.stopPropagation(); setFilterPerf(p => p === l.filter ? null : l.filter); } : undefined}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', background: isActive ? l.color + '22' : 'transparent', border: isActive ? `1px solid ${l.color}66` : '1px solid transparent', borderRadius: '0.4rem', padding: isClickable ? '0.2rem 0.5rem' : '0.2rem 0', cursor: isClickable ? 'pointer' : 'default', color: isActive ? l.color : th.muted, fontWeight: isActive ? 700 : 400, transition: 'all 0.15s' }}
-              >
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: l.color, display: 'inline-block', flexShrink: 0, opacity: isActive ? 1 : 0.75 }} />
-                {l.count} {l.label}{l.sublabel && <span style={{ opacity: 0.7 }}> {l.sublabel}</span>}
-              </button>
-            );
-          })}
-          {mapOpen && filterPerf && (
-            <button onClick={e => { e.stopPropagation(); setFilterPerf(null); }} style={{ fontSize: '0.68rem', color: th.muted, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>show all</button>
-          )}
-        </div>
-        <span style={{ fontSize: '0.75rem', color: th.muted, fontWeight: 600 }}>{mapOpen ? '▲ Collapse' : '▼ Expand'}</span>
+    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 160px)', overflow:'hidden', borderRadius:'0.875rem', border:`1px solid ${th.cardBorder}`, background:th.card }}>
+
+      {/* ── Legend bar — top ── */}
+      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.6rem 1rem', borderBottom:`1px solid ${th.cardBorder}`, flexShrink:0, flexWrap:'wrap' }}>
+        <span style={{ fontSize:'0.7rem', color:th.muted, fontWeight:700, textTransform:'uppercase', letterSpacing:0.8, fontFamily:"'Source Sans 3'", marginRight:4 }}>Filter</span>
+        {legend.map(l => {
+          const isActive = filterPerf === l.filter && l.filter !== null;
+          const isClickable = l.filter !== null;
+          return (
+            <button key={l.label} onClick={isClickable ? () => setFilterPerf(p => p === l.filter ? null : l.filter) : undefined}
+              style={{ display:'inline-flex', alignItems:'center', gap:'0.35rem', fontSize:'0.72rem', fontFamily:"'Source Sans 3'", fontWeight:isActive?700:500, background:isActive ? l.color+'22' : th.card2, border:isActive ? `1px solid ${l.color}66` : `1px solid ${th.cardBorder}`, borderRadius:'2rem', padding:'0.25rem 0.7rem', cursor:isClickable?'pointer':'default', color:isActive?l.color:th.text, transition:'all 0.15s' }}>
+              <span style={{ width:7, height:7, borderRadius:'50%', background:l.color, flexShrink:0 }} />
+              {l.count} {l.label}{l.sublabel && <span style={{ opacity:0.7 }}> {l.sublabel}</span>}
+            </button>
+          );
+        })}
+        {filterPerf && (
+          <button onClick={() => setFilterPerf(null)} style={{ fontSize:'0.68rem', color:th.muted, background:'none', border:`1px solid ${th.cardBorder}`, borderRadius:'2rem', padding:'0.22rem 0.65rem', cursor:'pointer', fontFamily:"'Source Sans 3'" }}>✕ Show all</button>
+        )}
       </div>
-      {/* Map */}
-      <div style={{ height: mapOpen ? '400px' : '0px', transition: 'height 0.3s ease', overflow: 'hidden' }}>
-        <div ref={containerRef} style={{ width: '100%', height: '400px' }} />
+
+      {/* ── Map + detail panel row ── */}
+      <div style={{ display:'flex', flex:1, minHeight:0, overflow:'hidden' }}>
+
+      {/* ── Map pane ── */}
+      <div style={{ flex:1, position:'relative', minWidth:0 }}>
+        <div ref={containerRef} style={{ width:'100%', height:'100%' }} />
       </div>
-      {/* Snapshot panel — slides in below map when a pin is selected */}
-      {mapOpen && <SnapshotPanel />}
+
+      {/* ── Store detail panel (slides in on pin click) ── */}
+      {selectedStore && (
+          <div style={{ width:400, flexShrink:0, borderLeft:`1px solid ${th.cardBorder}`, display:'flex', flexDirection:'column', overflow:'hidden', background:th.card }}>
+
+            {/* Panel header */}
+            <div style={{ padding:'1rem 1.25rem 0.875rem', borderBottom:`1px solid ${th.cardBorder}`, flexShrink:0 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', flexWrap:'wrap', marginBottom:'0.3rem' }}>
+                    <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1.05rem', color:th.text }}>{selectedStore.name}</span>
+                    <span style={{ fontSize:'0.62rem', fontWeight:700, color:detailSColor, background:detailSColor+'22', padding:'0.15rem 0.5rem', borderRadius:'1rem', border:`1px solid ${detailSColor}44` }}>{selectedStore.status}</span>
+                  </div>
+                  <div style={{ fontSize:'0.77rem', color:th.muted }}>{selectedStore.address}</div>
+                  <div style={{ fontSize:'0.74rem', color:th.muted, marginTop:'0.1rem' }}>{selectedStore.city}, {selectedStore.state}{selectedStore.zip ? ' '+selectedStore.zip : ''}</div>
+                  <div style={{ fontSize:'0.71rem', color:th.muted, marginTop:'0.2rem', display:'flex', gap:'0.75rem', flexWrap:'wrap' }}>
+                    <span>District {selectedStore.district||'—'}</span>
+                    <span>PC# {selectedStore.pc}</span>
+                    {selectedStore.mgr && <span>MGR: {selectedStore.mgr}</span>}
+                    {selectedStore.mgrPhone && <span>{selectedStore.mgrPhone}</span>}
+                  </div>
+                  {detailWeather && (
+                    <div style={{ fontSize:'0.71rem', color:th.muted, marginTop:'0.3rem', display:'flex', alignItems:'center', gap:'0.35rem' }}>
+                      <span>{WEATHER_EMOJI[detailWeather.condition]||'🌤️'}</span>
+                      <span style={{ textTransform:'capitalize' }}>{detailWeather.condition}</span>
+                      <span>·</span>
+                      <span>{detailWeather.tempHighF}° / {detailWeather.tempLowF}°F</span>
+                      {detailWeather.precipMm>0 && <span style={{ color:'#60a5fa' }}>💧 {detailWeather.precipMm}mm</span>}
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => setSelectedStore(null)} style={{ background:'none', border:'none', cursor:'pointer', color:th.muted, fontSize:'1.1rem', padding:'0.1rem 0.3rem', lineHeight:1, flexShrink:0 }}>✕</button>
+              </div>
+            </div>
+
+            {/* KPI row */}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', padding:'0.75rem 1.25rem', borderBottom:`1px solid ${th.cardBorder}`, flexShrink:0, gap:'0.25rem' }}>
+              {[
+                { label:'Sales',   value: detailLd ? fmtDollars(detailLd.sales) : '—',                       color:'#FF671F'      },
+                { label:'Labor %', value: detailLPct!==null ? detailLPct.toFixed(1)+'%' : '—',              color:detailLColor   },
+                { label:'Clocked', value: detailLd ? String(detailLd.employeesOnClock??'—') : '—',          color:'#22c55e'      },
+                { label:'Sched',   value: detailLd ? String(detailLd.scheduledNow??'—') : '—',              color:'#74c0fc'      },
+                { label:'Tickets', value: String(storeTickets.length),                        color: storeTickets.length>0 ? '#ef4444' : th.muted },
+              ].map(k => (
+                <div key={k.label} style={{ textAlign:'center' }}>
+                  <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1.25rem', color:k.color, lineHeight:1 }}>{k.value}</div>
+                  <div style={{ fontSize:'0.58rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.5, marginTop:'0.2rem', fontWeight:600 }}>{k.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Scrollable body */}
+            <div style={{ flex:1, overflowY:'auto' }}>
+
+              {/* Today's Team */}
+              <div style={{ padding:'0.875rem 1.25rem', borderBottom:`1px solid ${th.cardBorder}` }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.5rem' }}>
+                  <span style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.8rem', color:th.text }}>Today's Team</span>
+                  {storeEmpsLoading && <span style={{ fontSize:'0.65rem', color:th.muted }}>Loading…</span>}
+                  {storeEmps && !storeEmpsLoading && <span style={{ fontSize:'0.65rem', color:th.muted }}>{storeEmps.length} employee{storeEmps.length!==1?'s':''}</span>}
+                </div>
+                {storeEmpsLoading && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>Fetching team data…</div>}
+                {storeEmps && storeEmps.length===0 && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>No data available for today</div>}
+                {storeEmps && storeEmps.length>0 && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
+                    {storeEmps.map((e, i) => {
+                      const eName = typeof e.name === 'string' ? e.name : 'Unknown';
+                      const eRole = typeof e.role === 'string' ? e.role : 'Crew';
+                      const eHours = typeof e.hoursToday === 'number' ? e.hoursToday.toFixed(1)+'h' : '—';
+                      const initials = eName.split(' ').map(n=>n[0]||'').join('').slice(0,2).toUpperCase() || '?';
+                      return (
+                        <div key={i} style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.35rem 0.5rem', borderRadius:'0.5rem', background:th.card2 }}>
+                          <div style={{ width:30, height:30, borderRadius:'50%', background:'#FF671F22', color:'#FF671F', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:'0.6rem', flexShrink:0 }}>{initials}</div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:'0.78rem', color:th.text, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{eName}</div>
+                            <div style={{ fontSize:'0.64rem', color:th.muted }}>{eRole}</div>
+                          </div>
+                          <div style={{ textAlign:'right', flexShrink:0 }}>
+                            <div style={{ fontSize:'0.75rem', fontWeight:600, color:th.text }}>{eHours}</div>
+                            {e.overtime==='ot' && <span style={{ fontSize:'0.55rem', color:'#ef4444', fontWeight:700 }}>OT</span>}
+                            {e.overtime==='approaching' && <span style={{ fontSize:'0.55rem', color:'#f59e0b', fontWeight:700 }}>~OT</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Open Tickets */}
+              <div style={{ padding:'0.875rem 1.25rem' }}>
+                <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.8rem', color:th.text, marginBottom:'0.5rem', display:'flex', alignItems:'center', gap:'0.4rem' }}>
+                  Open Tickets
+                  {storeTickets.length>0 && <span style={{ fontSize:'0.65rem', color:'#ef4444', fontWeight:700, background:'#ef444420', padding:'0.1rem 0.4rem', borderRadius:'1rem' }}>{storeTickets.length}</span>}
+                </div>
+                {storeTickets.length===0 && <div style={{ fontSize:'0.78rem', color:'#22c55e', display:'flex', alignItems:'center', gap:'0.35rem' }}>✓ No open tickets</div>}
+                {storeTickets.map((t, i) => {
+                  const tTitle = typeof t.title === 'string' ? t.title : typeof t.description === 'string' ? t.description.slice(0,50) : 'Untitled';
+                  const tPriority = typeof t.priority === 'string' ? t.priority : '—';
+                  const tStatus = typeof t.status === 'string' ? t.status : '—';
+                  const pColor = PRIORITY_COLOR[tPriority] || '#6b7280';
+                  return (
+                    <div key={t.id||i} style={{ padding:'0.5rem 0.625rem', borderRadius:'0.5rem', background:th.card2, marginBottom:'0.3rem', border:`1px solid ${th.cardBorder}` }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'0.5rem' }}>
+                        <span style={{ fontSize:'0.78rem', color:th.text, fontWeight:600, lineHeight:1.3, flex:1 }}>{tTitle}</span>
+                        <span style={{ fontSize:'0.6rem', fontWeight:700, padding:'0.15rem 0.4rem', borderRadius:'0.3rem', background:pColor+'22', color:pColor, flexShrink:0 }}>{tPriority}</span>
+                      </div>
+                      <div style={{ fontSize:'0.64rem', color:th.muted, marginTop:'0.2rem', display:'flex', gap:'0.5rem' }}>
+                        <span>{tStatus}</span>
+                        {t.createdAt && <span>· {new Date(t.createdAt).toLocaleDateString()}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Footer — quick-nav */}
+            {setTab && (
+              <div style={{ padding:'0.75rem 1.25rem', borderTop:`1px solid ${th.cardBorder}`, display:'flex', gap:'0.5rem', flexShrink:0 }}>
+                <button onClick={() => setTab('labor')}   style={{ flex:1, ...btn(th, { fontSize:'0.73rem', padding:'0.4rem', background:th.card2 }) }}>📊 Labor</button>
+                <button onClick={() => setTab('pulse')}   style={{ flex:1, ...btn(th, { fontSize:'0.73rem', padding:'0.4rem', background:th.card2 }) }}>⚡ Pulse</button>
+                <button onClick={() => setTab('tickets')} style={{ flex:1, ...btn(th, { fontSize:'0.73rem', padding:'0.4rem', background:th.card2 }) }}>🔧 Tickets</button>
+              </div>
+            )}
+          </div>
+      )}
+      </div>{/* end map+panel row */}
     </div>
   );
 }
 
-function AdminLocations({ stores, setStores, districts, user, th }) {
+function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
   const [filterState,  setFilterState]  = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterDistrict, setFilterDistrict] = useState("All");
@@ -3728,8 +3824,6 @@ function AdminLocations({ stores, setStores, districts, user, th }) {
 
   return (
     <div className="fade-in">
-      {/* Operations Map */}
-      <StoreMap stores={baseStores} th={th} />
       {/* KPI row */}
       {(() => {
         const nxtCount = baseStores.filter(s => s.isNextGen).length;
@@ -15715,6 +15809,7 @@ const getTabs = (user) => {
   // Executive & IT → full admin suite
   if (ut === "executive" || ut === "it") return [
     ...BASE_TABS,
+    { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
@@ -15730,6 +15825,7 @@ const getTabs = (user) => {
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
     ...BASE_TABS,
+    { id: "map",       label: "Map",       icon: '🗺️' },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
     { id: "pulse",     label: "Pulse",     icon: (c) => ICONS.pulse(c), green: true },
@@ -15743,6 +15839,7 @@ const getTabs = (user) => {
   // District Managers → base + their locations + their district analytics + projects (view-only)
   if (ut === "dm") return [
     ...BASE_TABS,
+    { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
@@ -26838,7 +26935,7 @@ function PCGPortal() {
   const ADMIN_GROUPS = [
     { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics'] },
     { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['cash', 'recon'] },
-    { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['locations', 'projects', 'users'] },
+    { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'projects', 'users'] },
     { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'settings'] },
   ];
 
@@ -27276,7 +27373,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.12
+            v13.21
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -27645,7 +27742,8 @@ function PCGPortal() {
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
-          {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} />}
+          {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district)} th={th} setTab={setTab} />}
+          {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
