@@ -8,10 +8,12 @@
 *"Stop staring at dashboards. Get told what matters."*
 
 ### 6.1 Action Queue
-- AI-prioritized list of items needing human attention, ranked by business impact
-- Examples: "Store 412 above 28% labor for 3 consecutive days" (high), "5 stores haven't submitted daily reports" (medium)
-- One-click actions: call manager, adjust schedule, acknowledge, delegate to DM
-- Track resolution time per DM — how quickly do they respond to alerts?
+✅- AI-prioritized list of items needing human attention, ranked by business impact
+✅- "Store 412 above 28% labor for 3 consecutive days" — multi-day streak tracking built
+- "5 stores haven't submitted daily reports" — not yet implemented
+✅- One-click actions: call manager (📞), acknowledge (✓ snooze 4h), delegate to DM (📤 push)
+- Adjust schedule action — not yet (navigates to Labor tab instead)
+✅- Track resolution time per DM — ack time logged to pcg_action_log, 7-day scorecard per district
 
 ### 6.2 AI Sales Forecasting Engine
 - Train on Pulse POS historical data to predict next-day / next-week sales by store, by hour, by daypart
@@ -25,11 +27,11 @@
 - Show projected labor % before the week starts: "If you run this schedule, projected labor is 24.7%"
 - Alert DMs when a store's schedule is likely to blow past 26% labor threshold
 
-### 6.4 Real-Time Operations Map
-- Interactive map of all 45+ stores with live status indicators
-- Color-coded by current performance: green (on-target), yellow (watch), red (intervention needed)
-- Click a store pin → live snapshot: current hour sales, who's clocked in, labor %, open alerts
-- Overlay weather conditions
+### 6.4 Real-Time Operations Map 
+✅- Interactive map of all 45+ stores with live status indicators
+✅- Color-coded by current performance: green (on-target), yellow (watch), red (intervention needed)
+✅- Click a store pin → live snapshot: current hour sales, who's clocked in, labor %, open alerts
+✅- Overlay weather conditions
 
 ### 6.5 Anomaly Detection 2.0
 - Move from static thresholds to rolling baselines per store

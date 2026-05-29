@@ -3520,7 +3520,7 @@ function StoreMap({ stores, th, setTab }) {
   const detailWeather = selectedStore ? weatherData?.[selectedStore.district]?.days?.[0] : null;
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 160px)', overflow:'hidden', borderRadius:'0.875rem', border:`1px solid ${th.cardBorder}`, background:th.card }}>
+    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 80px)', overflow:'hidden', borderRadius:'0.875rem', border:`1px solid ${th.cardBorder}`, background:th.card }}>
 
       {/* ── Legend bar — top ── */}
       <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.6rem 1rem', borderBottom:`1px solid ${th.cardBorder}`, flexShrink:0, flexWrap:'wrap' }}>
@@ -18149,7 +18149,310 @@ function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
 }
 
 // ── Dashboard Component ─────────────────────────────────────────────────────
-function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert }) {
+// ── Action Queue ─────────────────────────────────────────────────────────────
+function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
+  const [laborData,  setLaborData]  = React.useState(null);
+  const [tickets,    setTickets]    = React.useState(null);
+  const [trends,     setTrends]     = React.useState({});
+  const [delegating, setDelegating] = React.useState({});
+  const [actionLog,  setActionLog]  = React.useState([]); // resolution time log
+  const logLoadedRef = React.useRef(false);
+  const [acked, setAcked] = React.useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('pcg_action_ack') || '{}');
+      const now = Date.now(), clean = {};
+      Object.entries(parsed).forEach(([k, ts]) => { if (now - ts < 4 * 3600000) clean[k] = ts; });
+      return clean;
+    } catch { return {}; }
+  });
+
+  React.useEffect(() => {
+    cloudLoad('pcg_labor_v1').then(d => { if (d?.stores) setLaborData(d.stores); }).catch(() => {});
+    cloudLoad('pcg_tickets_v1').then(tix => { if (Array.isArray(tix)) setTickets(tix); }).catch(() => {});
+    cloudLoad('pcg_action_log').then(d => {
+      if (Array.isArray(d)) setActionLog(d);
+      logLoadedRef.current = true;
+    }).catch(() => { logLoadedRef.current = true; });
+  }, []);
+
+  // Load per-store history for flagged stores to detect multi-day trends
+  React.useEffect(() => {
+    if (!laborData) return;
+    const isDM = user?.userType === 'dm';
+    const visible = isDM ? stores.filter(s => String(s.district) === String(user.district)) : stores;
+    const flagged = visible.filter(s => {
+      const lPct = laborData[s.pc]?.today?.laborPct;
+      return lPct != null && lPct >= 26 && s.status === 'Open';
+    }).slice(0, 20); // cap at 20 stores to limit requests
+
+    if (flagged.length === 0) return;
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    Promise.all(flagged.map(s =>
+      cloudLoad(`pcg_labor_store_${s.pc}`)
+        .then(d => {
+          const daily = d?.daily || [];
+          const sorted = [...daily].sort((a, b) => b.date.localeCompare(a.date));
+          let streak = 0;
+          for (const entry of sorted) {
+            if (entry.date > todayStr) continue; // skip future entries if any
+            if (typeof entry.laborPct === 'number' && entry.laborPct >= 26) streak++;
+            else break;
+          }
+          return { pc: s.pc, streak };
+        })
+        .catch(() => ({ pc: s.pc, streak: 1 }))
+    )).then(results => {
+      const t = {};
+      results.forEach(({ pc, streak }) => { t[pc] = streak; });
+      setTrends(t);
+    });
+  }, [laborData]);
+
+  // Detect natural resolution — labor dropped below threshold
+  React.useEffect(() => {
+    if (!laborData || actionLog.length === 0) return;
+    const now = new Date().toISOString();
+    let changed = false;
+    const updated = actionLog.map(entry => {
+      if (entry.status !== 'open' || entry.type !== 'labor') return entry;
+      const lPct = laborData[entry.storePC]?.today?.laborPct;
+      if (lPct == null || lPct >= 23) return entry;
+      changed = true;
+      return { ...entry, status: 'resolved', resolvedAt: now, resolvedHow: 'natural',
+        durationMs: new Date(now).getTime() - new Date(entry.detectedAt).getTime() };
+    });
+    if (!changed) return;
+    setActionLog(updated);
+    cloudSave('pcg_action_log', updated).catch(() => {});
+  }, [laborData]);
+
+  const acknowledge = (key) => {
+    const updated = { ...acked, [key]: Date.now() };
+    setAcked(updated);
+    try { localStorage.setItem('pcg_action_ack', JSON.stringify(updated)); } catch {}
+    // Log ack time for resolution tracking
+    const today = new Date().toISOString().slice(0, 10);
+    const logId = `${key}_${today}`;
+    const now = new Date().toISOString();
+    setActionLog(prev => {
+      const updatedLog = prev.map(e => e.id !== logId ? e : {
+        ...e, status: 'acked', ackedAt: now, ackedBy: user?.id,
+        durationMs: new Date(now).getTime() - new Date(e.detectedAt).getTime(),
+      });
+      cloudSave('pcg_action_log', updatedLog).catch(() => {});
+      return updatedLog;
+    });
+  };
+
+  const delegate = async (item) => {
+    if (delegating[item.key]) return;
+    const dm = (users || []).find(u => u.userType === 'dm' && String(u.district) === String(item.store.district));
+    if (!dm) { showAlert && showAlert('error', `No DM found for District ${item.store.district}`); return; }
+    setDelegating(d => ({ ...d, [item.key]: true }));
+    try {
+      await sendPushNotification([dm.id], `Action Required: ${item.store.name}`, item.msg, '/', `aq_${item.key}`);
+      showAlert && showAlert('success', `Delegated to ${dm.name} (D${item.store.district})`);
+    } catch {
+      showAlert && showAlert('error', 'Could not send notification');
+    }
+    setTimeout(() => setDelegating(d => { const n = {...d}; delete n[item.key]; return n; }), 3000);
+  };
+
+  const isDM = user?.userType === 'dm';
+  const isExec = user?.userType === 'executive' || user?.userType === 'it';
+  const visibleStores = isDM ? stores.filter(s => String(s.district) === String(user.district)) : stores;
+
+  const actions = React.useMemo(() => {
+    if (!laborData && !tickets) return null;
+    const items = [];
+    const openTickets = (tickets || []).filter(t => t.status !== 'Closed');
+    const storePcSet = new Set(visibleStores.map(s => String(s.pc)));
+    const now = Date.now();
+
+    if (laborData) {
+      visibleStores.forEach(s => {
+        if (s.status !== 'Open' && s.status !== 'Remodel') return;
+        const lPct = laborData[s.pc]?.today?.laborPct;
+        if (lPct == null) return;
+        const key = `labor_${s.pc}`;
+        if (acked[key]) return;
+        const streak = trends[s.pc] || 1;
+        const streakLabel = streak >= 3 ? ` 🔥 ${streak} days in a row` : streak === 2 ? ' · 2nd consecutive day' : '';
+        if (lPct >= 30)      items.push({ key, type:'labor', priority:0, store:s, lPct, msg:`Labor at ${lPct.toFixed(1)}% — immediate intervention needed${streakLabel}`, color:'#ef4444' });
+        else if (lPct >= 26) items.push({ key, type:'labor', priority: streak >= 3 ? 0 : 1, store:s, lPct, msg:`Labor at ${lPct.toFixed(1)}% — above 26% threshold${streakLabel}`, color: streak >= 3 ? '#ef4444' : '#f97316' });
+        else if (lPct >= 23) items.push({ key, type:'labor', priority:2, store:s, lPct, msg:`Labor at ${lPct.toFixed(1)}% — approaching threshold`, color:'#f59e0b' });
+      });
+    }
+
+    const byStore = {};
+    openTickets.forEach(t => {
+      const pc = String(t.storePC);
+      if (!storePcSet.has(pc)) return;
+      if (!byStore[pc]) byStore[pc] = [];
+      byStore[pc].push(t);
+    });
+    Object.entries(byStore).forEach(([pc, tix]) => {
+      const store = visibleStores.find(s => String(s.pc) === pc);
+      if (!store) return;
+      tix.filter(t => t.priority === 'Emergency').forEach(t => {
+        const key = `ticket_${t.id}`;
+        if (acked[key]) return;
+        const days = Math.floor((now - new Date(t.createdAt).getTime()) / 86400000);
+        const title = typeof t.title === 'string' ? t.title : 'Untitled';
+        items.push({ key, type:'ticket', priority:0, store, ticket:t, msg:`Emergency ticket${days > 0 ? ` open ${days}d` : ''}: ${title.slice(0,45)}`, color:'#ef4444' });
+      });
+      tix.filter(t => t.priority === 'High').forEach(t => {
+        const key = `ticket_${t.id}`;
+        if (acked[key]) return;
+        const days = Math.floor((now - new Date(t.createdAt).getTime()) / 86400000);
+        if (days < 3) return;
+        const title = typeof t.title === 'string' ? t.title : 'Untitled';
+        items.push({ key, type:'ticket', priority:1, store, ticket:t, msg:`High ticket open ${days}d: ${title.slice(0,45)}`, color:'#f97316' });
+      });
+      if (tix.length >= 3) {
+        const key = `cluster_${pc}`;
+        if (!acked[key]) items.push({ key, type:'cluster', priority:1, store, msg:`${tix.length} open tickets — possible systemic issue`, color:'#f97316' });
+      }
+    });
+
+    items.sort((a, b) => a.priority !== b.priority ? a.priority - b.priority : (b.lPct||0) - (a.lPct||0));
+    return items;
+  }, [laborData, tickets, acked, visibleStores, trends]);
+
+  // Log new action items when they first appear — MUST be after actions useMemo
+  React.useEffect(() => {
+    if (!logLoadedRef.current || !actions || actions.length === 0) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const existingIds = new Set(actionLog.map(e => e.id));
+    const newEntries = actions
+      .filter(item => !existingIds.has(`${item.key}_${today}`))
+      .map(item => ({
+        id: `${item.key}_${today}`,
+        key: item.key, type: item.type,
+        storePC: String(item.store.pc), storeName: item.store.name,
+        district: item.store.district, lPct: item.lPct || null,
+        detectedAt: new Date().toISOString(), detectedBy: user?.id,
+        status: 'open', ackedAt: null, ackedBy: null,
+        resolvedAt: null, resolvedHow: null, durationMs: null,
+      }));
+    if (newEntries.length === 0) return;
+    const updated = [...actionLog, ...newEntries];
+    setActionLog(updated);
+    cloudSave('pcg_action_log', updated).catch(() => {});
+  }, [actions]);
+
+  if (!actions || actions.length === 0) return null;
+
+  const SHOWN = 6;
+  const visible = actions.slice(0, SHOWN);
+  const overflow = actions.length - SHOWN;
+  const O = '#FF671F';
+  const priLabel = p => p === 0 ? 'Critical' : p === 1 ? 'High' : 'Watch';
+  const critCount = actions.filter(a => a.priority === 0).length;
+  const headerColor = critCount > 0 ? '#ef4444' : actions.some(a => a.priority === 1) ? '#f97316' : '#f59e0b';
+
+  return (
+    <div style={{ ...card(th), marginBottom:'1.75rem', overflow:'hidden', borderLeft:`3px solid ${headerColor}` }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.875rem 1.25rem 0.75rem' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
+          <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.95rem', color:th.text }}>⚡ Action Queue</span>
+          <span style={{ fontSize:'0.62rem', fontWeight:700, background:headerColor+'22', color:headerColor, border:`1px solid ${headerColor}44`, borderRadius:'1rem', padding:'0.12rem 0.55rem' }}>{actions.length} item{actions.length!==1?'s':''}</span>
+          {critCount > 0 && <span style={{ fontSize:'0.62rem', fontWeight:700, color:'#ef4444' }}>🔴 {critCount} critical</span>}
+        </div>
+        <button onClick={() => actions.forEach(a => acknowledge(a.key))} style={{ fontSize:'0.68rem', color:th.muted, background:'none', border:`1px solid ${th.cardBorder}`, borderRadius:'0.4rem', padding:'0.2rem 0.65rem', cursor:'pointer', fontFamily:"'Source Sans 3'" }}>
+          ✓ Clear all
+        </button>
+      </div>
+
+      <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem', padding:'0 0.875rem 1rem' }}>
+        {visible.map(item => (
+          <div key={item.key} style={{ display:'flex', alignItems:'center', gap:'0.75rem', padding:'0.55rem 0.75rem', borderRadius:'0.5rem', background:th.card2, border:`1px solid ${item.color}22` }}>
+            <div style={{ width:8, height:8, borderRadius:'50%', background:item.color, flexShrink:0, boxShadow:`0 0 6px ${item.color}88` }} />
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', flexWrap:'wrap' }}>
+                <span style={{ fontSize:'0.8rem', fontWeight:700, color:th.text }}>{item.store.name}</span>
+                <span style={{ fontSize:'0.62rem', color:th.muted }}>D{item.store.district}</span>
+                <span style={{ fontSize:'0.6rem', fontWeight:700, color:item.color, background:item.color+'18', border:`1px solid ${item.color}33`, borderRadius:'0.3rem', padding:'0.05rem 0.35rem' }}>{priLabel(item.priority)}</span>
+              </div>
+              <div style={{ fontSize:'0.73rem', color:th.muted, marginTop:'0.1rem' }}>{item.msg}</div>
+            </div>
+            <div style={{ display:'flex', gap:'0.3rem', flexShrink:0 }}>
+              {item.store.mgrPhone && (
+                <a href={`tel:${item.store.mgrPhone.replace(/\D/g,'')}`} title={`Call ${item.store.mgr||'Manager'}`}
+                  style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:'#22c55e18', color:'#22c55e', border:'1px solid #22c55e33', textDecoration:'none', display:'flex', alignItems:'center' }}>📞</a>
+              )}
+              {item.type === 'labor' && (
+                <button onClick={() => setTab('labor')} title="View in Labor"
+                  style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:'#3b82f618', color:'#3b82f6', border:'1px solid #3b82f633', cursor:'pointer' }}>📊</button>
+              )}
+              {(item.type === 'ticket' || item.type === 'cluster') && (
+                <button onClick={() => setTab('tickets')} title="View tickets"
+                  style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:'#f9731618', color:'#f97316', border:'1px solid #f9731633', cursor:'pointer' }}>🔧</button>
+              )}
+              {isExec && (
+                <button onClick={() => delegate(item)} title={`Notify DM for District ${item.store.district}`}
+                  disabled={!!delegating[item.key]}
+                  style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:'#8b5cf618', color:'#8b5cf6', border:'1px solid #8b5cf633', cursor:'pointer', opacity: delegating[item.key] ? 0.6 : 1 }}>
+                  {delegating[item.key] ? '⏳' : '📤'}
+                </button>
+              )}
+              <button onClick={() => acknowledge(item.key)} title="Acknowledge — snooze 4h"
+                style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}`, cursor:'pointer' }}>✓</button>
+            </div>
+          </div>
+        ))}
+        {overflow > 0 && (
+          <div style={{ fontSize:'0.72rem', color:th.muted, textAlign:'center', padding:'0.3rem 0', fontStyle:'italic' }}>
+            +{overflow} more — acknowledge items above to reveal
+          </div>
+        )}
+      </div>
+
+      {/* ── DM Response Scorecard — exec/IT only ── */}
+      {isExec && (() => {
+        const cutoff = new Date(Date.now() - 7 * 24 * 3600000).toISOString();
+        const resolved = actionLog.filter(e => e.durationMs != null && e.detectedAt > cutoff);
+        if (resolved.length === 0) return null;
+        const byDistrict = {};
+        resolved.forEach(e => {
+          const d = e.district;
+          if (!byDistrict[d]) byDistrict[d] = { total: 0, count: 0 };
+          byDistrict[d].total += e.durationMs;
+          byDistrict[d].count++;
+        });
+        const rows = Object.entries(byDistrict)
+          .map(([d, s]) => ({ district: Number(d), avgMs: s.total / s.count, count: s.count }))
+          .sort((a, b) => a.avgMs - b.avgMs);
+        const fmtDur = ms => {
+          const h = Math.floor(ms / 3600000);
+          const m = Math.floor((ms % 3600000) / 60000);
+          if (h === 0) return `${m}m`;
+          return m > 0 ? `${h}h ${m}m` : `${h}h`;
+        };
+        const durColor = ms => ms < 900000 ? '#22c55e' : ms < 3600000 ? '#f59e0b' : '#ef4444';
+        return (
+          <div style={{ borderTop:`1px solid ${th.cardBorder}`, padding:'0.75rem 1.25rem' }}>
+            <div style={{ fontSize:'0.65rem', fontWeight:700, color:th.muted, textTransform:'uppercase', letterSpacing:1, marginBottom:'0.5rem' }}>
+              📊 DM Response Time — last 7 days
+            </div>
+            <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
+              {rows.map(r => (
+                <div key={r.district} style={{ display:'flex', alignItems:'center', gap:'0.4rem', padding:'0.3rem 0.65rem', borderRadius:'2rem', background:durColor(r.avgMs)+'18', border:`1px solid ${durColor(r.avgMs)}33` }}>
+                  <span style={{ fontSize:'0.65rem', color:th.muted }}>D{r.district}</span>
+                  <span style={{ fontSize:'0.75rem', fontWeight:700, color:durColor(r.avgMs) }}>{fmtDur(r.avgMs)}</span>
+                  <span style={{ fontSize:'0.6rem', color:th.muted }}>avg · {r.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert, users }) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = (user?.name || "").split(" ")[0];
@@ -18667,32 +18970,28 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
         })}
       </div>
 
-      {/* ─── Today's Brief from Orion ─────────────────────────────────── */}
+      {/* ─── Today's Brief ───────────────────────────────────────────────────── */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
         <TodayBrief user={user} th={th} setAnnouncements={setAnnouncements} showAlert={showAlert} />
       )}
 
-      {/* ─── Business Cases + Tickets — adaptive layout ──────────────────── */}
-      {(() => {
-        const showBizCases = user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm';
-        const showTickets  = ticketStats.open > 0 || ticketStats.inProg > 0;
-        if (!showBizCases && !showTickets) return null;
-        // Two columns only when both cards are visible; otherwise Business Cases fills full width
-        const cols = isMobile ? "1fr" : (showBizCases && showTickets ? "1fr 1fr" : "1fr");
+      {/* ─── Action Queue ────────────────────────────────────────────────────── */}
+      {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
+        <ActionQueue stores={stores} th={th} user={user} setTab={setTab} users={users} showAlert={showAlert} />
+      )}
+
+      {/* ─── Business Cases + Tickets ────────────────────────────────────────── */}
+      {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (() => {
+        const showTickets = ticketStats.open > 0 || ticketStats.inProg > 0;
+        const cols = isMobile ? "1fr" : (showTickets ? "1fr 1fr" : "1fr");
+        if (!showTickets && user.userType === 'manager') return null;
         return (
-        <div style={{ display:"grid", gridTemplateColumns: cols, gap:"1rem", marginBottom:"1.25rem", alignItems:"stretch", transition:"grid-template-columns 0.4s ease" }}>
-
-          {/* Left: Business Cases */}
-          {showBizCases && (
-            <div style={{ ...card(th), padding:"1.1rem 1.15rem" }}>
-              <BusinessCasesCard user={user} th={th} inline={true} stores={stores} setAnnouncements={setAnnouncements} showAlert={showAlert} />
-            </div>
-          )}
-
-          {/* Right: Service Tickets */}
+        <div style={{ display:"grid", gridTemplateColumns: cols, gap:"1rem", marginBottom:"1.25rem", alignItems:"stretch" }}>
+          <div style={{ ...card(th), padding:"1.1rem 1.15rem" }}>
+            <BusinessCasesCard user={user} th={th} inline={true} stores={stores} setAnnouncements={setAnnouncements} showAlert={showAlert} />
+          </div>
           {showTickets && (
             <div style={{ ...card(th), padding:"1.1rem 1.15rem", display:"flex", flexDirection:"column" }}>
-              {/* Header */}
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.875rem" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem" }}>
                   <span style={{ fontSize:"1rem" }}>🎫</span>
@@ -18700,7 +18999,6 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
                 </div>
                 <button onClick={()=>setTab("tickets")} style={{ background:"none", border:"none", color:O, fontSize:"0.72rem", fontWeight:700, cursor:"pointer", padding:0 }}>View All →</button>
               </div>
-              {/* Ticker stats */}
               <div style={{ display:"flex", gap:"0.6rem", marginBottom:"0.875rem" }}>
                 {[
                   { label:"Open", value:ticketStats.open, color:"#3b82f6" },
@@ -18714,11 +19012,9 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
                   </div>
                 ))}
               </div>
-              {/* Divider */}
               <div style={{ height:"1px", background:th.cardBorder, marginBottom:"0.75rem" }} />
-              {/* Ticket list — scrollable */}
               {ticketStats.recent.length > 0 ? (
-                <div style={{ overflowY:"auto", maxHeight:"260px", display:"flex", flexDirection:"column", gap:"0.35rem", flex:1, paddingRight:"0.15rem" }}>
+                <div style={{ overflowY:"auto", maxHeight:"260px", display:"flex", flexDirection:"column", gap:"0.35rem", flex:1 }}>
                   {ticketStats.recent.map(t => {
                     const pClr = t.priority==="High"?"#ef4444":t.priority==="Medium"?"#f59e0b":"#22c55e";
                     const sClr = t.status==="Open"?"#3b82f6":O;
@@ -18741,6 +19037,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
         </div>
         );
       })()}
+
 
       {/* ─── Quick Actions ─────────────────────────────────────────────── */}
       <div style={{ marginBottom: "1.75rem" }}>
@@ -27373,7 +27670,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.21
+            v13.34
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -27492,6 +27789,7 @@ function PCGPortal() {
                 {tab === "todos" && "Create tasks, assign to teammates, and track progress."}
                 {tab === "chat" && "Team messaging and direct messages."}
                 {tab === "announcements" && "Company-wide announcements and updates."}
+                {tab === "map"       && "Real-time view of all 45+ stores — color-coded by labor %, live who's clocked in, open tickets per pin."}
                 {tab === "locations" && "Store locations and operational details."}
                 {tab === "analytics" && "Sales data and performance metrics."}
                 {tab === "pulse" && "Live sales monitoring and weekly trends."}
@@ -27736,8 +28034,8 @@ function PCGPortal() {
           </div>
         )}
 
-        <div className="main-content-padding" style={{ padding: "3vw 5vw" }}>
-          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} />}
+        <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" }}>
+          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} />}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
