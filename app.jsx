@@ -18161,13 +18161,15 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
   const [delegating, setDelegating] = React.useState({});
   const [actionLog,  setActionLog]  = React.useState([]); // resolution time log
   const logLoadedRef = React.useRef(false);
+  const cleanAcked = (raw) => {
+    const now = Date.now(), clean = {};
+    Object.entries(raw || {}).forEach(([k, ts]) => { if (now - ts < 4 * 3600000) clean[k] = ts; });
+    return clean;
+  };
+  // Start with localStorage cache for instant UI, then sync from blob
   const [acked, setAcked] = React.useState(() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem('pcg_action_ack') || '{}');
-      const now = Date.now(), clean = {};
-      Object.entries(parsed).forEach(([k, ts]) => { if (now - ts < 4 * 3600000) clean[k] = ts; });
-      return clean;
-    } catch { return {}; }
+    try { return cleanAcked(JSON.parse(localStorage.getItem('pcg_action_ack') || '{}')); }
+    catch { return {}; }
   });
 
   React.useEffect(() => {
@@ -18177,6 +18179,14 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
       if (Array.isArray(d)) setActionLog(d);
       logLoadedRef.current = true;
     }).catch(() => { logLoadedRef.current = true; });
+    // Load acked from blob — source of truth across all devices
+    cloudLoad('pcg_action_ack').then(d => {
+      if (d && typeof d === 'object') {
+        const merged = cleanAcked({ ...d });
+        setAcked(merged);
+        try { localStorage.setItem('pcg_action_ack', JSON.stringify(merged)); } catch {}
+      }
+    }).catch(() => {});
   }, []);
 
   // Load per-store history for flagged stores to detect multi-day trends
@@ -18234,6 +18244,8 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
   const acknowledge = (key) => {
     const updated = { ...acked, [key]: Date.now() };
     setAcked(updated);
+    // Save to blob (cross-device) + localStorage (instant cache)
+    cloudSave('pcg_action_ack', updated).catch(() => {});
     try { localStorage.setItem('pcg_action_ack', JSON.stringify(updated)); } catch {}
     // Log ack time for resolution tracking
     const today = new Date().toISOString().slice(0, 10);
@@ -18344,7 +18356,7 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
     const updated = [...actionLog, ...newEntries];
     setActionLog(updated);
     cloudSave('pcg_action_log', updated).catch(() => {});
-  }, [actions]);
+  }, [actions, user]);
 
   if (!actions || actions.length === 0) return null;
 
@@ -27959,7 +27971,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.38
+            v13.39
           </div>
         )}
         {/* Collapse toggle — desktop only */}
