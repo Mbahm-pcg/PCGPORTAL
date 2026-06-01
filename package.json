@@ -13,13 +13,21 @@
     "web-push": "^3.6.7"
   },
   "scripts": {
-    "build": "babel app.jsx -o app.js --presets @babel/preset-react",
-    "watch": "babel app.jsx -o app.js --presets @babel/preset-react --watch"
+    "build": "esbuild app.jsx --bundle --outfile=app.js --jsx=transform --platform=browser",
+    "watch": "esbuild app.jsx --bundle --outfile=app.js --jsx=transform --platform=browser --watch",
+    "build:src": "esbuild src/main.jsx --bundle --outfile=app.js --jsx=transform --platform=browser",
+    "watch:src": "esbuild src/main.jsx --bundle --outfile=app.js --jsx=transform --platform=browser --watch",
+    "build:babel": "babel app.jsx -o app.js --presets @babel/preset-react"
   },
   "devDependencies": {
     "@babel/cli": "^7.28.6",
     "@babel/core": "^7.29.0",
     "@babel/preset-react": "^7.28.5",
-    "drizzle-kit": "^1.0.0-beta.22"
+    "drizzle-kit": "^1.0.0-beta.22",
+    "esbuild": "^0.28.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.0": true
   }
 }
