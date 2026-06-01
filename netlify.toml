@@ -54,6 +54,11 @@
 [functions.pnl-cron]
   schedule = "0 11 1 * *"
 
+# Schedule risk alerts — Mon + Thu at 6 AM ET (10:00 UTC)
+# Checks projected labor % for upcoming days, alerts DMs + managers when ≥26%
+[functions.schedule-alerts]
+  schedule = "0 10 * * 1,4"
+
 # KB article embedding — triggered manually after article approval
 [functions.kb-embed]
   timeout = 60

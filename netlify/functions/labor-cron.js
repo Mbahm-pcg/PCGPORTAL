@@ -969,6 +969,52 @@ exports.handler = async (event) => {
     }
     console.log('[labor-cron] Wrote per-store blobs for', storeResults.length, 'stores');
 
+    // ── Close out pending schedule alerts with actual labor data ─────────────
+    // For any alert whose date has already passed, look up the actual labor %
+    // from the store's daily history and mark it improved / no_change / worsened.
+    try {
+      const alertsRaw = await blobStore.get('pcg_schedule_alerts_v1', { type: 'json' });
+      const alertBlob = alertsRaw?.data ?? alertsRaw;
+      const allAlerts = alertBlob?.alerts;
+      if (Array.isArray(allAlerts)) {
+        // Only process alerts that are pending AND whose date is strictly before today
+        const pendingPast = allAlerts.filter(a => a.status === 'pending' && a.date < busDt);
+        if (pendingPast.length > 0) {
+          // Group by store pc to minimise blob reads
+          const byPc = {};
+          for (const a of pendingPast) {
+            if (!byPc[a.pc]) byPc[a.pc] = [];
+            byPc[a.pc].push(a);
+          }
+          for (const [pc, alerts] of Object.entries(byPc)) {
+            try {
+              const histRaw = await blobStore.get(`pcg_labor_store_${pc}`, { type: 'json' });
+              const hist = histRaw?.data ?? histRaw;
+              const daily = Array.isArray(hist?.daily) ? hist.daily : [];
+              for (const alert of alerts) {
+                const entry = daily.find(d => d.date === alert.date);
+                if (!entry) { alert.status = 'no_data'; continue; }
+                const actual = entry.laborPct;
+                alert.actualPct = actual;
+                const diff = actual - alert.projectedPct;
+                alert.status = diff <= -2 ? 'improved' : diff >= 2 ? 'worsened' : 'no_change';
+              }
+            } catch (e) {
+              console.warn('[labor-cron] alert resolution error for', pc, e.message);
+            }
+          }
+          // Save updated alerts back
+          await blobStore.setJSON('pcg_schedule_alerts_v1', {
+            savedAt: new Date().toISOString(),
+            data: { ...alertBlob, alerts: allAlerts },
+          });
+          console.log(`[labor-cron] Resolved ${pendingPast.length} schedule alerts`);
+        }
+      }
+    } catch (e) {
+      console.warn('[labor-cron] schedule alert resolution skipped:', e.message);
+    }
+
     const summary = {
       ok: true,
       busDt,

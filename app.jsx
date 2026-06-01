@@ -79,6 +79,7 @@ const ICONS = {
   tickets: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M2 9a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V9z"})}{React.createElement("line",{x1:"9",y1:"4",x2:"9",y2:"20",strokeDasharray:"2 3"})}</>} />,
   calendar: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"3",y:"4",width:"18",height:"18",rx:"2",ry:"2"})}{React.createElement("line",{x1:"16",y1:"2",x2:"16",y2:"6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"6"})}{React.createElement("line",{x1:"3",y1:"10",x2:"21",y2:"10"})}</>} />,
   reports: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
+  schedule: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"3",y:"4",width:"18",height:"18",rx:"2"})}{React.createElement("line",{x1:"16",y1:"2",x2:"16",y2:"6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"6"})}{React.createElement("line",{x1:"3",y1:"10",x2:"21",y2:"10"})}{React.createElement("polyline",{points:"8 14 10 17 14 13"})}</>} />,
 
 };
 
@@ -15851,7 +15852,7 @@ const getTabs = (user) => {
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
-    { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
+    { id: "labor",     label: "Labor",          icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
@@ -15882,11 +15883,11 @@ const getTabs = (user) => {
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
-    { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
-    { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
-    { id: "cash",      label: "Cash",         icon: (c) => ICONS.dollar(c) },
-    { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
-    { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
+    { id: "anomalies", label: "Anomalies",      icon: (c) => ICONS.anomalies(c) },
+    { id: "labor",     label: "Labor",          icon: (c) => ICONS.dollar(c) },
+    { id: "cash",      label: "Cash",           icon: (c) => ICONS.dollar(c) },
+    { id: "reports",   label: "Reports",        icon: (c) => ICONS.reports(c) },
+    { id: "projects",  label: "Projects",       icon: (c) => ICONS.projects(c) },
   ];
   // Store managers see only their assigned stores.
   if (ut === "manager") return [
@@ -18642,6 +18643,245 @@ function DmScorecardTab({ th, users, districts }) {
           </div>
         ))}
         <span style={{ fontSize:'0.68rem', color:th.muted, marginLeft:'auto' }}>Labor 30% · Sales 30% · Response 20% · Tickets 20%</span>
+      </div>
+    </div>
+  );
+}
+
+// ── 6.3 Labor Schedule Forecast ──────────────────────────────────────────────
+function LaborScheduleTab({ stores, th }) {
+  const [storeData,   setStoreData]   = React.useState({});
+  const [loadedCount, setLoadedCount] = React.useState(0);
+  const [filter,      setFilter]      = React.useState('all');
+  const O = '#FF671F';
+  const DAY_ABB = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  // This week Sun–Sat in ET
+  const dates = React.useMemo(() => {
+    const now = new Date();
+    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const today = new Date(et.getFullYear(), et.getMonth(), et.getDate());
+    const todayDs = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    const sunday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay());
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + i);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      return { dateStr, dow: d.getDay(), label: `${DAY_ABB[d.getDay()]} ${d.getMonth()+1}/${d.getDate()}`, isToday: dateStr === todayDs, isPast: d < today };
+    });
+  }, []);
+
+  // Progressive blob loading — batches of 6 stores
+  React.useEffect(() => {
+    const BATCH = 6;
+    let cancelled = false;
+    (async () => {
+      for (let i = 0; i < stores.length; i += BATCH) {
+        if (cancelled) break;
+        const batch = stores.slice(i, i + BATCH);
+        await Promise.all(batch.map(async s => {
+          try {
+            const [sched, hist] = await Promise.all([
+              cloudLoad(`pcg_schedule_${s.pc}`).catch(() => null),
+              cloudLoad(`pcg_labor_store_${s.pc}`).catch(() => null),
+            ]);
+            if (!cancelled) setStoreData(prev => ({ ...prev, [s.pc]: { sched, hist, loaded: true } }));
+          } catch {
+            if (!cancelled) setStoreData(prev => ({ ...prev, [s.pc]: { loaded: true, error: true } }));
+          }
+          if (!cancelled) setLoadedCount(c => c + 1);
+        }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [stores]);
+
+  // Compute projection for one store/day
+  const projectDay = (sched, hist, dateStr, dow) => {
+    if (!sched?.shifts) return null;
+    const dayShifts = sched.shifts.filter(s => s.date === dateStr);
+    let scheduledHours = 0;
+    const empIds = new Set();
+    for (const s of dayShifts) {
+      if (s.startDateTime && s.endDateTime) {
+        const hrs = Math.max(0, Math.min((new Date(s.endDateTime) - new Date(s.startDateTime)) / 3600000, 14));
+        scheduledHours += hrs;
+        if (s.employeeId) empIds.add(s.employeeId);
+      }
+    }
+    const scheduledCount = empIds.size;
+    if (scheduledCount === 0) return { noSchedule: true };
+
+    const sameDow = (hist?.daily || [])
+      .filter(d => d.date && d.sales > 0 && d.hoursWorked > 0 && new Date(d.date + 'T12:00:00').getDay() === dow)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 8);
+
+    if (sameDow.length < 2) return { scheduledCount, scheduledHours: Math.round(scheduledHours * 10) / 10, projectedLaborPct: null, insufficient: true };
+
+    const avgSales = sameDow.reduce((a, b) => a + b.sales, 0) / sameDow.length;
+    const avgLabor = sameDow.reduce((a, b) => a + b.laborDollars, 0) / sameDow.length;
+    const avgHrs   = sameDow.reduce((a, b) => a + b.hoursWorked, 0) / sameDow.length;
+    const rate     = avgHrs > 0 ? avgLabor / avgHrs : null;
+    const projCost = rate ? scheduledHours * rate : null;
+    const projPct  = projCost && avgSales > 0 ? (projCost / avgSales) * 100 : null;
+
+    return {
+      scheduledCount,
+      scheduledHours: Math.round(scheduledHours * 10) / 10,
+      forecastedSales: Math.round(avgSales),
+      projectedLaborCost: projCost ? Math.round(projCost) : null,
+      projectedLaborPct: projPct != null ? Math.round(projPct * 10) / 10 : null,
+      historyPoints: sameDow.length,
+    };
+  };
+
+  const projections = React.useMemo(() => {
+    const result = {};
+    for (const s of stores) {
+      const d = storeData[s.pc];
+      if (!d?.loaded) { result[s.pc] = null; continue; }
+      const days = {};
+      for (const { dateStr, dow } of dates) days[dateStr] = projectDay(d.sched, d.hist, dateStr, dow);
+      const pcts = Object.values(days).map(x => x?.projectedLaborPct).filter(p => p != null);
+      result[s.pc] = { days, worstPct: pcts.length ? Math.max(...pcts) : null };
+    }
+    return result;
+  }, [storeData, stores, dates]);
+
+  const summary = React.useMemo(() => {
+    let risk = 0, watch = 0, ok = 0;
+    for (const s of stores) {
+      const p = projections[s.pc];
+      if (!p || p.worstPct == null) continue;
+      if (p.worstPct >= 26) risk++;
+      else if (p.worstPct >= 23) watch++;
+      else ok++;
+    }
+    return { risk, watch, ok };
+  }, [stores, projections]);
+
+  const filteredStores = React.useMemo(() => {
+    return stores
+      .filter(s => {
+        const p = projections[s.pc];
+        if (filter === 'risk')  return p?.worstPct >= 26;
+        if (filter === 'watch') return p?.worstPct >= 23 && p?.worstPct < 26;
+        if (filter === 'ok')    return p?.worstPct != null && p?.worstPct < 23;
+        return true;
+      })
+      .sort((a, b) => (projections[b.pc]?.worstPct ?? -1) - (projections[a.pc]?.worstPct ?? -1));
+  }, [stores, projections, filter]);
+
+  const pctColor = p => p == null ? th.muted : p >= 26 ? '#ef4444' : p >= 23 ? '#f59e0b' : '#22c55e';
+  const pctBg    = p => p == null ? 'transparent' : p >= 26 ? '#ef444422' : p >= 23 ? '#f59e0b22' : '#22c55e22';
+
+  return (
+    <div className="fade-in">
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexWrap:'wrap', gap:'0.75rem', marginBottom:'1rem' }}>
+        <div>
+          <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.1rem', color:th.text }}>Labor Schedule Forecast</div>
+          <div style={{ fontSize:'0.75rem', color:th.muted }}>
+            Projected labor % · scheduled hours × historical hourly rate ÷ forecasted sales · {dates[0]?.label} – {dates[6]?.label}
+          </div>
+        </div>
+        {loadedCount < stores.length && (
+          <span style={{ fontSize:'0.72rem', color:th.muted }}>⟳ Loading {loadedCount}/{stores.length} stores…</span>
+        )}
+      </div>
+
+      {/* Filter pills */}
+      <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', marginBottom:'1rem' }}>
+        {[
+          { key:'all',   label:`All (${stores.length})`,        color:th.muted,  bg:th.card2 },
+          { key:'risk',  label:`⚠ At Risk — ${summary.risk}`,   color:'#ef4444', bg:'#ef444418' },
+          { key:'watch', label:`◑ Watch — ${summary.watch}`,    color:'#f59e0b', bg:'#f59e0b18' },
+          { key:'ok',    label:`✓ On Track — ${summary.ok}`,    color:'#22c55e', bg:'#22c55e18' },
+        ].map(p => (
+          <button key={p.key} onClick={() => setFilter(p.key)}
+            style={{ background: filter===p.key ? p.bg : th.card, color: filter===p.key ? p.color : th.muted, border:`1px solid ${filter===p.key ? p.color+'88' : th.cardBorder}`, borderRadius:20, padding:'0.3rem 0.85rem', fontSize:'0.72rem', fontWeight:600, cursor:'pointer', transition:'all 0.15s' }}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div style={{ ...card(th), overflow:'hidden' }}>
+        <div style={{ overflowX:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.8rem' }}>
+            <thead>
+              <tr style={{ background:th.card2, borderBottom:`1px solid ${th.cardBorder}` }}>
+                <th style={{ padding:'0.5rem 1rem', textAlign:'left', fontSize:'0.65rem', fontWeight:700, color:th.muted, textTransform:'uppercase', letterSpacing:0.8, whiteSpace:'nowrap', minWidth:150 }}>Store</th>
+                {dates.map(({ dateStr, label, isToday }) => (
+                  <th key={dateStr} style={{ padding:'0.5rem 0.5rem', textAlign:'center', fontSize:'0.65rem', fontWeight:700, color: isToday ? O : th.muted, textTransform:'uppercase', letterSpacing:0.5, whiteSpace:'nowrap', minWidth:72, background: isToday ? O+'15' : 'transparent' }}>
+                    {label}
+                  </th>
+                ))}
+                <th style={{ padding:'0.5rem 0.75rem', textAlign:'center', fontSize:'0.65rem', fontWeight:700, color:th.muted, textTransform:'uppercase', letterSpacing:0.5, whiteSpace:'nowrap' }}>Worst</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredStores.map((s, i) => {
+                const proj = projections[s.pc];
+                const rowBg = i % 2 === 0 ? 'transparent' : th.card2 + '60';
+                return (
+                  <tr key={s.pc} style={{ borderBottom:`1px solid ${th.cardBorder}`, background: rowBg }}
+                    onMouseEnter={e => e.currentTarget.style.background = th.card2}
+                    onMouseLeave={e => e.currentTarget.style.background = rowBg}>
+                    <td style={{ padding:'0.5rem 1rem' }}>
+                      <div style={{ fontWeight:600, color:th.text, fontSize:'0.82rem' }}>{s.name}</div>
+                      <div style={{ fontSize:'0.62rem', color:th.muted }}>D{s.district}</div>
+                    </td>
+                    {dates.map(({ dateStr, isToday }) => {
+                      const todayBg = isToday ? O+'15' : 'transparent';
+                      if (!proj) return (
+                        <td key={dateStr} style={{ padding:'0.4rem 0.5rem', textAlign:'center', background: todayBg }}>
+                          <span style={{ color:th.muted, fontSize:'0.68rem' }}>⟳</span>
+                        </td>
+                      );
+                      const day = proj.days[dateStr];
+                      if (!day || day.noSchedule) return (
+                        <td key={dateStr} style={{ padding:'0.4rem 0.5rem', textAlign:'center', background: todayBg }}>
+                          <span style={{ color:th.muted, fontSize:'0.68rem' }}>—</span>
+                        </td>
+                      );
+                      const pct = day.projectedLaborPct;
+                      const tipLines = [
+                        pct != null ? `Projected: ${pct}%` : (day.insufficient ? 'Not enough history (<2 same-day samples)' : '—'),
+                        `${day.scheduledCount} staff · ${day.scheduledHours}h scheduled`,
+                        day.forecastedSales ? `Forecast: $${day.forecastedSales.toLocaleString()}` : '',
+                        day.projectedLaborCost ? `Labor est: $${day.projectedLaborCost.toLocaleString()}` : '',
+                        day.historyPoints ? `Based on ${day.historyPoints} historical ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(dateStr+'T12:00:00').getDay()]}s` : '',
+                      ].filter(Boolean).join('\n');
+                      return (
+                        <td key={dateStr} title={tipLines}
+                          style={{ padding:'0.4rem 0.5rem', textAlign:'center', background: pct != null ? pctBg(pct) : todayBg, cursor:'default' }}>
+                          {pct != null
+                            ? <span style={{ fontWeight:700, fontSize:'0.78rem', color:pctColor(pct) }}>{pct}%</span>
+                            : <span style={{ fontSize:'0.68rem', color:th.muted }}>—</span>}
+                        </td>
+                      );
+                    })}
+                    <td style={{ padding:'0.4rem 0.75rem', textAlign:'center' }}>
+                      {proj?.worstPct != null
+                        ? <span style={{ fontWeight:800, fontSize:'0.8rem', color:pctColor(proj.worstPct) }}>{proj.worstPct}%</span>
+                        : <span style={{ color:th.muted, fontSize:'0.72rem' }}>—</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ padding:'0.625rem 1rem', borderTop:`1px solid ${th.cardBorder}`, display:'flex', gap:'1.25rem', flexWrap:'wrap', alignItems:'center' }}>
+          {[['#22c55e','<23% on track'],['#f59e0b','23–25.9% watch'],['#ef4444','≥26% at risk']].map(([c,l]) => (
+            <div key={l} style={{ display:'flex', alignItems:'center', gap:'0.3rem' }}>
+              <div style={{ width:8, height:8, borderRadius:'50%', background:c }} />
+              <span style={{ fontSize:'0.68rem', color:th.muted }}>{l}</span>
+            </div>
+          ))}
+          <span style={{ fontSize:'0.65rem', color:th.muted, marginLeft:'auto' }}>Hover a cell for detail · "—" = no schedule or insufficient history</span>
+        </div>
       </div>
     </div>
   );
@@ -22282,9 +22522,27 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const [timeFilter, setTimeFilter] = useState('today');
   const [districtFilter, setDistrictFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [forecastData, setForecastData] = useState({}); // pc → { loaded, days }
 
   const isDM = user?.userType === 'dm';
   const isManager = user?.userType === 'manager';
+
+  // Compute next 7 days once
+  const next7Days = React.useMemo(() => {
+    const DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const now = new Date();
+    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const todayDate = new Date(et.getFullYear(), et.getMonth(), et.getDate());
+    const todayDow = todayDate.getDay(); // 0=Sun
+    const sunday = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate() - todayDow);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + i);
+      const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const todayDs = `${todayDate.getFullYear()}-${String(todayDate.getMonth()+1).padStart(2,'0')}-${String(todayDate.getDate()).padStart(2,'0')}`;
+      return { dateStr: ds, dow: d.getDay(), abbr: DAY[d.getDay()], isToday: ds === todayDs, isPast: d < todayDate };
+    });
+  }, []);
+  const todayStr = next7Days.find(d => d.isToday)?.dateStr;
 
   // Lock district filter for DMs
   useEffect(() => {
@@ -22324,6 +22582,61 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
     if (!isManager) return new Set();
     return new Set(stores.filter(s => isManagersStore(s, user)).map(s => String(s.pc)));
   }, [isManager, stores, user]);
+
+  // Background forecast loading — loads schedule + history blobs in batches of 6 after labor data is ready
+  useEffect(() => {
+    if (!laborData?.stores) return;
+    const pcs = Object.keys(laborData.stores);
+    let cancelled = false;
+    const DAY_ABB = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const projectDay = (sched, hist, dateStr, dow) => {
+      if (!sched?.shifts) return null;
+      const dayShifts = sched.shifts.filter(s => s.date === dateStr);
+      let hrs = 0; const ids = new Set();
+      for (const s of dayShifts) {
+        if (s.startDateTime && s.endDateTime) {
+          hrs += Math.max(0, Math.min((new Date(s.endDateTime) - new Date(s.startDateTime)) / 3600000, 14));
+          if (s.employeeId) ids.add(s.employeeId);
+        }
+      }
+      if (ids.size === 0) return { noSchedule: true };
+      const same = (hist?.daily || [])
+        .filter(d => d.date && d.sales > 0 && d.hoursWorked > 0 && new Date(d.date + 'T12:00:00').getDay() === dow)
+        .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+      if (same.length < 2) return { scheduledCount: ids.size, scheduledHours: Math.round(hrs * 10) / 10, insufficient: true };
+      const avgSales = same.reduce((a, b) => a + b.sales, 0) / same.length;
+      const avgLabor = same.reduce((a, b) => a + b.laborDollars, 0) / same.length;
+      const avgHrs   = same.reduce((a, b) => a + b.hoursWorked, 0) / same.length;
+      const rate     = avgHrs > 0 ? avgLabor / avgHrs : null;
+      const projCost = rate ? hrs * rate : null;
+      const projPct  = projCost && avgSales > 0 ? (projCost / avgSales) * 100 : null;
+      return { scheduledCount: ids.size, scheduledHours: Math.round(hrs * 10) / 10, projectedLaborPct: projPct != null ? Math.round(projPct * 10) / 10 : null };
+    };
+    (async () => {
+      const BATCH = 6;
+      for (let i = 0; i < pcs.length; i += BATCH) {
+        if (cancelled) break;
+        await Promise.all(pcs.slice(i, i + BATCH).map(async pc => {
+          try {
+            const [sched, hist] = await Promise.all([
+              cloudLoad(`pcg_schedule_${pc}`).catch(() => null),
+              cloudLoad(`pcg_labor_store_${pc}`).catch(() => null),
+            ]);
+            if (cancelled) return;
+            const days = {};
+            const now = new Date(); const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+            for (let d = 0; d < 7; d++) {
+              const dt = new Date(et.getFullYear(), et.getMonth(), et.getDate() + d);
+              const ds = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+              days[ds] = projectDay(sched, hist, ds, dt.getDay());
+            }
+            setForecastData(prev => ({ ...prev, [pc]: { loaded: true, days } }));
+          } catch { if (!cancelled) setForecastData(prev => ({ ...prev, [pc]: { loaded: true, days: {} } })); }
+        }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [laborData]);
 
   // Manual refresh — triggers background cron then polls blob for fresh data
   const handleRefresh = async () => {
@@ -22505,6 +22818,28 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
                   )}
                 </div>
               )}
+              {/* Week forecast — day label + % per column */}
+              {(() => {
+                const fc = forecastData[pc];
+                if (!fc?.loaded) return null;
+                if (!next7Days.some(({ dateStr }) => fc.days?.[dateStr]?.projectedLaborPct != null)) return null;
+                return (
+                  <div style={{ marginTop: '0.5rem', paddingTop: '0.45rem', borderTop: `1px solid ${th.cardBorder}44`, display: 'flex' }}>
+                    {next7Days.map(({ dateStr, abbr, isToday, isPast }) => {
+                      const day = fc.days?.[dateStr];
+                      const pct = day?.projectedLaborPct;
+                      const pctColor = pct == null ? th.muted + '50' : pct >= 26 ? '#ef4444' : pct >= 23 ? '#f59e0b' : '#22c55e';
+                      const tip = pct != null ? `${abbr}: ${pct}% · ${day.scheduledCount} staff · ${day.scheduledHours}h` : `${abbr}: no data`;
+                      return (
+                        <div key={dateStr} title={tip} style={{ flex: 1, textAlign: 'center', opacity: isPast ? 0.38 : 1 }}>
+                          <div style={{ fontSize: '0.52rem', color: isToday ? '#FF671F' : th.muted, fontWeight: isToday ? 700 : 400, lineHeight: 1, marginBottom: '0.2rem' }}>{abbr}</div>
+                          <div style={{ fontSize: '0.62rem', fontWeight: 700, color: pctColor, lineHeight: 1 }}>{pct != null ? pct + '%' : '—'}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
@@ -28391,7 +28726,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.49
+            v13.57
           </div>
         )}
         {/* Collapse toggle — desktop only */}

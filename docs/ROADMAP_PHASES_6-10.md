@@ -13,17 +13,17 @@
 ✅- One-click actions: call manager (📞), acknowledge (✓ snooze 4h), delegate to DM (📤 push) Adjust schedule action — not yet (navigates to Labor tab instead)
 ✅- Track resolution time per DM — ack time logged to pcg_action_log, 7-day scorecard per district
 
-### 6.2 AI Sales Forecasting Engine
+### 6.2 AI Sales Forecasting Engine(Give it more time to collect data)(6-10 weeks of data)
 - Train on Pulse POS historical data to predict next-day / next-week sales by store, by hour, by daypart
 - Factor in: day of week, weather (Open-Meteo), holidays, seasonality, local events
 - Display as "Forecast vs Actual" overlay on Pulse charts — managers see how they're tracking in real-time
 - Foundation for labor scheduling, inventory ordering, and prep planning
 
 ### 6.3 Smart Labor Recommendations
-- Use sales forecasts to generate recommended staffing levels per store, per hour
-- Compare actual Paycor schedule against AI-recommended schedule — highlight over/under-staffed periods
-- Show projected labor % before the week starts: "If you run this schedule, projected labor is 24.7%"
-- Alert DMs when a store's schedule is likely to blow past 26% labor threshold
+✅ - Show projected labor % before the week starts — 7-day forecast strip on every store card in Labor tab
+✅ - Alert DMs + managers when a store is projected ≥26% — push notification + branded email (Mon & Thu 6 AM ET via schedule-alerts.js)
+- Use sales forecasts to generate recommended staffing levels per store, per hour (needs 6.2 hourly data — 4+ more weeks)
+- Compare actual Paycor schedule against AI-recommended schedule — highlight over/under-staffed periods (deferred, depends on per-hour forecasting)
 
 ### 6.4 Real-Time Operations Map 
 ✅- Interactive map of all 45+ stores with live status indicators
@@ -65,8 +65,8 @@
 - Forward-looking cash flow projections
 
 ### 7.5 DM Scorecard
-- Rank district managers on composite metrics: sales growth, labor efficiency, turnover rate, project completion
-- Trend over time — is each DM improving?
+75/100 (not fully yet) - Rank district managers on composite metrics: sales growth, labor efficiency, turnover rate, project completion
+✅ - Trend over time — is each DM improving?
 - Used for coaching conversations and bonus calculations
 
 ---
