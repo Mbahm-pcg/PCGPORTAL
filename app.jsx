@@ -11004,12 +11004,20 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   const save = () => {
     if (!form.pc && !form.nickname) { showAlert("error", "PC# or nickname required"); return; }
     const now = new Date().toISOString();
+    // Auto-populate district + dmName from store when saving
+    const matchedStore = stores.find(s => String(s.pc) === String(form.pc));
+    const enriched = {
+      ...form,
+      district:  form.district  ?? matchedStore?.district ?? null,
+      dmName:    form.dmName    || matchedStore?.dmName   || '',
+      storeName: form.storeName || matchedStore?.name     || '',
+    };
     if (editId) {
-      setProjects(ps => ps.map(p => p.id === editId ? { ...form, id: editId, updatedAt: now, lastEditedBy: user?.name || "Unknown", lastEditedAt: now } : p));
+      setProjects(ps => ps.map(p => p.id === editId ? { ...enriched, id: editId, updatedAt: now, lastEditedBy: user?.name || "Unknown", lastEditedAt: now } : p));
       showAlert("success", "Project updated");
       setEditId(null);
     } else {
-      const newProj = { ...form, id: nextId(), createdAt: now, createdBy: user?.name || "", updatedAt: now, lastEditedBy: user?.name || "Unknown", lastEditedAt: now };
+      const newProj = { ...enriched, id: nextId(), createdAt: now, createdBy: user?.name || "", updatedAt: now, lastEditedBy: user?.name || "Unknown", lastEditedAt: now };
       setProjects(ps => [...ps, newProj]);
       showAlert("success", "Project added");
     }
@@ -11027,10 +11035,23 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
     setProjects(ps => ps.map(p => p.id === projId ? { ...p, [key]: value, updatedAt: editNow, lastEditedBy: user?.name || "Unknown", lastEditedAt: editNow } : p));
   };
 
+  // Enrich projects with district/dmName from stores if missing
+  const enrichedProjects = React.useMemo(() => projects.map(p => {
+    if (p.district != null && p.dmName) return p;
+    const store = stores.find(s => String(s.pc) === String(p.pc));
+    if (!store) return p;
+    return {
+      ...p,
+      district: p.district ?? store.district,
+      dmName:   p.dmName   || store.dmName || '',
+      storeName: p.storeName || store.name || '',
+    };
+  }), [projects, stores]);
+
   // Filter & sort
   const isDM = user?.userType === "dm";
-  const filtered = projects.filter(p => {
-    if (isDM && p.district !== user.district) return false;
+  const filtered = enrichedProjects.filter(p => {
+    if (isDM && String(p.district) !== String(user.district)) return false;
     if (filterType !== "All" && p.type !== filterType) return false;
     if (filterPhase !== "All" && getCurrentPhase(p).id !== filterPhase) return false;
     if (search.trim()) {
@@ -11040,7 +11061,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
     return true;
   });
 
-  // Sort for table view
+  // Sort for table view (filtered already uses enrichedProjects)
   const sorted = [...filtered].sort((a, b) => {
     let av, bv;
     if (sortCol === "priority") { av = a.priority || 99; bv = b.priority || 99; }
@@ -12551,6 +12572,10 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                       <td style={{ padding: "0.625rem 0.75rem" }}>
                         <div style={{ fontWeight: 600, color: th.text }}>{p.nickname || p.pc}</div>
                         <div style={{ fontSize: "0.6875rem", color: th.muted }}>{p.address ? p.address.split("\n")[0] : ""}{p.city ? `, ${p.city}` : ""}</div>
+                        {(p.dmName || p.district) && <div style={{ fontSize: "0.6rem", marginTop:2, display:'flex', gap:'0.35rem' }}>
+                          {p.district && <span style={{ background:'#FF671F18', color:'#FF671F', borderRadius:'0.3rem', padding:'0.05rem 0.35rem', fontWeight:700 }}>D{p.district}</span>}
+                          {p.dmName && <span style={{ color:'#FF671F', fontWeight:600 }}>{p.dmName}</span>}
+                        </div>}
                       </td>
                       <td style={{ padding: "0.625rem 0.75rem" }}>
                         <span style={{ padding: "0.125rem 0.5rem", borderRadius: "1rem", fontSize: "0.6875rem", fontWeight: 600, background: (TYPE_COLORS[p.type] || "#666") + "22", color: TYPE_COLORS[p.type] || "#666", whiteSpace: "nowrap" }}>{p.type}</span>
@@ -12607,7 +12632,12 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                         <span style={{ fontWeight: 700, fontSize: "0.8125rem", color: th.text }}>{p.nickname || p.pc}</span>
                         <span style={{ padding: "0.125rem 0.4rem", borderRadius: "0.75rem", fontSize: "0.5625rem", fontWeight: 600, background: (TYPE_COLORS[p.type] || "#666") + "22", color: TYPE_COLORS[p.type] || "#666" }}>{p.type}</span>
                       </div>
-                      {p.pc && <div style={{ fontSize: "0.6875rem", color: th.muted }}>PC# {p.pc}</div>}
+                      <div style={{ fontSize: "0.6875rem", color: th.muted, display:'flex', gap:'0.5rem', flexWrap:'wrap', alignItems:'center' }}>
+                        {p.pc && <span>PC# {p.pc}</span>}
+                        {p.storeName && <span style={{ color:th.muted }}>· {p.storeName}</span>}
+                        {p.dmName && <span style={{ color:'#FF671F', fontWeight:600 }}>· {p.dmName}</span>}
+                        {p.district && <span style={{ color:th.muted }}>D{p.district}</span>}
+                      </div>
                       <div style={{ height: 5, borderRadius: 3, background: th.card3, margin: "0.375rem 0 0.25rem" }}>
                         <div style={{ height: "100%", borderRadius: 3, width: overall + "%", background: overall === 100 ? "#22c55e" : O, transition: "width .3s" }} />
                       </div>
@@ -15799,6 +15829,7 @@ const BASE_TABS = [
   { id: "contacts", label: "Contacts",  icon: (c) => ICONS.contacts(c) },
   { id: "notes",    label: "Notes",     icon: (c) => ICONS.notes(c) },
   { id: "todos",    label: "To-Do",     icon: (c) => ICONS.todos(c) },
+  { id: "calendar", label: "Calendar",  icon: (c) => ICONS.calendar(c) },
   { id: "chat",     label: "Chat",      icon: (c) => ICONS.chat(c) },
   { id: "announcements", label: "Announcements", icon: (c) => ICONS.announcements(c) },
   { id: "kb", label: "Knowledge Base", icon: (c) => ICONS.kb(c) },
@@ -15879,7 +15910,7 @@ const getTabs = (user) => {
     { id: "locations",  label: "Locations",  icon: (c) => ICONS.locations(c) },
     { id: "projects",   label: "Projects",   icon: (c) => ICONS.projects(c) },
     { id: "tickets",    label: "Tickets",    icon: (c) => ICONS.tickets(c) },
-    { id: "calendar",   label: "Calendar",   icon: (c) => ICONS.calendar(c) },
+    { id: "calendar",   label: "Calendar",   icon: (c) => ICONS.calendar(c) }, // calendar now in BASE_TABS too; kept here for sidebar ordering
     { id: "chat",       label: "Chat",       icon: (c) => ICONS.chat(c) },
   ];
   return BASE_TABS;
@@ -25932,6 +25963,228 @@ function nextOccurrence(startDate, freq) {
   return d;
 }
 
+// ── Portal Calendar — tickets, equipment schedules, projects, todos ──────────
+function PortalCalendar({ th, user, stores, todos, projects }) {
+  const O = '#FF671F';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = today.toISOString().slice(0,10);
+  const [tickets,    setTickets]    = React.useState([]);
+  const [schedules,  setSchedules]  = React.useState([]);
+  const [viewDate,   setViewDate]   = React.useState(new Date());
+  const [selectedDay, setSelectedDay] = React.useState(null);
+
+  React.useEffect(() => {
+    cloudLoad('pcg_tickets_v1').then(d => { if (Array.isArray(d)) setTickets(d); }).catch(() => {});
+    cloudLoad(MAINT_SCHEDULE_KEY).then(d => { if (Array.isArray(d)) setSchedules(d); }).catch(() => {});
+  }, []);
+
+  const isDM      = user?.userType === 'dm';
+  const isManager = user?.userType === 'manager';
+
+  const myTickets = React.useMemo(() => {
+    const open = tickets.filter(t => t.status !== 'Closed');
+    if (isManager) {
+      const myPCs = new Set(stores.filter(s => isManagersStore(s, user)).map(s => String(s.pc)));
+      return open.filter(t => myPCs.has(String(t.storePC)));
+    }
+    if (isDM) {
+      const distPCs = new Set(stores.filter(s => String(s.district) === String(user.district)).map(s => String(s.pc)));
+      return open.filter(t => distPCs.has(String(t.storePC)));
+    }
+    return open;
+  }, [tickets, isManager, isDM, stores, user]);
+
+  const myTodos = React.useMemo(() =>
+    (todos || []).filter(t => !t.completed && t.dueDate),
+  [todos]);
+
+  // Enrich projects with district from stores (same fix as AdminProjects)
+  const enrichedCalProjects = React.useMemo(() => (projects||[]).map(p => {
+    if (p.district != null) return p;
+    const s = stores.find(st => String(st.pc) === String(p.pc));
+    return s ? { ...p, district: s.district, storeName: p.storeName || s.name } : p;
+  }), [projects, stores]);
+
+  const myProjects = React.useMemo(() => {
+    if (isManager) return enrichedCalProjects.filter(p => isManagersStore({ pc: p.pc }, user));
+    if (isDM)      return enrichedCalProjects.filter(p => String(p.district) === String(user.district));
+    return enrichedCalProjects;
+  }, [enrichedCalProjects, isManager, isDM, user]);
+
+  const year  = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const firstDay    = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  const eventMap = React.useMemo(() => {
+    const map = {};
+    const add = (d, evt) => { if (!d) return; if (!map[d]) map[d]=[]; map[d].push(evt); };
+    const monthStart = new Date(year, month, 1);
+    const monthEnd   = new Date(year, month+1, 0);
+
+    // Tickets
+    myTickets.forEach(t => {
+      const d = t.createdAt?.slice(0,10);
+      if (d) add(d, { type:'ticket', id:t.id, title:t.title||'Ticket', store:t.storeName, priority:t.priority });
+      if (t.dueDate && t.dueDate !== d) add(t.dueDate, { type:'ticket_due', id:t.id, title:`Due: ${t.title||'Ticket'}`, store:t.storeName, priority:t.priority });
+    });
+
+    // Scheduled maintenance (recurring equipment checks)
+    schedules.forEach(s => {
+      let tmp = new Date(s.startDate + 'T12:00:00');
+      while (tmp <= monthEnd) {
+        if (tmp >= monthStart) add(tmp.toISOString().slice(0,10), { type:'schedule', id:s.id, title:s.title, store:s.storeName, category:s.category, freq:s.freq });
+        if (s.freq==='once') break;
+        else if (s.freq==='weekly')    tmp.setDate(tmp.getDate()+7);
+        else if (s.freq==='biweekly')  tmp.setDate(tmp.getDate()+14);
+        else if (s.freq==='monthly')   tmp.setMonth(tmp.getMonth()+1);
+        else if (s.freq==='quarterly') tmp.setMonth(tmp.getMonth()+3);
+        else if (s.freq==='annual')    tmp.setFullYear(tmp.getFullYear()+1);
+        else break;
+      }
+    });
+
+    // Project milestones (start + estimated completion)
+    myProjects.forEach(p => {
+      if (p.startDate) add(p.startDate, { type:'project', id:p.id, title:`▶ ${p.nickname||p.pc}`, store:p.storeName });
+      if (p.completionDate) add(p.completionDate, { type:'project_end', id:p.id, title:`✓ ${p.nickname||p.pc}`, store:p.storeName });
+    });
+
+    // Todos with due dates
+    myTodos.forEach(t => {
+      if (t.dueDate) add(t.dueDate, { type:'todo', id:t.id, title:t.text||t.title||'Task' });
+    });
+
+    return map;
+  }, [myTickets, schedules, myProjects, myTodos, year, month]);
+
+  const selectedEvents = selectedDay ? (eventMap[selectedDay]||[]) : [];
+  const priorityColor = p => p==='Emergency'?'#ef4444': p==='High'?'#f97316': p==='Medium'?'#3b82f6':'#22c55e';
+  const eventColor = e => {
+    if (e.type==='todo')                    return O;
+    if (e.type==='schedule')                return '#a855f7';
+    if (e.type==='project'||e.type==='project_end') return '#14b8a6';
+    return priorityColor(e.priority);
+  };
+  const eventIcon = e => {
+    if (e.type==='todo')          return '📝';
+    if (e.type==='schedule')      return '🔧';
+    if (e.type==='project')       return '🏗️';
+    if (e.type==='project_end')   return '✅';
+    if (e.type==='ticket_due')    return '⏰';
+    return '🎫';
+  };
+  const upcomingEntries = Object.entries(eventMap)
+    .filter(([d]) => d >= todayStr)
+    .sort(([a],[b]) => a.localeCompare(b))
+    .slice(0,12);
+
+  return (
+    <div className="fade-in">
+      <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.25rem', color:th.text, marginBottom:'0.2rem' }}>📅 Calendar</div>
+      <div style={{ fontSize:'0.78rem', color:th.muted, marginBottom:'1.25rem' }}>
+        {isManager ? 'Your store' : isDM ? `District ${user?.district}` : 'Network'} · tickets · equipment · projects · tasks
+      </div>
+      <div style={{ display:'flex', gap:'1rem', height:'calc(100vh - 175px)', minHeight:480 }}>
+        {/* Grid */}
+        <div style={{ flex:3, display:'flex', flexDirection:'column', ...card(th), overflow:'hidden', minWidth:0 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.875rem 1.25rem', borderBottom:`1px solid ${th.cardBorder}`, flexShrink:0 }}>
+            <button onClick={()=>setViewDate(new Date(year,month-1,1))} style={{ background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:8, color:th.text, padding:'0.4rem 0.8rem', cursor:'pointer', fontWeight:700, fontSize:'1rem' }}>‹</button>
+            <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1.05rem', color:th.text }}>{MONTHS_FULL[month]} {year}</span>
+            <div style={{ display:'flex', gap:'0.4rem' }}>
+              <button onClick={()=>setViewDate(new Date())} style={{ background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:8, color:th.muted, padding:'0.4rem 0.85rem', cursor:'pointer', fontSize:'0.82rem' }}>Today</button>
+              <button onClick={()=>setViewDate(new Date(year,month+1,1))} style={{ background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:8, color:th.text, padding:'0.4rem 0.8rem', cursor:'pointer', fontWeight:700, fontSize:'1rem' }}>›</button>
+            </div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', background:th.card2, flexShrink:0 }}>
+            {DAYS.map(d=><div key={d} style={{ padding:'0.6rem 0', textAlign:'center', fontSize:'0.72rem', fontWeight:700, color:th.muted, textTransform:'uppercase', letterSpacing:1 }}>{d}</div>)}
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gridAutoRows:'1fr', gap:1, background:th.cardBorder, flex:1 }}>
+            {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`} style={{ background:th.card, opacity:0.5 }}/>)}
+            {Array.from({length:daysInMonth}).map((_,i)=>{
+              const day=i+1;
+              const dateStr=`${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+              const isToday=dateStr===todayStr;
+              const isSel=selectedDay===dateStr;
+              const evts=eventMap[dateStr]||[];
+              return (
+                <div key={day} onClick={()=>setSelectedDay(isSel?null:dateStr)} style={{ background:isSel?`${O}12`:th.card, padding:'0.4rem 0.45rem', cursor:'pointer', borderTop:isSel?`2px solid ${O}`:'2px solid transparent', transition:'background 0.12s', overflow:'hidden' }}>
+                  <div style={{ fontFamily:"'Raleway'", fontWeight:isToday?900:600, fontSize:'0.85rem', color:isToday?'#fff':th.text, background:isToday?O:'transparent', width:24, height:24, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:3 }}>{day}</div>
+                  {evts.slice(0,3).map((e,ei)=>(
+                    <div key={ei} style={{ fontSize:'0.62rem', fontWeight:600, padding:'2px 5px', borderRadius:4, marginBottom:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', background:`${eventColor(e)}20`, color:eventColor(e), borderLeft:`2px solid ${eventColor(e)}` }}>
+                      {eventIcon(e)} {e.title}
+                    </div>
+                  ))}
+                  {evts.length>3 && <div style={{ fontSize:'0.58rem', color:th.muted, marginTop:1 }}>+{evts.length-3} more</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Side panel */}
+        <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'0.75rem', minWidth:220, maxWidth:300 }}>
+          <div style={{ ...card(th), flex:1, overflowY:'auto', minHeight:0, padding:'1rem' }}>
+            {selectedDay ? (
+              <>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.75rem' }}>
+                  <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.88rem', color:th.text }}>
+                    {new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}
+                  </div>
+                  <button onClick={()=>setSelectedDay(null)} style={{ background:'none', border:'none', color:th.muted, cursor:'pointer', fontSize:'0.85rem' }}>✕</button>
+                </div>
+                {selectedEvents.length===0
+                  ? <div style={{ color:th.muted, fontSize:'0.82rem' }}>Nothing scheduled.</div>
+                  : selectedEvents.map((e,i)=>(
+                    <div key={i} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:10, padding:'0.6rem 0.7rem', marginBottom:'0.5rem', borderLeft:`3px solid ${eventColor(e)}` }}>
+                      <div style={{ fontSize:'0.62rem', fontWeight:700, color:eventColor(e), marginBottom:3 }}>
+                        {eventIcon(e)} {e.type==='ticket'?'Ticket': e.type==='ticket_due'?'Due Date': e.type==='schedule'?'Equipment Check': e.type==='project'?'Project Start': e.type==='project_end'?'Project End':'Task'}
+                      </div>
+                      <div style={{ fontWeight:700, fontSize:'0.83rem', color:th.text }}>{e.title}</div>
+                      {e.store && <div style={{ fontSize:'0.72rem', color:th.muted, marginTop:2 }}>{e.store}</div>}
+                      {e.category && <div style={{ fontSize:'0.68rem', color:th.muted, marginTop:2 }}>{e.category} · {e.freq}</div>}
+                    </div>
+                  ))
+                }
+              </>
+            ) : (
+              <>
+                <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.88rem', color:th.text, marginBottom:'0.65rem' }}>Upcoming</div>
+                {upcomingEntries.length===0
+                  ? <div style={{ color:th.muted, fontSize:'0.82rem' }}>Nothing coming up.</div>
+                  : upcomingEntries.flatMap(([d,evts])=>evts.map((e,i)=>(
+                    <div key={`${d}${i}`} onClick={()=>setSelectedDay(d)} style={{ display:'flex', gap:'0.55rem', alignItems:'flex-start', padding:'0.45rem 0', borderBottom:`1px solid ${th.cardBorder}`, cursor:'pointer' }}>
+                      <div style={{ minWidth:32, textAlign:'center', flexShrink:0 }}>
+                        <div style={{ fontSize:'0.58rem', fontWeight:700, color:th.muted, textTransform:'uppercase' }}>{new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short'})}</div>
+                        <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1rem', color:eventColor(e), lineHeight:1.1 }}>{new Date(d+'T12:00:00').getDate()}</div>
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:'0.78rem', fontWeight:700, color:th.text, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{eventIcon(e)} {e.title}</div>
+                        {e.store && <div style={{ fontSize:'0.68rem', color:th.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.store}</div>}
+                      </div>
+                    </div>
+                  )))
+                }
+              </>
+            )}
+          </div>
+          <div style={{ ...card(th), padding:'0.75rem 1rem' }}>
+            <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.78rem', color:th.text, marginBottom:'0.5rem' }}>Legend</div>
+            {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],['#a855f7','🔧 Equipment check'],['#14b8a6','🏗️ Project'],  [O,'📝 Task/Todo']].map(([c,l])=>(
+              <div key={l} style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom:'0.3rem' }}>
+                <div style={{ width:10, height:10, borderRadius:'50%', background:c, flexShrink:0 }} />
+                <span style={{ fontSize:'0.7rem', color:th.muted }}>{l}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MaintenanceCalendar({ th, user, stores }) {
   const O = '#FF671F';
   const today = new Date(); today.setHours(0,0,0,0);
@@ -27699,6 +27952,12 @@ function PCGPortal() {
       const next = { ...sidebarGroupsOpen, [groupKey]: !isOpen };
       setSidebarGroupsOpen(next);
       try { localStorage.setItem('pcg_sidebar_groups', JSON.stringify(next)); } catch {}
+      // If opening, scroll the sidebar nav to the bottom after React re-renders
+      if (!isOpen && navRef?.current) {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          navRef.current.scrollTo({ top: navRef.current.scrollHeight, behavior: 'smooth' });
+        }));
+      }
     };
 
     const iconColor = hasActiveChild ? color : th.muted;
@@ -28002,23 +28261,36 @@ function PCGPortal() {
           );
         })}
 
-        {/* DM section */}
-        {user?.userType === "dm" && (
-          <>
-            <SectionHeader label="My District" accent="#74c0fc" collapsed={collapsed} />
-            {getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
-              <NavButton
-                key={t.id}
-                tabDef={t}
-                accent="#74c0fc"
-                isActive={tab === t.id}
-                collapsed={collapsed}
-                badge={t.id === "reports" && reportsUnreadCount > 0 ? reportsUnreadCount : null}
-                onClick={() => { setTab(t.id); onNav && onNav(); }}
-              />
-            ))}
-          </>
-        )}
+        {/* DM section — grouped accordion */}
+        {user?.userType === "dm" && (() => {
+          const dmTabs = getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id));
+          const DM_GROUPS = [
+            { key:'dm_loc',  label:'Locations & Map', color:'#74c0fc', icon:(c)=>ICONS.locations(c), ids:['map','locations'] },
+            { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['labor','analytics','anomalies'] },
+            { key:'dm_biz',  label:'District',        color:'#74c0fc', icon:(c)=>ICONS.dollar(c),    ids:['cash','reports','projects','scorecard'] },
+          ];
+          return (
+            <>
+              <SectionHeader label="My District" accent="#74c0fc" collapsed={collapsed} />
+              {DM_GROUPS.map(grp => {
+                const grpTabs = grp.ids.map(id => dmTabs.find(t => t.id === id)).filter(Boolean);
+                if (grpTabs.length === 0) return null;
+                return (
+                  <AdminGroup
+                    key={grp.key}
+                    groupKey={grp.key}
+                    icon={grp.icon}
+                    label={grp.label}
+                    color={grp.color}
+                    tabs={grpTabs}
+                    collapsed={collapsed}
+                    onNav={onNav}
+                  />
+                );
+              })}
+            </>
+          );
+        })()}
 
         {/* Manager section */}
         {user?.userType === "manager" && (
@@ -28116,7 +28388,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.41
+            v13.47
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -28238,6 +28510,7 @@ function PCGPortal() {
                 {tab === "map"       && "Real-time view of all 45+ stores — color-coded by labor %, live who's clocked in, open tickets per pin."}
                 {tab === "anomalies"  && "Rolling per-store baselines — flags unusual sales or labor patterns for this store's day-of-week history."}
                 {tab === "scorecard"  && "Weekly DM ranking — composite score across labor efficiency, sales growth, alert response time, and ticket health."}
+                {tab === "calendar"  && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates."}
                 {tab === "locations" && "Store locations and operational details."}
                 {tab === "analytics" && "Sales data and performance metrics."}
                 {tab === "pulse" && "Live sales monitoring and weekly trends."}
@@ -28436,7 +28709,15 @@ function PCGPortal() {
 
         {/* Announcement banner — slides in from top */}
         {(() => {
-          const pending = announcements.filter(a => a.active && !announcementsDismissed[`${user.id}_${a.id}`]);
+          const myDist = user.district ? Number(user.district) : null;
+          const pending = announcements.filter(a => {
+            if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
+            if (!a.targets) return true; // no targeting = show everyone
+            const { roles, districts } = a.targets;
+            if (roles?.includes(user.userType)) return true;
+            if (myDist && districts?.includes(myDist)) return true;
+            return false;
+          });
           if (pending.length === 0) return null;
           const dismiss = () => {
             const updates = {};
@@ -28460,37 +28741,29 @@ function PCGPortal() {
             });
           };
           return (
-            <div style={{ position:"fixed", top:0, left:0, right:0, zIndex:9999, animation:"slideDown 0.35s cubic-bezier(0.4,0,0.2,1)" }}>
-              {/* Orange accent line */}
-              <div style={{ height:3, background:`linear-gradient(90deg, ${O}, #ff9055)` }} />
-              <div style={{ background:th.card, borderBottom:`1px solid ${th.cardBorder}`, boxShadow:"0 8px 32px rgba(0,0,0,0.2)" }}>
-                <div style={{ maxWidth:860, margin:"0 auto", padding:"1rem 1.5rem" }}>
-                  {/* Header row */}
-                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: pending.length === 1 ? "0.75rem" : "1rem" }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:"0.625rem" }}>
-                      <span style={{ fontSize:"1.1rem" }}>📢</span>
-                      <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"0.95rem", color:th.text }}>
-                        {pending.length > 1 ? `${pending.length} Announcements` : pending[0].title}
-                      </span>
-                      <span style={{ fontSize:"0.65rem", color:th.muted, background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:"1rem", padding:"0.1rem 0.5rem" }}>
-                        by {pending[0].createdBy} · {new Date(pending[0].createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}
-                      </span>
+            <div style={{ position:"fixed", top:20, right:24, zIndex:9999, width:"min(420px, calc(100vw - 48px))", animation:"slideDown 0.35s cubic-bezier(0.4,0,0.2,1)" }}>
+              <div style={{ ...card(th), padding:0, overflow:"hidden", boxShadow:"0 12px 40px rgba(0,0,0,0.3)", borderLeft:`3px solid ${O}` }}>
+                {/* Header */}
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0.875rem 1rem 0.75rem", borderBottom:`1px solid ${th.cardBorder}` }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", minWidth:0 }}>
+                    <span style={{ fontSize:"1rem", flexShrink:0 }}>📢</span>
+                    <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"0.88rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {pending.length > 1 ? `${pending.length} Announcements` : pending[0].title}
+                    </span>
+                  </div>
+                  <button onClick={dismiss} style={{ background:O, border:"none", borderRadius:"2rem", color:"#fff", fontSize:"0.72rem", fontWeight:700, padding:"0.28rem 0.75rem", cursor:"pointer", fontFamily:"'Source Sans 3'", whiteSpace:"nowrap", flexShrink:0, marginLeft:"0.5rem" }}>
+                    Got it 👍
+                  </button>
+                </div>
+                {/* Content */}
+                <div style={{ padding:"0.75rem 1rem", maxHeight:"55vh", overflowY:"auto" }}>
+                  {pending.map((a, i) => (
+                    <div key={a.id} style={{ marginBottom: i < pending.length-1 ? "0.875rem" : 0, paddingBottom: i < pending.length-1 ? "0.875rem" : 0, borderBottom: i < pending.length-1 ? `1px solid ${th.cardBorder}` : "none" }}>
+                      {pending.length > 1 && <div style={{ fontWeight:700, fontSize:"0.82rem", color:th.text, marginBottom:"0.3rem" }}>{a.title}</div>}
+                      <div style={{ fontSize:"0.82rem", color:th.muted, lineHeight:1.6 }}>{renderMsg(a.message)}</div>
+                      <div style={{ fontSize:"0.62rem", color:th.muted, marginTop:"0.4rem", opacity:0.7 }}>by {a.createdBy} · {new Date(a.createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
                     </div>
-                    <button onClick={dismiss} style={{ background:O, border:"none", borderRadius:"2rem", color:"#fff", fontSize:"0.78rem", fontWeight:700, padding:"0.35rem 1rem", cursor:"pointer", fontFamily:"'Source Sans 3'", whiteSpace:"nowrap" }}>
-                      Got it 👍
-                    </button>
-                  </div>
-                  {/* Content */}
-                  <div style={{ maxHeight:"38vh", overflowY:"auto", paddingRight:"0.25rem" }}>
-                    {pending.map((a, i) => (
-                      <div key={a.id} style={{ marginBottom: i < pending.length-1 ? "1rem" : 0, paddingBottom: i < pending.length-1 ? "1rem" : 0, borderBottom: i < pending.length-1 ? `1px solid ${th.cardBorder}` : "none" }}>
-                        {pending.length > 1 && <div style={{ fontWeight:700, fontSize:"0.88rem", color:th.text, marginBottom:"0.375rem" }}>{a.title}</div>}
-                        <div style={{ fontSize:"0.85rem", color:th.muted }}>
-                          {renderMsg(a.message)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -28537,6 +28810,7 @@ function PCGPortal() {
           {tab === "email"    && (isFullAdmin(user) || isOfficeStaff) && <EmailTab th={th} user={user} />}
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={setTab} />}
           {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} />}
+          {tab === "calendar" && user?.userType !== "maintenance" && <PortalCalendar th={th} user={user} stores={stores} todos={todos} projects={projects} />}
         </div>
       </div>
 
