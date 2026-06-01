@@ -10988,6 +10988,9 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   }, []);
 
   const editable = canEditProjects(user);
+  const isMaintenance = user?.userType === 'maintenance';
+  const isFieldView = isMaintenance || user?.userType === 'dm'; // field crew + DMs: restricted project view
+  const MAINT_PHASES = ['equipment_ordering', 'construction']; // only phases field view can see
   const nextId = () => Math.max(0, ...projects.map(p => p.id)) + 1;
 
   // Auto-fill from stores when PC# changes
@@ -11155,8 +11158,8 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
           )}
         </div>
 
-        {/* Budget & Contractor Summary */}
-        {detailTab === "checklist" && (
+        {/* Budget & Contractor Summary — hidden for DM + maintenance */}
+        {detailTab === "checklist" && !isFieldView && (
           <div style={{ ...card(th), padding: "1.25rem", marginBottom: "1.25rem" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               <div>
@@ -11281,7 +11284,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
         {/* Quick-nav phase tiles */}
         {detailTab === "checklist" && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem", marginBottom: "1rem" }}>
-            {PROJECT_PHASES.map(phase => {
+            {PROJECT_PHASES.filter(ph => !isFieldView || MAINT_PHASES.includes(ph.id)).map(phase => {
               const skp = isPhaseSkipped(p, phase);
               const { pct } = skp ? { pct: 100 } : getPhaseCompletion(p, phase);
               return (
@@ -11292,16 +11295,16 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                 </button>
               );
             })}
-            <button onClick={() => { const el = document.getElementById("phase-inspections"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+            {!isFieldView && <button onClick={() => { const el = document.getElementById("phase-inspections"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}
               style={{ display: "flex", alignItems: "center", gap: "0.3rem", padding: "0.312rem 0.625rem", borderRadius: "0.375rem", border: "1px solid #ef444444", background: "#ef444411", cursor: "pointer", fontSize: "0.6875rem", fontWeight: 600, color: "#ef4444", whiteSpace: "nowrap" }}>
               <span style={{ fontSize: "0.75rem" }}>🔍</span> Inspections
               {(p.inspections || []).length > 0 && <span style={{ marginLeft: "0.125rem", fontSize: "0.5625rem", fontWeight: 700 }}>{(p.inspections || []).length}</span>}
-            </button>
+            </button>}
           </div>
         )}
 
-        {/* Phase sections with checklists */}
-        {detailTab === "checklist" && PROJECT_PHASES.map(phase => {
+        {/* Phase sections with checklists — maintenance only sees Equipment Ordering + Construction/Install */}
+        {detailTab === "checklist" && PROJECT_PHASES.filter(ph => !isFieldView || MAINT_PHASES.includes(ph.id)).map(phase => {
           const skipped = isPhaseSkipped(p, phase);
           const { done, total, pct } = skipped ? { done: 0, total: 0, pct: 100 } : getPhaseCompletion(p, phase);
           const isZoning = phase.id === "zoning";
@@ -19467,50 +19470,50 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
           <div style={{ ...card(th), padding:"1.1rem 1.15rem" }}>
             <BusinessCasesCard user={user} th={th} inline={true} stores={stores} setAnnouncements={setAnnouncements} showAlert={showAlert} />
           </div>
-          {showTickets && (
-            <div style={{ ...card(th), padding:"1.1rem 1.15rem", display:"flex", flexDirection:"column" }}>
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.875rem" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:"0.5rem" }}>
-                  <span style={{ fontSize:"1rem" }}>🎫</span>
-                  <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"0.85rem", color:th.text }}>Service Tickets</span>
-                </div>
-                <button onClick={()=>setTab("tickets")} style={{ background:"none", border:"none", color:O, fontSize:"0.72rem", fontWeight:700, cursor:"pointer", padding:0 }}>View All →</button>
-              </div>
-              <div style={{ display:"flex", gap:"0.6rem", marginBottom:"0.875rem" }}>
-                {[
-                  { label:"Open", value:ticketStats.open, color:"#3b82f6" },
-                  { label:"In Progress", value:ticketStats.inProg, color:O },
-                  { label:"High Priority", value:ticketStats.highPrio, color:"#ef4444" },
-                  ...(ticketStats.overdue > 0 ? [{ label:"Overdue", value:ticketStats.overdue, color:"#ef4444" }] : []),
-                ].map(s => (
-                  <div key={s.label} style={{ flex:"1 1 60px", textAlign:"center", background:s.color+"13", borderRadius:"0.5rem", padding:"0.5rem 0.25rem", border:`1px solid ${s.color}28` }}>
-                    <div style={{ fontSize:"1.25rem", fontWeight:800, color:s.color, fontFamily:"'Raleway'", lineHeight:1 }}>{s.value}</div>
-                    <div style={{ fontSize:"0.58rem", color:th.muted, fontWeight:700, textTransform:"uppercase", letterSpacing:0.4, marginTop:"0.2rem" }}>{s.label}</div>
+              {showTickets && (
+                <div style={{ ...card(th), padding:"1.1rem 1.15rem", display:"flex", flexDirection:"column" }}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.875rem" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:"0.5rem" }}>
+                      <span style={{ fontSize:"1rem" }}>🎫</span>
+                      <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"0.85rem", color:th.text }}>Service Tickets</span>
+                    </div>
+                    <button onClick={()=>setTab("tickets")} style={{ background:"none", border:"none", color:O, fontSize:"0.72rem", fontWeight:700, cursor:"pointer", padding:0 }}>View All →</button>
                   </div>
-                ))}
-              </div>
-              <div style={{ height:"1px", background:th.cardBorder, marginBottom:"0.75rem" }} />
-              {ticketStats.recent.length > 0 ? (
-                <div style={{ overflowY:"auto", maxHeight:"260px", display:"flex", flexDirection:"column", gap:"0.35rem", flex:1 }}>
-                  {ticketStats.recent.map(t => {
-                    const pClr = t.priority==="High"?"#ef4444":t.priority==="Medium"?"#f59e0b":"#22c55e";
-                    const sClr = t.status==="Open"?"#3b82f6":O;
-                    return (
-                      <div key={t.id} onClick={()=>setTab("tickets")} style={{ display:"flex", alignItems:"center", gap:"0.5rem", padding:"0.4rem 0.5rem", borderRadius:"0.4rem", cursor:"pointer", borderLeft:`3px solid ${pClr}`, background:th.bg }}>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:"0.75rem", fontWeight:700, color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.number} — {t.title}</div>
-                          <div style={{ fontSize:"0.65rem", color:th.muted }}>{t.storeName}</div>
-                        </div>
-                        <span style={{ fontSize:"0.62rem", fontWeight:700, color:sClr, background:sClr+"18", padding:"0.12rem 0.4rem", borderRadius:"0.4rem", flexShrink:0 }}>{t.status}</span>
+                  <div style={{ display:"flex", gap:"0.6rem", marginBottom:"0.875rem" }}>
+                    {[
+                      { label:"Open", value:ticketStats.open, color:"#3b82f6" },
+                      { label:"In Progress", value:ticketStats.inProg, color:O },
+                      { label:"High Priority", value:ticketStats.highPrio, color:"#ef4444" },
+                      ...(ticketStats.overdue > 0 ? [{ label:"Overdue", value:ticketStats.overdue, color:"#ef4444" }] : []),
+                    ].map(s => (
+                      <div key={s.label} style={{ flex:"1 1 60px", textAlign:"center", background:s.color+"13", borderRadius:"0.5rem", padding:"0.5rem 0.25rem", border:`1px solid ${s.color}28` }}>
+                        <div style={{ fontSize:"1.25rem", fontWeight:800, color:s.color, fontFamily:"'Raleway'", lineHeight:1 }}>{s.value}</div>
+                        <div style={{ fontSize:"0.58rem", color:th.muted, fontWeight:700, textTransform:"uppercase", letterSpacing:0.4, marginTop:"0.2rem" }}>{s.label}</div>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
+                  <div style={{ height:"1px", background:th.cardBorder, marginBottom:"0.75rem" }} />
+                  {ticketStats.recent.length > 0 ? (
+                    <div style={{ overflowY:"auto", maxHeight:"260px", display:"flex", flexDirection:"column", gap:"0.35rem", flex:1 }}>
+                      {ticketStats.recent.map(t => {
+                        const pClr = t.priority==="High"?"#ef4444":t.priority==="Medium"?"#f59e0b":"#22c55e";
+                        const sClr = t.status==="Open"?"#3b82f6":O;
+                        return (
+                          <div key={t.id} onClick={()=>setTab("tickets")} style={{ display:"flex", alignItems:"center", gap:"0.5rem", padding:"0.4rem 0.5rem", borderRadius:"0.4rem", cursor:"pointer", borderLeft:`3px solid ${pClr}`, background:th.bg }}>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontSize:"0.75rem", fontWeight:700, color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.number} — {t.title}</div>
+                              <div style={{ fontSize:"0.65rem", color:th.muted }}>{t.storeName}</div>
+                            </div>
+                            <span style={{ fontSize:"0.62rem", fontWeight:700, color:sClr, background:sClr+"18", padding:"0.12rem 0.4rem", borderRadius:"0.4rem", flexShrink:0 }}>{t.status}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize:"0.75rem", color:th.muted, textAlign:"center", padding:"0.75rem 0" }}>No open tickets</div>
+                  )}
                 </div>
-              ) : (
-                <div style={{ fontSize:"0.75rem", color:th.muted, textAlign:"center", padding:"0.75rem 0" }}>No open tickets</div>
               )}
-            </div>
-          )}
         </div>
         );
       })()}
@@ -26645,11 +26648,11 @@ function PCGPortal() {
     };
   }, [user]);
 
-  // Inactivity session timeout — 5 min total (4min45s idle → 15s warning → logout)
+  // Inactivity session timeout — 30 min total (29min45s idle → 15s warning → logout)
   useEffect(() => {
     if (!user || user.userType?.startsWith('kiosk')) return;
-    const WARN_AFTER = 4 * 60 * 1000 + 45 * 1000;
-    const LOGOUT_AFTER = 5 * 60 * 1000;
+    const WARN_AFTER = 29 * 60 * 1000 + 45 * 1000;
+    const LOGOUT_AFTER = 30 * 60 * 1000;
 
     const resetActivity = () => {
       lastActivityRef.current = Date.now();
@@ -28388,7 +28391,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.47
+            v13.49
           </div>
         )}
         {/* Collapse toggle — desktop only */}
