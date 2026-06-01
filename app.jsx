@@ -45,6 +45,7 @@ const ICONS = {
   chat: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"})}</>} />,
   announcements: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"})}{React.createElement("path",{d:"M13.73 21a2 2 0 0 1-3.46 0"})}</>} />,
   anomalies: (c) => <Icon color={c} d={<>{React.createElement("polyline",{points:"22 12 18 12 15 21 9 3 6 12 2 12"})}</>} />,
+  scorecard: (c) => <Icon color={c} d={<>{React.createElement("line",{x1:"18",y1:"20",x2:"18",y2:"10"})}{React.createElement("line",{x1:"12",y1:"20",x2:"12",y2:"4"})}{React.createElement("line",{x1:"6",y1:"20",x2:"6",y2:"14"})}{React.createElement("circle",{cx:"18",cy:"8",r:"2"})}{React.createElement("circle",{cx:"12",cy:"2",r:"2"})}{React.createElement("circle",{cx:"6",cy:"12",r:"2"})}</>} />,
   map: (c) => <Icon color={c} d={<>{React.createElement("polygon",{points:"1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"18"})}{React.createElement("line",{x1:"16",y1:"6",x2:"16",y2:"22"})}</>} />,
   locations: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"})}{React.createElement("circle",{cx:"12",cy:"10",r:"3"})}</>} />,
   analytics: (c) => <Icon color={c} d={<>{React.createElement("line",{x1:"18",y1:"20",x2:"18",y2:"10"})}{React.createElement("line",{x1:"12",y1:"20",x2:"12",y2:"4"})}{React.createElement("line",{x1:"6",y1:"20",x2:"6",y2:"14"})}</>} />,
@@ -15814,6 +15815,7 @@ const getTabs = (user) => {
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
+    { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
     { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
@@ -15830,11 +15832,12 @@ const getTabs = (user) => {
     { id: "map",       label: "Map",       icon: '🗺️' },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
-    { id: "anomalies", label: "Anomalies", icon: (c) => ICONS.anomalies(c) },
-    { id: "pulse",     label: "Pulse",     icon: (c) => ICONS.pulse(c), green: true },
-    { id: "labor",     label: "Labor",     icon: (c) => ICONS.dollar(c) },
+    { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
+    { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
+    { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
+    { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
-    { id: "reports",   label: "Reports",   icon: (c) => ICONS.reports(c) },
+    { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
     { id: "email",     label: "Email",     icon: '📧' },
@@ -18464,6 +18467,148 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+// ── 7.5 DM Scorecard ─────────────────────────────────────────────────────────
+function DmScorecardTab({ th, users, districts }) {
+  const [history,  setHistory]  = React.useState(null);
+  const [loading,  setLoading]  = React.useState(true);
+  const O = '#FF671F';
+
+  React.useEffect(() => {
+    cloudLoad('pcg_dm_scorecard').then(d => {
+      if (Array.isArray(d)) setHistory(d);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  const current = history?.[0];
+  const previous = history?.[1];
+
+  const fmtTrend = (curr, prev, higherIsBetter = true) => {
+    if (curr == null || prev == null) return null;
+    const delta = curr - prev;
+    if (Math.abs(delta) < 0.5) return { arrow: '→', color: '#94a3b8', label: 'no change' };
+    const improved = higherIsBetter ? delta > 0 : delta < 0;
+    return {
+      arrow: improved ? '↑' : '↓',
+      color: improved ? '#22c55e' : '#ef4444',
+      label: `${delta > 0 ? '+' : ''}${delta.toFixed(1)}`,
+    };
+  };
+
+  const rankTrend = (currRank, prevRank) => {
+    if (currRank == null || prevRank == null) return null;
+    const delta = prevRank - currRank; // positive = moved up
+    if (delta === 0) return { arrow: '→', color: '#94a3b8' };
+    return { arrow: delta > 0 ? '↑' : '↓', color: delta > 0 ? '#22c55e' : '#ef4444', label: `${Math.abs(delta)}` };
+  };
+
+  const getDMName = (district) => {
+    const dm = (users || []).find(u => u.userType === 'dm' && String(u.district) === String(district));
+    return dm?.name || `District ${district}`;
+  };
+
+  const scoreColor = (score) => {
+    if (score == null) return '#94a3b8';
+    if (score >= 75) return '#22c55e';
+    if (score >= 55) return '#f59e0b';
+    return '#ef4444';
+  };
+
+  const rows = current ? Object.entries(current.scores)
+    .filter(([, s]) => s.composite != null)
+    .sort(([, a], [, b]) => b.composite - a.composite)
+    : [];
+
+  return (
+    <div className="fade-in">
+      {/* Header */}
+      <div style={{ ...card(th), padding:'1.25rem 1.5rem', marginBottom:'1.25rem' }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexWrap:'wrap', gap:'0.75rem' }}>
+          <div>
+            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.25rem', color:th.text }}>
+              📊 DM Scorecard
+            </div>
+            <div style={{ fontSize:'0.78rem', color:th.muted, marginTop:'0.2rem' }}>
+              Weekly composite ranking · labor efficiency · sales growth · alert response · ticket health
+            </div>
+            {current && <div style={{ fontSize:'0.7rem', color:th.muted, marginTop:'0.15rem' }}>Week of {current.weekOf}{previous ? ` · vs week of ${previous.weekOf}` : ''}</div>}
+          </div>
+          {loading && <span style={{ fontSize:'0.75rem', color:th.muted }}>⏳ Loading…</span>}
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ ...card(th), padding:'3rem', textAlign:'center', color:th.muted }}>⏳ Loading scorecard…</div>
+      ) : !current ? (
+        <div style={{ ...card(th), padding:'3rem', textAlign:'center' }}>
+          <div style={{ fontSize:'2rem', marginBottom:'0.5rem' }}>📋</div>
+          <div style={{ fontFamily:"'Raleway'", fontWeight:700, color:th.text, marginBottom:'0.25rem' }}>No scorecard data yet</div>
+          <div style={{ fontSize:'0.78rem', color:th.muted }}>Scores are computed every Sunday morning. Check back after the next weekly run.</div>
+        </div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+          {rows.map(([district, score], idx) => {
+            const prevScore = previous?.scores?.[district];
+            const rt = rankTrend(score.rank, prevScore?.rank);
+            const ct = fmtTrend(score.composite, prevScore?.composite);
+            const dmName = getDMName(district);
+            const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx+1}`;
+
+            return (
+              <div key={district} style={{ ...card(th), padding:'1rem 1.25rem', borderLeft:`3px solid ${scoreColor(score.composite)}` }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'1rem', flexWrap:'wrap' }}>
+                  {/* Rank + name */}
+                  <div style={{ minWidth:160 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.15rem' }}>
+                      <span style={{ fontSize:'1.1rem' }}>{medal}</span>
+                      <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.95rem', color:th.text }}>{dmName}</span>
+                      <span style={{ fontSize:'0.62rem', color:th.muted }}>D{district}</span>
+                      {rt && <span style={{ fontSize:'0.72rem', fontWeight:700, color:rt.color }}>{rt.arrow}{rt.label && ` ${rt.label}`}</span>}
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
+                      <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.6rem', color:scoreColor(score.composite), lineHeight:1 }}>{score.composite}</span>
+                      <span style={{ fontSize:'0.65rem', color:th.muted }}>/ 100</span>
+                      {ct && <span style={{ fontSize:'0.72rem', fontWeight:700, color:ct.color }}>{ct.arrow} {ct.label}</span>}
+                    </div>
+                  </div>
+
+                  {/* Metric pills */}
+                  <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', flex:1 }}>
+                    {[
+                      { label:'Labor', value: score.avgLaborPct != null ? `${score.avgLaborPct}%` : '—', score: score.laborScore, prev: previous?.scores?.[district]?.avgLaborPct, higherIsBetter: false },
+                      { label:'Sales', value: score.avgGrowthPct != null ? `${score.avgGrowthPct > 0 ? '+' : ''}${score.avgGrowthPct}%` : '—', score: score.salesScore, prev: previous?.scores?.[district]?.avgGrowthPct, higherIsBetter: true },
+                      { label:'Response', value: score.avgRespMin != null ? score.avgRespMin < 60 ? `${score.avgRespMin}m` : `${(score.avgRespMin/60).toFixed(1)}h` : '—', score: score.responseScore, prev: previous?.scores?.[district]?.avgRespMin, higherIsBetter: false },
+                      { label:'Tickets', value: `${score.openTickets} open`, score: score.ticketScore, prev: previous?.scores?.[district]?.openTickets, higherIsBetter: false },
+                    ].map(m => (
+                      <div key={m.label} style={{ textAlign:'center', padding:'0.35rem 0.75rem', borderRadius:'0.5rem', background:th.card2, minWidth:72 }}>
+                        <div style={{ fontSize:'0.85rem', fontWeight:700, color: m.score != null ? scoreColor(m.score) : th.muted }}>{m.value}</div>
+                        <div style={{ fontSize:'0.58rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.5, marginTop:2 }}>{m.label}</div>
+                        {m.score != null && <div style={{ fontSize:'0.58rem', color:th.muted, marginTop:1 }}>{m.score}pts</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Score key */}
+      <div style={{ ...card(th), padding:'0.875rem 1.25rem', marginTop:'1.25rem', display:'flex', gap:'1.5rem', flexWrap:'wrap', alignItems:'center' }}>
+        <span style={{ fontSize:'0.72rem', fontWeight:700, color:th.text }}>Score key:</span>
+        {[['≥75', '#22c55e', 'Strong'], ['55–74', '#f59e0b', 'Watch'], ['<55', '#ef4444', 'Needs attention']].map(([range, color, label]) => (
+          <div key={range} style={{ display:'flex', alignItems:'center', gap:'0.35rem' }}>
+            <div style={{ width:10, height:10, borderRadius:'50%', background:color }} />
+            <span style={{ fontSize:'0.72rem', color:th.muted }}>{range} — {label}</span>
+          </div>
+        ))}
+        <span style={{ fontSize:'0.68rem', color:th.muted, marginLeft:'auto' }}>Labor 30% · Sales 30% · Response 20% · Tickets 20%</span>
+      </div>
     </div>
   );
 }
@@ -27531,7 +27676,7 @@ function PCGPortal() {
 
   // ─── Admin groups config ──────────────────────────────────────────────────
   const ADMIN_GROUPS = [
-    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics', 'anomalies'] },
+    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics', 'anomalies', 'scorecard'] },
     { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['cash', 'recon'] },
     { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'projects', 'users'] },
     { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'settings'] },
@@ -27971,7 +28116,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.39
+            v13.41
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -28091,7 +28236,8 @@ function PCGPortal() {
                 {tab === "chat" && "Team messaging and direct messages."}
                 {tab === "announcements" && "Company-wide announcements and updates."}
                 {tab === "map"       && "Real-time view of all 45+ stores — color-coded by labor %, live who's clocked in, open tickets per pin."}
-                {tab === "anomalies" && "Rolling per-store baselines — flags unusual sales or labor patterns for this store's day-of-week history."}
+                {tab === "anomalies"  && "Rolling per-store baselines — flags unusual sales or labor patterns for this store's day-of-week history."}
+                {tab === "scorecard"  && "Weekly DM ranking — composite score across labor efficiency, sales growth, alert response time, and ticket health."}
                 {tab === "locations" && "Store locations and operational details."}
                 {tab === "analytics" && "Sales data and performance metrics."}
                 {tab === "pulse" && "Live sales monitoring and weekly trends."}
@@ -28288,34 +28434,63 @@ function PCGPortal() {
           </div>
         </div>
 
-        {/* Announcement modal on login */}
+        {/* Announcement banner — slides in from top */}
         {(() => {
           const pending = announcements.filter(a => a.active && !announcementsDismissed[`${user.id}_${a.id}`]);
           if (pending.length === 0) return null;
+          const dismiss = () => {
+            const updates = {};
+            pending.forEach(a => { updates[`${user.id}_${a.id}`] = true; });
+            setAnnouncementsDismissed(prev => ({ ...prev, ...updates }));
+          };
+          // Render **bold** markdown inline
+          const renderMsg = (text) => {
+            if (!text) return null;
+            return text.split('\n').map((line, li) => {
+              const parts = line.split(/(\*\*[^*]+\*\*)/g);
+              return (
+                <p key={li} style={{ margin: li === 0 ? 0 : '0.5rem 0 0', lineHeight: 1.65 }}>
+                  {parts.map((part, pi) =>
+                    part.startsWith('**') && part.endsWith('**')
+                      ? <strong key={pi} style={{ color: th.text }}>{part.slice(2, -2)}</strong>
+                      : <span key={pi}>{part}</span>
+                  )}
+                </p>
+              );
+            });
+          };
           return (
-            <div style={{ position: "fixed", inset: 0, background: "#00000085", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem" }} className="fade-in">
-              <div style={{ ...card(th), width: "100%", maxWidth: 520, maxHeight: "85vh", overflow: "auto", borderRadius: "1rem", boxShadow: "0 16px 64px #00000060" }}>
-                <div style={{ background: O, padding: "1.25rem 1.5rem", borderRadius: "1rem 1rem 0 0" }}>
-                  <div style={{ fontWeight: 800, fontSize: "1.25rem", color: "#fff", fontFamily: "'Raleway'" }}>📢 Announcement{pending.length > 1 ? "s" : ""}</div>
-                  <div style={{ fontSize: "0.75rem", color: "#ffffff99", marginTop: 2 }}>People Capital Group</div>
-                </div>
-                <div style={{ padding: "1.25rem 1.5rem" }}>
-                  {pending.map((a, i) => (
-                    <div key={a.id} style={{ marginBottom: i < pending.length - 1 ? "1.25rem" : 0, paddingBottom: i < pending.length - 1 ? "1.25rem" : 0, borderBottom: i < pending.length - 1 ? `1px solid ${th.cardBorder}` : "none" }}>
-                      <div style={{ fontWeight: 700, fontSize: "1rem", color: th.text, marginBottom: "0.375rem" }}>{a.title}</div>
-                      <div style={{ fontSize: "0.875rem", color: th.text, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{a.message}</div>
-                      <div style={{ fontSize: "0.625rem", color: th.muted, marginTop: "0.5rem" }}>Posted {new Date(a.createdAt).toLocaleDateString()} by {a.createdBy}</div>
+            <div style={{ position:"fixed", top:0, left:0, right:0, zIndex:9999, animation:"slideDown 0.35s cubic-bezier(0.4,0,0.2,1)" }}>
+              {/* Orange accent line */}
+              <div style={{ height:3, background:`linear-gradient(90deg, ${O}, #ff9055)` }} />
+              <div style={{ background:th.card, borderBottom:`1px solid ${th.cardBorder}`, boxShadow:"0 8px 32px rgba(0,0,0,0.2)" }}>
+                <div style={{ maxWidth:860, margin:"0 auto", padding:"1rem 1.5rem" }}>
+                  {/* Header row */}
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: pending.length === 1 ? "0.75rem" : "1rem" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:"0.625rem" }}>
+                      <span style={{ fontSize:"1.1rem" }}>📢</span>
+                      <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"0.95rem", color:th.text }}>
+                        {pending.length > 1 ? `${pending.length} Announcements` : pending[0].title}
+                      </span>
+                      <span style={{ fontSize:"0.65rem", color:th.muted, background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:"1rem", padding:"0.1rem 0.5rem" }}>
+                        by {pending[0].createdBy} · {new Date(pending[0].createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+                      </span>
                     </div>
-                  ))}
-                </div>
-                <div style={{ padding: "0 1.5rem 1.25rem", textAlign: "center" }}>
-                  <button onClick={() => {
-                    const updates = {};
-                    pending.forEach(a => { updates[`${user.id}_${a.id}`] = true; });
-                    setAnnouncementsDismissed(prev => ({ ...prev, ...updates }));
-                  }} style={{ ...btn(th, { padding: "0.625rem 2.5rem", fontSize: "0.9375rem", background: O, color: "#fff", fontWeight: 700 }) }}>
-                    Got it 👍
-                  </button>
+                    <button onClick={dismiss} style={{ background:O, border:"none", borderRadius:"2rem", color:"#fff", fontSize:"0.78rem", fontWeight:700, padding:"0.35rem 1rem", cursor:"pointer", fontFamily:"'Source Sans 3'", whiteSpace:"nowrap" }}>
+                      Got it 👍
+                    </button>
+                  </div>
+                  {/* Content */}
+                  <div style={{ maxHeight:"38vh", overflowY:"auto", paddingRight:"0.25rem" }}>
+                    {pending.map((a, i) => (
+                      <div key={a.id} style={{ marginBottom: i < pending.length-1 ? "1rem" : 0, paddingBottom: i < pending.length-1 ? "1rem" : 0, borderBottom: i < pending.length-1 ? `1px solid ${th.cardBorder}` : "none" }}>
+                        {pending.length > 1 && <div style={{ fontWeight:700, fontSize:"0.88rem", color:th.text, marginBottom:"0.375rem" }}>{a.title}</div>}
+                        <div style={{ fontSize:"0.85rem", color:th.muted }}>
+                          {renderMsg(a.message)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -28343,7 +28518,8 @@ function PCGPortal() {
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
           {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district)} th={th} setTab={setTab} />}
-          {tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? stores : stores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
+          {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? stores : stores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
+          {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} />}
           {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}

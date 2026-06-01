@@ -84,6 +84,120 @@ async function generateLeaderboardShoutout(today) {
   return result.text;
 }
 
+// ── 7.5 DM Scorecard — compute weekly per-district scores ────────────────────
+function mondayOf(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const day = d.getDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+async function computeAndSaveDMScores(today) {
+  try {
+    const laborData  = await cacheLoad('pcg_labor_v1');
+    if (!laborData?.stores) return null;
+    const ticketsRaw = await cacheLoad('pcg_tickets_v1') || [];
+    const actionLog  = await cacheLoad('pcg_action_log') || [];
+    const tickets    = Array.isArray(ticketsRaw) ? ticketsRaw.filter(t => t.status !== 'Closed') : [];
+
+    // Group stores by district
+    const byDistrict = {};
+    for (const [pc, s] of Object.entries(laborData.stores)) {
+      if (!s.district || s.error) continue;
+      const d = String(s.district);
+      if (!byDistrict[d]) byDistrict[d] = [];
+      byDistrict[d].push({ pc, ...s });
+    }
+
+    const weekCutoff = new Date(Date.now() - 7 * 86400000).toISOString();
+    const nowMs = Date.now();
+    const scores = {};
+
+    for (const [district, stores] of Object.entries(byDistrict)) {
+      // 1. Labor score (lower is better; target ≤23%, red ≥35%)
+      const laborPcts = stores.map(s => s.wtd?.laborPct).filter(x => x != null && x > 5 && x < 150);
+      const avgLabor = laborPcts.length ? laborPcts.reduce((a,b)=>a+b,0)/laborPcts.length : null;
+      const laborScore = avgLabor != null ? Math.max(0, Math.min(100, (35 - avgLabor) / (35 - 18) * 100)) : null;
+
+      // 2. Sales growth score (WTD vs prior week)
+      const growths = (await Promise.all(
+        stores.slice(0, 8).map(async s => {
+          try {
+            const blob = await cacheLoad(`pcg_labor_store_${s.pc}`);
+            const weekly = blob?.weekly;
+            if (!Array.isArray(weekly) || weekly.length < 2) return null;
+            const sorted = [...weekly].sort((a,b) => (b.weekOf||'').localeCompare(a.weekOf||''));
+            const [curr, prev] = sorted;
+            if (!curr?.sales || !prev?.sales || prev.sales === 0) return null;
+            return (curr.sales - prev.sales) / prev.sales * 100;
+          } catch { return null; }
+        })
+      )).filter(x => x != null);
+      const avgGrowth = growths.length ? growths.reduce((a,b)=>a+b,0)/growths.length : null;
+      const salesScore = avgGrowth != null ? Math.max(0, Math.min(100, (avgGrowth + 10) / 20 * 100)) : null;
+
+      // 3. Alert response score (from pcg_action_log, last 7 days)
+      const distLogs = (Array.isArray(actionLog) ? actionLog : []).filter(e =>
+        String(e.district) === district && e.durationMs != null && (e.detectedAt||'') > weekCutoff
+      );
+      const avgRespMin = distLogs.length ? distLogs.reduce((a,b)=>a+b.durationMs,0)/distLogs.length/60000 : null;
+      const responseScore = avgRespMin != null ? Math.max(0, Math.min(100, (240-avgRespMin)/225*100)) : null;
+
+      // 4. Ticket health score (avg open ticket age in days)
+      const distPCs = new Set(stores.map(s => s.pc));
+      const distTix  = tickets.filter(t => distPCs.has(String(t.storePC)));
+      const avgAge   = distTix.length
+        ? distTix.reduce((a,t) => a + (nowMs - new Date(t.createdAt||0).getTime())/86400000, 0) / distTix.length
+        : 0;
+      const ticketScore = Math.max(0, Math.min(100, (7 - avgAge) / 6 * 100));
+
+      // Weighted composite (skip null dimensions)
+      const dims = [
+        { score: laborScore,   w: 0.30 },
+        { score: salesScore,   w: 0.30 },
+        { score: responseScore,w: 0.20 },
+        { score: ticketScore,  w: 0.20 },
+      ].filter(d => d.score != null);
+      const wTotal = dims.reduce((a,d)=>a+d.w,0);
+      const composite = wTotal > 0 ? dims.reduce((a,d)=>a+d.score*d.w,0)/wTotal : null;
+
+      scores[district] = {
+        avgLaborPct:  avgLabor  != null ? Math.round(avgLabor*10)/10  : null,
+        avgGrowthPct: avgGrowth != null ? Math.round(avgGrowth*10)/10 : null,
+        avgRespMin:   avgRespMin!= null ? Math.round(avgRespMin)       : null,
+        avgTicketAge: Math.round(avgAge*10)/10,
+        openTickets:  distTix.length,
+        storeCount:   stores.length,
+        laborScore:   laborScore   != null ? Math.round(laborScore)   : null,
+        salesScore:   salesScore   != null ? Math.round(salesScore)   : null,
+        responseScore:responseScore!= null ? Math.round(responseScore): null,
+        ticketScore:  Math.round(ticketScore),
+        composite:    composite    != null ? Math.round(composite)     : null,
+      };
+    }
+
+    // Add ranks
+    Object.entries(scores)
+      .filter(([,s]) => s.composite != null)
+      .sort(([,a],[,b]) => b.composite - a.composite)
+      .forEach(([d,], i) => { scores[d].rank = i + 1; });
+
+    // Save rolling 13-week history
+    const weekOf   = mondayOf(today);
+    const existing = await cacheLoad('pcg_dm_scorecard') || [];
+    const history  = Array.isArray(existing) ? existing : [];
+    const trimmed  = [{ weekOf, computedAt: new Date().toISOString(), scores },
+                      ...history.filter(e => e.weekOf !== weekOf)].slice(0, 13);
+    await cacheSave('pcg_dm_scorecard', trimmed);
+    console.log('[analyst-cron] DM scorecard saved — week of', weekOf, '| districts:', Object.keys(scores).length);
+    return scores;
+  } catch (err) {
+    console.warn('[analyst-cron] computeAndSaveDMScores failed:', err.message);
+    return null;
+  }
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -323,6 +437,9 @@ exports.handler = async (event) => {
       } catch (err) {
         console.warn('[analyst-cron] Leaderboard shout-out failed:', err.message);
       }
+
+      // ── DM Scorecard snapshot (7.5) — runs alongside leaderboard every Sunday ──
+      await computeAndSaveDMScores(today);
     }
 
     // ── Step 6: Log run summary ─────────────────────────────────────────
