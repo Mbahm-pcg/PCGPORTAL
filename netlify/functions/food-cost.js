@@ -261,6 +261,21 @@ const ICE_CREAM_COSTS = {
   "PPQ Chocolate Chip Cookie Dough":3.40,
 };
 
+// ── DD Premium Sales cost catalog — retail coffee, K-cups, packaged teas, merchandise ──
+const PREMIUM_COSTS = {
+  // Retail Coffee (whole bean / ground)
+  "1 LB Coffee Decaf":6.44,"1 LB Coffee Dunkin' Midnight":4.28,"1 LB Coffee French Vanilla":7.10,
+  "1 LB Coffee Original":5.58,"1 LB Coffee Original Whole Bean":6.16,
+  // K-Cups
+  "K-Cup 12 Ct Decaf":4.99,"K-Cup 12 Ct Dunkin' Midnight":4.76,"K-Cup 12 Ct French Vanilla":4.97,"K-Cup 12 Ct Original":4.94,
+  // Packaged Teas
+  "Premium Packaged Tea Hibiscus Kiss Herbal":2.91,"Retail Tea Bold Breakfast Black":2.75,
+  "Retail Tea Chamomile Fields Herbal Infusion":3.07,"Retail Tea Harmony Leaf Green":2.90,
+  // Merchandise (mugs/tumblers — tracked but typically excluded from food cost %)
+  "2022 Acrylic Hydration Bottle 27oz":10.00,"2025 Chiseled Acrylic Tumbler":4.58,
+  "24oz Acrylic Tumbler With Bamboo Lid":5.00,
+};
+
 // ── Ingredient costs per unit — sourced from WorkPulse export (Jun 2026)
 // Codes match RI10xxx codes from the official PCG ingredient catalog
 const INGREDIENT_COSTS = {
@@ -289,6 +304,7 @@ const CATEGORY_GROUPS = {
   wraps:            { label: 'Wraps', color: '#14b8a6', icon: '🌯' },
   snacks_sides:     { label: 'Snacks & Sides', color: '#f97316', icon: '🥓' },
   bottled:          { label: 'Bottled & Packaged', color: '#6366f1', icon: '🧃' },
+  premium:          { label: 'Retail & Premium', color: '#0ea5e9', icon: '🛍️' },
   other:            { label: 'Other', color: '#94a3b8', icon: '📦' },
 };
 
@@ -401,6 +417,14 @@ function classifyItem(name) {
   }
 
   // ── OTHER ───────────────────────────────────────────
+  // ── RETAIL & PREMIUM ────────────────────────────────────────────────────
+  if (lower.includes('k-cup') || lower.includes('kcup') || lower.includes('1 lb coffee') ||
+      lower.includes('retail tea') || lower.includes('premium packaged tea') ||
+      lower.includes('tumbler') || lower.includes('sipper') || lower.includes('hydration bottle') ||
+      lower.includes('acrylic') || lower.includes('stainless') || lower.includes('mug')) {
+    return { group: 'premium', sub: null, qty: 1 };
+  }
+
   return { group: 'other', sub: null, qty: 1 };
 }
 
@@ -483,7 +507,7 @@ async function calcFoodCostForStore(pc, date) {
     }
 
     // Exact match wins: check beverages, food, ice cream lookups first
-    const exactCost = BEVERAGE_COSTS[itemName] ?? FOOD_COSTS[itemName] ?? ICE_CREAM_COSTS[itemName];
+    const exactCost = BEVERAGE_COSTS[itemName] ?? FOOD_COSTS[itemName] ?? ICE_CREAM_COSTS[itemName] ?? PREMIUM_COSTS[itemName];
     const unitCost = exactCost !== undefined ? exactCost : (cls.sub && INGREDIENT_COSTS[cls.sub] ? INGREDIENT_COSTS[cls.sub] : 0);
     const totalUnits = exactCost !== undefined ? data.slsCnt : data.slsCnt * (cls.qty || 1);
     const cost = totalUnits * unitCost;

@@ -49,9 +49,9 @@
 - Revenue - Labor - COGS = Gross Contribution, visible at a glance
 
 ### 7.2 Food Cost(T) Full BOM
-- Complete bill-of-materials for every menu item (e.g., bacon egg & cheese = 1 egg + 1 cheese slice + 4 bacon strips + 1 croissant)
-- Raw ingredient cost table with per-unit pricing
-- True theoretical food cost across ALL categories (not just bakery)
+✅ - Complete bill-of-materials for every menu item — cost-to-make per unit sourced from POS analysis report (Jun 2026)
+✅ - Raw ingredient cost table with per-unit pricing — WorkPulse RI10xxx bakery codes + full beverage/food/ice cream catalog
+✅ - True theoretical food cost across ALL categories — beverages, food, sandwiches, ice cream, bakery all covered in food-cost.js
 - **Prerequisite:** Mike provides item list + build sheets + ingredient costs
 
 ### 7.3 Labor Optimization Simulator
