@@ -7217,12 +7217,12 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
           <div style={{ marginTop: '0.75rem' }}>
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
               <div style={{ background: th.card2, borderRadius: 8, padding: '0.5rem 0.75rem', minWidth: 120 }}>
-                <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Bakery Food Cost</div>
-                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: O }}>${foodCostT.totalBakeryCost?.toFixed(2)}</div>
+                <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Total Food Cost</div>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: O }}>${(foodCostT.totalFoodCost ?? foodCostT.totalBakeryCost)?.toFixed(2)}</div>
               </div>
               <div style={{ background: th.card2, borderRadius: 8, padding: '0.5rem 0.75rem', minWidth: 120 }}>
                 <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>FC % of Net Sales</div>
-                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: foodCostT.pct > 12 ? '#f44336' : foodCostT.pct > 9 ? '#ff9800' : '#4caf50' }}>{foodCostT.pct?.toFixed(1)}%</div>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: foodCostT.pct > 35 ? '#f44336' : foodCostT.pct > 28 ? '#ff9800' : '#4caf50' }}>{foodCostT.pct?.toFixed(1)}%</div>
               </div>
               <div style={{ background: th.card2, borderRadius: 8, padding: '0.5rem 0.75rem', minWidth: 120 }}>
                 <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Net Sales</div>
@@ -7249,8 +7249,11 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
                     {cat.items.slice(0, 10).map((item, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.2rem 0', borderBottom: `1px solid ${th.cardBorder}44` }}>
                         <span style={{ fontSize: '0.7rem', color: th.text, flex: 1 }}>{item.name}</span>
-                        <span style={{ fontSize: '0.68rem', color: th.muted, marginRight: '0.5rem' }}>{item.qtySold}×</span>
-                        {item.totalCost > 0 && <span style={{ fontSize: '0.68rem', fontWeight: 600, color: O }}>${item.totalCost.toFixed(2)}</span>}
+                        {item.unitCost > 0
+                          ? <span style={{ fontSize: '0.68rem', color: th.muted, marginRight: '0.5rem' }}>${item.unitCost.toFixed(2)}/ea</span>
+                          : <span style={{ fontSize: '0.68rem', color: th.subtle, marginRight: '0.5rem' }}>—</span>}
+                        <span style={{ fontSize: '0.68rem', color: th.muted, marginRight: '0.5rem' }}>×{item.qtySold}</span>
+                        {item.totalCost > 0 && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: O }}>${item.totalCost.toFixed(2)}</span>}
                       </div>
                     ))}
                   </div>
