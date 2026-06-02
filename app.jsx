@@ -21732,7 +21732,7 @@ function localDateStr(d) {
 }
 
 // ── LaborDrillDown ───────────────────────────────────────────────────────────
-function LaborDrillDown({ store, stores, th, user, onBack }) {
+function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
   const [activeTab, setActiveTab] = useState('hourly');
   const [punches, setPunches] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -21743,6 +21743,10 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [empExpanded, setEmpExpanded] = useState(false);
+  const [cutPeople, setCutPeople] = useState(1);
+  const [cutHours,  setCutHours]  = useState(4);
+  const [weekSchedule, setWeekSchedule] = useState(null);
+  const [selectedDay, setSelectedDay] = useState(null); // { dateStr, label, staffCount, schedHours, projLaborCost, histSales, projPct }
 
   const storeInfo = stores.find(s => s.pc === store.pc) || {};
   const mgrName = storeInfo.mgr || '—';
@@ -21864,6 +21868,12 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
     }
     loadAll();
   }, [store.pc, store.paycor]);
+
+  // Reset optimizer state when switching stores
+  useEffect(() => {
+    setSelectedDay(null);
+    setWeekSchedule(null);
+  }, [store.pc]);
 
   // ── Timecard processing ─────────────────────────────────────────────────
   // Paycor /punches records have punchIn, punchOut, hourAmount (legacy: inActualPunch, outActualPunch, hoursAmount)
@@ -22154,6 +22164,14 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
     );
   }
 
+  // Load schedule blob when Optimizer tab is opened
+  useEffect(() => {
+    if (activeTab !== 'optimizer' || weekSchedule !== null) return;
+    cloudLoad('pcg_schedule_' + store.pc).then(data => {
+      setWeekSchedule(data || {});
+    }).catch(() => setWeekSchedule({}));
+  }, [activeTab, store.pc]);
+
   const fmtHr = hr => hr === 12 ? '12:00p' : hr > 12 ? `${hr-12}:00p` : `${hr}:00a`;
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -22208,9 +22226,10 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
 
       {/* Tab Toggle */}
       <div style={{ display: 'flex', borderRadius: '0.5rem', overflow: 'hidden', border: `1px solid ${th.cardBorder}`, marginBottom: '1.25rem', width: 'fit-content' }}>
-        {tabBtn('hourly', 'Hourly')}
-        {tabBtn('daily',  'Daily')}
-        {tabBtn('weekly', 'Weekly')}
+        {tabBtn('hourly',    'Hourly')}
+        {tabBtn('daily',     'Daily')}
+        {tabBtn('weekly',    'Weekly')}
+        {tabBtn('optimizer', '⚡ Optimizer')}
       </div>
 
       {/* Hourly Tab */}
@@ -22318,6 +22337,380 @@ function LaborDrillDown({ store, stores, th, user, onBack }) {
           </div>
         </div>
       )}
+
+      {/* ── Optimizer Tab (Phase 1: Break-Even Calculator) ── */}
+      {activeTab === 'optimizer' && (() => {
+        const daily = storeHistory?.daily || [];
+        const last30 = daily.slice(-30);
+        const hasData = last30.length >= 7;
+
+        // Core averages from last 30 days
+        const avgLaborDollars = hasData ? last30.reduce((s, d) => s + (d.laborDollars || 0), 0) / last30.length : 0;
+        const avgSales        = hasData ? last30.reduce((s, d) => s + (d.sales || 0), 0) / last30.length : 0;
+        const avgHoursWorked  = hasData ? last30.reduce((s, d) => s + (d.hoursWorked || 0), 0) / last30.length : 0;
+        const avgWage         = avgHoursWorked > 0 ? avgLaborDollars / avgHoursWorked : (avgHourlyRate || 14);
+        const avgLaborPct     = avgSales > 0 ? (avgLaborDollars / avgSales) * 100 : 0;
+
+        // Break-even at 25% target
+        const TARGET_PCT = 25;
+        const breakEvenSales = avgLaborDollars > 0 ? (avgLaborDollars / (TARGET_PCT / 100)) : 0;
+        const gapVsTarget    = avgSales - breakEvenSales;
+        const onTarget       = gapVsTarget >= 0;
+
+        // What-if: savings from cutting N people for H hours (state managed at component level)
+        const savingsPerDay    = cutPeople * cutHours * avgWage;
+        const newLaborDollars  = Math.max(0, avgLaborDollars - savingsPerDay);
+        const newBreakEven     = newLaborDollars > 0 ? newLaborDollars / (TARGET_PCT / 100) : 0;
+        const newLaborPct      = avgSales > 0 ? (newLaborDollars / avgSales) * 100 : 0;
+
+        const metricCard = (label, value, sub, color) => (
+          <div style={{ background: th.card2, borderRadius: '0.75rem', padding: '1rem', flex: 1, minWidth: 140 }}>
+            <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.3rem' }}>{label}</div>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.25rem', color: color || th.text }}>{value}</div>
+            {sub && <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.2rem' }}>{sub}</div>}
+          </div>
+        );
+
+        return (
+          <div>
+            {!hasData && (
+              <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, marginBottom: '1rem' }}>
+                Not enough history yet — needs at least 7 days of data.
+              </div>
+            )}
+
+            {hasData && (
+              <>
+                {/* Break-Even Summary */}
+                <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.75rem' }}>
+                    📊 Break-Even Analysis <span style={{ fontSize: '0.7rem', fontWeight: 400, color: th.muted }}>based on last {last30.length} days</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                    {metricCard('Avg Daily Labor Cost', fmtDollars(avgLaborDollars), `~${fmtDollars(avgWage)}/hr avg wage`)}
+                    {metricCard('Break-Even Sales/Day', fmtDollars(breakEvenSales), `at ${TARGET_PCT}% labor target`, '#f59e0b')}
+                    {metricCard('Your Avg Daily Sales', fmtDollars(avgSales), `${fmtPct(avgLaborPct)} avg labor`, laborColor(avgLaborPct))}
+                    {metricCard(onTarget ? 'Above Break-Even ✅' : 'Below Break-Even ⚠️', `${onTarget ? '+' : ''}${fmtDollars(gapVsTarget)}`, onTarget ? 'Healthy margin' : 'At risk — needs attention', onTarget ? '#4caf50' : '#f44336')}
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: th.muted, marginBottom: '0.25rem' }}>
+                      <span>$0</span>
+                      <span>Break-even: {fmtDollars(breakEvenSales)}</span>
+                      <span>Avg: {fmtDollars(avgSales)}</span>
+                    </div>
+                    <div style={{ height: 8, borderRadius: 4, background: th.card3, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.min(100, (avgSales / (breakEvenSales * 1.5)) * 100)}%`, background: onTarget ? '#4caf50' : '#f44336', borderRadius: 4 }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* What-If Simulator */}
+                <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.75rem' }}>
+                    🔧 What-If Simulator
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '1rem' }}>
+                    {selectedDay
+                      ? <span>Simulating cut for <strong style={{ color: O }}>{selectedDay.label}</strong> — or <button onClick={() => setSelectedDay(null)} style={{ background: 'none', border: 'none', color: th.muted, cursor: 'pointer', textDecoration: 'underline', fontSize: '0.8rem', padding: 0 }}>apply to all days</button></span>
+                      : '"What if I remove staff from one shift?" — or click a day below to target it'}
+                  </div>
+                  <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.4rem' }}>People to cut</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button onClick={() => setCutPeople(Math.max(1, cutPeople - 1))} style={{ ...btn(th, { padding: '0.2rem 0.6rem', fontSize: '1rem', background: th.card3, color: th.text }) }}>−</button>
+                        <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1.25rem', color: th.text, minWidth: 24, textAlign: 'center' }}>{cutPeople}</span>
+                        <button onClick={() => setCutPeople(Math.min(5, cutPeople + 1))} style={{ ...btn(th, { padding: '0.2rem 0.6rem', fontSize: '1rem', background: th.card3, color: th.text }) }}>+</button>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.4rem' }}>Shift length (hrs)</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button onClick={() => setCutHours(Math.max(1, cutHours - 1))} style={{ ...btn(th, { padding: '0.2rem 0.6rem', fontSize: '1rem', background: th.card3, color: th.text }) }}>−</button>
+                        <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1.25rem', color: th.text, minWidth: 24, textAlign: 'center' }}>{cutHours}</span>
+                        <button onClick={() => setCutHours(Math.min(12, cutHours + 1))} style={{ ...btn(th, { padding: '0.2rem 0.6rem', fontSize: '1rem', background: th.card3, color: th.text }) }}>+</button>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Impact — uses selected day if chosen, else historical averages */}
+                  {(() => {
+                    const base = selectedDay
+                      ? { laborCost: selectedDay.projLaborCost, sales: selectedDay.histSales, pct: selectedDay.projPct }
+                      : { laborCost: avgLaborDollars, sales: avgSales, pct: avgLaborPct };
+                    const afterCost = Math.max(0, base.laborCost - savingsPerDay);
+                    const afterPct  = base.sales > 0 ? (afterCost / base.sales) * 100 : 0;
+                    const afterBE   = afterCost > 0 ? afterCost / (TARGET_PCT / 100) : 0;
+                    return (
+                      <div style={{ background: th.card2, borderRadius: '0.75rem', padding: '1rem', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                        <div>
+                          <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Savings {selectedDay ? 'That Day' : 'Per Day'}</div>
+                          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.2rem', color: '#4caf50' }}>+{fmtDollars(savingsPerDay)}</div>
+                          <div style={{ fontSize: '0.7rem', color: th.muted }}>{cutPeople} × {cutHours}h × {fmtDollars(avgWage)}/hr</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>New Labor % {selectedDay ? `(${selectedDay.label})` : '(avg)'}</div>
+                          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.2rem', color: laborColor(afterPct) }}>{fmtPct(afterPct)}</div>
+                          <div style={{ fontSize: '0.7rem', color: th.muted }}>was {fmtPct(base.pct)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>New Break-Even</div>
+                          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.2rem', color: '#f59e0b' }}>{fmtDollars(afterBE)}</div>
+                          <div style={{ fontSize: '0.7rem', color: th.muted }}>was {fmtDollars(selectedDay ? (base.laborCost / (TARGET_PCT / 100)) : breakEvenSales)}</div>
+                        </div>
+                        {!selectedDay && (
+                          <div>
+                            <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Weekly Savings</div>
+                            <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.2rem', color: '#4caf50' }}>+{fmtDollars(savingsPerDay * 7)}</div>
+                            <div style={{ fontSize: '0.7rem', color: th.muted }}>if done every day</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  <div style={{ marginTop: '0.75rem', fontSize: '0.72rem', color: th.muted, fontStyle: 'italic' }}>
+                    ⚠️ Risk check: cutting staff below minimum coverage may impact service speed and sales. Compare against busy periods before making changes.
+                  </div>
+                </div>
+
+                {/* Phase 2 — Schedule Efficiency View */}
+                {(() => {
+                  const shifts = weekSchedule?.shifts || [];
+                  const DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                  const daily = storeHistory?.daily || [];
+
+                  // Day-of-week avg sales from last 30 days
+                  const dowSales = Array(7).fill(null).map(() => ({ total: 0, count: 0 }));
+                  daily.slice(-30).forEach(d => {
+                    if (!d.date) return;
+                    const dow = new Date(d.date + 'T12:00:00').getDay();
+                    dowSales[dow].total += (d.sales || 0);
+                    dowSales[dow].count += 1;
+                  });
+                  const avgSalesByDow = dowSales.map(d => d.count > 0 ? d.total / d.count : 0);
+
+                  // Group schedule shifts by date
+                  const byDate = {};
+                  shifts.forEach(s => {
+                    if (!s.startDateTime) return;
+                    const date = s.startDateTime.slice(0, 10);
+                    if (!byDate[date]) byDate[date] = [];
+                    byDate[date].push(s);
+                  });
+
+                  // Build 7-day rows (from today)
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  const rows = Array.from({ length: 7 }, (_, i) => {
+                    const d = new Date(today);
+                    d.setDate(d.getDate() + i);
+                    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    const dow = d.getDay();
+                    const dayShifts = byDate[dateStr] || [];
+                    const schedHours = dayShifts.reduce((sum, s) => {
+                      if (!s.startDateTime || !s.endDateTime) return sum;
+                      return sum + Math.max(0, Math.min((new Date(s.endDateTime) - new Date(s.startDateTime)) / 3600000, 14));
+                    }, 0);
+                    const projLaborCost = schedHours * avgWage;
+                    const histSales = avgSalesByDow[dow] || 0;
+                    const projPct = histSales > 0 ? (projLaborCost / histSales) * 100 : 0;
+                    const isToday = i === 0;
+                    const label = `${DAY[dow]} ${d.getMonth()+1}/${d.getDate()}`;
+                    return { dateStr, label, dow, staffCount: dayShifts.length, schedHours, projLaborCost, histSales, projPct, isToday };
+                  });
+
+                  const hasSchedule = shifts.length > 0;
+
+                  const dailySavings = cutPeople * cutHours * avgWage;
+
+                  return (
+                    <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                        <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text }}>
+                          📅 This Week's Schedule Projection
+                        </div>
+                        {dailySavings > 0 && (
+                          <div style={{ fontSize: '0.7rem', color: '#4caf50', background: '#4caf5015', padding: '0.25rem 0.6rem', borderRadius: '0.4rem', fontWeight: 600 }}>
+                            What-If applied: -{fmtDollars(dailySavings)}/day per day cut
+                          </div>
+                        )}
+                      </div>
+                      {weekSchedule === null && (
+                        <div style={{ color: th.muted, fontSize: '0.8rem' }}>Loading schedule…</div>
+                      )}
+                      {weekSchedule !== null && !hasSchedule && (
+                        <div style={{ color: th.muted, fontSize: '0.8rem' }}>No schedule data found. Schedule is populated by the labor cron (runs 3×/day).</div>
+                      )}
+                      {hasSchedule && (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                            <thead>
+                              <tr>
+                                {['Day', 'Staff', 'Sched Hrs', 'Current %', dailySavings > 0 ? 'After Cut %' : null, 'Hist Avg Sales', 'Status'].filter(Boolean).map(h => (
+                                  <th key={h} style={{ fontSize: '0.62rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, padding: '0.4rem 0.5rem', textAlign: 'left', borderBottom: `1px solid ${th.cardBorder}`, fontWeight: 700 }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map(row => {
+                                const newLaborCost = Math.max(0, row.projLaborCost - dailySavings);
+                                const newPct = row.histSales > 0 ? (newLaborCost / row.histSales) * 100 : 0;
+                                const pctColor = p => p >= 28 ? '#f44336' : p >= 25 ? '#ff9800' : '#4caf50';
+                                const status = row.staffCount === 0 ? '—'
+                                  : (dailySavings > 0 ? newPct : row.projPct) >= 28 ? '🔴 Over'
+                                  : (dailySavings > 0 ? newPct : row.projPct) >= 25 ? '🟡 Watch' : '✅ OK';
+                                const isSelected = selectedDay?.dateStr === row.dateStr;
+                                const td = { padding: '0.4rem 0.5rem', borderBottom: `1px solid ${th.cardBorder}22`, color: th.text, fontSize: '0.8rem', background: isSelected ? `${O}18` : row.isToday ? `${O}08` : 'transparent' };
+                                return (
+                                  <tr key={row.dateStr} onClick={() => row.staffCount > 0 && setSelectedDay(isSelected ? null : row)} style={{ cursor: row.staffCount > 0 ? 'pointer' : 'default' }}>
+                                    <td style={{ ...td, fontWeight: row.isToday || isSelected ? 700 : 400, color: isSelected ? O : row.isToday ? O : th.text }}>
+                                      {isSelected ? '▶ ' : ''}{row.label}{row.isToday ? ' (today)' : ''}
+                                    </td>
+                                    <td style={td}>{row.staffCount || '—'}</td>
+                                    <td style={td}>{row.schedHours > 0 ? row.schedHours.toFixed(1) + 'h' : '—'}</td>
+                                    <td style={{ ...td, fontWeight: 700, color: row.projPct > 0 ? pctColor(row.projPct) : th.muted }}>
+                                      {row.projPct > 0 ? fmtPct(row.projPct) : '—'}
+                                    </td>
+                                    {dailySavings > 0 && (
+                                      <td style={{ ...td, fontWeight: 700 }}>
+                                        {isSelected && row.projPct > 0 ? (
+                                          <span>
+                                            <span style={{ color: pctColor(newPct) }}>{fmtPct(newPct)}</span>
+                                            <span style={{ color: '#4caf50', fontSize: '0.68rem', marginLeft: '0.3rem' }}>
+                                              (-{fmtPct(Math.abs(newPct - row.projPct))})
+                                            </span>
+                                          </span>
+                                        ) : <span style={{ color: th.subtle }}>click row</span>}
+                                      </td>
+                                    )}
+                                    <td style={{ ...td, color: th.muted }}>{row.histSales > 0 ? fmtDollars(row.histSales) : '—'}</td>
+                                    <td style={td}>{status}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                          <div style={{ marginTop: '0.75rem', fontSize: '0.7rem', color: th.muted }}>
+                            Projected % = (scheduled hrs × avg wage) ÷ historical same-day avg sales · Flags: 🟡 ≥25%, 🔴 ≥28%
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Phase 3 — Network/District Comparison (role-based) */}
+                {(() => {
+                  // Managers see nothing here
+                  if (user?.userType === 'manager') return null;
+
+                  const isExecOrIT = user?.userType === 'executive' || user?.userType === 'it';
+                  const isDM = user?.userType === 'dm';
+                  const userDistrict = user?.district != null ? String(user.district) : null;
+
+                  const netStores = laborData?.stores ? Object.entries(laborData.stores) : [];
+                  if (netStores.length < 2) return null;
+
+                  // Build full ranked list
+                  const allRanked = netStores.map(([pc, d]) => {
+                    const wtdPct = d.wtd?.sales > 0 ? (d.wtd.laborDollars / d.wtd.sales) * 100 : 0;
+                    const todayPct = d.today?.sales > 0 ? (d.today.laborDollars / d.today.sales) * 100 : 0;
+                    const pct = wtdPct || todayPct;
+                    const storeInfo = stores.find(s => s.pc === pc) || {};
+                    return { pc, name: storeInfo.name || `Store ${pc}`, pct, district: String(storeInfo.district) };
+                  }).filter(s => s.pct > 0).sort((a, b) => a.pct - b.pct);
+
+                  // DMs only see their district stores
+                  const ranked = isDM && userDistrict
+                    ? allRanked.filter(s => s.district === userDistrict)
+                    : allRanked;
+
+                  if (ranked.length === 0) return null;
+
+                  const myRank = ranked.findIndex(s => s.pc === store.pc) + 1;
+                  const myData = ranked.find(s => s.pc === store.pc);
+                  const avgPct = ranked.reduce((s, r) => s + r.pct, 0) / ranked.length;
+                  const top5 = ranked.slice(0, 5);
+                  const bottom5 = ranked.slice(-5).reverse();
+                  const isTop = myRank <= 5;
+                  const isBottom = myRank > ranked.length - 5;
+
+                  const rankColor = myRank <= Math.ceil(ranked.length * 0.25) ? '#4caf50'
+                    : myRank <= Math.ceil(ranked.length * 0.5) ? '#f59e0b'
+                    : myRank <= Math.ceil(ranked.length * 0.75) ? '#ff9800' : '#f44336';
+
+                  return (
+                    <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
+                      <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.75rem' }}>
+                        🏆 {isDM ? `District ${userDistrict} Comparison` : 'Network Comparison'}
+                        <span style={{ fontSize: '0.7rem', fontWeight: 400, color: th.muted }}> WTD labor % across {ranked.length} stores</span>
+                      </div>
+
+                      {/* Rank card — exec/IT only */}
+                      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                        {isExecOrIT && (
+                        <div style={{ background: th.card2, borderRadius: '0.75rem', padding: '1rem', flex: 1, minWidth: 120 }}>
+                          <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.3rem' }}>Network Rank</div>
+                          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: rankColor }}>#{myRank}</div>
+                          <div style={{ fontSize: '0.7rem', color: th.muted }}>of {ranked.length} stores</div>
+                        </div>
+                        )}
+                        <div style={{ background: th.card2, borderRadius: '0.75rem', padding: '1rem', flex: 1, minWidth: 120 }}>
+                          <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.3rem' }}>This Store WTD</div>
+                          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: laborColor(myData?.pct || 0) }}>{fmtPct(myData?.pct || 0)}</div>
+                          <div style={{ fontSize: '0.7rem', color: th.muted }}>labor %</div>
+                        </div>
+                        <div style={{ background: th.card2, borderRadius: '0.75rem', padding: '1rem', flex: 1, minWidth: 120 }}>
+                          <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.3rem' }}>Network Avg</div>
+                          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: laborColor(avgPct) }}>{fmtPct(avgPct)}</div>
+                          <div style={{ fontSize: '0.7rem', color: myData?.pct > avgPct ? '#f44336' : '#4caf50' }}>
+                            {myData?.pct > avgPct ? `+${fmtPct(myData.pct - avgPct)} above avg` : `-${fmtPct(avgPct - myData?.pct)} below avg`}
+                          </div>
+                        </div>
+                        <div style={{ background: th.card2, borderRadius: '0.75rem', padding: '1rem', flex: 1, minWidth: 120 }}>
+                          <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.3rem' }}>Best Store</div>
+                          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: '#4caf50' }}>{fmtPct(ranked[0]?.pct || 0)}</div>
+                          <div style={{ fontSize: '0.7rem', color: th.muted }}>{ranked[0]?.name}</div>
+                        </div>
+                      </div>
+
+                      {/* Top 5 vs Bottom 5 */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        {[
+                          { title: isDM ? '🟢 Best in District' : '🟢 Top 5 Performers', list: top5 },
+                          { title: isDM ? '🔴 Needs Attention' : '🔴 Needs Attention', list: bottom5 }
+                        ].map(({ title, list }) => (
+                          <div key={title}>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: th.muted, marginBottom: '0.4rem' }}>{title}</div>
+                            {list.map((s, i) => {
+                              const isCurrent = s.pc === store.pc;
+                              return (
+                                <div key={s.pc} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.3rem 0.5rem', borderRadius: '0.4rem', marginBottom: '0.2rem', background: isCurrent ? `${O}15` : th.card2 }}>
+                                  <span style={{ fontSize: '0.75rem', color: isCurrent ? O : th.text, fontWeight: isCurrent ? 700 : 400 }}>
+                                    {isCurrent ? '▶ ' : ''}{s.name}
+                                  </span>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: laborColor(s.pct) }}>{fmtPct(s.pct)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+
+                      {!isTop && !isBottom && myData && (
+                        <div style={{ marginTop: '0.75rem', fontSize: '0.72rem', color: th.muted, background: th.card2, borderRadius: '0.5rem', padding: '0.6rem 0.75rem' }}>
+                          💡 To reach the top 25%, this store needs to improve labor % by <strong>{fmtPct(myData.pct - (ranked[Math.floor(ranked.length * 0.25)]?.pct || 0))}</strong> — roughly {fmtDollars((myData.pct - (ranked[Math.floor(ranked.length * 0.25)]?.pct || 0)) / 100 * (avgSales || 0))} less labor per day.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Employee Panel */}
       <div style={{ ...card(th), padding: '1rem' }}>
@@ -22542,6 +22935,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
       stores={stores}
       th={th}
       user={user}
+      laborData={laborData}
       onBack={() => setSelectedStore(null)}
     />;
   }
@@ -28600,7 +28994,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.60
+            v13.72
           </div>
         )}
         {/* Collapse toggle — desktop only */}

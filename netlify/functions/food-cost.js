@@ -356,6 +356,24 @@ Object.assign(POS_ALIASES, {
   "Pink Cold Foam":0.23,"Chocolate Cold Foam":0.20,"Banana Cold Foam":0.25,
   // New/seasonal Dunkin Zero flavors not in original report
   "Large Glamberry Dunkin Zero":1.73,"Medium Glamberry Dunkin Zero":1.44,"Small Glamberry Dunkin Zero":1.15,
+  // "Dunkin" prefix variant for bottled water
+  "Dunkin Bottled Water":0.44,"Dunkin Water":0.44,
+  // Grape Jelly without (Bread)/(Sandwich) qualifier
+  "Grape Jelly":0.07,
+  // Cold foam/milk "Default" variants (cost should be tracked even if hidden from display)
+  "Coffee Milk Default":0.05,"Coffee Milk Default 2025":0.05,
+  "Cold Foam Default":0.17,"Cold Foam - Refreshers":0.17,
+  "Chocolate Cold Foam Default":0.20,
+  "Loaded Hash Browns Default":0.77,
+  // Bare ingredient names (POS drops "Only"/"Extra" qualifier)
+  "Bacon":0.33,"Bacon Default":0.33,"Bacon SOLD AS AN ITEM":0.33,"Bacon SW MEAT GROUP":0.33,
+  "Sausage":0.26,"Sausage Default":0.26,"Sausage SOLD AS AN ITEM":0.26,
+  "Turkey Sausage":0.41,"Turkey Sausage Default":0.41,"Turkey Sausage SOLD AS AN ITEM":0.41,
+  "Fried Egg":0.27,"Fried Egg SOLD AS AN ITEM":0.27,
+  "2 Fried Eggs":0.53,
+  "White Cheddar Cheese":0.13,"Mod-White Cheddar Cheese":0.13,
+  // "and" vs "&" — Ham and Swiss
+  "Ham and Swiss Croissant Stuffer":1.38,"Ham and Swiss Croissant":1.38,
   // POS sandwich name variants
   "Turkey Sausage Egg & Cheese":1.04,
   "Turkey Sausage Egg and Cheese":1.04,
@@ -364,12 +382,32 @@ Object.assign(POS_ALIASES, {
   "Grilled Bacon and Cheese Melt":1.36,
   // "Add'l" → "Adtl" abbreviation difference
   "Adtl Swirl Charge":0.00,
+  // Whipped cream and water variants
+  "M-Pink Whipped Cream":0.00,"Top-Whipped Cream Priced":0.00,
+  "M-Cup Water":0.00,"Cup Water":0.00,
   // Espresso shot modifier — POS adds "when" which breaks word-sort
   "Espresso Shot (when added to a bev)":0.14,
   "Decaf Espresso Shot (when added to a bev)":0.14,
   // POS calls unsweetened black iced tea "Unsweet" instead of "Black"
   "Iced Tea Large Unsweet":0.16,"Iced Tea Medium Unsweet":0.12,"Iced Tea Small Unsweet":0.10,
   "Iced Tea Large Unsweetened":0.16,"Iced Tea Medium Unsweetened":0.12,"Iced Tea Small Unsweetened":0.10,
+  // POS calls Unsweetened Green Tea (not "Sweetened" variant)
+  "Iced Tea Large Unsweetened Green Tea":0.17,"Iced Tea Medium Unsweetened Green Tea":0.13,"Iced Tea Small Unsweetened Green Tea":0.11,
+  "Iced Tea Large Unsweet Green Tea":0.17,"Iced Tea Medium Unsweet Green Tea":0.13,"Iced Tea Small Unsweet Green Tea":0.11,
+  // Hot Tea — POS uses "Black" not "Blend" for Bold Breakfast (Large/Medium/XLarge)
+  "Hot Tea Large Bold Breakfast Black":0.65,"Hot Tea Medium Bold Breakfast Black":0.42,"Hot Tea XLarge Bold Breakfast Black":0.73,
+  "Hot Tea X-Large Bold Breakfast Black":0.73,"Hot Tea X-Large Bold Breakfast Blend":0.73,
+  // Hibiscus — POS adds "Tea" at end: "Hibiscus Kiss Herbal Tea" vs our "Hibiscus Kiss Herbal"
+  "Hot Tea Large Hibiscus Kiss Herbal Tea":0.58,"Hot Tea Medium Hibiscus Kiss Herbal Tea":0.35,
+  "Hot Tea Small Hibiscus Kiss Herbal Tea":0.33,"Hot Tea XLarge Hibiscus Herbal Tea":0.59,
+  "Hot Tea X-Large Hibiscus Herbal Tea":0.59,
+  // Wake-Up Wrap variants (POS name for hash brown wraps)
+  "Chipotle Hash Brown Wake-Up Wrap":0.64,"Chipotle Hash Brown Wake Up Wrap":0.64,
+  "Golden BBQ Hash Brown Wake-Up Wrap":0.65,"Golden BBQ Hash Brown Wake Up Wrap":0.65,
+  "Chipotle Aioli Loaded Hashbrowns":0.75,"Chipotle Aioli Hash Brown Wrap":0.64,
+  // "Caramel Craze Signature" without "Latte"
+  "Hot Large Original Caramel Craze Signature":1.61,"Hot Medium Original Caramel Craze Signature":1.29,
+  "Hot Small Original Caramel Craze Signature":0.99,
   // "Daydream" variant — same product as "Build Your Own Dream Refresher"
   "Large Build Your Daydream Refresher":1.13,
   "Medium Build Your Daydream Refresher":1.10,
@@ -388,13 +426,15 @@ for (const catalog of [BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, PREMIUM_COST
   for (const [key, val] of Object.entries(catalog)) {
     if (val === undefined || val === null) continue;
     const n = _norm(key);
-    const nNoDd   = key.startsWith('DD ') ? _norm(key.slice(3)) : null;  // "DD Pepsi" → "pepsi"
-    const nWithDd = _norm('DD ' + key);                                   // "Pepsi" → "dd pepsi"
-    const nNoM    = key.startsWith('M-') ? _norm(key.slice(2)) : null;    // "M-Grape Jelly" → "grape jelly"
-    if (!(n       in NORM_LOOKUP)) NORM_LOOKUP[n]       = val;
-    if (nNoDd  && !(nNoDd   in NORM_LOOKUP)) NORM_LOOKUP[nNoDd]   = val;
-    if (         !(nWithDd  in NORM_LOOKUP)) NORM_LOOKUP[nWithDd]  = val;
-    if (nNoM   && !(nNoM    in NORM_LOOKUP)) NORM_LOOKUP[nNoM]    = val;
+    const nNoDd     = key.startsWith('DD ') ? _norm(key.slice(3)) : null;       // "DD Pepsi" → "pepsi"
+    const nNoDunkin = key.startsWith('Dunkin ') ? _norm(key.slice(7)) : null;  // "Dunkin Bottled Water" → "bottled water"
+    const nWithDd   = _norm('DD ' + key);                                       // "Pepsi" → "dd pepsi"
+    const nNoM      = key.startsWith('M-') ? _norm(key.slice(2)) : null;        // "M-Grape Jelly" → "grape jelly"
+    if (!(n in NORM_LOOKUP)) NORM_LOOKUP[n] = val;
+    if (nNoDd     && !(nNoDd     in NORM_LOOKUP)) NORM_LOOKUP[nNoDd]     = val;
+    if (nNoDunkin && !(nNoDunkin in NORM_LOOKUP)) NORM_LOOKUP[nNoDunkin] = val;
+    if (             !(nWithDd   in NORM_LOOKUP)) NORM_LOOKUP[nWithDd]   = val;
+    if (nNoM      && !(nNoM      in NORM_LOOKUP)) NORM_LOOKUP[nNoM]      = val;
   }
 }
 
@@ -404,12 +444,14 @@ const WORD_SORT_LOOKUP = {};
 for (const catalog of [BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, PREMIUM_COSTS, POS_ALIASES]) {
   for (const [key, val] of Object.entries(catalog)) {
     if (val === undefined || val === null) continue;
-    const ws = _sortWords(key);
-    const wsNoDd = key.startsWith('DD ') ? _sortWords(key.slice(3)) : null;
-    const wsNoM  = key.startsWith('M-')  ? _sortWords(key.slice(2))  : null;
-    if (!(ws     in WORD_SORT_LOOKUP)) WORD_SORT_LOOKUP[ws]     = val;
-    if (wsNoDd && !(wsNoDd in WORD_SORT_LOOKUP)) WORD_SORT_LOOKUP[wsNoDd] = val;
-    if (wsNoM  && !(wsNoM  in WORD_SORT_LOOKUP)) WORD_SORT_LOOKUP[wsNoM]  = val;
+    const ws         = _sortWords(key);
+    const wsNoDd     = key.startsWith('DD ')     ? _sortWords(key.slice(3)) : null;
+    const wsNoDunkin = key.startsWith('Dunkin ')  ? _sortWords(key.slice(7)) : null;
+    const wsNoM      = key.startsWith('M-')       ? _sortWords(key.slice(2)) : null;
+    if (!(ws         in WORD_SORT_LOOKUP)) WORD_SORT_LOOKUP[ws]         = val;
+    if (wsNoDd     && !(wsNoDd     in WORD_SORT_LOOKUP)) WORD_SORT_LOOKUP[wsNoDd]     = val;
+    if (wsNoDunkin && !(wsNoDunkin in WORD_SORT_LOOKUP)) WORD_SORT_LOOKUP[wsNoDunkin] = val;
+    if (wsNoM      && !(wsNoM      in WORD_SORT_LOOKUP)) WORD_SORT_LOOKUP[wsNoM]      = val;
   }
 }
 

@@ -55,9 +55,9 @@
 - **Prerequisite:** Mike provides item list + build sheets + ingredient costs
 
 ### 7.3 Labor Optimization Simulator
-- "What-if" tool: "If I cut one crew member from the 6-10 AM shift, what's the labor savings? What's the risk?"
-- Show break-even analysis: "You need $X in sales this hour to justify current staffing"
-- Compare best-performing stores' staffing patterns against underperformers
+✅ - What-if simulator: cut N people × H hours → daily savings, new labor %, new break-even, weekly savings. Day-selectable from schedule table.
+✅ - Break-even analysis: avg daily labor cost, break-even sales at 25% target, gap indicator, progress bar
+✅ - Network/district comparison: top 5 performers vs needs attention, rank (exec/IT), district-only view (DMs), hidden for managers
 
 ### 7.4 Royalty & Fee Forecasting
 - Based on current sales trajectory, forecast monthly royalties, ad fund contributions, net revenue
