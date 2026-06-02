@@ -104,7 +104,7 @@ const BEVERAGE_COSTS = {
   "Iced Americano Large Decaf":0.53,"Iced Americano Large Original":0.47,"Iced Americano Medium Decaf":0.48,"Iced Americano Medium Original":0.35,"Iced Americano Small Decaf":0.32,"Iced Americano Small Original":0.24,
   "Iced Cappuccino Large Decaf":1.02,"Iced Cappuccino Large Original":1.00,"Iced Cappuccino Medium Decaf":0.78,"Iced Cappuccino Medium Original":0.70,"Iced Cappuccino Small Decaf":0.52,"Iced Cappuccino Small Original":0.53,
   "Iced Dunkalatte Large Hazelnut Cloud":1.63,"Iced Dunkalatte Large Marshmallow Cloud":1.61,"Iced Dunkalatte Large Nutty Marshmallow Cloud":1.64,
-  "Iced Dunkalatte Med Nutty Marshmallow Cloud":1.39,"Iced Dunkalatte Medium Hazelnut Cloud":1.17,"Iced Dunkalatte Medium Marshmallow Cloud":1.17,
+  "Iced Dunkalatte Med Nutty Marshmallow Cloud":1.39,"Iced Dunkalatte Medium Hazelnut Cloud":1.17,"Iced Dunkalatte Medium Hazelnut Cloud Decaf":1.14,"Iced Dunkalatte Medium Marshmallow Cloud":1.17,
   "Iced Dunkalatte Medium Marshmallow Cloud Decaf":1.16,"Iced Dunkalatte Medium Nutty Banana Cloud":1.15,"Iced Dunkalatte Medium Nutty Marshmallow Cloud":1.19,
   "Iced Dunkalatte Small Hazelnut Cloud":0.83,"Iced Dunkalatte Small Marshmallow Cloud":0.83,"Iced Dunkalatte Small Marshmallow Cloud Decaf":0.81,"Iced Dunkalatte Small Nutty Banana Cloud":0.79,"Iced Dunkalatte Small Nutty Marshmallow Cloud":0.83,
   "Iced LG Orig Toasted White Choc Signature Latte":1.68,"Iced MD Orig Toasted White Choc Signature Latte":1.46,
@@ -127,7 +127,7 @@ const BEVERAGE_COSTS = {
   "Iced Medium Sugar Free Vanilla Protein Decaf Latte":0.56,"Iced Medium Sugar Free Vanilla Protein Latte":0.57,
   "Iced Small Almond Protein Matcha Latte":0.32,"Iced Small Decaf Caramel Craze Signature Latte":1.09,"Iced Small Decaf Cocoa Mocha Signature Latte":1.09,"Iced Small Decaf Dunkalatte":0.84,
   "Iced Small Original Caramel Craze Signature Latte":1.00,"Iced Small Original Cocoa Mocha Signature Latte":0.99,"Iced Small Original Dunkalatte":0.81,
-  "Iced Small Protein Decaf Latte":0.33,"Iced Small Protein Latte":0.28,"Iced Small Protein Matcha Latte":0.42,
+  "Iced Small Banana Protein Latte":0.34,"Iced Small Protein Decaf Latte":0.33,"Iced Small Protein Latte":0.28,"Iced Small Protein Matcha Latte":0.42,
   "Iced Small Sugar Free Vanilla Protein Decaf Latte":0.41,"Iced Small Sugar Free Vanilla Protein Latte":0.42,
   "Large Iced Brown Sugar Shakin Espresso":1.51,"Large Iced Decaf Brown Sugar Shakin Espresso":1.75,"Large Iced Decaf Shakin Espresso":0.28,"Large Iced Shakin Espresso":0.31,
   "Medium Iced Banana Shakin Espresso":1.17,"Medium Iced Brown Sugar Shakin Espresso":1.07,"Medium Iced Caramel Chocolate Shakin Espresso":0.98,
@@ -276,6 +276,48 @@ const PREMIUM_COSTS = {
   "24oz Acrylic Tumbler With Bamboo Lid":5.00,
 };
 
+// ── POS name aliases — maps actual Pulse POS item names to costs ──────────────
+// The WorkPulse report uses different names than the Pulse POS API returns.
+// Key = exact string the POS API returns, Value = cost to make.
+const POS_ALIASES = {
+  // Coolatta — POS reverses "Coolatta X Y" to "X Y Coolatta"
+  "Medium Vanilla Bean Coolatta":0.96,"Small Vanilla Bean Coolatta":0.63,"Large Vanilla Bean Coolatta":1.21,
+  "Medium OREO Coolatta":0.88,"Small OREO Coolatta":0.60,"Large OREO Coolatta":1.20,
+  "Medium Blue Raspberry Coolatta":0.48,"Small Blue Raspberry Coolatta":0.33,"Large Blue Raspberry Coolatta":0.63,
+  "Medium Strawberry Coolatta":0.65,"Small Strawberry Coolatta":0.44,"Large Strawberry Coolatta":0.87,
+  // Wraps — POS uses slightly different names
+  "Fried Egg- Wrap":0.40,"Fried Egg Wrap":0.40,
+  "Egg and Cheese Wrap":0.65,"Egg & Cheese Wrap":0.65,
+  "Sausage Egg Cheese Wake Up Wrap":0.46,"Seasoned Bacon Wake Up Wrap":0.56,
+  "Turkey Sausage Egg & Cheese Wrap":0.74,
+  // Bottled — POS drops "DD " prefix
+  "Tropicana Apple Juice":0.97,"Tropicana Pure Premium Orange Juice":1.33,
+  "Tropicana Orange Juice":1.33,"Bottled Water":0.44,"Mountain Dew":1.16,"Pepsi":1.20,
+  "Diet Pepsi":1.20,"Gatorade Cool Blue":1.22,"Gatorade Lemon Lime":1.18,
+  "Apple Juice":1.40,"Ocean Spray Cranberry":2.38,"Simply Orange":4.90,
+  // Modifier names POS uses
+  "American Cheese":0.07,"Extra American Cheese WUW":0.07,"Extra White Cheddar Cheese":0.13,
+  // Items in POS not in WorkPulse report
+  "Cup of Water":0.00,"Sparkling Water Default":0.00,
+  // Pumps, syrups, swirls = $0 cost (extra charge to customer, no ingredient COGS)
+  "Vanilla Bean Coolatta Syrup":0.00,"Butter Pecan Swirl":0.00,
+  "Add'l Swirl Charge":0.00,"Extra Pump":0.00,"Extra Swirl":0.00,
+  // Donut multi-pack variant
+  "Donuts, 10":2.91,"Donuts 10":2.91,
+  // Fancy items — CSV uses "F-Variety, X"" format (with trailing quote)
+  "F-Variety, Apple Fritter\"":0.40,"F-Variety, Apple Fritter":0.40,
+  "F-Variety, Coffee Roll\"":0.40,"F-Variety, Coffee Roll":0.40,
+  "F-Variety, Frosted Coffee Roll\"":0.40,"F-Variety, Frosted Coffee Roll":0.40,
+  // Quote/apostrophe encoding variants
+  "Celebration 9\" Round Cake":11.20,"Celebration 9 Round Cake":11.20,
+  "Valentine’s Tin 25 Munchkin":1.88,
+  // Dunkin' Midnight apostrophe variants
+  "1 LB Coffee Dunkin Midnight":4.28,"K-Cup 12 Ct Dunkin Midnight":4.76,
+  "Hot Coffee Large Dunkin Midnight":0.77,"Hot Coffee Medium Dunkin Midnight":0.45,
+  "Hot Coffee Small Dunkin Midnight":0.30,"Hot Coffee X-Large Dunkin Midnight":0.58,
+  "Hot Coffee Box O Joe Dunkin Midnight":7.62,
+};
+
 // ── Ingredient costs per unit — sourced from WorkPulse export (Jun 2026)
 // Codes match RI10xxx codes from the official PCG ingredient catalog
 const INGREDIENT_COSTS = {
@@ -293,6 +335,83 @@ const INGREDIENT_COSTS = {
   cake_round_9:   3.8500, // RI10013
   cake_roll:     12.4800, // RI10019
 };
+
+// ── POS name variations not covered by normalization ──────────────────────────
+// Add here when the POS uses a genuinely different name (not just punctuation/prefix)
+Object.assign(POS_ALIASES, {
+  // Plural "Refreshers" → singular in catalog
+  "Medium Strawberry Dragonfruit Dunkin Refreshers":0.50,
+  "Large Strawberry Dragonfruit Dunkin Refreshers":0.64,
+  "Small Strawberry Dragonfruit Dunkin Refreshers":0.34,
+  // Alternative milk substitutes
+  "Almond Milk 2025":0.50,"Oatmilk 2025":0.50,"Oat Milk 2025":0.50,
+  "Almond Milk":0.50,"Oat Milk":0.50,"Oatmilk":0.50,
+  "Coconut Milk":0.50,"Soy Milk":0.50,
+  // Bottled items POS returns without "DD " prefix and with generic names
+  "Whole Milk":0.05,"Chocolate Milk":0.74,"Strawberry Milk":0.05,
+  "Pepsi default":1.20,"Mountain Dew default":1.16,"Soda default":0.00,
+  "Starry":1.20,"Aquafina":0.44,
+  // Cold beverage modifiers
+  "Marshmallow Cold Foam":0.17,"Vanilla Cold Foam":0.17,"Caramel Cold Foam":0.17,
+  "Pink Cold Foam":0.23,"Chocolate Cold Foam":0.20,"Banana Cold Foam":0.25,
+  // New/seasonal Dunkin Zero flavors not in original report
+  "Large Glamberry Dunkin Zero":1.73,"Medium Glamberry Dunkin Zero":1.44,"Small Glamberry Dunkin Zero":1.15,
+  // POS sandwich name variants
+  "Turkey Sausage Egg & Cheese":1.04,
+  "Turkey Sausage Egg and Cheese":1.04,
+  "Grilled Cheese":0.79,
+  "Grilled Bacon & Cheese Melt":1.36,
+  "Grilled Bacon and Cheese Melt":1.36,
+  // "Add'l" → "Adtl" abbreviation difference
+  "Adtl Swirl Charge":0.00,
+  // Espresso shot modifier — POS adds "when" which breaks word-sort
+  "Espresso Shot (when added to a bev)":0.14,
+  "Decaf Espresso Shot (when added to a bev)":0.14,
+  // POS calls unsweetened black iced tea "Unsweet" instead of "Black"
+  "Iced Tea Large Unsweet":0.16,"Iced Tea Medium Unsweet":0.12,"Iced Tea Small Unsweet":0.10,
+  "Iced Tea Large Unsweetened":0.16,"Iced Tea Medium Unsweetened":0.12,"Iced Tea Small Unsweetened":0.10,
+  // "Daydream" variant — same product as "Build Your Own Dream Refresher"
+  "Large Build Your Daydream Refresher":1.13,
+  "Medium Build Your Daydream Refresher":1.10,
+  "Small Build Your Daydream Refresher":1.11,
+});
+
+// ── Normalized lookup — built once at startup ─────────────────────────────────
+// Strips punctuation + lowercases every catalog key, then indexes three ways:
+//   1. as-is  2. without "DD " prefix  3. with "DD " prefix added
+// This auto-matches: "Pepsi" ↔ "DD Pepsi", "Dunkin Midnight" ↔ "Dunkin' Midnight",
+// "Fried Egg Wrap" ↔ "Fried Egg- Wrap", etc. No manual aliases needed for these.
+// Normalize: remove hyphens first (xlarge = x-large), then strip other punctuation to spaces
+const _norm = s => s.toLowerCase().replace(/-/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+const NORM_LOOKUP = {};
+for (const catalog of [BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, PREMIUM_COSTS, POS_ALIASES]) {
+  for (const [key, val] of Object.entries(catalog)) {
+    if (val === undefined || val === null) continue;
+    const n = _norm(key);
+    const nNoDd   = key.startsWith('DD ') ? _norm(key.slice(3)) : null;  // "DD Pepsi" → "pepsi"
+    const nWithDd = _norm('DD ' + key);                                   // "Pepsi" → "dd pepsi"
+    const nNoM    = key.startsWith('M-') ? _norm(key.slice(2)) : null;    // "M-Grape Jelly" → "grape jelly"
+    if (!(n       in NORM_LOOKUP)) NORM_LOOKUP[n]       = val;
+    if (nNoDd  && !(nNoDd   in NORM_LOOKUP)) NORM_LOOKUP[nNoDd]   = val;
+    if (         !(nWithDd  in NORM_LOOKUP)) NORM_LOOKUP[nWithDd]  = val;
+    if (nNoM   && !(nNoM    in NORM_LOOKUP)) NORM_LOOKUP[nNoM]    = val;
+  }
+}
+
+// Word-sorted lookup — handles word-order swaps (e.g. POS: "Iced Medium Original Latte" vs catalog: "Iced Latte Medium Original")
+const _sortWords = s => _norm(s).split(' ').sort().join(' ');
+const WORD_SORT_LOOKUP = {};
+for (const catalog of [BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, PREMIUM_COSTS, POS_ALIASES]) {
+  for (const [key, val] of Object.entries(catalog)) {
+    if (val === undefined || val === null) continue;
+    const ws = _sortWords(key);
+    const wsNoDd = key.startsWith('DD ') ? _sortWords(key.slice(3)) : null;
+    const wsNoM  = key.startsWith('M-')  ? _sortWords(key.slice(2))  : null;
+    if (!(ws     in WORD_SORT_LOOKUP)) WORD_SORT_LOOKUP[ws]     = val;
+    if (wsNoDd && !(wsNoDd in WORD_SORT_LOOKUP)) WORD_SORT_LOOKUP[wsNoDd] = val;
+    if (wsNoM  && !(wsNoM  in WORD_SORT_LOOKUP)) WORD_SORT_LOOKUP[wsNoM]  = val;
+  }
+}
 
 // Display groups
 const CATEGORY_GROUPS = {
@@ -313,6 +432,16 @@ const BAKERY_SUBS = ['donut', 'munchkin', 'muffin', 'bagel', 'english_muffin', '
 
 function classifyItem(name) {
   const lower = (name || '').toLowerCase();
+
+  // ── MODIFIER / SKIP — POS default modifiers with no COGS value ──────────
+  // These clutter the display: ADD, Add Ice, Less Ice, X Default, drizzle/powder defaults
+  if (lower === 'add' || lower === 'add ice' || lower === 'less ice' || lower === 'no ice' ||
+      lower === 'extra ice' || lower === 'light ice' ||
+      lower.endsWith(' default') || lower.endsWith('default') ||
+      lower.includes('drizzle') || lower.includes('sugar default') ||
+      lower.includes('powder default') || lower.includes('syrup default')) {
+    return { group: 'modifier', sub: null, qty: 1 };
+  }
 
   // ── BAKERY ──────────────────────────────────────────
   // Munchkins (before donut)
@@ -369,7 +498,10 @@ function classifyItem(name) {
   if (lower.includes('wrap')) return { group: 'wraps', sub: null, qty: 1 };
 
   // ── SANDWICHES ──────────────────────────────────────
-  if (lower.includes('sandwich') || lower.includes('sourdough') ||
+  // Classic breakfast sandwich pattern: "X Egg & Cheese", "Egg & Cheese", "Grilled Cheese"
+  const isBreakfastSandwich = (lower.includes('egg') && lower.includes('cheese') && !lower.startsWith('m-') && !lower.includes('extra') && !lower.includes('add') && !lower.includes('cream cheese'));
+  const isGrilledSandwich = lower.includes('grilled cheese') || lower.includes('grilled bacon');
+  if (lower.includes('sandwich') || lower.includes('sourdough') || isBreakfastSandwich || isGrilledSandwich ||
       (lower.includes('croissant') && (lower.includes('egg') || lower.includes('bacon') || lower.includes('sausage'))) ||
       (lower.includes('bagel') && (lower.includes('egg') || lower.includes('bacon') || lower.includes('sausage'))) ||
       (lower.includes('english muffin') && (lower.includes('egg') || lower.includes('bacon') || lower.includes('sausage')))) {
@@ -395,15 +527,28 @@ function classifyItem(name) {
 
   // ── COLD BEVERAGES ─────────────────────────────────
   if (lower.includes('iced') || lower.includes('cold brew') || lower.includes('refresher') ||
-      lower.includes('lemonade') || lower.includes('iced tea') || lower.includes('sweet tea')) {
+      lower.includes('lemonade') || lower.includes('iced tea') || lower.includes('sweet tea') ||
+      lower.includes('dunkin zero') || lower.includes('cold foam') || lower.includes('nitro') ||
+      lower.includes('dirty soda') || lower.includes('limeade') || lower.includes('blushpop') ||
+      lower.includes('sunzest') || lower.includes('peachberry') || lower.includes('glamberry')) {
     return { group: 'cold_beverages', sub: null, qty: 1 };
+  }
+
+  // Alternative milk substitutes — drink add-ons/upcharges, not retail packaged
+  if (lower.includes('oatmilk') || lower.includes('oat milk') || lower.includes('almond milk') ||
+      lower.includes('coconut milk') || lower.includes('soy milk')) {
+    return { group: 'other', sub: null, qty: 1 };
   }
 
   // ── BOTTLED & PACKAGED ─────────────────────────────
   if (lower.includes('bottle') || lower.includes('juice') || lower.includes('water') ||
       lower.includes('milk') || lower.includes('simply') || lower.includes('dew') ||
       lower.includes('pepsi') || lower.includes('coke') || lower.includes('soda') ||
-      lower.includes('gatorade') || lower.includes('snapple') || lower.includes('can ')) {
+      lower.includes('gatorade') || lower.includes('snapple') || lower.includes('canned') ||
+      lower.includes('aquafina') || lower.includes('starry') || lower.includes('rockstar') ||
+      lower.includes('monster') || lower.includes('celsius') || lower.includes('vitamin water') ||
+      lower.includes('nesquick') || lower.includes('hiland') || lower.includes('tropicana') ||
+      /\bcan\b/.test(lower)) {
     return { group: 'bottled', sub: null, qty: 1 };
   }
 
@@ -422,7 +567,7 @@ function classifyItem(name) {
       lower.includes('retail tea') || lower.includes('premium packaged tea') ||
       lower.includes('tumbler') || lower.includes('sipper') || lower.includes('hydration bottle') ||
       lower.includes('acrylic') || lower.includes('stainless') || lower.includes('mug')) {
-    return { group: 'premium', sub: null, qty: 1 };
+    return { group: 'other', sub: null, qty: 1 };
   }
 
   return { group: 'other', sub: null, qty: 1 };
@@ -499,6 +644,7 @@ async function calcFoodCostForStore(pc, date) {
   for (const [miNum, data] of Object.entries(aggregated)) {
     const itemName = nameMap[miNum] || `Item ${miNum}`;
     const cls = classifyItem(itemName);
+    if (cls.group === 'modifier') continue; // Skip POS default modifiers from display
     const groupKey = cls.group;
 
     if (!categories[groupKey]) {
@@ -506,8 +652,12 @@ async function calcFoodCostForStore(pc, date) {
       categories[groupKey] = { ...meta, totalRevenue: 0, totalQty: 0, totalCost: 0, items: [] };
     }
 
-    // Exact match wins: check beverages, food, ice cream lookups first
-    const exactCost = BEVERAGE_COSTS[itemName] ?? FOOD_COSTS[itemName] ?? ICE_CREAM_COSTS[itemName] ?? PREMIUM_COSTS[itemName];
+    // Exact match wins — try the name as-is, then with "DD " prefix stripped (POS omits it)
+    // Lookup: exact match first, then normalized (handles DD prefix, punctuation, apostrophes)
+    const exactCost = BEVERAGE_COSTS[itemName] ?? FOOD_COSTS[itemName] ?? ICE_CREAM_COSTS[itemName] ?? PREMIUM_COSTS[itemName]
+      ?? POS_ALIASES[itemName]
+      ?? NORM_LOOKUP[_norm(itemName)]
+      ?? WORD_SORT_LOOKUP[_sortWords(itemName)];
     const unitCost = exactCost !== undefined ? exactCost : (cls.sub && INGREDIENT_COSTS[cls.sub] ? INGREDIENT_COSTS[cls.sub] : 0);
     const totalUnits = exactCost !== undefined ? data.slsCnt : data.slsCnt * (cls.qty || 1);
     const cost = totalUnits * unitCost;
