@@ -27094,9 +27094,11 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                     </div>
                     {w.photos?.length > 0 && (
                       <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}}>
-                        {w.photos.map((ph,pi)=>(
-                          <img key={pi} src={ph} alt="" style={{width:80,height:80,objectFit:'cover',borderRadius:8,border:`1px solid ${th.cardBorder}`}}/>
-                        ))}
+                        {w.photos.map((ph,pi)=>{
+                          const src = ph?.data || ph;
+                          if (!src || typeof src !== 'string') return null;
+                          return <img key={pi} src={src} alt={ph?.name||''} style={{width:80,height:80,objectFit:'cover',borderRadius:8,border:`1px solid ${th.cardBorder}`,cursor:'pointer'}} onClick={()=>window.open(src,'_blank')}/>;
+                        })}
                       </div>
                     )}
                   </div>
@@ -29840,7 +29842,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.82
+            v13.83
           </div>
         )}
         {/* Collapse toggle — desktop only */}
