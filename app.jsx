@@ -2954,10 +2954,10 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   const [roleFilter, setRoleFilter] = useState("all");
   const [isMobileUsers, setIsMobileUsers] = useState(() => window.innerWidth < 700);
   React.useEffect(() => { const fn = () => setIsMobileUsers(window.innerWidth < 700); window.addEventListener("resize", fn); return () => window.removeEventListener("resize", fn); }, []);
-  const ROLE_COLOR = { executive:"#10b981", it:"#3b82f6", office_staff:"#8b5cf6", dm:"#f59e0b", manager:"#9ca3af", vendor:"#06b6d4", construction:"#fb923c" };
-  const ROLE_LABEL = { executive:"Executive", it:"IT Team", office_staff:"Office", dm:"District Mgr", manager:"Manager", vendor:"Vendor", construction:"Construction" };
+  const ROLE_COLOR = { executive:"#10b981", it:"#3b82f6", office_staff:"#8b5cf6", dm:"#f59e0b", manager:"#9ca3af", vendor:"#06b6d4", construction:"#fb923c", maintenance:"#0891b2" };
+  const ROLE_LABEL = { executive:"Executive", it:"IT Team", office_staff:"Office", dm:"District Mgr", manager:"Manager", vendor:"Vendor", construction:"Construction", maintenance:"Maintenance" };
   const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
-  const roleLabel = (ut) => ROLE_LABEL[ut] || "Manager";
+  const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
 
   const displayUsers = users
     .filter(u => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || (u.username||"").toLowerCase().includes(search.toLowerCase()))
@@ -22890,10 +22890,22 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
             if (cancelled) return;
             const days = {};
             const now = new Date(); const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+            const todayDt = new Date(et.getFullYear(), et.getMonth(), et.getDate());
+            const sundayDt = new Date(todayDt); sundayDt.setDate(todayDt.getDate() - todayDt.getDay());
+            const histDaily = hist?.daily || [];
             for (let d = 0; d < 7; d++) {
-              const dt = new Date(et.getFullYear(), et.getMonth(), et.getDate() + d);
+              const dt = new Date(sundayDt.getFullYear(), sundayDt.getMonth(), sundayDt.getDate() + d);
               const ds = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-              days[ds] = projectDay(sched, hist, ds, dt.getDay());
+              const isPast = dt < todayDt;
+              if (isPast) {
+                // Past days: show actual labor % from history
+                const actual = histDaily.find(h => h.date === ds);
+                days[ds] = actual?.laborPct != null
+                  ? { projectedLaborPct: Math.round(actual.laborPct * 10) / 10, isActual: true }
+                  : { noData: true };
+              } else {
+                days[ds] = projectDay(sched, hist, ds, dt.getDay());
+              }
             }
             setForecastData(prev => ({ ...prev, [pc]: { loaded: true, days } }));
           } catch { if (!cancelled) setForecastData(prev => ({ ...prev, [pc]: { loaded: true, days: {} } })); }
@@ -26789,7 +26801,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
   );
 }
 
-function MaintenanceCalendar({ th, user, stores }) {
+function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
   const O = '#FF671F';
   const today = new Date(); today.setHours(0,0,0,0);
   const [tickets, setTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); } catch { return []; } });
@@ -26837,6 +26849,11 @@ function MaintenanceCalendar({ th, user, stores }) {
       if (endStr && endStr !== startStr) {
         addEvent(endStr, { type: 'ticket', subtype: 'due', id: t.id, title: `Due: ${t.title}`, store: t.storeName, priority: t.priority, status: t.status });
       }
+    });
+
+    // Todos/tasks with due dates — show on maintenance calendar
+    (todos || []).filter(t => !t.completed && t.dueDate).forEach(t => {
+      addEvent(t.dueDate, { type: 'todo', id: t.id, title: t.text || t.title || 'Task', store: t.storeName || '' });
     });
 
     // Scheduled maintenance — compute occurrences for current month
@@ -26968,6 +26985,16 @@ function MaintenanceCalendar({ th, user, stores }) {
                     {e.store && <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: 2 }}>{e.store}</div>}
                     {e.type === 'ticket' && <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: 2 }}>Status: {e.status}</div>}
                     {e.type === 'schedule' && <button onClick={() => deleteSchedule(e.id)} style={{ marginTop: 5, background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 6, color: '#ef4444', fontSize: '0.66rem', padding: '2px 7px', cursor: 'pointer' }}>Remove</button>}
+                    {e.type === 'todo' && setTodos && (
+                      <button onClick={() => {
+                        const updated = (todos || []).filter(t => t.id !== e.id);
+                        setTodos(updated);
+                        cloudSave('pcg_todos_v1', updated).catch(() => {});
+                        setSelectedDay(null);
+                      }} style={{ marginTop: 5, background: '#ef444418', border: '1px solid #ef444444', borderRadius: 6, color: '#ef4444', fontSize: '0.66rem', padding: '2px 7px', cursor: 'pointer', fontWeight: 600 }}>
+                        🗑 Delete
+                      </button>
+                    )}
                   </div>
                 ))}
               </>
@@ -28992,7 +29019,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.74
+            v13.76
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -29413,7 +29440,7 @@ function PCGPortal() {
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
           {tab === "email"    && (isFullAdmin(user) || isOfficeStaff) && <EmailTab th={th} user={user} />}
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={setTab} />}
-          {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} />}
+          {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} todos={todos} setTodos={setTodos} />}
           {tab === "calendar" && user?.userType !== "maintenance" && <PortalCalendar th={th} user={user} stores={stores} todos={todos} projects={projects} />}
         </div>
       </div>
