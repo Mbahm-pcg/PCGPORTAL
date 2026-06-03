@@ -8516,7 +8516,9 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const [progress,    setProgress]   = useState(0);
   const [lastRefresh, setLastRefresh]= useState(null);
   const [countdown,   setCountdown]  = useState(300);
-  const [distFilter,  setDistFilter] = useState(0);
+  const isDMUser = user?.userType === 'dm';
+  const dmDistrict = isDMUser && user?.district ? Number(user.district) : 0;
+  const [distFilter,  setDistFilter] = useState(dmDistrict);
   const [autoRefresh, setAutoRefresh]= useState(true);
   const [testResult,  setTestResult] = useState(null);
   const [testing,     setTesting]    = useState(false);
@@ -8524,13 +8526,17 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const [lyCache,     setLyCache]    = useState({});   // LY same-week date → { netSales }
   const [wtdLoading,  setWtdLoading] = useState(false);
   const [collapsed,   setCollapsed]  = useState(new Set());
-  const [pulseView,   setPulseView]  = useState("network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
+  const [pulseView,   setPulseView]  = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
   const [weatherForecast, setWeatherForecast] = useState(null);
   const [weatherCorrelations, setWeatherCorrelations] = useState(null);
   const [networkReviews, setNetworkReviews] = useState(null);
   const cdRef = useRef(null);
 
-  const activePCs = stores.filter(s => s.status === 'Open').map(s => s.pc);
+  const activePCs = stores
+    .filter(s => s.status === 'Open')
+    .filter(s => !isDMUser || Number(s.district) === dmDistrict)
+    .map(s => s.pc);
+  const dmStoreCount = activePCs.length;
 
   // Drill-in from Orion: auto-open store detail
   useEffect(() => {
@@ -8734,8 +8740,9 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   }));
 
   // Store rows
-  const loaded  = Object.values(storeData).filter(d => d.status === 'ok');
-  const errored = Object.values(storeData).filter(d => d.status === 'error');
+  const dmPCSet = isDMUser ? new Set(activePCs.map(String)) : null;
+  const loaded  = Object.entries(storeData).filter(([pc, d]) => d.status === 'ok' && (!dmPCSet || dmPCSet.has(String(pc)))).map(([,d])=>d);
+  const errored = Object.entries(storeData).filter(([pc, d]) => d.status === 'error' && (!dmPCSet || dmPCSet.has(String(pc)))).map(([,d])=>d);
   const totals  = loaded.reduce((a, d) => ({
     netSales:  a.netSales  + d.data.netSales,
     guests:    a.guests    + d.data.guests,
@@ -8930,7 +8937,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
 
       {/* ── Non-Open Stores Banner ── */}
       {(() => {
-        const nonOpen = stores.filter(s => s.status !== 'Open');
+        const nonOpen = stores.filter(s => s.status !== 'Open' && (!isDMUser || Number(s.district) === dmDistrict));
         if (!nonOpen.length) return null;
         return (
           <div style={{ marginBottom:'0.75rem', padding:'0.6rem 0.85rem', background:'#fd7e1418', borderLeft:`3px solid #fd7e14`, borderRadius:'0.375rem', fontSize:'0.78rem', color:th.muted, lineHeight:1.5 }}>
@@ -9125,7 +9132,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
           <div style={{ fontSize:'3rem', marginBottom:'0.75rem', animation:'pulseRing 2s ease-out infinite' }}>💚</div>
           <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1.1rem', color:G, marginBottom:'0.25rem' }}>Loading Pulse Data...</div>
           <div style={{ fontSize:'0.75rem', color:`${G}66`, marginBottom:'1.25rem' }}>
-            Connecting to {activePCs.length} stores across 8 districts
+            {isDMUser ? `Connecting to ${dmStoreCount} stores in District ${dmDistrict}` : `Connecting to ${activePCs.length} stores across 8 districts`}
           </div>
           <div style={{ maxWidth:300, margin:'0 auto' }}>
             {/* Store count row above bar */}
@@ -9141,12 +9148,12 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                 <div style={{ position:'absolute', top:0, left:'-60%', width:'60%', height:'100%', background:'linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)', animation:'shimmerSlide 1.6s ease-in-out infinite' }} />
               </div>
             </div>
-            {/* District dots */}
+            {/* District dots — DMs only see their district, admins see all 8 */}
             <div style={{ display:'flex', justifyContent:'space-between', marginTop:'0.6rem' }}>
-              {[1,2,3,4,5,6,7,8].map(d => {
-                const dPct = d / 8;
+              {(isDMUser ? [dmDistrict] : [1,2,3,4,5,6,7,8]).map((d, idx, arr) => {
+                const dPct = (idx + 1) / arr.length;
                 const isDone = progress / 100 >= dPct;
-                const isActive = progress / 100 >= (d - 1) / 8 && progress / 100 < dPct;
+                const isActive = progress / 100 >= idx / arr.length && progress / 100 < dPct;
                 return (
                   <div key={d} style={{ textAlign:'center', flex:1 }}>
                     <div style={{ width:6, height:6, borderRadius:'50%', margin:'0 auto 0.2rem', background: isDone ? G : isActive ? `${G}88` : th.cardBorder, boxShadow: isDone ? `0 0 5px ${G}` : 'none', animation: isActive ? 'pulse 1.5s ease-in-out infinite' : 'none', transition:'background .3s' }} />
@@ -9182,11 +9189,16 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
             <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.9rem', color:th.text, flex:1 }}>
               📍 Store Breakdown — {busDt}
             </div>
-            <select style={{ ...inp(th), width:'auto', padding:'0.3rem 0.6rem', fontSize:'0.75rem' }}
-              value={distFilter} onChange={e=>setDistFilter(+e.target.value)}>
-              <option value={0}>All Districts</option>
-              {distList.map(d=><option key={d.num} value={d.num}>District {d.num} — {d.name.split(' ')[0]}</option>)}
-            </select>
+            {!isDMUser && (
+              <select style={{ ...inp(th), width:'auto', padding:'0.3rem 0.6rem', fontSize:'0.75rem' }}
+                value={distFilter} onChange={e=>setDistFilter(+e.target.value)}>
+                <option value={0}>All Districts</option>
+                {distList.map(d=><option key={d.num} value={d.num}>District {d.num} — {d.name.split(' ')[0]}</option>)}
+              </select>
+            )}
+            {isDMUser && (
+              <span style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, background:th.card2, borderRadius:6, padding:'3px 10px' }}>District {dmDistrict}</span>
+            )}
           </div>
           <div style={{ overflowX:'auto' }}>
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.78rem' }}>
@@ -16007,6 +16019,7 @@ const getTabs = (user) => {
     ...BASE_TABS,
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
+    { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "anomalies", label: "Anomalies",      icon: (c) => ICONS.anomalies(c) },
     { id: "labor",     label: "Labor",          icon: (c) => ICONS.dollar(c) },
@@ -25651,6 +25664,12 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
   const [askAnswer, setAskAnswer] = React.useState(null);
   const [askLoading, setAskLoading] = React.useState(false);
   const [caseFilter, setCaseFilter] = React.useState('open');
+  const [storeRows, setStoreRows] = React.useState([]);
+  const [expandedStore, setExpandedStore] = React.useState(null);
+  const [pulseApiData, setPulseApiData] = React.useState({});
+  const [pulseLoading, setPulseLoading] = React.useState(false);
+  const [pulseProgress, setPulseProgress] = React.useState(0);
+  const [pulseDate, setPulseDate] = React.useState(new Date().toISOString().slice(0,10));
   const chatEndRef = React.useRef(null);
   const askInputRef = React.useRef(null);
 
@@ -25700,6 +25719,24 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
             ? validLaborStores.reduce((s, r) => s + r.wtd.laborPct, 0) / validLaborStores.length
             : 0;
           setKpi({ totalSales, avgLaborPct, storeCount: scoped.length });
+          // Build per-store rows for Pulse widget
+          const rows = Object.entries(laborData.stores)
+            .map(([pc, s]) => {
+              if (s.error) return null;
+              if (!isExec && Number(s.district) !== district) return null;
+              const storeInfo = (stores||[]).find(st => String(st.pc) === String(pc));
+              return {
+                pc, name: storeInfo?.nickname || storeInfo?.address || `Store ${pc}`,
+                todaySales: s.today?.sales || s.today?.netSales || 0,
+                todayLaborPct: s.today?.laborPct || 0,
+                wtdSales: s.wtd?.sales || s.wtd?.netSales || 0,
+                wtdLaborPct: s.wtd?.laborPct || 0,
+                district: s.district,
+              };
+            })
+            .filter(Boolean)
+            .sort((a,b) => b.todaySales - a.todaySales);
+          setStoreRows(rows);
         }
 
         // Latest leaderboard announcement
@@ -25707,6 +25744,9 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
           const lb = annData.find(a => a.type === 'leaderboard' && a.active);
           setLeaderboard(lb || null);
         }
+
+        // Initial Pulse fetch after labor data loads
+        fetchPulseData(new Date().toISOString().slice(0,10));
 
         // Cases
         const caseRes = await fetch('/.netlify/functions/analyst', {
@@ -25778,12 +25818,30 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
     }).catch(() => {});
   };
 
+  const fetchPulseData = async (date) => {
+    const districtStores = (stores||[]).filter(s => (isExec || Number(s.district) === district) && s.status === 'Open');
+    if (!districtStores.length) return;
+    setPulseLoading(true); setPulseProgress(0); setPulseApiData({});
+    const batchSize = 3; const results = {};
+    for (let i = 0; i < districtStores.length; i += batchSize) {
+      await Promise.all(districtStores.slice(i, i + batchSize).map(async s => {
+        try {
+          const json = await fetchOpsTotals(String(s.pc), date);
+          results[s.pc] = sumRVC(json.revenueCenters || []);
+        } catch {}
+      }));
+      setPulseProgress(Math.round(((i + batchSize) / districtStores.length) * 100));
+    }
+    setPulseApiData(results); setPulseLoading(false); setPulseProgress(100);
+  };
+
   const severityColor = s => s === 'high' ? '#f44336' : s === 'medium' ? '#ff9800' : '#4caf50';
   const laborColor = p => !p ? th.muted : p < 23 ? '#4caf50' : p < 26 ? '#ff9800' : '#f44336';
   const fmtDollars = n => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
 
   const NAV_ITEMS = [
     { id: 'brief', label: 'Brief', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8M8 8h5M8 16h6"/></svg> },
+    { id: 'pulse', label: 'Pulse', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
     { id: 'cases', label: 'Cases', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12l2 2 4-4"/></svg> },
     { id: 'chat', label: 'Chat', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
     { id: 'ask', label: 'Ask', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> },
@@ -25814,6 +25872,166 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
 
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 14px 12px', WebkitOverflowScrolling: 'touch' }}>
+
+        {/* ── PULSE TAB ── */}
+        {activeTab === 'pulse' && (() => {
+          const G = '#00d084';
+          const apiVals = Object.values(pulseApiData);
+          const totalTodaySales = apiVals.length > 0
+            ? apiVals.reduce((s,d)=>s+(d?.netSales||0),0)
+            : storeRows.reduce((s,r)=>s+r.todaySales,0);
+          const totalGuests = apiVals.reduce((s,d)=>s+(d?.netGuests||d?.guests||0),0);
+          const totalDiscounts = apiVals.reduce((s,d)=>s+(d?.discountAmount||d?.discounts||0),0);
+          const totalVoids = apiVals.reduce((s,d)=>s+(d?.voidAmount||d?.voids||0),0);
+          const avgCheck = totalGuests>0 ? totalTodaySales/totalGuests : 0;
+          const voidRate = totalTodaySales>0 ? (totalVoids/totalTodaySales*100) : 0;
+          const validLabor = storeRows.filter(r=>r.todayLaborPct>0);
+          const avgLabor = validLabor.length>0 ? validLabor.reduce((s,r)=>s+r.todayLaborPct,0)/validLabor.length : 0;
+          const totalWtd = storeRows.reduce((s,r)=>s+r.wtdSales,0);
+          const validWtdLabor = storeRows.filter(r=>r.wtdLaborPct>0);
+          const avgWtdLabor = validWtdLabor.length>0 ? validWtdLabor.reduce((s,r)=>s+r.wtdLaborPct,0)/validWtdLabor.length : 0;
+          return (
+            <div>
+              {/* ── Exact same Pulse header as full portal ── */}
+              <div style={{background:'linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)',
+                border:`1px solid ${G}33`,borderRadius:16,padding:'16px 18px',margin:'14px 0 12px',
+                position:'relative',overflow:'hidden'}}>
+                <div style={{position:'absolute',top:-60,right:-60,width:200,height:200,borderRadius:'50%',background:`${G}15`,pointerEvents:'none'}}/>
+                {/* Icon + title */}
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:4}}>
+                  <div style={{position:'relative',display:'flex',alignItems:'center',justifyContent:'center',
+                    width:42,height:42,borderRadius:'50%',background:`${G}22`,border:`2px solid ${G}`,boxShadow:`0 0 16px ${G}66`}}>
+                    <span style={{fontSize:'1.3rem',filter:`drop-shadow(0 0 6px ${G})`}}>💚</span>
+                    <div style={{position:'absolute',top:0,left:0,right:0,bottom:0,borderRadius:'50%',
+                      border:`2px solid ${G}`,animation:'pulseRing 2s ease-out infinite'}}/>
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:'1.4rem',color:G,
+                      textShadow:`0 0 20px ${G}99`,letterSpacing:1,lineHeight:1}}>PULSE</div>
+                    <div style={{fontSize:'0.7rem',color:`${G}99`,fontWeight:600,letterSpacing:2}}>LIVE {isExec?'NETWORK':'DISTRICT'} MONITOR</div>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    {pulseLoading
+                      ? <div style={{color:`${G}88`,fontSize:11,fontWeight:700}}>⏳ {pulseProgress}%</div>
+                      : <div style={{color:`${G}88`,fontSize:11}}>● API connected</div>
+                    }
+                  </div>
+                </div>
+                {/* Heartbeat line — exact same as full portal */}
+                <HeartbeatLine />
+                {/* Date picker + Refresh */}
+                <div style={{display:'flex',alignItems:'center',gap:8,marginTop:8}}>
+                  <div style={{display:'inline-flex',alignItems:'center',gap:4,background:'#001a0d',border:`1px solid ${G}44`,borderRadius:10,padding:'3px 6px',flex:1}}>
+                    <button onClick={()=>{const d=new Date(pulseDate+'T12:00:00');d.setDate(d.getDate()-1);setPulseDate(d.toISOString().slice(0,10));}}
+                      style={{background:'none',border:'none',color:G,cursor:'pointer',fontWeight:800,fontSize:16,padding:'0 4px',lineHeight:1}}>‹</button>
+                    <input type="date" value={pulseDate} max={today} onChange={e=>setPulseDate(e.target.value)}
+                      style={{background:'transparent',border:'none',color:G,fontSize:12,fontWeight:700,fontFamily:"'Raleway'",outline:'none',flex:1,textAlign:'center'}}/>
+                    <button onClick={()=>{const d=new Date(pulseDate+'T12:00:00');d.setDate(d.getDate()+1);if(d.toISOString().slice(0,10)<=today)setPulseDate(d.toISOString().slice(0,10));}}
+                      style={{background:'none',border:'none',color:pulseDate>=today?`${G}33`:G,cursor:'pointer',fontWeight:800,fontSize:16,padding:'0 4px',lineHeight:1}}>›</button>
+                  </div>
+                  <button onClick={()=>fetchPulseData(pulseDate)} disabled={pulseLoading}
+                    style={{background:`${G}22`,border:`1px solid ${G}55`,color:G,borderRadius:10,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0}}>
+                    {pulseLoading?'⏳':'⚡'} {pulseLoading?'Loading…':'Refresh'}
+                  </button>
+                </div>
+              </div>
+
+              {/* ── KPI cards (same style as full portal) ── */}
+              {(totalTodaySales > 0 || totalGuests > 0) && (
+                <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:4,marginBottom:12,WebkitOverflowScrolling:'touch'}}>
+                  {[
+                    {label:`Net Sales — ${pulseDate}`,value:`$${Math.round(totalTodaySales).toLocaleString()}`,color:G,border:G},
+                    {label:'Guests / Checks',value:totalGuests>0?totalGuests.toLocaleString():'—',color:'#74c0fc',border:'#74c0fc'},
+                    {label:'Avg Check',value:avgCheck>0?`$${avgCheck.toFixed(2)}`:'—',color:'#ffd43b',border:'#ffd43b'},
+                    {label:'Discounts',value:totalDiscounts>0?`$${Math.round(Math.abs(totalDiscounts)).toLocaleString()}`:'—',color:'#f06595',border:'#f06595'},
+                    {label:'Void Rate',value:totalTodaySales>0?`${voidRate.toFixed(2)}%`:'—',color:voidRate>1?'#ff6b6b':'#69db7c',border:voidRate>1?'#ff6b6b':'#69db7c'},
+                  ].map(k=>(
+                    <div key={k.label} style={{background:th.card,border:`1px solid ${k.border}44`,borderRadius:12,padding:'12px 14px',minWidth:120,flexShrink:0}}>
+                      <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:18,color:k.color}}>{k.value}</div>
+                      <div style={{fontSize:9,color:th.muted,textTransform:'uppercase',letterSpacing:0.7,fontWeight:600,marginTop:4}}>{k.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── WTD summary ── */}
+              <div style={{background:th.card,border:`1px solid ${th.cardBorder}`,borderRadius:12,padding:'12px 14px',marginBottom:12,borderLeft:`3px solid ${G}`}}>
+                <div style={{fontSize:12,fontWeight:700,color:th.text,marginBottom:8}}>Week to Date</div>
+                <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+                  {[
+                    {label:'Net Sales',value:`$${Math.round(totalWtd).toLocaleString()}`,color:G},
+                    {label:'Avg Labor',value:avgWtdLabor>0?`${avgWtdLabor.toFixed(1)}%`:'—',color:laborColor(avgWtdLabor)},
+                    {label:'Stores',value:storeRows.length,color:'#74c0fc'},
+                  ].map(k=>(
+                    <div key={k.label}>
+                      <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:16,color:k.color}}>{k.value}</div>
+                      <div style={{fontSize:10,color:th.muted,fontWeight:600,marginTop:2}}>{k.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Store cards ── */}
+              <div style={{fontSize:11,color:th.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:1.2,marginBottom:8}}>Store Breakdown</div>
+              {storeRows.length===0 && loading && <div style={{textAlign:'center',color:th.muted,padding:20,fontSize:13}}>Loading stores...</div>}
+              {storeRows.map(s=>{
+                const isOpen = expandedStore === s.pc;
+                const api = pulseApiData[s.pc];
+                const todaySales = api?.netSales || s.todaySales;
+                const guests = api?.netGuests||api?.guests||0;
+                const avgChk = guests>0?(todaySales/guests):0;
+                const discounts = api?.discountAmount||api?.discounts||0;
+                const voids = api?.voidAmount||api?.voids||0;
+                const voidR = todaySales>0?(voids/todaySales*100):0;
+                const lColor = laborColor(s.todayLaborPct);
+                const lBg = s.todayLaborPct>=26?'#f4433618':s.todayLaborPct>=23?'#ff980018':s.todayLaborPct>0?'#4caf5018':'transparent';
+                return (
+                  <div key={s.pc} onClick={()=>setExpandedStore(isOpen?null:s.pc)}
+                    style={{background:th.card,border:`1px solid ${isOpen?G:th.cardBorder}`,borderRadius:14,marginBottom:8,overflow:'hidden',cursor:'pointer',transition:'border-color .2s',boxShadow:isOpen?`0 0 0 1px ${G}44`:'none'}}>
+                    {/* Row header */}
+                    <div style={{display:'flex',alignItems:'center',padding:'12px 14px',gap:10}}>
+                      <div style={{width:8,height:8,borderRadius:'50%',background:lColor,flexShrink:0,boxShadow:`0 0 5px ${lColor}`}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,fontWeight:700,color:th.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s.name}</div>
+                        <div style={{fontSize:11,color:th.muted,marginTop:2}}>WTD {fmtDollars(s.wtdSales)} {guests>0?`· ${guests.toLocaleString()} guests`:''}</div>
+                      </div>
+                      <div style={{textAlign:'right',flexShrink:0,marginRight:6}}>
+                        <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:16,color:todaySales>0?G:th.muted}}>{todaySales>0?`$${Math.round(todaySales).toLocaleString()}`:'—'}</div>
+                        {s.todayLaborPct>0&&<div style={{fontSize:11,fontWeight:700,color:lColor,background:lBg,borderRadius:5,padding:'1px 5px',display:'inline-block',marginTop:2}}>{s.todayLaborPct.toFixed(1)}%</div>}
+                      </div>
+                      <span style={{color:th.muted,fontSize:18,transform:isOpen?'rotate(90deg)':'none',transition:'transform .2s',flexShrink:0}}>›</span>
+                    </div>
+                    {/* Expanded */}
+                    {isOpen && (
+                      <div style={{borderTop:`1px solid ${th.cardBorder}`,padding:'12px 14px',background:th.bg}}>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
+                          {[
+                            {label:'Today Net Sales',value:todaySales>0?`$${Math.round(todaySales).toLocaleString()}`:'—',color:G},
+                            {label:'Guests',value:guests>0?guests.toLocaleString():'—',color:'#74c0fc'},
+                            {label:'Avg Check',value:avgChk>0?`$${avgChk.toFixed(2)}`:'—',color:'#ffd43b'},
+                            {label:'Discounts',value:discounts!==0?`$${Math.round(Math.abs(discounts)).toLocaleString()}`:'—',color:'#f06595'},
+                            {label:'Void Rate',value:todaySales>0?`${voidR.toFixed(2)}%`:'—',color:voidR>1?'#ff6b6b':'#69db7c'},
+                            {label:'Today Labor',value:s.todayLaborPct>0?`${s.todayLaborPct.toFixed(1)}%`:'—',color:lColor},
+                          ].map(k=>(
+                            <div key={k.label} style={{background:th.card,borderRadius:10,padding:'8px 10px',border:`1px solid ${k.color}33`}}>
+                              <div style={{fontSize:9,color:th.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:0.7,marginBottom:4}}>{k.label}</div>
+                              <div style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:14,color:k.color}}>{k.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{display:'flex',justifyContent:'space-between',padding:'8px 10px',background:th.card,borderRadius:8,fontSize:11}}>
+                          <span style={{color:th.muted}}>WTD Sales: <span style={{color:G,fontWeight:700}}>{fmtDollars(s.wtdSales)}</span></span>
+                          <span style={{color:th.muted}}>WTD Labor: <span style={{color:laborColor(s.wtdLaborPct),fontWeight:700}}>{s.wtdLaborPct>0?`${s.wtdLaborPct.toFixed(1)}%`:'—'}</span></span>
+                          <span style={{color:th.muted,fontSize:10}}>PC# {s.pc}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* ── BRIEF TAB ── */}
         {activeTab === 'brief' && (
@@ -27092,7 +27310,17 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
         signature: status==='submitted'?(user?.name||rForm.preparedBy):'',
         signedAt: status==='submitted'?now:'',
       };
+      // Save report blob (individual + photos)
       await cloudSaveReport(report).catch(()=>{});
+      // Update DR index so full portal sees it immediately
+      try {
+        const currentIdx = await cloudLoad(DR_INDEX_KEY).catch(()=>[]) || [];
+        const indexEntry = makeDailyReportIndexEntry(report);
+        const newIdx = [indexEntry, ...(Array.isArray(currentIdx)?currentIdx:[]).filter(r=>String(r.id)!==String(report.id))];
+        await cloudSave(DR_INDEX_KEY, newIdx);
+        // Also update legacy backup (stripped, no photos)
+        await cloudSave('pcg_daily_reports_v1', newIdx.map(r=>({...r,workLogs:(r.workLogs||[]).map(w=>({...w,photos:[]}))})));
+      } catch {}
       setDailyReports(prev => [report, ...prev]);
       goTo('detail');
     } finally { setRSaving(false); }
@@ -27538,9 +27766,11 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                       {isOpen && (
                         <div style={{padding:'0 12px 12px',borderTop:`1px solid ${th.cardBorder}22`}}>
                           {w.description && <div style={{fontSize:13,color:th.muted,marginTop:10,marginBottom:10,lineHeight:1.5}}>{w.description}</div>}
-                          {photoCount > 0 ? (
-                            <div>
-                              <div style={{fontSize:11,color:th.muted,fontWeight:700,marginBottom:8,textTransform:'uppercase'}}>Photos ({photoCount})</div>
+                          <div style={{marginTop:w.description?4:10}}>
+                            <div style={{fontSize:11,color:th.muted,fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>
+                              Photos {photoCount > 0 ? `(${photoCount})` : ''}
+                            </div>
+                            {photoCount > 0 ? (
                               <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                                 {w.photos.map((ph,pi)=>{
                                   const src = ph?.data||ph;
@@ -27552,10 +27782,10 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                                   );
                                 })}
                               </div>
-                            </div>
-                          ) : (
-                            !w.description && <div style={{fontSize:12,color:th.muted,fontStyle:'italic',paddingTop:8}}>No additional details.</div>
-                          )}
+                            ) : (
+                              <div style={{fontSize:12,color:th.muted,fontStyle:'italic'}}>No photos uploaded for this entry.</div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -30251,7 +30481,7 @@ function PCGPortal() {
           const dmTabs = getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id));
           const DM_GROUPS = [
             { key:'dm_loc',  label:'Locations & Map', color:'#74c0fc', icon:(c)=>ICONS.locations(c), ids:['map','locations'] },
-            { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['labor','analytics','anomalies'] },
+            { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['pulse','labor','analytics','anomalies'] },
             { key:'dm_biz',  label:'District',        color:'#74c0fc', icon:(c)=>ICONS.dollar(c),    ids:['cash','reports','projects','scorecard'] },
           ];
           return (
@@ -30373,7 +30603,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.90
+            v14.00
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -30785,7 +31015,7 @@ function PCGPortal() {
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
-          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff) && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
