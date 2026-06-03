@@ -16305,10 +16305,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(false);
     const [empExpanded, setEmpExpanded] = useState(false);
-    const [cutPeople, setCutPeople] = useState(1);
-    const [cutHours, setCutHours] = useState(4);
     const [weekSchedule, setWeekSchedule] = useState(null);
-    const [selectedDay, setSelectedDay] = useState(null);
+    const [expandedDay, setExpandedDay] = useState(null);
+    const [empHourAdj, setEmpHourAdj] = useState({});
     const storeInfo = stores.find((s) => s.pc === store.pc) || {};
     const mgrName = storeInfo.mgr || "\u2014";
     const todayStr = localDateStr(/* @__PURE__ */ new Date());
@@ -16423,8 +16422,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       loadAll();
     }, [store.pc, store.paycor]);
     useEffect(() => {
-      setSelectedDay(null);
       setWeekSchedule(null);
+      setExpandedDay(null);
+      setEmpHourAdj({});
     }, [store.pc]);
     const nowMs = Date.now();
     const todayDate = (/* @__PURE__ */ new Date()).toDateString();
@@ -16687,18 +16687,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       const breakEvenSales = avgLaborDollars > 0 ? avgLaborDollars / (TARGET_PCT / 100) : 0;
       const gapVsTarget = avgSales - breakEvenSales;
       const onTarget = gapVsTarget >= 0;
-      const savingsPerDay = cutPeople * cutHours * avgWage;
-      const newLaborDollars = Math.max(0, avgLaborDollars - savingsPerDay);
-      const newBreakEven = newLaborDollars > 0 ? newLaborDollars / (TARGET_PCT / 100) : 0;
-      const newLaborPct = avgSales > 0 ? newLaborDollars / avgSales * 100 : 0;
       const metricCard = (label, value, sub, color) => /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.75rem", padding: "1rem", flex: 1, minWidth: 140 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.3rem" } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: color || th.text } }, value), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.2rem" } }, sub));
-      return /* @__PURE__ */ React.createElement("div", null, !hasData && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, marginBottom: "1rem" } }, "Not enough history yet \u2014 needs at least 7 days of data."), hasData && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.75rem" } }, "\u{1F4CA} Break-Even Analysis ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 400, color: th.muted } }, "based on last ", last30.length, " days")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" } }, metricCard("Avg Daily Labor Cost", fmtDollars(avgLaborDollars), `~${fmtDollars(avgWage)}/hr avg wage`), metricCard("Break-Even Sales/Day", fmtDollars(breakEvenSales), `at ${TARGET_PCT}% labor target`, "#f59e0b"), metricCard("Your Avg Daily Sales", fmtDollars(avgSales), `${fmtPct(avgLaborPct)} avg labor`, laborColor(avgLaborPct)), metricCard(onTarget ? "Above Break-Even \u2705" : "Below Break-Even \u26A0\uFE0F", `${onTarget ? "+" : ""}${fmtDollars(gapVsTarget)}`, onTarget ? "Healthy margin" : "At risk \u2014 needs attention", onTarget ? "#4caf50" : "#f44336")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: th.muted, marginBottom: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", null, "$0"), /* @__PURE__ */ React.createElement("span", null, "Break-even: ", fmtDollars(breakEvenSales)), /* @__PURE__ */ React.createElement("span", null, "Avg: ", fmtDollars(avgSales))), /* @__PURE__ */ React.createElement("div", { style: { height: 8, borderRadius: 4, background: th.card3, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(100, avgSales / (breakEvenSales * 1.5) * 100)}%`, background: onTarget ? "#4caf50" : "#f44336", borderRadius: 4 } })))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.75rem" } }, "\u{1F527} What-If Simulator"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "1rem" } }, selectedDay ? /* @__PURE__ */ React.createElement("span", null, "Simulating cut for ", /* @__PURE__ */ React.createElement("strong", { style: { color: O } }, selectedDay.label), " \u2014 or ", /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedDay(null), style: { background: "none", border: "none", color: th.muted, cursor: "pointer", textDecoration: "underline", fontSize: "0.8rem", padding: 0 } }, "apply to all days")) : '"What if I remove staff from one shift?" \u2014 or click a day below to target it'), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.5rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.4rem" } }, "People to cut"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setCutPeople(Math.max(1, cutPeople - 1)), style: { ...btn(th, { padding: "0.2rem 0.6rem", fontSize: "1rem", background: th.card3, color: th.text }) } }, "\u2212"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1.25rem", color: th.text, minWidth: 24, textAlign: "center" } }, cutPeople), /* @__PURE__ */ React.createElement("button", { onClick: () => setCutPeople(Math.min(5, cutPeople + 1)), style: { ...btn(th, { padding: "0.2rem 0.6rem", fontSize: "1rem", background: th.card3, color: th.text }) } }, "+"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.4rem" } }, "Shift length (hrs)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setCutHours(Math.max(1, cutHours - 1)), style: { ...btn(th, { padding: "0.2rem 0.6rem", fontSize: "1rem", background: th.card3, color: th.text }) } }, "\u2212"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1.25rem", color: th.text, minWidth: 24, textAlign: "center" } }, cutHours), /* @__PURE__ */ React.createElement("button", { onClick: () => setCutHours(Math.min(12, cutHours + 1)), style: { ...btn(th, { padding: "0.2rem 0.6rem", fontSize: "1rem", background: th.card3, color: th.text }) } }, "+")))), (() => {
-        const base = selectedDay ? { laborCost: selectedDay.projLaborCost, sales: selectedDay.histSales, pct: selectedDay.projPct } : { laborCost: avgLaborDollars, sales: avgSales, pct: avgLaborPct };
-        const afterCost = Math.max(0, base.laborCost - savingsPerDay);
-        const afterPct = base.sales > 0 ? afterCost / base.sales * 100 : 0;
-        const afterBE = afterCost > 0 ? afterCost / (TARGET_PCT / 100) : 0;
-        return /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.75rem", padding: "1rem", display: "flex", gap: "1.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Savings ", selectedDay ? "That Day" : "Per Day"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.2rem", color: "#4caf50" } }, "+", fmtDollars(savingsPerDay)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, cutPeople, " \xD7 ", cutHours, "h \xD7 ", fmtDollars(avgWage), "/hr")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "New Labor % ", selectedDay ? `(${selectedDay.label})` : "(avg)"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.2rem", color: laborColor(afterPct) } }, fmtPct(afterPct)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, "was ", fmtPct(base.pct))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "New Break-Even"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.2rem", color: "#f59e0b" } }, fmtDollars(afterBE)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, "was ", fmtDollars(selectedDay ? base.laborCost / (TARGET_PCT / 100) : breakEvenSales))), !selectedDay && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Weekly Savings"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.2rem", color: "#4caf50" } }, "+", fmtDollars(savingsPerDay * 7)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, "if done every day")));
-      })(), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", fontSize: "0.72rem", color: th.muted, fontStyle: "italic" } }, "\u26A0\uFE0F Risk check: cutting staff below minimum coverage may impact service speed and sales. Compare against busy periods before making changes.")), (() => {
+      return /* @__PURE__ */ React.createElement("div", null, !hasData && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, marginBottom: "1rem" } }, "Not enough history yet \u2014 needs at least 7 days of data."), hasData && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.75rem" } }, "\u{1F4CA} Break-Even Analysis ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 400, color: th.muted } }, "based on last ", last30.length, " days")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" } }, metricCard("Avg Daily Labor Cost", fmtDollars(avgLaborDollars), `~${fmtDollars(avgWage)}/hr avg wage`), metricCard("Break-Even Sales/Day", fmtDollars(breakEvenSales), `at ${TARGET_PCT}% labor target`, "#f59e0b"), metricCard("Your Avg Daily Sales", fmtDollars(avgSales), `${fmtPct(avgLaborPct)} avg labor`, laborColor(avgLaborPct)), metricCard(onTarget ? "Above Break-Even \u2705" : "Below Break-Even \u26A0\uFE0F", `${onTarget ? "+" : ""}${fmtDollars(gapVsTarget)}`, onTarget ? "Healthy margin" : "At risk \u2014 needs attention", onTarget ? "#4caf50" : "#f44336")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: th.muted, marginBottom: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", null, "$0"), /* @__PURE__ */ React.createElement("span", null, "Break-even: ", fmtDollars(breakEvenSales)), /* @__PURE__ */ React.createElement("span", null, "Avg: ", fmtDollars(avgSales))), /* @__PURE__ */ React.createElement("div", { style: { height: 8, borderRadius: 4, background: th.card3, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(100, avgSales / (breakEvenSales * 1.5) * 100)}%`, background: onTarget ? "#4caf50" : "#f44336", borderRadius: 4 } })))), (() => {
         const shifts = weekSchedule?.shifts || [];
         const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         const daily2 = storeHistory?.daily || [];
@@ -16710,43 +16700,106 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           dowSales[dow].count += 1;
         });
         const avgSalesByDow = dowSales.map((d) => d.count > 0 ? d.total / d.count : 0);
+        const empById = {};
+        enrichedEmps.forEach((e) => {
+          if (e.id) empById[String(e.id)] = { name: e.name, hourlyRate: e.hourlyRate, role: e.role };
+        });
+        const empByName = {};
+        enrichedEmps.forEach((e) => {
+          if (e.name) empByName[e.name.toLowerCase().trim()] = { id: e.id, hourlyRate: e.hourlyRate, role: e.role };
+        });
         const byDate = {};
         shifts.forEach((s) => {
           if (!s.startDateTime) return;
           const date = s.startDateTime.slice(0, 10);
           if (!byDate[date]) byDate[date] = [];
-          byDate[date].push(s);
+          const empId = String(s.employeeId || s.EmployeeId || "");
+          const empName = s.employeeName || s.EmployeeName || s.name || "";
+          const empData = empById[empId] || empByName[empName.toLowerCase().trim()] || {};
+          const shiftHrs = s.startDateTime && s.endDateTime ? Math.max(0, Math.min((new Date(s.endDateTime) - new Date(s.startDateTime)) / 36e5, 14)) : 0;
+          const fmtTime = (dt) => dt ? new Date(dt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }) : "\u2014";
+          byDate[date].push({
+            ...s,
+            empId,
+            empName: empData.name || empName || `Employee`,
+            role: empData.role || "\u2014",
+            hourlyRate: empData.hourlyRate || avgWage,
+            shiftHrs,
+            shiftLabel: `${fmtTime(s.startDateTime)} \u2013 ${fmtTime(s.endDateTime)}`
+          });
         });
         const today = /* @__PURE__ */ new Date();
         today.setHours(0, 0, 0, 0);
+        const sunday = new Date(today);
+        sunday.setDate(today.getDate() - today.getDay());
         const rows = Array.from({ length: 7 }, (_, i) => {
-          const d = new Date(today);
-          d.setDate(d.getDate() + i);
+          const d = new Date(sunday);
+          d.setDate(sunday.getDate() + i);
           const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
           const dow = d.getDay();
-          const dayShifts = byDate[dateStr] || [];
-          const schedHours = dayShifts.reduce((sum, s) => {
-            if (!s.startDateTime || !s.endDateTime) return sum;
-            return sum + Math.max(0, Math.min((new Date(s.endDateTime) - new Date(s.startDateTime)) / 36e5, 14));
-          }, 0);
-          const projLaborCost = schedHours * avgWage;
+          const dayEmps = (byDate[dateStr] || []).map((s) => ({
+            ...s,
+            adjKey: `${dateStr}_${s.empId}`,
+            adjHrs: empHourAdj[`${dateStr}_${s.empId}`] ?? s.shiftHrs
+          }));
+          const schedHours = dayEmps.reduce((sum, e) => sum + e.shiftHrs, 0);
+          const projLaborCost = dayEmps.reduce((sum, e) => sum + e.adjHrs * e.hourlyRate, 0);
+          const origLaborCost = dayEmps.reduce((sum, e) => sum + e.shiftHrs * e.hourlyRate, 0);
           const histSales = avgSalesByDow[dow] || 0;
           const projPct = histSales > 0 ? projLaborCost / histSales * 100 : 0;
-          const isToday = i === 0;
+          const isToday = d.getTime() === today.getTime();
+          const isPast = d < today;
           const label = `${DAY[dow]} ${d.getMonth() + 1}/${d.getDate()}`;
-          return { dateStr, label, dow, staffCount: dayShifts.length, schedHours, projLaborCost, histSales, projPct, isToday };
+          const hasCuts = dayEmps.some((e) => e.adjHrs < e.shiftHrs);
+          return { dateStr, label, dow, staffCount: dayEmps.length, schedHours, dayEmps, projLaborCost, origLaborCost, histSales, projPct, isToday, isPast, hasCuts };
         });
         const hasSchedule = shifts.length > 0;
-        const dailySavings = cutPeople * cutHours * avgWage;
-        return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "\u{1F4C5} This Week's Schedule Projection"), dailySavings > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: "#4caf50", background: "#4caf5015", padding: "0.25rem 0.6rem", borderRadius: "0.4rem", fontWeight: 600 } }, "What-If applied: -", fmtDollars(dailySavings), "/day per day cut")), weekSchedule === null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem" } }, "Loading schedule\u2026"), weekSchedule !== null && !hasSchedule && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem" } }, "No schedule data found. Schedule is populated by the labor cron (runs 3\xD7/day)."), hasSchedule && /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Day", "Staff", "Sched Hrs", "Current %", dailySavings > 0 ? "After Cut %" : null, "Hist Avg Sales", "Status"].filter(Boolean).map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { fontSize: "0.62rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, padding: "0.4rem 0.5rem", textAlign: "left", borderBottom: `1px solid ${th.cardBorder}`, fontWeight: 700 } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((row) => {
-          const newLaborCost = Math.max(0, row.projLaborCost - dailySavings);
-          const newPct = row.histSales > 0 ? newLaborCost / row.histSales * 100 : 0;
+        return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "\u{1F4C5} This Week's Schedule Projection"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.2rem" } }, "Click a day to see the posted schedule and simulate hour adjustments")), weekSchedule === null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem" } }, "Loading schedule\u2026"), weekSchedule !== null && !hasSchedule && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem" } }, "No schedule data found. Schedule is populated by the labor cron (runs 3\xD7/day)."), hasSchedule && /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Day", "Staff", "Sched Hrs", "Proj %", "Hist Avg Sales", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { fontSize: "0.62rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, padding: "0.4rem 0.5rem", textAlign: "left", borderBottom: `1px solid ${th.cardBorder}`, fontWeight: 700 } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((row) => {
           const pctColor = (p) => p >= 28 ? "#f44336" : p >= 25 ? "#ff9800" : "#4caf50";
-          const status = row.staffCount === 0 ? "\u2014" : (dailySavings > 0 ? newPct : row.projPct) >= 28 ? "\u{1F534} Over" : (dailySavings > 0 ? newPct : row.projPct) >= 25 ? "\u{1F7E1} Watch" : "\u2705 OK";
-          const isSelected = selectedDay?.dateStr === row.dateStr;
-          const td = { padding: "0.4rem 0.5rem", borderBottom: `1px solid ${th.cardBorder}22`, color: th.text, fontSize: "0.8rem", background: isSelected ? `${O}18` : row.isToday ? `${O}08` : "transparent" };
-          return /* @__PURE__ */ React.createElement("tr", { key: row.dateStr, onClick: () => row.staffCount > 0 && setSelectedDay(isSelected ? null : row), style: { cursor: row.staffCount > 0 ? "pointer" : "default" } }, /* @__PURE__ */ React.createElement("td", { style: { ...td, fontWeight: row.isToday || isSelected ? 700 : 400, color: isSelected ? O : row.isToday ? O : th.text } }, isSelected ? "\u25B6 " : "", row.label, row.isToday ? " (today)" : ""), /* @__PURE__ */ React.createElement("td", { style: td }, row.staffCount || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: td }, row.schedHours > 0 ? row.schedHours.toFixed(1) + "h" : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...td, fontWeight: 700, color: row.projPct > 0 ? pctColor(row.projPct) : th.muted } }, row.projPct > 0 ? fmtPct(row.projPct) : "\u2014"), dailySavings > 0 && /* @__PURE__ */ React.createElement("td", { style: { ...td, fontWeight: 700 } }, isSelected && row.projPct > 0 ? /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { style: { color: pctColor(newPct) } }, fmtPct(newPct)), /* @__PURE__ */ React.createElement("span", { style: { color: "#4caf50", fontSize: "0.68rem", marginLeft: "0.3rem" } }, "(-", fmtPct(Math.abs(newPct - row.projPct)), ")")) : /* @__PURE__ */ React.createElement("span", { style: { color: th.subtle } }, "click row")), /* @__PURE__ */ React.createElement("td", { style: { ...td, color: th.muted } }, row.histSales > 0 ? fmtDollars(row.histSales) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: td }, status));
-        }))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", fontSize: "0.7rem", color: th.muted } }, "Projected % = (scheduled hrs \xD7 avg wage) \xF7 historical same-day avg sales \xB7 Flags: \u{1F7E1} \u226525%, \u{1F534} \u226528%")));
+          const status = row.staffCount === 0 ? "\u2014" : row.projPct >= 28 ? "\u{1F534} Over" : row.projPct >= 25 ? "\u{1F7E1} Watch" : "\u2705 OK";
+          const isExpanded = expandedDay === row.dateStr;
+          const td = { padding: "0.4rem 0.5rem", borderBottom: `1px solid ${th.cardBorder}22`, color: row.isPast ? th.muted : th.text, fontSize: "0.8rem", background: isExpanded ? `${O}12` : row.isToday ? `${O}08` : "transparent", opacity: row.isPast ? 0.6 : 1 };
+          return /* @__PURE__ */ React.createElement(React.Fragment, { key: row.dateStr }, /* @__PURE__ */ React.createElement("tr", { onClick: () => row.staffCount > 0 && setExpandedDay(isExpanded ? null : row.dateStr), style: { cursor: row.staffCount > 0 ? "pointer" : "default" } }, /* @__PURE__ */ React.createElement("td", { style: { ...td, fontWeight: row.isToday || isExpanded ? 700 : 400, color: isExpanded ? O : row.isToday ? O : th.text } }, isExpanded ? "\u25BC " : row.staffCount > 0 ? "\u25B6 " : "", row.label, row.isToday ? " (today)" : "", row.hasCuts && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: "#4caf50", marginLeft: "0.4rem" } }, "\u2702 cuts applied")), /* @__PURE__ */ React.createElement("td", { style: td }, row.staffCount || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: td }, row.schedHours > 0 ? row.schedHours.toFixed(1) + "h" : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...td, fontWeight: 700, color: row.projPct > 0 ? pctColor(row.projPct) : th.muted } }, row.projPct > 0 ? fmtPct(row.projPct) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...td, color: th.muted } }, row.histSales > 0 ? fmtDollars(row.histSales) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: td }, status)), isExpanded && row.dayEmps.length > 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { padding: 0, background: th.card2 } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.5rem" } }, "Posted Schedule \u2014 ", row.label, " \xB7 Click \u2212/+ to simulate hour adjustments"), row.dayEmps.map((emp, ei) => {
+            const adjKey = emp.adjKey;
+            const adjHrs = emp.adjHrs;
+            const saved = (emp.shiftHrs - adjHrs) * emp.hourlyRate;
+            return /* @__PURE__ */ React.createElement("div", { key: ei, style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.3rem 0", borderBottom: `1px solid ${th.cardBorder}33`, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 2, minWidth: 120 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.text } }, emp.empName), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, marginLeft: "0.4rem" } }, emp.role)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, minWidth: 140 } }, emp.shiftLabel), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, minWidth: 60 } }, "$", emp.hourlyRate.toFixed(2), "/hr"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement(
+              "button",
+              {
+                onClick: (e) => {
+                  e.stopPropagation();
+                  setEmpHourAdj((prev) => ({ ...prev, [adjKey]: Math.max(0, (prev[adjKey] ?? emp.shiftHrs) - 0.5) }));
+                },
+                style: { ...btn(th, { padding: "0.15rem 0.5rem", fontSize: "0.85rem", background: th.card3, color: th.text, minWidth: 28 }) }
+              },
+              "\u2212"
+            ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", fontWeight: 700, color: adjHrs < emp.shiftHrs ? "#f59e0b" : th.text, minWidth: 38, textAlign: "center" } }, adjHrs.toFixed(1), "h"), /* @__PURE__ */ React.createElement(
+              "button",
+              {
+                onClick: (e) => {
+                  e.stopPropagation();
+                  setEmpHourAdj((prev) => ({ ...prev, [adjKey]: Math.min(emp.shiftHrs, (prev[adjKey] ?? emp.shiftHrs) + 0.5) }));
+                },
+                style: { ...btn(th, { padding: "0.15rem 0.5rem", fontSize: "0.85rem", background: th.card3, color: th.text, minWidth: 28 }) }
+              },
+              "+"
+            ), adjHrs < emp.shiftHrs && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#4caf50", marginLeft: "0.2rem" } }, "\u2212", (emp.shiftHrs - adjHrs).toFixed(1), "h saves ", fmtDollars(saved)), adjHrs < emp.shiftHrs && /* @__PURE__ */ React.createElement(
+              "button",
+              {
+                onClick: (e) => {
+                  e.stopPropagation();
+                  setEmpHourAdj((prev) => {
+                    const n = { ...prev };
+                    delete n[adjKey];
+                    return n;
+                  });
+                },
+                style: { fontSize: "0.65rem", color: th.muted, background: "none", border: "none", cursor: "pointer", padding: "0 0.2rem" }
+              },
+              "reset"
+            )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: adjHrs < emp.shiftHrs ? "#4caf50" : th.muted, marginLeft: "auto" } }, fmtDollars(adjHrs * emp.hourlyRate)));
+          }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", padding: "0.5rem 0", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "Original: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtDollars(row.origLaborCost)), " (", fmtPct(row.histSales > 0 ? row.origLaborCost / row.histSales * 100 : 0), ")"), row.hasCuts && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#4caf50", fontWeight: 700 } }, "After cuts: ", fmtDollars(row.projLaborCost), " (", fmtPct(row.projPct), ")"), /* @__PURE__ */ React.createElement("span", { style: { color: "#4caf50", marginLeft: "0.5rem" } }, "Saved: ", fmtDollars(row.origLaborCost - row.projLaborCost))))))));
+        }))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", fontSize: "0.7rem", color: th.muted } }, "Projected % = actual scheduled labor cost (individual rates) \xF7 historical same-day avg sales \xB7 Click a row to adjust hours \xB7 Flags: \u{1F7E1} \u226525%, \u{1F534} \u226528%")));
       })(), (() => {
         if (user?.userType === "manager") return null;
         const isExecOrIT = user?.userType === "executive" || user?.userType === "it";
@@ -21843,7 +21896,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v13.72"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v13.74"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

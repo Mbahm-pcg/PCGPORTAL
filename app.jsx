@@ -21743,10 +21743,9 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [empExpanded, setEmpExpanded] = useState(false);
-  const [cutPeople, setCutPeople] = useState(1);
-  const [cutHours,  setCutHours]  = useState(4);
   const [weekSchedule, setWeekSchedule] = useState(null);
-  const [selectedDay, setSelectedDay] = useState(null); // { dateStr, label, staffCount, schedHours, projLaborCost, histSales, projPct }
+  const [expandedDay, setExpandedDay] = useState(null);      // dateStr of expanded schedule row
+  const [empHourAdj, setEmpHourAdj] = useState({});          // { 'dateStr_empId': adjustedHours }
 
   const storeInfo = stores.find(s => s.pc === store.pc) || {};
   const mgrName = storeInfo.mgr || '—';
@@ -21871,8 +21870,9 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
 
   // Reset optimizer state when switching stores
   useEffect(() => {
-    setSelectedDay(null);
     setWeekSchedule(null);
+    setExpandedDay(null);
+    setEmpHourAdj({});
   }, [store.pc]);
 
   // ── Timecard processing ─────────────────────────────────────────────────
@@ -22357,11 +22357,6 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
         const gapVsTarget    = avgSales - breakEvenSales;
         const onTarget       = gapVsTarget >= 0;
 
-        // What-if: savings from cutting N people for H hours (state managed at component level)
-        const savingsPerDay    = cutPeople * cutHours * avgWage;
-        const newLaborDollars  = Math.max(0, avgLaborDollars - savingsPerDay);
-        const newBreakEven     = newLaborDollars > 0 ? newLaborDollars / (TARGET_PCT / 100) : 0;
-        const newLaborPct      = avgSales > 0 ? (newLaborDollars / avgSales) * 100 : 0;
 
         const metricCard = (label, value, sub, color) => (
           <div style={{ background: th.card2, borderRadius: '0.75rem', padding: '1rem', flex: 1, minWidth: 140 }}>
@@ -22405,73 +22400,6 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
                   </div>
                 </div>
 
-                {/* What-If Simulator */}
-                <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
-                  <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.75rem' }}>
-                    🔧 What-If Simulator
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '1rem' }}>
-                    {selectedDay
-                      ? <span>Simulating cut for <strong style={{ color: O }}>{selectedDay.label}</strong> — or <button onClick={() => setSelectedDay(null)} style={{ background: 'none', border: 'none', color: th.muted, cursor: 'pointer', textDecoration: 'underline', fontSize: '0.8rem', padding: 0 }}>apply to all days</button></span>
-                      : '"What if I remove staff from one shift?" — or click a day below to target it'}
-                  </div>
-                  <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                    <div>
-                      <div style={{ fontSize: '0.7rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.4rem' }}>People to cut</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <button onClick={() => setCutPeople(Math.max(1, cutPeople - 1))} style={{ ...btn(th, { padding: '0.2rem 0.6rem', fontSize: '1rem', background: th.card3, color: th.text }) }}>−</button>
-                        <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1.25rem', color: th.text, minWidth: 24, textAlign: 'center' }}>{cutPeople}</span>
-                        <button onClick={() => setCutPeople(Math.min(5, cutPeople + 1))} style={{ ...btn(th, { padding: '0.2rem 0.6rem', fontSize: '1rem', background: th.card3, color: th.text }) }}>+</button>
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.7rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.4rem' }}>Shift length (hrs)</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <button onClick={() => setCutHours(Math.max(1, cutHours - 1))} style={{ ...btn(th, { padding: '0.2rem 0.6rem', fontSize: '1rem', background: th.card3, color: th.text }) }}>−</button>
-                        <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1.25rem', color: th.text, minWidth: 24, textAlign: 'center' }}>{cutHours}</span>
-                        <button onClick={() => setCutHours(Math.min(12, cutHours + 1))} style={{ ...btn(th, { padding: '0.2rem 0.6rem', fontSize: '1rem', background: th.card3, color: th.text }) }}>+</button>
-                      </div>
-                    </div>
-                  </div>
-                  {/* Impact — uses selected day if chosen, else historical averages */}
-                  {(() => {
-                    const base = selectedDay
-                      ? { laborCost: selectedDay.projLaborCost, sales: selectedDay.histSales, pct: selectedDay.projPct }
-                      : { laborCost: avgLaborDollars, sales: avgSales, pct: avgLaborPct };
-                    const afterCost = Math.max(0, base.laborCost - savingsPerDay);
-                    const afterPct  = base.sales > 0 ? (afterCost / base.sales) * 100 : 0;
-                    const afterBE   = afterCost > 0 ? afterCost / (TARGET_PCT / 100) : 0;
-                    return (
-                      <div style={{ background: th.card2, borderRadius: '0.75rem', padding: '1rem', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-                        <div>
-                          <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Savings {selectedDay ? 'That Day' : 'Per Day'}</div>
-                          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.2rem', color: '#4caf50' }}>+{fmtDollars(savingsPerDay)}</div>
-                          <div style={{ fontSize: '0.7rem', color: th.muted }}>{cutPeople} × {cutHours}h × {fmtDollars(avgWage)}/hr</div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>New Labor % {selectedDay ? `(${selectedDay.label})` : '(avg)'}</div>
-                          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.2rem', color: laborColor(afterPct) }}>{fmtPct(afterPct)}</div>
-                          <div style={{ fontSize: '0.7rem', color: th.muted }}>was {fmtPct(base.pct)}</div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>New Break-Even</div>
-                          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.2rem', color: '#f59e0b' }}>{fmtDollars(afterBE)}</div>
-                          <div style={{ fontSize: '0.7rem', color: th.muted }}>was {fmtDollars(selectedDay ? (base.laborCost / (TARGET_PCT / 100)) : breakEvenSales)}</div>
-                        </div>
-                        {!selectedDay && (
-                          <div>
-                            <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Weekly Savings</div>
-                            <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.2rem', color: '#4caf50' }}>+{fmtDollars(savingsPerDay * 7)}</div>
-                            <div style={{ fontSize: '0.7rem', color: th.muted }}>if done every day</div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  <div style={{ marginTop: '0.75rem', fontSize: '0.72rem', color: th.muted, fontStyle: 'italic' }}>
-                    ⚠️ Risk check: cutting staff below minimum coverage may impact service speed and sales. Compare against busy periods before making changes.
-                  </div>
-                </div>
 
                 {/* Phase 2 — Schedule Efficiency View */}
                 {(() => {
@@ -22489,51 +22417,75 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
                   });
                   const avgSalesByDow = dowSales.map(d => d.count > 0 ? d.total / d.count : 0);
 
-                  // Group schedule shifts by date
+                  // Build employee rate lookup from enrichedEmps
+                  const empById = {};
+                  enrichedEmps.forEach(e => {
+                    if (e.id) empById[String(e.id)] = { name: e.name, hourlyRate: e.hourlyRate, role: e.role };
+                  });
+                  // Also index by name for fallback matching
+                  const empByName = {};
+                  enrichedEmps.forEach(e => {
+                    if (e.name) empByName[e.name.toLowerCase().trim()] = { id: e.id, hourlyRate: e.hourlyRate, role: e.role };
+                  });
+
+                  // Group schedule shifts by date with enriched employee data
                   const byDate = {};
                   shifts.forEach(s => {
                     if (!s.startDateTime) return;
                     const date = s.startDateTime.slice(0, 10);
                     if (!byDate[date]) byDate[date] = [];
-                    byDate[date].push(s);
+                    const empId = String(s.employeeId || s.EmployeeId || '');
+                    const empName = s.employeeName || s.EmployeeName || s.name || '';
+                    const empData = empById[empId] || empByName[empName.toLowerCase().trim()] || {};
+                    const shiftHrs = s.startDateTime && s.endDateTime
+                      ? Math.max(0, Math.min((new Date(s.endDateTime) - new Date(s.startDateTime)) / 3600000, 14))
+                      : 0;
+                    const fmtTime = dt => dt ? new Date(dt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '—';
+                    byDate[date].push({
+                      ...s, empId, empName: empData.name || empName || `Employee`,
+                      role: empData.role || '—',
+                      hourlyRate: empData.hourlyRate || avgWage,
+                      shiftHrs,
+                      shiftLabel: `${fmtTime(s.startDateTime)} – ${fmtTime(s.endDateTime)}`,
+                    });
                   });
 
-                  // Build 7-day rows (from today)
+                  // Build Sun–Sat of current week (not rolling from today)
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
+                  const sunday = new Date(today);
+                  sunday.setDate(today.getDate() - today.getDay()); // roll back to Sunday
                   const rows = Array.from({ length: 7 }, (_, i) => {
-                    const d = new Date(today);
-                    d.setDate(d.getDate() + i);
+                    const d = new Date(sunday);
+                    d.setDate(sunday.getDate() + i);
                     const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
                     const dow = d.getDay();
-                    const dayShifts = byDate[dateStr] || [];
-                    const schedHours = dayShifts.reduce((sum, s) => {
-                      if (!s.startDateTime || !s.endDateTime) return sum;
-                      return sum + Math.max(0, Math.min((new Date(s.endDateTime) - new Date(s.startDateTime)) / 3600000, 14));
-                    }, 0);
-                    const projLaborCost = schedHours * avgWage;
+                    const dayEmps = (byDate[dateStr] || []).map(s => ({
+                      ...s,
+                      adjKey: `${dateStr}_${s.empId}`,
+                      adjHrs: empHourAdj[`${dateStr}_${s.empId}`] ?? s.shiftHrs,
+                    }));
+                    const schedHours    = dayEmps.reduce((sum, e) => sum + e.shiftHrs, 0);
+                    const projLaborCost = dayEmps.reduce((sum, e) => sum + e.adjHrs * e.hourlyRate, 0);
+                    const origLaborCost = dayEmps.reduce((sum, e) => sum + e.shiftHrs * e.hourlyRate, 0);
                     const histSales = avgSalesByDow[dow] || 0;
                     const projPct = histSales > 0 ? (projLaborCost / histSales) * 100 : 0;
-                    const isToday = i === 0;
+                    const isToday = d.getTime() === today.getTime();
+                    const isPast  = d < today;
                     const label = `${DAY[dow]} ${d.getMonth()+1}/${d.getDate()}`;
-                    return { dateStr, label, dow, staffCount: dayShifts.length, schedHours, projLaborCost, histSales, projPct, isToday };
+                    const hasCuts = dayEmps.some(e => e.adjHrs < e.shiftHrs);
+                    return { dateStr, label, dow, staffCount: dayEmps.length, schedHours, dayEmps, projLaborCost, origLaborCost, histSales, projPct, isToday, isPast, hasCuts };
                   });
 
                   const hasSchedule = shifts.length > 0;
 
-                  const dailySavings = cutPeople * cutHours * avgWage;
-
                   return (
                     <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <div style={{ marginBottom: '0.75rem' }}>
                         <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text }}>
                           📅 This Week's Schedule Projection
                         </div>
-                        {dailySavings > 0 && (
-                          <div style={{ fontSize: '0.7rem', color: '#4caf50', background: '#4caf5015', padding: '0.25rem 0.6rem', borderRadius: '0.4rem', fontWeight: 600 }}>
-                            What-If applied: -{fmtDollars(dailySavings)}/day per day cut
-                          </div>
-                        )}
+                        <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.2rem' }}>Click a day to see the posted schedule and simulate hour adjustments</div>
                       </div>
                       {weekSchedule === null && (
                         <div style={{ color: th.muted, fontSize: '0.8rem' }}>Loading schedule…</div>
@@ -22546,52 +22498,98 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                             <thead>
                               <tr>
-                                {['Day', 'Staff', 'Sched Hrs', 'Current %', dailySavings > 0 ? 'After Cut %' : null, 'Hist Avg Sales', 'Status'].filter(Boolean).map(h => (
+                                {['Day', 'Staff', 'Sched Hrs', 'Proj %', 'Hist Avg Sales', 'Status'].map(h => (
                                   <th key={h} style={{ fontSize: '0.62rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, padding: '0.4rem 0.5rem', textAlign: 'left', borderBottom: `1px solid ${th.cardBorder}`, fontWeight: 700 }}>{h}</th>
                                 ))}
                               </tr>
                             </thead>
                             <tbody>
                               {rows.map(row => {
-                                const newLaborCost = Math.max(0, row.projLaborCost - dailySavings);
-                                const newPct = row.histSales > 0 ? (newLaborCost / row.histSales) * 100 : 0;
                                 const pctColor = p => p >= 28 ? '#f44336' : p >= 25 ? '#ff9800' : '#4caf50';
                                 const status = row.staffCount === 0 ? '—'
-                                  : (dailySavings > 0 ? newPct : row.projPct) >= 28 ? '🔴 Over'
-                                  : (dailySavings > 0 ? newPct : row.projPct) >= 25 ? '🟡 Watch' : '✅ OK';
-                                const isSelected = selectedDay?.dateStr === row.dateStr;
-                                const td = { padding: '0.4rem 0.5rem', borderBottom: `1px solid ${th.cardBorder}22`, color: th.text, fontSize: '0.8rem', background: isSelected ? `${O}18` : row.isToday ? `${O}08` : 'transparent' };
+                                  : row.projPct >= 28 ? '🔴 Over'
+                                  : row.projPct >= 25 ? '🟡 Watch' : '✅ OK';
+                                const isExpanded = expandedDay === row.dateStr;
+                                const td = { padding: '0.4rem 0.5rem', borderBottom: `1px solid ${th.cardBorder}22`, color: row.isPast ? th.muted : th.text, fontSize: '0.8rem', background: isExpanded ? `${O}12` : row.isToday ? `${O}08` : 'transparent', opacity: row.isPast ? 0.6 : 1 };
                                 return (
-                                  <tr key={row.dateStr} onClick={() => row.staffCount > 0 && setSelectedDay(isSelected ? null : row)} style={{ cursor: row.staffCount > 0 ? 'pointer' : 'default' }}>
-                                    <td style={{ ...td, fontWeight: row.isToday || isSelected ? 700 : 400, color: isSelected ? O : row.isToday ? O : th.text }}>
-                                      {isSelected ? '▶ ' : ''}{row.label}{row.isToday ? ' (today)' : ''}
+                                  <React.Fragment key={row.dateStr}>
+                                  <tr onClick={() => row.staffCount > 0 && setExpandedDay(isExpanded ? null : row.dateStr)} style={{ cursor: row.staffCount > 0 ? 'pointer' : 'default' }}>
+                                    <td style={{ ...td, fontWeight: row.isToday || isExpanded ? 700 : 400, color: isExpanded ? O : row.isToday ? O : th.text }}>
+                                      {isExpanded ? '▼ ' : row.staffCount > 0 ? '▶ ' : ''}{row.label}{row.isToday ? ' (today)' : ''}
+                                      {row.hasCuts && <span style={{ fontSize: '0.62rem', color: '#4caf50', marginLeft: '0.4rem' }}>✂ cuts applied</span>}
                                     </td>
                                     <td style={td}>{row.staffCount || '—'}</td>
                                     <td style={td}>{row.schedHours > 0 ? row.schedHours.toFixed(1) + 'h' : '—'}</td>
                                     <td style={{ ...td, fontWeight: 700, color: row.projPct > 0 ? pctColor(row.projPct) : th.muted }}>
                                       {row.projPct > 0 ? fmtPct(row.projPct) : '—'}
                                     </td>
-                                    {dailySavings > 0 && (
-                                      <td style={{ ...td, fontWeight: 700 }}>
-                                        {isSelected && row.projPct > 0 ? (
-                                          <span>
-                                            <span style={{ color: pctColor(newPct) }}>{fmtPct(newPct)}</span>
-                                            <span style={{ color: '#4caf50', fontSize: '0.68rem', marginLeft: '0.3rem' }}>
-                                              (-{fmtPct(Math.abs(newPct - row.projPct))})
-                                            </span>
-                                          </span>
-                                        ) : <span style={{ color: th.subtle }}>click row</span>}
-                                      </td>
-                                    )}
                                     <td style={{ ...td, color: th.muted }}>{row.histSales > 0 ? fmtDollars(row.histSales) : '—'}</td>
                                     <td style={td}>{status}</td>
                                   </tr>
+
+                                  {/* Expanded employee breakdown */}
+                                  {isExpanded && row.dayEmps.length > 0 && (
+                                    <tr>
+                                      <td colSpan={6} style={{ padding: 0, background: th.card2 }}>
+                                        <div style={{ padding: '0.75rem 1rem' }}>
+                                          <div style={{ fontSize: '0.7rem', color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>
+                                            Posted Schedule — {row.label} · Click −/+ to simulate hour adjustments
+                                          </div>
+                                          {row.dayEmps.map((emp, ei) => {
+                                            const adjKey = emp.adjKey;
+                                            const adjHrs = emp.adjHrs;
+                                            const saved = (emp.shiftHrs - adjHrs) * emp.hourlyRate;
+                                            return (
+                                              <div key={ei} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', borderBottom: `1px solid ${th.cardBorder}33`, flexWrap: 'wrap' }}>
+                                                <div style={{ flex: 2, minWidth: 120 }}>
+                                                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: th.text }}>{emp.empName}</span>
+                                                  <span style={{ fontSize: '0.68rem', color: th.muted, marginLeft: '0.4rem' }}>{emp.role}</span>
+                                                </div>
+                                                <div style={{ fontSize: '0.72rem', color: th.muted, minWidth: 140 }}>{emp.shiftLabel}</div>
+                                                <div style={{ fontSize: '0.72rem', color: th.muted, minWidth: 60 }}>${emp.hourlyRate.toFixed(2)}/hr</div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                                  <button onClick={e => { e.stopPropagation(); setEmpHourAdj(prev => ({ ...prev, [adjKey]: Math.max(0, (prev[adjKey] ?? emp.shiftHrs) - 0.5) })); }}
+                                                    style={{ ...btn(th, { padding: '0.15rem 0.5rem', fontSize: '0.85rem', background: th.card3, color: th.text, minWidth: 28 }) }}>−</button>
+                                                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: adjHrs < emp.shiftHrs ? '#f59e0b' : th.text, minWidth: 38, textAlign: 'center' }}>{adjHrs.toFixed(1)}h</span>
+                                                  <button onClick={e => { e.stopPropagation(); setEmpHourAdj(prev => ({ ...prev, [adjKey]: Math.min(emp.shiftHrs, (prev[adjKey] ?? emp.shiftHrs) + 0.5) })); }}
+                                                    style={{ ...btn(th, { padding: '0.15rem 0.5rem', fontSize: '0.85rem', background: th.card3, color: th.text, minWidth: 28 }) }}>+</button>
+                                                  {adjHrs < emp.shiftHrs && (
+                                                    <span style={{ fontSize: '0.68rem', color: '#4caf50', marginLeft: '0.2rem' }}>−{(emp.shiftHrs - adjHrs).toFixed(1)}h saves {fmtDollars(saved)}</span>
+                                                  )}
+                                                  {adjHrs < emp.shiftHrs && (
+                                                    <button onClick={e => { e.stopPropagation(); setEmpHourAdj(prev => { const n = { ...prev }; delete n[adjKey]; return n; }); }}
+                                                      style={{ fontSize: '0.65rem', color: th.muted, background: 'none', border: 'none', cursor: 'pointer', padding: '0 0.2rem' }}>reset</button>
+                                                  )}
+                                                </div>
+                                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: adjHrs < emp.shiftHrs ? '#4caf50' : th.muted, marginLeft: 'auto' }}>
+                                                  {fmtDollars(adjHrs * emp.hourlyRate)}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                          {/* Day summary */}
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.6rem', padding: '0.5rem 0', borderTop: `1px solid ${th.cardBorder}` }}>
+                                            <div style={{ fontSize: '0.72rem', color: th.muted }}>
+                                              Original: <strong style={{ color: th.text }}>{fmtDollars(row.origLaborCost)}</strong> ({fmtPct(row.histSales > 0 ? row.origLaborCost / row.histSales * 100 : 0)})
+                                            </div>
+                                            {row.hasCuts && (
+                                              <div style={{ fontSize: '0.72rem' }}>
+                                                <span style={{ color: '#4caf50', fontWeight: 700 }}>After cuts: {fmtDollars(row.projLaborCost)} ({fmtPct(row.projPct)})</span>
+                                                <span style={{ color: '#4caf50', marginLeft: '0.5rem' }}>Saved: {fmtDollars(row.origLaborCost - row.projLaborCost)}</span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                  </React.Fragment>
                                 );
                               })}
                             </tbody>
                           </table>
                           <div style={{ marginTop: '0.75rem', fontSize: '0.7rem', color: th.muted }}>
-                            Projected % = (scheduled hrs × avg wage) ÷ historical same-day avg sales · Flags: 🟡 ≥25%, 🔴 ≥28%
+                            Projected % = actual scheduled labor cost (individual rates) ÷ historical same-day avg sales · Click a row to adjust hours · Flags: 🟡 ≥25%, 🔴 ≥28%
                           </div>
                         </div>
                       )}
@@ -28994,7 +28992,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.72
+            v13.74
           </div>
         )}
         {/* Collapse toggle — desktop only */}
