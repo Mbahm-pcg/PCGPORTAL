@@ -9392,6 +9392,264 @@ async function fetchWeatherByZip(zip, date) {
   }));
 }
 
+async function buildReportPdf(report, project) {
+  const _proj = project;
+  const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || null;
+  if (!JsPDFCtor) throw new Error('jsPDF not available on the page');
+  const doc = new JsPDFCtor({ unit: 'in', format: 'letter', orientation: 'portrait' });
+  const pageW = 8.5, pageH = 11;
+  const margin = 0.5;
+  const contentW = pageW - margin * 2;
+  const _hex = BRAND_CONFIG.primary.replace('#', '');
+  const brandOrange = [parseInt(_hex.slice(0,2),16), parseInt(_hex.slice(2,4),16), parseInt(_hex.slice(4,6),16)];
+  const textDark = [17, 17, 17];
+  const textMuted = [102, 102, 102];
+  const textFaint = [153, 153, 153];
+  const lineLight = [221, 221, 221];
+  const bgSoft = [249, 249, 249];
+  let y = margin;
+  const setFill = (c) => doc.setFillColor(c[0], c[1], c[2]);
+  const setText = (c) => doc.setTextColor(c[0], c[1], c[2]);
+  const setDraw = (c) => doc.setDrawColor(c[0], c[1], c[2]);
+  const addPageIfNeeded = (needed) => {
+    if (y + needed > pageH - margin) { doc.addPage(); y = margin; drawPageHeader(); }
+  };
+  const drawPageHeader = () => {
+    setText(textFaint); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text(`${_proj.nickname || _proj.pc || 'Daily Report'} — ${report.date ? new Date(report.date + 'T12:00:00').toLocaleDateString('en-US') : ''}`, margin, y);
+    y += 0.25;
+  };
+  const sectionTitle = (title) => {
+    y += 0.2; addPageIfNeeded(0.75);
+    setText(textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(title, margin, y); y += 0.08;
+    setDraw(brandOrange); doc.setLineWidth(0.03);
+    doc.line(margin, y, margin + contentW, y); y += 0.3;
+  };
+  const wrapText = (text, maxWidth, fontSize) => { doc.setFontSize(fontSize); return doc.splitTextToSize(text || '', maxWidth); };
+  const parseDataUrl = (dataUrl) => {
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return null;
+    const m = dataUrl.match(/^data:image\/(\w+);/);
+    const fmt = (m ? m[1] : 'jpeg').toUpperCase();
+    return { dataUrl, format: fmt === 'JPG' ? 'JPEG' : fmt };
+  };
+  const imgSize = (dataUrl) => new Promise((resolve) => {
+    const i = new Image();
+    i.onload = () => resolve({ w: i.naturalWidth || i.width || 800, h: i.naturalHeight || i.height || 600 });
+    i.onerror = () => resolve({ w: 800, h: 600 });
+    i.src = dataUrl;
+  });
+  const drawSun = (cx, cy, size, color = [251, 191, 36]) => {
+    setFill(color); setDraw(color); doc.setLineWidth(0.02);
+    doc.circle(cx, cy, size * 0.55, 'F');
+    const rays = 8, rInner = size * 0.7, rOuter = size * 0.95;
+    for (let i = 0; i < rays; i++) {
+      const a = (i / rays) * Math.PI * 2;
+      doc.line(cx + Math.cos(a)*rInner, cy + Math.sin(a)*rInner, cx + Math.cos(a)*rOuter, cy + Math.sin(a)*rOuter);
+    }
+  };
+  const drawCloud = (cx, cy, size, color = [180, 190, 200]) => {
+    setFill(color); setDraw(color); doc.setLineWidth(0.01);
+    doc.circle(cx - size*0.45, cy + size*0.1, size*0.35, 'F');
+    doc.circle(cx, cy - size*0.1, size*0.45, 'F');
+    doc.circle(cx + size*0.45, cy + size*0.05, size*0.38, 'F');
+    doc.rect(cx - size*0.75, cy + size*0.1, size*1.5, size*0.3, 'F');
+  };
+  const drawDarkCloud = (cx, cy, size) => drawCloud(cx, cy, size, [120, 130, 145]);
+  const drawPartlyCloudy = (cx, cy, size) => { drawSun(cx - size*0.35, cy - size*0.3, size*0.55); drawCloud(cx + size*0.15, cy + size*0.15, size*0.75); };
+  const drawRainDrops = (cx, cy, size) => {
+    setDraw([56,132,222]); setFill([56,132,222]); doc.setLineWidth(0.025);
+    for (let i = -1; i <= 1; i++) { const x = cx + i*size*0.35; doc.line(x, cy+size*0.3, x-size*0.1, cy+size*0.75); }
+  };
+  const drawRain = (cx, cy, size) => { drawCloud(cx, cy-size*0.2, size*0.85); drawRainDrops(cx, cy, size); };
+  const drawSnowFlakes = (cx, cy, size) => {
+    setDraw([120,160,220]); doc.setLineWidth(0.02);
+    for (let i = -1; i <= 1; i++) {
+      const x = cx + i*size*0.35, sy = cy + size*0.55;
+      doc.line(x-size*0.08, sy, x+size*0.08, sy); doc.line(x, sy-size*0.08, x, sy+size*0.08);
+      doc.line(x-size*0.06, sy-size*0.06, x+size*0.06, sy+size*0.06);
+      doc.line(x+size*0.06, sy-size*0.06, x-size*0.06, sy+size*0.06);
+    }
+  };
+  const drawSnow = (cx, cy, size) => { drawCloud(cx, cy-size*0.2, size*0.85); drawSnowFlakes(cx, cy, size); };
+  const drawFog = (cx, cy, size) => {
+    setDraw([160,170,180]); doc.setLineWidth(0.035);
+    for (let i = 0; i < 4; i++) { const lineY = cy - size*0.4 + i*(size*0.3), offset = (i%2===0)?-size*0.1:size*0.1; doc.line(cx-size*0.7+offset, lineY, cx+size*0.7+offset, lineY); }
+  };
+  const drawThunder = (cx, cy, size) => {
+    drawDarkCloud(cx, cy-size*0.2, size*0.85);
+    setFill([251,191,36]); setDraw([251,191,36]); doc.setLineWidth(0.015);
+    doc.triangle(cx-size*0.12, cy+size*0.2, cx+size*0.05, cy+size*0.4, cx-size*0.05, cy+size*0.75, 'F');
+  };
+  const drawWind = (cx, cy, size) => {
+    setDraw([120,140,160]); doc.setLineWidth(0.035);
+    [{y:cy-size*0.3,w:0.85},{y:cy,w:1.0},{y:cy+size*0.35,w:0.7}].forEach(L => doc.line(cx-size*L.w, L.y, cx+size*L.w*0.7, L.y));
+  };
+  const drawWeatherIcon = (conditions, cx, cy, size) => {
+    const c = (conditions||'').toLowerCase();
+    try {
+      if (c.includes('thunder')) return drawThunder(cx,cy,size);
+      if (c.includes('snow'))    return drawSnow(cx,cy,size);
+      if (c.includes('rain'))    return drawRain(cx,cy,size);
+      if (c.includes('fog'))     return drawFog(cx,cy,size);
+      if (c.includes('wind'))    return drawWind(cx,cy,size);
+      if (c.includes('overcast'))  return drawDarkCloud(cx,cy,size);
+      if (c.includes('partial'))   return drawPartlyCloudy(cx,cy,size);
+      if (c.includes('cloud'))     return drawCloud(cx,cy,size);
+      return drawSun(cx,cy,size);
+    } catch {}
+  };
+  setFill(brandOrange); doc.rect(margin, y, contentW, 0.7, 'F');
+  setText([255,255,255]); doc.setFont('helvetica','bold'); doc.setFontSize(16);
+  doc.text('Premier Project Developers', margin+0.25, y+0.3);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('Daily Construction Report', margin+0.25, y+0.52);
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  const dateStr = report.date ? new Date(report.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'2-digit',day:'2-digit',year:'numeric'}) : '';
+  const jobStr = `Job # ${report.jobNumber||'N/A'}`;
+  const dateW = doc.getTextWidth(dateStr), jobW = doc.getTextWidth(jobStr);
+  doc.text(dateStr, margin+contentW-0.25-dateW, y+0.3);
+  doc.setFont('helvetica','normal');
+  doc.text(jobStr, margin+contentW-0.25-jobW, y+0.5);
+  y += 0.9;
+  setText(textDark); doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text(_proj.nickname || _proj.pc || '', margin, y);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  const prepStr = `Prepared by: ${report.preparedBy||'—'}`;
+  const prepW = doc.getTextWidth(prepStr);
+  setText(textMuted); doc.text(prepStr, margin+contentW-prepW, y); y += 0.2;
+  const addrLine = [_proj.address,_proj.city,_proj.state,_proj.zip].filter(Boolean).join(', ');
+  if (addrLine) { setText(textMuted); doc.setFontSize(9); doc.text(addrLine, margin, y); y += 0.28; } else { y += 0.08; }
+  sectionTitle('Weather');
+  const weather = report.weather || [];
+  const wCount = weather.length || 1, wCardGap = 0.15;
+  const wCardW = (contentW - wCardGap*(wCount-1))/wCount, wCardH = 1.55;
+  addPageIfNeeded(wCardH+0.1);
+  for (let i = 0; i < wCount; i++) {
+    const w = weather[i]||{}, x = margin + i*(wCardW+wCardGap);
+    setFill(bgSoft); doc.roundedRect(x, y, wCardW, wCardH, 0.1, 0.1, 'F');
+    setText(textMuted); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.text(w.time||'', x+wCardW/2, y+0.22, {align:'center'});
+    setText(textDark); doc.setFont('helvetica','bold'); doc.setFontSize(20);
+    doc.text(w.temp||'—', x+wCardW/2, y+0.52, {align:'center'});
+    drawWeatherIcon(w.conditions, x+wCardW/2, y+0.82, 0.2);
+    setText(textMuted); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.text(w.conditions||'—', x+wCardW/2, y+1.15, {align:'center'});
+    setText(textFaint); doc.setFontSize(7);
+    doc.text(`Wind: ${w.wind||'0'} MPH  •  Precip: ${w.precipitation||'0'}"  •  Hum: ${w.humidity||'0'}%`, x+wCardW/2, y+1.4, {align:'center'});
+  }
+  y += wCardH+0.5;
+  sectionTitle('Work Logs');
+  const workLogs = (report.workLogs||[]).filter(w=>w.name);
+  if (workLogs.length === 0) {
+    setText(textFaint); doc.setFont('helvetica','italic'); doc.setFontSize(9);
+    doc.text('No work logs recorded.', margin, y); y += 0.3;
+  } else {
+    for (const w of workLogs) {
+      const descLines = w.description ? wrapText(w.description, contentW, 9) : [];
+      const photoCount = (w.photos||[]).length;
+      const photoRows = Math.ceil(photoCount/3);
+      addPageIfNeeded(Math.min(0.3+(descLines.length*0.15)+(photoRows*1.2)+0.15, 4));
+      setText(textDark); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.text(w.name||'—', margin, y);
+      const col1=`Qty: ${w.quantity||0}`, col2=`Hours: ${w.totalHours||0}`, col3=`HTD: ${w.hoursToDate||0}`;
+      doc.setFont('helvetica','normal'); doc.setFontSize(9); setText(textMuted);
+      const statsX = margin+contentW;
+      const c3w=doc.getTextWidth(col3), c2w=doc.getTextWidth(col2), c1w=doc.getTextWidth(col1);
+      doc.text(col3, statsX-c3w, y); doc.text(col2, statsX-c3w-0.4-c2w, y); doc.text(col1, statsX-c3w-0.4-c2w-0.4-c1w, y);
+      y += 0.28;
+      if (descLines.length > 0) {
+        setText([68,68,68]); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+        for (const line of descLines) { addPageIfNeeded(0.16); doc.text(line, margin, y); y += 0.15; }
+        y += 0.12;
+      }
+      if (photoCount > 0) {
+        const photos = w.photos||[], photoGap=0.15, photoW=2.0, photoH=1.5;
+        const rowWidth=photoW*3+photoGap*2, rowLeft=margin+(contentW-rowWidth)/2;
+        for (let pi = 0; pi < photos.length; pi++) {
+          const col = pi%3;
+          if (col===0) addPageIfNeeded(photoH+0.15);
+          const ph = photos[pi], px = rowLeft+col*(photoW+photoGap);
+          setFill(bgSoft); doc.rect(px, y, photoW, photoH, 'F');
+          setDraw(lineLight); doc.setLineWidth(0.008); doc.rect(px, y, photoW, photoH, 'S');
+          try {
+            const parsed = parseDataUrl(ph.data);
+            if (parsed) {
+              const sz = await imgSize(ph.data);
+              const srcRatio=sz.w/sz.h, dstRatio=photoW/photoH;
+              let drawW, drawH;
+              if (srcRatio>dstRatio) { drawW=photoW; drawH=photoW/srcRatio; } else { drawH=photoH; drawW=photoH*srcRatio; }
+              const offX=(photoW-drawW)/2, offY=(photoH-drawH)/2;
+              doc.addImage(ph.data, parsed.format, px+offX, y+offY, drawW, drawH, undefined, 'FAST');
+              if (ph.timestamp) {
+                setFill([0,0,0]); doc.rect(px+0.03, y+photoH-0.16, photoW-0.06, 0.13, 'F');
+                setText([255,255,255]); doc.setFont('helvetica','normal'); doc.setFontSize(7);
+                const ymd=String(ph.timestamp).slice(0,10);
+                let ts=ph.timestamp;
+                if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) ts=new Date(ymd+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'});
+                doc.text(ts, px+photoW/2, y+photoH-0.06, {align:'center'});
+              }
+            } else { setText(textFaint); doc.setFontSize(7); doc.text('[photo]', px+photoW/2, y+photoH/2, {align:'center'}); }
+          } catch { setText(textFaint); doc.setFontSize(7); doc.text('[photo]', px+photoW/2, y+photoH/2, {align:'center'}); }
+          if (col===2 || pi===photos.length-1) y += photoH+photoGap;
+        }
+        y += 0.15;
+      }
+      setDraw(lineLight); doc.setLineWidth(0.01); doc.line(margin, y, margin+contentW, y); y += 0.3;
+    }
+    const totalW=(report.workLogs||[]).reduce((s,w)=>s+(parseInt(w.quantity)||0),0);
+    const totalH=(report.workLogs||[]).reduce((s,w)=>s+(parseFloat(w.totalHours)||0),0);
+    setText(textDark); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    const totalStr=`Total: ${totalW} workers  •  ${totalH} hours`;
+    doc.text(totalStr, margin+contentW-doc.getTextWidth(totalStr), y); y += 0.45;
+  }
+  for (const b of [{label:'Materials',val:report.materials},{label:'Equipment',val:report.equipment},{label:'General Notes',val:report.generalNotes}]) {
+    if (!b.val) continue;
+    sectionTitle(b.label);
+    const lines=wrapText(b.val,contentW,9);
+    setText([68,68,68]); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    for (const line of lines) { addPageIfNeeded(0.16); doc.text(line,margin,y); y+=0.15; }
+    y += 0.3;
+  }
+  sectionTitle('Safety Survey');
+  const rowH=0.32;
+  setFill(bgSoft); doc.rect(margin,y,contentW,rowH,'F');
+  setText(textMuted); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+  doc.text('Question',margin+0.1,y+0.21); doc.text('Answer',margin+4.3,y+0.21); doc.text('Notes',margin+5.0,y+0.21);
+  y += rowH; setDraw(lineLight); doc.setLineWidth(0.008);
+  for (const q of [{key:'accidents',label:'Any accidents on site today?'},{key:'scheduleDelays',label:'Any schedule delays occur?'},{key:'weatherDelays',label:'Did weather cause any delays?'},{key:'visitors',label:'Any visitors on site?'},{key:'blockedAreas',label:"Any areas that can't be worked on?"},{key:'rentedEquipment',label:'Any equipment rented on site?'}]) {
+    addPageIfNeeded(rowH+0.05);
+    setText(textDark); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.text(q.label, margin+0.1, y+0.21);
+    const ans=report.survey?.[q.key];
+    setText(ans===true?[220,38,38]:ans===false?[34,197,94]:textFaint);
+    doc.setFont('helvetica','bold'); doc.text(ans===true?'Yes':ans===false?'No':'—', margin+4.3, y+0.21);
+    setText(textMuted); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    const noteLines=wrapText(report.surveyNotes?.[q.key]||'',2.4,8);
+    if (noteLines.length>0) doc.text(noteLines[0], margin+5.0, y+0.21);
+    doc.line(margin,y+rowH,margin+contentW,y+rowH); y+=rowH;
+  }
+  y += 0.45;
+  addPageIfNeeded(1.1);
+  setDraw(textDark); doc.setLineWidth(0.015); doc.line(margin,y+0.35,margin+3,y+0.35);
+  setText(textMuted); doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.text('Signature',margin,y+0.5);
+  if (report.signature) { setText(textDark); doc.setFont('helvetica','italic'); doc.setFontSize(12); doc.text(report.signature,margin+0.1,y+0.28); }
+  if (report.signedAt) { setText(textMuted); doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.text(`Signed: ${new Date(report.signedAt).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'})}`, margin+3.3, y+0.35); }
+  y += 0.8;
+  const total=doc.getNumberOfPages();
+  for (let p=1;p<=total;p++) {
+    doc.setPage(p); setText(textFaint); doc.setFont('helvetica','normal'); doc.setFontSize(7);
+    doc.text(`Generated ${new Date().toLocaleDateString('en-US')} — ${BRAND_CONFIG.portalName}`, margin, pageH-0.3);
+    const fw=doc.getTextWidth(`Page ${p} of ${total}`);
+    doc.text(`Page ${p} of ${total}`, margin+contentW-fw, pageH-0.3);
+  }
+  try {
+    const stripped={...report,workLogs:(report.workLogs||[]).map(w=>({...w,photos:(w.photos||[]).map(p=>({name:p.name,timestamp:p.timestamp}))}))};
+    doc.setProperties({title:`Daily Report - ${_proj.nickname||_proj.pc} - ${report.date}`,subject:'Daily Construction Report',author:report.preparedBy||BRAND_CONFIG.portalName,creator:BRAND_CONFIG.portalName,keywords:'PCG_REPORT:'+encodeURIComponent(JSON.stringify(stripped))});
+  } catch {}
+  return doc;
+}
+
 function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user, th, showAlert, editable }) {
   const dailyReports = _dr2 || [];
   const [drView, setDrView] = useState("list"); // "list" | "create" | "preview"
@@ -9711,16 +9969,9 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
   const [emailSending, setEmailSending] = useState(false);
   const [lightbox, setLightbox] = useState(null); // { photos, idx }
 
-  // ─── Native jsPDF generator ────────────────────────────────────────
-  // Builds a professional, text-based PDF directly using jsPDF primitives
-  // (text, rectangles, lines, addImage). Real fonts, real text, crisp vector
-  // lines, selectable/searchable content, small file size — none of the
-  // html2canvas screenshot-to-PDF hacks.
-  const buildNativePdf = async (report) => {
-    // jsPDF can live in a few places depending on how it's bundled:
-    //   window.jspdf.jsPDF  (UMD build — our explicit <script> tag)
-    //   window.jsPDF        (legacy global)
-    //   html2pdf internals  (bundled — not always exposed)
+  const buildNativePdf = (report, projOverride) => buildReportPdf(report, projOverride || project);
+  // eslint-disable-next-line no-unused-vars
+  const _legacyPdfBody = async (report, project) => { const _proj = project;
     const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || null;
     if (!JsPDFCtor) throw new Error('jsPDF not available on the page');
     const doc = new JsPDFCtor({ unit: 'in', format: 'letter', orientation: 'portrait' });
@@ -9751,7 +10002,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     const drawPageHeader = () => {
       // Tiny header strip on continuation pages
       setText(textFaint); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-      doc.text(`${project.nickname || project.pc || 'Daily Report'} — ${report.date ? new Date(report.date + 'T12:00:00').toLocaleDateString('en-US') : ''}`, margin, y);
+      doc.text(`${_proj.nickname || _proj.pc || 'Daily Report'} — ${report.date ? new Date(report.date + 'T12:00:00').toLocaleDateString('en-US') : ''}`, margin, y);
       y += 0.25;
     };
     const sectionTitle = (title) => {
@@ -9913,14 +10164,14 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
 
     // Project info row
     setText(textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text(project.nickname || project.pc || '', margin, y);
+    doc.text(_proj.nickname || _proj.pc || '', margin, y);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     const prepStr = `Prepared by: ${report.preparedBy || '—'}`;
     const prepW = doc.getTextWidth(prepStr);
     setText(textMuted);
     doc.text(prepStr, margin + contentW - prepW, y);
     y += 0.2;
-    const addrLine = [project.address, project.city, project.state, project.zip].filter(Boolean).join(', ');
+    const addrLine = [_proj.address, _proj.city, _proj.state, _proj.zip].filter(Boolean).join(', ');
     if (addrLine) {
       setText(textMuted); doc.setFontSize(9);
       doc.text(addrLine, margin, y);
@@ -10186,7 +10437,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     try {
       const stripped = { ...report, workLogs: (report.workLogs || []).map(w => ({ ...w, photos: (w.photos || []).map(p => ({ name: p.name, timestamp: p.timestamp })) })) };
       doc.setProperties({
-        title: `Daily Report - ${project.nickname || project.pc} - ${report.date}`,
+        title: `Daily Report - ${_proj.nickname || _proj.pc} - ${report.date}`,
         subject: 'Daily Construction Report',
         author: report.preparedBy || BRAND_CONFIG.portalName,
         creator: BRAND_CONFIG.portalName,
@@ -26618,49 +26869,162 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
     blockedAreas:"Any areas that can't be worked on?",
     rentedEquipment:'Any equipment rented on site?',
   };
+  const EMPTY_WEATHER = [
+    {time:'6:00 AM',temp:'',conditions:'',wind:'',precipitation:'',humidity:''},
+    {time:'12:00 PM',temp:'',conditions:'',wind:'',precipitation:'',humidity:''},
+    {time:'4:00 PM',temp:'',conditions:'',wind:'',precipitation:'',humidity:''},
+  ];
   const [rForm, setRForm] = useState({
     date: new Date().toISOString().slice(0,10), preparedBy: user?.name||'',
     jobNumber:'', materials:'', equipment:'', notes:'',
+    weather: EMPTY_WEATHER.map(w=>({...w})),
     workLogs:[{...EMPTY_LOG}],
     survey: Object.fromEntries(SURVEY_KEYS.map(k=>[k,null])),
     surveyNotes: Object.fromEntries(SURVEY_KEYS.map(k=>[k,''])),
   });
   const [rSaving, setRSaving] = useState(false);
+  const [wxLoading, setWxLoading] = useState(false);
+
+  const autoFillWeather = async (proj, date) => {
+    const zip = proj?.zip;
+    if (!zip) { alert('No zip code on this project'); return; }
+    setWxLoading(true);
+    try {
+      const data = await fetchWeatherByZip(zip, date);
+      const times = ['6:00 AM', '12:00 PM', '4:00 PM'];
+      setRForm(f => ({...f, weather: (f.weather||times.map(t=>({time:t,temp:'',conditions:'',wind:'',precipitation:'',humidity:''}))).map((w,i)=>({
+        ...w, temp:data[i]?.temp||w.temp, conditions:data[i]?.conditions||w.conditions,
+        wind:data[i]?.wind||w.wind, precipitation:data[i]?.precipitation||w.precipitation, humidity:data[i]?.humidity||w.humidity,
+      }))}));
+    } catch(e) { alert('Weather fetch failed: '+e.message); }
+    setWxLoading(false);
+  };
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const [selectedReport, setSelectedReport] = useState(null);
   const [loadingReport, setLoadingReport] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState(null);
+  const [expandedLogs, setExpandedLogs] = useState({});
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [emailModal, setEmailModal] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+
+  const mobileGeneratePdf = async (r, proj, download=true) => {
+    setPdfLoading(true);
+    try {
+      const doc = await buildReportPdf(r, proj);
+      const filename = `Daily_Report_${r.date||r.id}_${(proj.nickname||proj.pc||'PCG').replace(/[^a-z0-9]+/gi,'_')}.pdf`;
+      if (download) { doc.save(filename); setPdfLoading(false); return null; }
+      setPdfLoading(false);
+      return doc.output('blob');
+    } catch(e) { setPdfLoading(false); alert('PDF failed: '+e.message); return null; }
+  };
+
+  const mobileShareReport = async (r, proj) => {
+    setPdfLoading(true);
+    try {
+      const doc = await buildReportPdf(r, proj);
+      const filename = `Daily_Report_${r.date||r.id}_${(proj.nickname||proj.pc||'PCG').replace(/[^a-z0-9]+/gi,'_')}.pdf`;
+      const blob = doc.output('blob');
+      const file = new File([blob], filename, {type:'application/pdf'});
+      if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
+        await navigator.share({title:'Daily Construction Report - '+(r.date||''), files:[file]});
+      } else { doc.save(filename); }
+    } catch(e) { if (e.name !== 'AbortError') alert('Share failed: '+e.message); }
+    setPdfLoading(false);
+  };
+
+  const mobileOpenEmail = (r, proj) => {
+    setEmailTo('');
+    setEmailSubject(`Daily Construction Report - ${r.date?new Date(r.date+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'}):'Report'} - ${proj.nickname||proj.pc||''}`);
+    setEmailModal(true);
+  };
+
+  const mobileSendEmail = async (r, proj) => {
+    if (!emailTo.trim()) { alert('Please enter an email address'); return; }
+    setEmailSending(true);
+    try {
+      const pdfBlob = await mobileGeneratePdf(r, proj, false);
+      if (!pdfBlob) { setEmailSending(false); return; }
+      const sizeMB = pdfBlob.size / (1024*1024);
+      const reader = new FileReader();
+      const toList = emailTo.split(',').map(e=>e.trim()).filter(Boolean);
+      if (sizeMB > 4.5) {
+        await fetch('/.netlify/functions/notify', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          to: toList, subject: emailSubject,
+          body: `<p>Daily Construction Report for <strong>${proj.nickname||proj.pc}</strong> on <strong>${r.date||'N/A'}</strong>. Prepared by: ${r.preparedBy||'N/A'}.</p><p>Report is too large to attach (${sizeMB.toFixed(1)}MB). View in the portal under Projects → ${proj.nickname||proj.pc} → Daily Reports.</p>`,
+        })});
+      } else {
+        const base64 = await new Promise(res => { reader.onload=()=>res(reader.result.split(',')[1]); reader.readAsDataURL(pdfBlob); });
+        await fetch('/.netlify/functions/notify', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          to: toList, subject: emailSubject,
+          body: `<p>Please find attached the Daily Construction Report for <strong>${proj.nickname||proj.pc}</strong> dated <strong>${r.date?new Date(r.date+'T12:00:00').toLocaleDateString():'N/A'}</strong>.</p><p>Prepared by: ${r.preparedBy||'N/A'}</p>`,
+          attachments: [{filename:`Daily_Report_${r.date||r.id}.pdf`, content:base64}],
+        })});
+      }
+      setEmailModal(false);
+      alert('Email sent!');
+    } catch(e) { alert('Email failed: '+e.message); }
+    setEmailSending(false);
+  };
 
   const forceSync = async () => {
     if (syncing) return;
     setSyncing(true); setSyncMsg('');
+    let ok = 0, fail = 0;
     try {
+      // ── PULL: refresh projects, reports index, schedules from cloud ──
       const [projs, idx, scheds] = await Promise.all([
         cloudLoad('pcg_projects_v1').catch(()=>null),
         cloudLoad(DR_INDEX_KEY).catch(()=>null),
         cloudLoad(typeof MAINT_SCHEDULE_KEY !== 'undefined' ? MAINT_SCHEDULE_KEY : 'pcg_maint_schedules_v1').catch(()=>null),
       ]);
       if (Array.isArray(projs) && setProjects) setProjects(projs);
-      if (Array.isArray(idx) && selectedProject) {
-        setDailyReports(idx.filter(r=>String(r.projectId)===String(selectedProject.id)).sort((a,b)=>b.date?.localeCompare(a.date||'')||0));
-      }
       if (Array.isArray(scheds)) setCalSchedules(scheds);
-      // Refresh selectedProject from updated list if needed
+      let freshReports = dailyReports;
+      if (Array.isArray(idx)) {
+        const all = idx;
+        freshReports = selectedProject
+          ? all.filter(r=>String(r.projectId)===String(selectedProject.id)).sort((a,b)=>b.date?.localeCompare(a.date||'')||0)
+          : [];
+        setDailyReports(freshReports);
+      }
       if (Array.isArray(projs) && selectedProject) {
         const fresh = projs.find(p=>String(p.id)===String(selectedProject.id));
         if (fresh) setSelectedProject(fresh);
       }
-      setSyncMsg('Synced ✓');
-    } catch { setSyncMsg('Sync failed'); }
+      // ── PUSH: re-upload each loaded report blob + rewrite index ──
+      const allIdx = Array.isArray(idx) ? idx : [];
+      const projectReports = selectedProject
+        ? allIdx.filter(r=>String(r.projectId)===String(selectedProject.id))
+        : [];
+      for (const r of projectReports) {
+        try {
+          const full = await cloudLoadReport(r.id).catch(()=>null);
+          if (full) { await cloudSaveReport(full); ok++; }
+        } catch { fail++; }
+      }
+      // Rewrite index and legacy backup
+      if (allIdx.length > 0) {
+        await cloudSave(DR_INDEX_KEY, allIdx).catch(()=>{ fail++; });
+        await cloudSave('pcg_daily_reports_v1', allIdx.map(r=>({...r, workLogs:(r.workLogs||[]).map(w=>({...w,photos:[]}))})))
+          .catch(()=>{});
+      }
+      setSyncMsg(fail===0 ? `Synced ✓ (${ok} report${ok!==1?'s':''})` : `${ok} synced, ${fail} failed`);
+    } catch { setSyncMsg('Sync failed'); fail++; }
     setSyncing(false);
-    setTimeout(()=>setSyncMsg(''),3000);
+    setTimeout(()=>setSyncMsg(''),4000);
   };
 
   const goTo = (s) => { window.scrollTo(0,0); setScreen(s); };
 
   const openReport = (proj) => {
-    setRForm({ date: new Date().toISOString().slice(0,10), preparedBy: user?.name||'',
+    const date = new Date().toISOString().slice(0,10);
+    setRForm({ date, preparedBy: user?.name||'',
       jobNumber: proj?.pc ? proj.pc+'-001' : '', materials:'', equipment:'', notes:'',
+      weather: EMPTY_WEATHER.map(w=>({...w})),
       workLogs:[{...EMPTY_LOG}],
       survey: Object.fromEntries(SURVEY_KEYS.map(k=>[k,null])),
       surveyNotes: Object.fromEntries(SURVEY_KEYS.map(k=>[k,''])),
@@ -26673,6 +27037,35 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
   const updateLog  = (i,k,v) => setRForm(f => ({...f, workLogs: f.workLogs.map((w,j)=>j===i?{...w,[k]:v}:w)}));
   const setSurvey  = (k,v) => setRForm(f => ({...f, survey:{...f.survey,[k]:v}}));
   const setSurveyNote = (k,v) => setRForm(f => ({...f, surveyNotes:{...f.surveyNotes,[k]:v}}));
+
+  const compressMobileImage = (file, maxWidth=1600, quality=0.7) => new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        if (img.width <= maxWidth && file.size < 500000) { resolve(ev.target.result); return; }
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(1, maxWidth / img.width);
+        canvas.width = img.width * scale; canvas.height = img.height * scale;
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const addLogPhoto = (logIdx, files) => {
+    Array.from(files||[]).forEach(async file => {
+      const compressed = await compressMobileImage(file);
+      const ts = `${rForm.date||new Date().toISOString().slice(0,10)}T12:00:00`;
+      setRForm(f => ({...f, workLogs: f.workLogs.map((w,i) => i===logIdx ? {...w, photos:[...(w.photos||[]),{data:compressed,name:file.name,timestamp:ts}]} : w)}));
+    });
+  };
+
+  const removeLogPhoto = (logIdx, photoIdx) => {
+    setRForm(f => ({...f, workLogs: f.workLogs.map((w,i) => i===logIdx ? {...w, photos:(w.photos||[]).filter((_,pi)=>pi!==photoIdx)} : w)}));
+  };
 
   // Toggle a checklist item and save
   const toggleChecklistItem = (projectId, key, currentVal) => {
@@ -27011,7 +27404,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
             {!loadingReports && dailyReports.length === 0 && <div style={{textAlign:'center',color:th.muted,padding:20}}>No reports yet.</div>}
             {dailyReports.slice(0,50).map((r,i)=>(
               <div key={i} onClick={async()=>{
-                setLoadingReport(true); goTo('reportView');
+                setLoadingReport(true); setExpandedLogs({}); goTo('reportView');
                 try { const full = await cloudLoadReport(r.id); setSelectedReport(full||r); }
                 catch { setSelectedReport(r); }
                 setLoadingReport(false);
@@ -27048,11 +27441,51 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
     return (
       <div style={{minHeight:'100vh',background:th.bg,fontFamily:"'Source Sans 3',sans-serif",paddingBottom:40}}>
         {/* Header */}
-        <div style={{background:th.sidebar,borderBottom:`1px solid ${th.sidebarBorder}`,padding:'14px 20px',display:'flex',alignItems:'center',gap:12,position:'sticky',top:0,zIndex:10}}>
-          <div onClick={()=>{ setScreen('detail'); setSelectedReport(null); }} style={{color:O,fontWeight:700,fontSize:14,cursor:'pointer'}}>‹ Back</div>
-          <div style={{flex:1,fontFamily:"'Raleway'",fontWeight:800,fontSize:17,color:th.text,textAlign:'center'}}>Daily Report</div>
-          <div style={{width:50}}/>
+        <div style={{background:th.sidebar,borderBottom:`1px solid ${th.sidebarBorder}`,padding:'10px 14px',position:'sticky',top:0,zIndex:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+            <div onClick={()=>{ setScreen('detail'); setSelectedReport(null); }} style={{color:O,fontWeight:700,fontSize:14,cursor:'pointer'}}>‹ Back</div>
+            <div style={{flex:1,fontFamily:"'Raleway'",fontWeight:800,fontSize:17,color:th.text,textAlign:'center'}}>Daily Report</div>
+            {r && <span style={{background:r.status==='submitted'?'#10b98122':'#f59e0b22',color:r.status==='submitted'?'#10b981':'#f59e0b',border:`1px solid ${r.status==='submitted'?'#10b98133':'#f59e0b33'}`,borderRadius:8,padding:'2px 8px',fontSize:11,fontWeight:700}}>{r.status==='submitted'?'Submitted':'Draft'}</span>}
+          </div>
+          {r && !loadingReport && (
+            <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:2}}>
+              <button onClick={()=>mobileGeneratePdf(r,selectedProject||{})} disabled={pdfLoading} style={{background:'#2563eb',color:'#fff',border:'none',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+                {pdfLoading?'Generating...':'Export PDF'}
+              </button>
+              <button onClick={()=>mobileShareReport(r,selectedProject||{})} disabled={pdfLoading} style={{background:'#10b981',color:'#fff',border:'none',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+                Share
+              </button>
+              <button onClick={()=>mobileOpenEmail(r,selectedProject||{})} style={{background:'#8b5cf6',color:'#fff',border:'none',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+                Email Report
+              </button>
+            </div>
+          )}
         </div>
+        {/* Email Modal */}
+        {emailModal && r && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999,padding:16}}>
+            <div style={{background:th.card,borderRadius:16,padding:20,width:'100%',maxWidth:420,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+              <div style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:16,color:th.text,marginBottom:14}}>Email Daily Report</div>
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:11,color:th.muted,fontWeight:700,marginBottom:4}}>TO (comma-separated)</div>
+                <input value={emailTo} onChange={e=>setEmailTo(e.target.value)} placeholder="email@example.com" style={{...inpStyle,fontSize:14}}/>
+              </div>
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:th.muted,fontWeight:700,marginBottom:4}}>SUBJECT</div>
+                <input value={emailSubject} onChange={e=>setEmailSubject(e.target.value)} style={{...inpStyle,fontSize:14}}/>
+              </div>
+              <div style={{fontSize:12,color:th.muted,marginBottom:14,padding:'8px 10px',background:th.card2,borderRadius:8}}>
+                The daily report PDF will be generated and attached automatically.
+              </div>
+              <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+                <button onClick={()=>setEmailModal(false)} style={{background:th.card2,color:th.muted,border:`1px solid ${th.cardBorder}`,borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:700,cursor:'pointer'}}>Cancel</button>
+                <button onClick={()=>mobileSendEmail(r,selectedProject||{})} disabled={emailSending} style={{background:'#8b5cf6',color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                  {emailSending?'Sending...':'Send Email'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {loadingReport ? (
           <div style={{textAlign:'center',padding:60,color:th.muted}}>Loading report...</div>
         ) : !r ? (
@@ -27083,26 +27516,51 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
             {r.workLogs?.length > 0 && (
               <div style={sectionStyle}>
                 <div style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:15,color:th.text,marginBottom:10}}>Work Logs ({r.workLogs.length})</div>
-                {r.workLogs.map((w,i)=>(
-                  <div key={i} style={{background:th.bg,borderRadius:10,padding:12,marginBottom:8,border:`1px solid ${th.cardBorder}33`}}>
-                    <div style={{fontWeight:700,fontSize:14,color:th.text,marginBottom:6}}>{w.name||`Work Log ${i+1}`}</div>
-                    {w.description && <div style={{fontSize:13,color:th.muted,marginBottom:6}}>{w.description}</div>}
-                    <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
-                      {w.quantity && <span style={{fontSize:12,background:`${O}15`,color:O,borderRadius:6,padding:'2px 8px'}}>Qty: {w.quantity}</span>}
-                      {w.totalHours && <span style={{fontSize:12,background:'#3b82f615',color:'#3b82f6',borderRadius:6,padding:'2px 8px'}}>Hours: {w.totalHours}</span>}
-                      {w.hoursToDate && <span style={{fontSize:12,background:'#8b5cf615',color:'#8b5cf6',borderRadius:6,padding:'2px 8px'}}>Total to Date: {w.hoursToDate}</span>}
-                    </div>
-                    {w.photos?.length > 0 && (
-                      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}}>
-                        {w.photos.map((ph,pi)=>{
-                          const src = ph?.data || ph;
-                          if (!src || typeof src !== 'string') return null;
-                          return <img key={pi} src={src} alt={ph?.name||''} style={{width:80,height:80,objectFit:'cover',borderRadius:8,border:`1px solid ${th.cardBorder}`,cursor:'pointer'}} onClick={()=>window.open(src,'_blank')}/>;
-                        })}
+                {r.workLogs.map((w,i)=>{
+                  const isOpen = !!expandedLogs[i];
+                  const photoCount = (w.photos||[]).filter(ph=>{const s=ph?.data||ph;return s&&typeof s==='string';}).length;
+                  return (
+                    <div key={i} style={{background:th.bg,borderRadius:10,marginBottom:8,border:`1px solid ${th.cardBorder}33`,overflow:'hidden'}}>
+                      {/* Header row — always visible, tap to expand */}
+                      <div onClick={()=>setExpandedLogs(prev=>({...prev,[i]:!prev[i]}))} style={{display:'flex',alignItems:'center',gap:10,padding:12,cursor:'pointer'}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontWeight:700,fontSize:14,color:th.text}}>{w.name||`Work Log ${i+1}`}</div>
+                          <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:4}}>
+                            {w.quantity && <span style={{fontSize:11,background:`${O}15`,color:O,borderRadius:6,padding:'2px 7px'}}>Qty: {w.quantity}</span>}
+                            {w.totalHours && <span style={{fontSize:11,background:'#3b82f615',color:'#3b82f6',borderRadius:6,padding:'2px 7px'}}>Hours: {w.totalHours}</span>}
+                            {w.hoursToDate && <span style={{fontSize:11,background:'#8b5cf615',color:'#8b5cf6',borderRadius:6,padding:'2px 7px'}}>HTD: {w.hoursToDate}</span>}
+                            {photoCount > 0 && <span style={{fontSize:11,background:'#10b98115',color:'#10b981',borderRadius:6,padding:'2px 7px'}}>📷 {photoCount}</span>}
+                          </div>
+                        </div>
+                        <span style={{color:th.muted,fontSize:18,transition:'transform .2s',transform:isOpen?'rotate(90deg)':'rotate(0deg)',flexShrink:0}}>›</span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {/* Expanded content */}
+                      {isOpen && (
+                        <div style={{padding:'0 12px 12px',borderTop:`1px solid ${th.cardBorder}22`}}>
+                          {w.description && <div style={{fontSize:13,color:th.muted,marginTop:10,marginBottom:10,lineHeight:1.5}}>{w.description}</div>}
+                          {photoCount > 0 ? (
+                            <div>
+                              <div style={{fontSize:11,color:th.muted,fontWeight:700,marginBottom:8,textTransform:'uppercase'}}>Photos ({photoCount})</div>
+                              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                                {w.photos.map((ph,pi)=>{
+                                  const src = ph?.data||ph;
+                                  if (!src||typeof src!=='string') return null;
+                                  return (
+                                    <div key={pi} onClick={()=>setLightboxSrc(src)} style={{cursor:'pointer',borderRadius:8,overflow:'hidden',border:`1px solid ${th.cardBorder}`,flexShrink:0}}>
+                                      <img src={src} alt={ph?.name||''} style={{width:90,height:90,objectFit:'cover',display:'block'}}/>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : (
+                            !w.description && <div style={{fontSize:12,color:th.muted,fontStyle:'italic',paddingTop:8}}>No additional details.</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             {/* Materials & Equipment */}
@@ -27142,6 +27600,13 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
             )}
           </div>
         )}
+        {/* Lightbox overlay */}
+        {lightboxSrc && (
+          <div onClick={()=>setLightboxSrc(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+            <img src={lightboxSrc} alt="" style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain',borderRadius:8}}/>
+            <div style={{position:'absolute',top:16,right:16,color:'#fff',fontSize:28,cursor:'pointer',fontWeight:700,lineHeight:1}}>✕</div>
+          </div>
+        )}
       </div>
     );
   }
@@ -27179,6 +27644,45 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
             </div>
           </div>
 
+          {/* Weather */}
+          <div style={sectionStyle}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <div style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:15,color:th.text}}>Weather</div>
+              <button onClick={()=>autoFillWeather(p, rForm.date)} disabled={wxLoading} style={{background:`${O}18`,color:O,border:`1px solid ${O}33`,borderRadius:8,padding:'4px 10px',fontSize:12,fontWeight:700,cursor:'pointer',opacity:wxLoading?0.6:1}}>
+                {wxLoading ? '⏳ Loading...' : '🌤 Auto-Fill'}
+              </button>
+            </div>
+            {(rForm.weather||[]).map((w,i)=>(
+              <div key={i} style={{background:th.card2,border:`1px solid ${th.cardBorder}`,borderRadius:10,padding:10,marginBottom:8}}>
+                <div style={{fontSize:11,color:O,fontWeight:800,marginBottom:8}}>{w.time}</div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                  <div>
+                    <div style={{fontSize:10,color:th.muted,fontWeight:700,marginBottom:3}}>TEMP</div>
+                    <input value={w.temp} onChange={e=>setRForm(f=>({...f,weather:f.weather.map((wx,j)=>j===i?{...wx,temp:e.target.value}:wx)}))} placeholder="72°F" style={inpStyle}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,color:th.muted,fontWeight:700,marginBottom:3}}>CONDITIONS</div>
+                    <input value={w.conditions} onChange={e=>setRForm(f=>({...f,weather:f.weather.map((wx,j)=>j===i?{...wx,conditions:e.target.value}:wx)}))} placeholder="Clear" style={inpStyle}/>
+                  </div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+                  <div>
+                    <div style={{fontSize:10,color:th.muted,fontWeight:700,marginBottom:3}}>WIND MPH</div>
+                    <input value={w.wind} onChange={e=>setRForm(f=>({...f,weather:f.weather.map((wx,j)=>j===i?{...wx,wind:e.target.value}:wx)}))} placeholder="0" style={inpStyle}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,color:th.muted,fontWeight:700,marginBottom:3}}>PRECIP"</div>
+                    <input value={w.precipitation} onChange={e=>setRForm(f=>({...f,weather:f.weather.map((wx,j)=>j===i?{...wx,precipitation:e.target.value}:wx)}))} placeholder="0" style={inpStyle}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,color:th.muted,fontWeight:700,marginBottom:3}}>HUMIDITY</div>
+                    <input value={w.humidity} onChange={e=>setRForm(f=>({...f,weather:f.weather.map((wx,j)=>j===i?{...wx,humidity:e.target.value}:wx)}))} placeholder="0%" style={inpStyle}/>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
           {/* Work Logs */}
           <div style={sectionStyle}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
@@ -27211,9 +27715,36 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                     <input type="number" value={w.hoursToDate} onChange={e=>updateLog(i,'hoursToDate',e.target.value)} placeholder="0" style={inpStyle}/>
                   </div>
                 </div>
-                <div>
+                <div style={{marginBottom:8}}>
                   <div style={{fontSize:10,color:th.muted,fontWeight:700,marginBottom:4}}>Description</div>
                   <textarea value={w.description} onChange={e=>updateLog(i,'description',e.target.value)} placeholder="Work performed..." style={taStyle}/>
+                </div>
+                {/* Photo upload */}
+                <div>
+                  <div style={{fontSize:10,color:th.muted,fontWeight:700,marginBottom:6}}>PHOTOS</div>
+                  {(w.photos||[]).length > 0 && (
+                    <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:8}}>
+                      {w.photos.map((ph,pi)=>{
+                        const src = ph?.data||ph;
+                        return (
+                          <div key={pi} style={{position:'relative',width:72,height:72}}>
+                            <img src={src} alt={ph?.name||''} style={{width:72,height:72,objectFit:'cover',borderRadius:8,border:`1px solid ${th.cardBorder}`}}/>
+                            <div onClick={()=>removeLogPhoto(i,pi)} style={{position:'absolute',top:-6,right:-6,width:20,height:20,background:'#ef4444',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',fontSize:12,color:'#fff',fontWeight:800,boxShadow:'0 1px 4px #0004'}}>×</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{display:'flex',gap:8}}>
+                    <label style={{display:'inline-flex',alignItems:'center',gap:5,background:`${O}15`,color:O,border:`1px solid ${O}33`,borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                      📷 Camera
+                      <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={e=>{ addLogPhoto(i,e.target.files); e.target.value=''; }}/>
+                    </label>
+                    <label style={{display:'inline-flex',alignItems:'center',gap:5,background:th.card2,color:th.text,border:`1px solid ${th.cardBorder}`,borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                      🖼 Gallery
+                      <input type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>{ addLogPhoto(i,e.target.files); e.target.value=''; }}/>
+                    </label>
+                  </div>
                 </div>
               </div>
             ))}
@@ -29842,7 +30373,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.83
+            v13.90
           </div>
         )}
         {/* Collapse toggle — desktop only */}
