@@ -19651,16 +19651,40 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [schedules, setSchedules] = React.useState([]);
     const [viewDate, setViewDate] = React.useState(/* @__PURE__ */ new Date());
     const [selectedDay, setSelectedDay] = React.useState(null);
+    const [showAddMaint, setShowAddMaint] = React.useState(false);
+    const [maintForm, setMaintForm] = React.useState({ title: "", storePC: "", category: "HVAC", freq: "monthly", startDate: today.toISOString().slice(0, 10), notes: "" });
+    const [maintSaving, setMaintSaving] = React.useState(false);
     React.useEffect(() => {
-      cloudLoad("pcg_tickets_v1").then((d) => {
-        if (Array.isArray(d)) setTickets(d);
-      }).catch(() => {
-      });
-      cloudLoad(MAINT_SCHEDULE_KEY).then((d) => {
-        if (Array.isArray(d)) setSchedules(d);
-      }).catch(() => {
-      });
+      const load = () => {
+        cloudLoad("pcg_tickets_v1").then((d) => {
+          if (Array.isArray(d)) setTickets(d);
+        }).catch(() => {
+        });
+        cloudLoad(MAINT_SCHEDULE_KEY).then((d) => {
+          if (Array.isArray(d)) setSchedules(d);
+        }).catch(() => {
+        });
+      };
+      load();
+      const interval = setInterval(load, 6e4);
+      return () => clearInterval(interval);
     }, []);
+    const canAddMaint = user?.userType === "executive" || user?.userType === "it" || user?.userType === "construction";
+    const saveMaintSchedules = (updated) => {
+      setSchedules(updated);
+      cloudSave(MAINT_SCHEDULE_KEY, updated).catch(() => {
+      });
+    };
+    const handleAddMaint = async () => {
+      if (!maintForm.title.trim()) return;
+      setMaintSaving(true);
+      const store = stores.find((s2) => String(s2.pc) === String(maintForm.storePC));
+      const s = { id: `ms_${Date.now()}`, ...maintForm, storeName: store?.name || (maintForm.storePC ? `#${maintForm.storePC}` : "All Stores"), createdBy: user?.name, createdAt: (/* @__PURE__ */ new Date()).toISOString() };
+      saveMaintSchedules([...schedules, s]);
+      setMaintForm({ title: "", storePC: "", category: "HVAC", freq: "monthly", startDate: today.toISOString().slice(0, 10), notes: "" });
+      setShowAddMaint(false);
+      setMaintSaving(false);
+    };
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const myTickets = React.useMemo(() => {
@@ -19695,6 +19719,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const mySchedules = React.useMemo(() => {
+      const ut = user?.userType;
+      if (!ut || ut === "executive" || ut === "it" || ut === "construction") return schedules;
+      if (ut === "dm") {
+        const distPCs = new Set(stores.filter((s) => String(s.district) === String(user.district)).map((s) => String(s.pc)));
+        return schedules.filter((s) => !s.storePC || distPCs.has(String(s.storePC)));
+      }
+      if (ut === "manager") {
+        const myStores = new Set(stores.filter((s) => isManagersStore(s, user)).map((s) => String(s.pc)));
+        return schedules.filter((s) => !s.storePC || myStores.has(String(s.storePC)));
+      }
+      return schedules;
+    }, [schedules, user, stores]);
     const eventMap = React.useMemo(() => {
       const map = {};
       const add = (d, evt) => {
@@ -19709,7 +19746,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         if (d) add(d, { type: "ticket", id: t.id, title: t.title || "Ticket", store: t.storeName, priority: t.priority });
         if (t.dueDate && t.dueDate !== d) add(t.dueDate, { type: "ticket_due", id: t.id, title: `Due: ${t.title || "Ticket"}`, store: t.storeName, priority: t.priority });
       });
-      schedules.forEach((s) => {
+      mySchedules.forEach((s) => {
         let tmp = /* @__PURE__ */ new Date(s.startDate + "T12:00:00");
         while (tmp <= monthEnd) {
           if (tmp >= monthStart) add(tmp.toISOString().slice(0, 10), { type: "schedule", id: s.id, title: s.title, store: s.storeName, category: s.category, freq: s.freq });
@@ -19755,7 +19792,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const isSel = selectedDay === dateStr;
       const evts = eventMap[dateStr] || [];
       return /* @__PURE__ */ React.createElement("div", { key: day, onClick: () => setSelectedDay(isSel ? null : dateStr), style: { background: isSel ? `${O2}12` : th.card, padding: "0.4rem 0.45rem", cursor: "pointer", borderTop: isSel ? `2px solid ${O2}` : "2px solid transparent", transition: "background 0.12s", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: isToday ? 900 : 600, fontSize: "0.85rem", color: isToday ? "#fff" : th.text, background: isToday ? O2 : "transparent", width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 3 } }, day), evts.slice(0, 3).map((e, ei) => /* @__PURE__ */ React.createElement("div", { key: ei, style: { fontSize: "0.62rem", fontWeight: 600, padding: "2px 5px", borderRadius: 4, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: `${eventColor(e)}20`, color: eventColor(e), borderLeft: `2px solid ${eventColor(e)}` } }, eventIcon(e), " ", e.title)), evts.length > 3 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, marginTop: 1 } }, "+", evts.length - 3, " more"));
-    }))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: "0.75rem", minWidth: 220, maxWidth: 300 } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), flex: 1, overflowY: "auto", minHeight: 0, padding: "1rem" } }, selectedDay ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.88rem", color: th.text } }, (/* @__PURE__ */ new Date(selectedDay + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedDay(null), style: { background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.85rem" } }, "\u2715")), selectedEvents.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Nothing scheduled.") : selectedEvents.map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: "0.6rem 0.7rem", marginBottom: "0.5rem", borderLeft: `3px solid ${eventColor(e)}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: eventColor(e), marginBottom: 3 } }, eventIcon(e), " ", e.type === "ticket" ? "Ticket" : e.type === "ticket_due" ? "Due Date" : e.type === "schedule" ? "Equipment Check" : e.type === "project" ? "Project Start" : e.type === "project_end" ? "Project End" : "Task"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.83rem", color: th.text } }, e.title), e.store && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: 2 } }, e.store), e.category && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: 2 } }, e.category, " \xB7 ", e.freq)))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.88rem", color: th.text, marginBottom: "0.65rem" } }, "Upcoming"), upcomingEntries.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Nothing coming up.") : upcomingEntries.flatMap(([d, evts]) => evts.map((e, i) => /* @__PURE__ */ React.createElement("div", { key: `${d}${i}`, onClick: () => setSelectedDay(d), style: { display: "flex", gap: "0.55rem", alignItems: "flex-start", padding: "0.45rem 0", borderBottom: `1px solid ${th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 32, textAlign: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", fontWeight: 700, color: th.muted, textTransform: "uppercase" } }, (/* @__PURE__ */ new Date(d + "T12:00:00")).toLocaleDateString("en-US", { month: "short" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", color: eventColor(e), lineHeight: 1.1 } }, (/* @__PURE__ */ new Date(d + "T12:00:00")).getDate())), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, eventIcon(e), " ", e.title), e.store && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.store))))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.78rem", color: th.text, marginBottom: "0.5rem" } }, "Legend"), [["#ef4444", "Emergency ticket"], ["#f97316", "High priority"], ["#3b82f6", "Medium ticket"], ["#a855f7", "\u{1F527} Equipment check"], ["#14b8a6", "\u{1F3D7}\uFE0F Project"], [O2, "\u{1F4DD} Task/Todo"]].map(([c, l]) => /* @__PURE__ */ React.createElement("div", { key: l, style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 10, height: 10, borderRadius: "50%", background: c, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, l)))))));
+    }))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: "0.75rem", minWidth: 220, maxWidth: 300 } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), flex: 1, overflowY: "auto", minHeight: 0, padding: "1rem" } }, selectedDay ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.88rem", color: th.text } }, (/* @__PURE__ */ new Date(selectedDay + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedDay(null), style: { background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.85rem" } }, "\u2715")), selectedEvents.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Nothing scheduled.") : selectedEvents.map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: "0.6rem 0.7rem", marginBottom: "0.5rem", borderLeft: `3px solid ${eventColor(e)}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: eventColor(e), marginBottom: 3 } }, eventIcon(e), " ", e.type === "ticket" ? "Ticket" : e.type === "ticket_due" ? "Due Date" : e.type === "schedule" ? "Equipment Check" : e.type === "project" ? "Project Start" : e.type === "project_end" ? "Project End" : "Task"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.83rem", color: th.text } }, e.title), e.store && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: 2 } }, e.store), e.category && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: 2 } }, e.category, " \xB7 ", e.freq)))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.88rem", color: th.text, marginBottom: "0.65rem" } }, "Upcoming"), upcomingEntries.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Nothing coming up.") : upcomingEntries.flatMap(([d, evts]) => evts.map((e, i) => /* @__PURE__ */ React.createElement("div", { key: `${d}${i}`, onClick: () => setSelectedDay(d), style: { display: "flex", gap: "0.55rem", alignItems: "flex-start", padding: "0.45rem 0", borderBottom: `1px solid ${th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 32, textAlign: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", fontWeight: 700, color: th.muted, textTransform: "uppercase" } }, (/* @__PURE__ */ new Date(d + "T12:00:00")).toLocaleDateString("en-US", { month: "short" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", color: eventColor(e), lineHeight: 1.1 } }, (/* @__PURE__ */ new Date(d + "T12:00:00")).getDate())), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, eventIcon(e), " ", e.title), e.store && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.store))))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.78rem", color: th.text, marginBottom: "0.5rem" } }, "Legend"), [["#ef4444", "Emergency ticket"], ["#f97316", "High priority"], ["#3b82f6", "Medium ticket"], ["#a855f7", "\u{1F527} Equipment check"], ["#14b8a6", "\u{1F3D7}\uFE0F Project"], [O2, "\u{1F4DD} Task/Todo"]].map(([c, l]) => /* @__PURE__ */ React.createElement("div", { key: l, style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 10, height: 10, borderRadius: "50%", background: c, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, l)))), canAddMaint && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddMaint(true), style: { background: O2, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 1rem", cursor: "pointer", fontFamily: "'Source Sans 3'", fontWeight: 700, fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "0.4rem", width: "100%", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, "+"), " Maintenance Schedule"))), showAddMaint && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1e3, display: "flex", alignItems: "center", justifyContent: "center" }, onClick: () => setShowAddMaint(false) }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: 16, padding: "1.5rem", width: 420, maxWidth: "95vw", boxShadow: "0 8px 32px rgba(0,0,0,0.35)" }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "1rem" } }, "+ Maintenance Schedule"), [{ key: "title", label: "Task Title *", type: "text" }, { key: "notes", label: "Notes", type: "text" }].map((f) => /* @__PURE__ */ React.createElement("div", { key: f.key, style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, f.label), /* @__PURE__ */ React.createElement("input", { value: maintForm[f.key], placeholder: f.label, onChange: (e) => setMaintForm((p) => ({ ...p, [f.key]: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Store"), /* @__PURE__ */ React.createElement("select", { value: maintForm.storePC, onChange: (e) => setMaintForm((p) => ({ ...p, storePC: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All Stores"), stores.filter((s) => s.status !== "Closed").sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Category"), /* @__PURE__ */ React.createElement("select", { value: maintForm.category, onChange: (e) => setMaintForm((p) => ({ ...p, category: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }, ["HVAC", "Plumbing", "Electrical", "Equipment", "Cleaning", "Safety", "Other"].map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Frequency"), /* @__PURE__ */ React.createElement("select", { value: maintForm.freq, onChange: (e) => setMaintForm((p) => ({ ...p, freq: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }, [["once", "One-time"], ["weekly", "Weekly"], ["biweekly", "Bi-weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["annual", "Annual"]].map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Start Date"), /* @__PURE__ */ React.createElement("input", { type: "date", value: maintForm.startDate, onChange: (e) => setMaintForm((p) => ({ ...p, startDate: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddMaint(false), style: { flex: 1, ...btn(th, { background: th.card3, color: th.text }) } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: handleAddMaint, disabled: maintSaving || !maintForm.title.trim(), style: { flex: 1, ...btn(th, { opacity: !maintForm.title.trim() || maintSaving ? 0.5 : 1 }) } }, maintSaving ? "Saving\u2026" : "Save Schedule")))));
   }
   function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
     const O2 = "#FF671F";
@@ -19780,36 +19817,23 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       return () => clearInterval(id);
     }, []);
     const [viewDate, setViewDate] = React.useState(/* @__PURE__ */ new Date());
-    const [schedules, setSchedules] = React.useState(() => {
-      try {
-        return JSON.parse(localStorage.getItem(MAINT_SCHEDULE_KEY) || "[]");
-      } catch {
-        return [];
-      }
-    });
+    const [schedules, setSchedules] = React.useState([]);
     const [selectedDay, setSelectedDay] = React.useState(null);
     const [showAdd, setShowAdd] = React.useState(false);
     const [form, setForm] = React.useState({ title: "", storePC: "", category: "HVAC", freq: "monthly", startDate: today.toISOString().slice(0, 10), notes: "" });
     const [saving, setSaving] = React.useState(false);
     const isMaint = user?.userType === "maintenance";
     React.useEffect(() => {
-      cloudLoad(MAINT_SCHEDULE_KEY).then((d) => {
-        if (Array.isArray(d) && d.length > 0) {
-          setSchedules(d);
-          try {
-            localStorage.setItem(MAINT_SCHEDULE_KEY, JSON.stringify(d));
-          } catch {
-          }
-        }
+      const load = () => cloudLoad(MAINT_SCHEDULE_KEY).then((d) => {
+        if (Array.isArray(d)) setSchedules(d);
       }).catch(() => {
       });
+      load();
+      const interval = setInterval(load, 6e4);
+      return () => clearInterval(interval);
     }, []);
     const saveSchedules = (updated) => {
       setSchedules(updated);
-      try {
-        localStorage.setItem(MAINT_SCHEDULE_KEY, JSON.stringify(updated));
-      } catch {
-      }
       cloudSave(MAINT_SCHEDULE_KEY, updated).catch(() => {
       });
     };
@@ -19817,6 +19841,20 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const month = viewDate.getMonth();
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const mySchedules = React.useMemo(() => {
+      const ut = user?.userType;
+      if (!ut || ut === "executive" || ut === "it" || ut === "construction" || ut === "maintenance") return schedules;
+      if (ut === "dm") {
+        const distPCs = new Set(stores.filter((s) => String(s.district) === String(user.district)).map((s) => String(s.pc)));
+        return schedules.filter((s) => !s.storePC || distPCs.has(String(s.storePC)));
+      }
+      if (ut === "manager") {
+        const myPC = user.storePC ? String(user.storePC) : null;
+        const myStores = new Set(stores.filter((s) => isManagersStore(s, user)).map((s) => String(s.pc)));
+        return schedules.filter((s) => !s.storePC || myStores.has(String(s.storePC)) || myPC && String(s.storePC) === myPC);
+      }
+      return schedules;
+    }, [schedules, user, stores]);
     const eventMap = React.useMemo(() => {
       const map = {};
       const addEvent = (dateStr, evt) => {
@@ -19836,7 +19874,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       (todos || []).filter((t) => !t.completed && t.dueDate).forEach((t) => {
         addEvent(t.dueDate, { type: "todo", id: t.id, title: t.text || t.title || "Task", store: t.storeName || "" });
       });
-      schedules.forEach((s) => {
+      mySchedules.forEach((s) => {
         let d = nextOccurrence(s.startDate, s.freq);
         if (!d) return;
         const monthStart = new Date(year, month, 1);
@@ -21915,7 +21953,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v13.76"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v13.78"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

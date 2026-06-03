@@ -26588,11 +26588,37 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
   const [schedules,  setSchedules]  = React.useState([]);
   const [viewDate,   setViewDate]   = React.useState(new Date());
   const [selectedDay, setSelectedDay] = React.useState(null);
+  const [showAddMaint, setShowAddMaint] = React.useState(false);
+  const [maintForm,    setMaintForm]    = React.useState({ title: '', storePC: '', category: 'HVAC', freq: 'monthly', startDate: today.toISOString().slice(0,10), notes: '' });
+  const [maintSaving,  setMaintSaving]  = React.useState(false);
 
   React.useEffect(() => {
-    cloudLoad('pcg_tickets_v1').then(d => { if (Array.isArray(d)) setTickets(d); }).catch(() => {});
-    cloudLoad(MAINT_SCHEDULE_KEY).then(d => { if (Array.isArray(d)) setSchedules(d); }).catch(() => {});
+    const load = () => {
+      cloudLoad('pcg_tickets_v1').then(d => { if (Array.isArray(d)) setTickets(d); }).catch(() => {});
+      cloudLoad(MAINT_SCHEDULE_KEY).then(d => { if (Array.isArray(d)) setSchedules(d); }).catch(() => {});
+    };
+    load();
+    const interval = setInterval(load, 60000); // sync every 60s
+    return () => clearInterval(interval);
   }, []);
+
+  const canAddMaint = user?.userType === 'executive' || user?.userType === 'it' || user?.userType === 'construction';
+
+  const saveMaintSchedules = (updated) => {
+    setSchedules(updated);
+    cloudSave(MAINT_SCHEDULE_KEY, updated).catch(() => {});
+  };
+
+  const handleAddMaint = async () => {
+    if (!maintForm.title.trim()) return;
+    setMaintSaving(true);
+    const store = stores.find(s => String(s.pc) === String(maintForm.storePC));
+    const s = { id: `ms_${Date.now()}`, ...maintForm, storeName: store?.name || (maintForm.storePC ? `#${maintForm.storePC}` : 'All Stores'), createdBy: user?.name, createdAt: new Date().toISOString() };
+    saveMaintSchedules([...schedules, s]);
+    setMaintForm({ title: '', storePC: '', category: 'HVAC', freq: 'monthly', startDate: today.toISOString().slice(0,10), notes: '' });
+    setShowAddMaint(false);
+    setMaintSaving(false);
+  };
 
   const isDM      = user?.userType === 'dm';
   const isManager = user?.userType === 'manager';
@@ -26634,6 +26660,21 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
   const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
+  // Filter maintenance schedules by role
+  const mySchedules = React.useMemo(() => {
+    const ut = user?.userType;
+    if (!ut || ut === 'executive' || ut === 'it' || ut === 'construction') return schedules;
+    if (ut === 'dm') {
+      const distPCs = new Set(stores.filter(s => String(s.district) === String(user.district)).map(s => String(s.pc)));
+      return schedules.filter(s => !s.storePC || distPCs.has(String(s.storePC)));
+    }
+    if (ut === 'manager') {
+      const myStores = new Set(stores.filter(s => isManagersStore(s, user)).map(s => String(s.pc)));
+      return schedules.filter(s => !s.storePC || myStores.has(String(s.storePC)));
+    }
+    return schedules;
+  }, [schedules, user, stores]);
+
   const eventMap = React.useMemo(() => {
     const map = {};
     const add = (d, evt) => { if (!d) return; if (!map[d]) map[d]=[]; map[d].push(evt); };
@@ -26647,8 +26688,8 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
       if (t.dueDate && t.dueDate !== d) add(t.dueDate, { type:'ticket_due', id:t.id, title:`Due: ${t.title||'Ticket'}`, store:t.storeName, priority:t.priority });
     });
 
-    // Scheduled maintenance (recurring equipment checks)
-    schedules.forEach(s => {
+    // Scheduled maintenance (recurring equipment checks — role-filtered)
+    mySchedules.forEach(s => {
       let tmp = new Date(s.startDate + 'T12:00:00');
       while (tmp <= monthEnd) {
         if (tmp >= monthStart) add(tmp.toISOString().slice(0,10), { type:'schedule', id:s.id, title:s.title, store:s.storeName, category:s.category, freq:s.freq });
@@ -26788,15 +26829,68 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
           </div>
           <div style={{ ...card(th), padding:'0.75rem 1rem' }}>
             <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.78rem', color:th.text, marginBottom:'0.5rem' }}>Legend</div>
-            {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],['#a855f7','🔧 Equipment check'],['#14b8a6','🏗️ Project'],  [O,'📝 Task/Todo']].map(([c,l])=>(
+            {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],['#a855f7','🔧 Equipment check'],['#14b8a6','🏗️ Project'],[O,'📝 Task/Todo']].map(([c,l])=>(
               <div key={l} style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom:'0.3rem' }}>
                 <div style={{ width:10, height:10, borderRadius:'50%', background:c, flexShrink:0 }} />
                 <span style={{ fontSize:'0.7rem', color:th.muted }}>{l}</span>
               </div>
             ))}
           </div>
+
+          {/* + Maintenance Schedule button — exec/IT/construction only */}
+          {canAddMaint && (
+            <button onClick={() => setShowAddMaint(true)} style={{ background: O, color: '#fff', border: 'none', borderRadius: 10, padding: '0.7rem 1rem', cursor: 'pointer', fontFamily: "'Source Sans 3'", fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem', width: '100%', justifyContent: 'center' }}>
+              <span style={{ fontSize: '1.1rem' }}>+</span> Maintenance Schedule
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Add Maintenance Schedule modal */}
+      {showAddMaint && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => setShowAddMaint(false)}>
+          <div style={{ background: th.card, borderRadius: 16, padding: '1.5rem', width: 420, maxWidth: '95vw', boxShadow: '0 8px 32px rgba(0,0,0,0.35)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1.1rem', color:th.text, marginBottom:'1rem' }}>+ Maintenance Schedule</div>
+            {[{ key:'title', label:'Task Title *', type:'text' }, { key:'notes', label:'Notes', type:'text' }].map(f => (
+              <div key={f.key} style={{ marginBottom:'0.75rem' }}>
+                <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.3rem' }}>{f.label}</div>
+                <input value={maintForm[f.key]} placeholder={f.label} onChange={e => setMaintForm(p => ({...p, [f.key]: e.target.value}))} style={{ ...inp(th), width:'100%', boxSizing:'border-box' }} />
+              </div>
+            ))}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem', marginBottom:'0.75rem' }}>
+              <div>
+                <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.3rem' }}>Store</div>
+                <select value={maintForm.storePC} onChange={e => setMaintForm(p => ({...p, storePC: e.target.value}))} style={{ ...inp(th), width:'100%', boxSizing:'border-box' }}>
+                  <option value=''>All Stores</option>
+                  {stores.filter(s => s.status !== 'Closed').sort((a,b) => (a.name||'').localeCompare(b.name||'')).map(s => <option key={s.pc} value={s.pc}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.3rem' }}>Category</div>
+                <select value={maintForm.category} onChange={e => setMaintForm(p => ({...p, category: e.target.value}))} style={{ ...inp(th), width:'100%', boxSizing:'border-box' }}>
+                  {['HVAC','Plumbing','Electrical','Equipment','Cleaning','Safety','Other'].map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.3rem' }}>Frequency</div>
+                <select value={maintForm.freq} onChange={e => setMaintForm(p => ({...p, freq: e.target.value}))} style={{ ...inp(th), width:'100%', boxSizing:'border-box' }}>
+                  {[['once','One-time'],['weekly','Weekly'],['biweekly','Bi-weekly'],['monthly','Monthly'],['quarterly','Quarterly'],['annual','Annual']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.3rem' }}>Start Date</div>
+                <input type='date' value={maintForm.startDate} onChange={e => setMaintForm(p => ({...p, startDate: e.target.value}))} style={{ ...inp(th), width:'100%', boxSizing:'border-box' }} />
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:'0.75rem', marginTop:'0.5rem' }}>
+              <button onClick={() => setShowAddMaint(false)} style={{ flex:1, ...btn(th, { background: th.card3, color: th.text }) }}>Cancel</button>
+              <button onClick={handleAddMaint} disabled={maintSaving || !maintForm.title.trim()} style={{ flex:1, ...btn(th, { opacity: (!maintForm.title.trim() || maintSaving) ? 0.5 : 1 }) }}>
+                {maintSaving ? 'Saving…' : 'Save Schedule'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -26811,7 +26905,7 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
     return () => clearInterval(id);
   }, []);
   const [viewDate, setViewDate] = React.useState(new Date());
-  const [schedules, setSchedules] = React.useState(() => { try { return JSON.parse(localStorage.getItem(MAINT_SCHEDULE_KEY) || '[]'); } catch { return []; } });
+  const [schedules, setSchedules] = React.useState([]);
   const [selectedDay, setSelectedDay] = React.useState(null);
   const [showAdd, setShowAdd] = React.useState(false);
   const [form, setForm] = React.useState({ title: '', storePC: '', category: 'HVAC', freq: 'monthly', startDate: today.toISOString().slice(0,10), notes: '' });
@@ -26820,12 +26914,14 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
   const isMaint = user?.userType === 'maintenance';
 
   React.useEffect(() => {
-    cloudLoad(MAINT_SCHEDULE_KEY).then(d => { if (Array.isArray(d) && d.length > 0) { setSchedules(d); try { localStorage.setItem(MAINT_SCHEDULE_KEY, JSON.stringify(d)); } catch {} } }).catch(() => {});
+    const load = () => cloudLoad(MAINT_SCHEDULE_KEY).then(d => { if (Array.isArray(d)) setSchedules(d); }).catch(() => {});
+    load();
+    const interval = setInterval(load, 60000); // sync every 60s
+    return () => clearInterval(interval);
   }, []);
 
   const saveSchedules = (updated) => {
     setSchedules(updated);
-    try { localStorage.setItem(MAINT_SCHEDULE_KEY, JSON.stringify(updated)); } catch {}
     cloudSave(MAINT_SCHEDULE_KEY, updated).catch(() => {});
   };
 
@@ -26833,6 +26929,22 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
   const month = viewDate.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  // Filter schedules by role: exec/it/construction see all, DM sees their district, manager sees their store
+  const mySchedules = React.useMemo(() => {
+    const ut = user?.userType;
+    if (!ut || ut === 'executive' || ut === 'it' || ut === 'construction' || ut === 'maintenance') return schedules;
+    if (ut === 'dm') {
+      const distPCs = new Set(stores.filter(s => String(s.district) === String(user.district)).map(s => String(s.pc)));
+      return schedules.filter(s => !s.storePC || distPCs.has(String(s.storePC)));
+    }
+    if (ut === 'manager') {
+      const myPC = user.storePC ? String(user.storePC) : null;
+      const myStores = new Set(stores.filter(s => isManagersStore(s, user)).map(s => String(s.pc)));
+      return schedules.filter(s => !s.storePC || myStores.has(String(s.storePC)) || (myPC && String(s.storePC) === myPC));
+    }
+    return schedules;
+  }, [schedules, user, stores]);
 
   // Build event map: { "YYYY-MM-DD": [...events] }
   const eventMap = React.useMemo(() => {
@@ -26856,8 +26968,8 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
       addEvent(t.dueDate, { type: 'todo', id: t.id, title: t.text || t.title || 'Task', store: t.storeName || '' });
     });
 
-    // Scheduled maintenance — compute occurrences for current month
-    schedules.forEach(s => {
+    // Scheduled maintenance — compute occurrences for current month (role-filtered)
+    mySchedules.forEach(s => {
       let d = nextOccurrence(s.startDate, s.freq);
       if (!d) return;
       const monthStart = new Date(year, month, 1);
@@ -29019,7 +29131,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v13.76
+            v13.78
           </div>
         )}
         {/* Collapse toggle — desktop only */}
