@@ -5,6 +5,8 @@ const { PNL_SYSTEM, buildPnlPrompt } = require('./analyst-lib/analyst-prompts');
 const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { saveReport } = require('./analyst-lib/analyst-reports-gen');
 const { sendEmail, wrapEmail, loadReportSettings } = require('./analyst-lib/analyst-reports');
+const { getStore } = require('@netlify/blobs');
+const { DEFAULT_COGS_PCT } = require('./analyst-lib/pnl-calc');
 
 exports.handler = async (event) => {
   const isManual = event.httpMethod === 'POST';
@@ -14,7 +16,7 @@ exports.handler = async (event) => {
   const monthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
 
   async function buildMonthlyData(stores) {
-    let totalSales = 0, totalLabor = 0, totalHours = 0;
+    let totalSales = 0, totalLabor = 0, totalHours = 0, totalCogs = 0;
     const storeResults = [];
     const weeklyBuckets = [{}, {}, {}, {}, {}];
 
@@ -28,17 +30,34 @@ exports.handler = async (event) => {
           if (d >= targetMonth && d <= monthEnd) {
             sSales += day.sales || 0;
             sLabor += day.laborDollars || 0;
-            sHours += day.laborHours || 0;
+            sHours += day.hoursWorked || 0;
             const weekIdx = Math.min(4, Math.floor((d.getDate() - 1) / 7));
             if (!weeklyBuckets[weekIdx][s.pc]) weeklyBuckets[weekIdx][s.pc] = { sales: 0, labor: 0 };
             weeklyBuckets[weekIdx][s.pc].sales += day.sales || 0;
             weeklyBuckets[weekIdx][s.pc].labor += day.laborDollars || 0;
           }
         }
+        let sCogs = 0;
+        try {
+          const pnlStore = getStore({ name: 'pcg-portal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
+          const wrapped = await pnlStore.get(`pcg_pnl_store_${s.pc}`, { type: 'json' });
+          const pnlDaily = wrapped?.data?.daily || [];
+          const byDate = Object.fromEntries(pnlDaily.map(d => [d.date, d]));
+          for (const day of storeData.daily) {
+            const d = new Date(day.date);
+            if (d >= targetMonth && d <= monthEnd) {
+              const p = byDate[day.date];
+              sCogs += (p && typeof p.cogs === 'number') ? p.cogs : (day.sales || 0) * DEFAULT_COGS_PCT;
+            }
+          }
+        } catch {
+          sCogs = sSales * DEFAULT_COGS_PCT;
+        }
         totalSales += sSales;
         totalLabor += sLabor;
         totalHours += sHours;
-        storeResults.push({ name: s.name, pc: s.pc, district: s.district, sales: sSales, labor: sLabor, laborPct: sSales > 0 ? (sLabor / sSales * 100) : 0 });
+        totalCogs += sCogs;
+        storeResults.push({ name: s.name, pc: s.pc, district: s.district, sales: sSales, labor: sLabor, cogs: sCogs, laborPct: sSales > 0 ? (sLabor / sSales * 100) : 0 });
       } catch {}
     }
 
@@ -48,7 +67,7 @@ exports.handler = async (event) => {
       return { week: `Week ${i + 1}`, sales: wSales, labor: wLabor, laborPct: wSales > 0 ? (wLabor / wSales * 100) : 0, margin: wSales - wLabor };
     }).filter(w => w.sales > 0);
 
-    return { totalSales, totalLabor, totalHours, laborPct: totalSales > 0 ? (totalLabor / totalSales * 100) : 0, margin: totalSales - totalLabor, storeResults, weekSummaries };
+    return { totalSales, totalLabor, totalHours, totalCogs, cogsPct: totalSales > 0 ? (totalCogs / totalSales * 100) : 0, contribution: totalSales - totalLabor - totalCogs, laborPct: totalSales > 0 ? (totalLabor / totalSales * 100) : 0, margin: totalSales - totalLabor, storeResults, weekSummaries };
   }
 
   const fmtD = n => '$' + (n >= 1000000 ? (n / 1000000).toFixed(2) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n.toFixed(0));
@@ -59,6 +78,8 @@ exports.handler = async (event) => {
     const dataSnapshot = `Monthly P&L for ${monthLabel}:
 Total Revenue: ${fmtD(networkData.totalSales)}
 Total Labor Cost: ${fmtD(networkData.totalLabor)}
+COGS: ${fmtD(networkData.totalCogs)} (${networkData.cogsPct.toFixed(1)}%)
+Contribution: ${fmtD(networkData.contribution)}
 Gross Margin: ${fmtD(networkData.margin)}
 Labor %: ${networkData.laborPct.toFixed(1)}%
 Total Hours: ${networkData.totalHours.toFixed(0)}
