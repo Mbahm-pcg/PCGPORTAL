@@ -12733,12 +12733,27 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       setRefreshing(true);
       try {
         if (withLaborRefresh) {
-          fetch("/.netlify/functions/labor-cron", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ storePC: pc })
-          }).catch(() => {
-          });
+          try {
+            const res = await fetch("/.netlify/functions/labor-cron", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ storePC: pc })
+            });
+            const json = res.ok ? await res.json().catch(() => {
+            }) : null;
+            if (json?.ok && !json?.skipped) {
+              const freshStore = await cloudLoad(`pcg_labor_store_${pc}`).catch(() => null);
+              if (freshStore?.daily?.[0]) {
+                const d = freshStore.daily[0];
+                const w = freshStore.weekly?.[0];
+                setLabor({ today: { laborDollars: d.laborDollars, sales: d.sales, laborPct: d.laborPct }, wtd: w ? { laborDollars: w.laborDollars, sales: w.sales, laborPct: w.laborPct } : null });
+                setStoreBlob(freshStore);
+                const empList2 = d.employees || [];
+                if (empList2.length > 0) setWorkers(empList2.filter((e) => e.hoursToday > 0).map((e) => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
+              }
+            }
+          } catch {
+          }
         }
         const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
           method: "POST",
@@ -23144,7 +23159,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.13"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.14"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

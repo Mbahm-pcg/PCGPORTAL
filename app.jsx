@@ -16116,12 +16116,28 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     if (!pc) { setLoading(false); return; }
     setRefreshing(true);
     try {
-      // Trigger scoped Paycor labor refresh for this store when manually refreshing
+      // Trigger scoped Paycor labor refresh for this store when manually refreshing.
+      // Wait for it, then reload pcg_labor_store_{pc} and update labor state directly.
       if (withLaborRefresh) {
-        fetch('/.netlify/functions/labor-cron', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ storePC: pc }),
-        }).catch(() => {});
+        try {
+          const res = await fetch('/.netlify/functions/labor-cron', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ storePC: pc }),
+          });
+          const json = res.ok ? await res.json().catch(()=>{}) : null;
+          if (json?.ok && !json?.skipped) {
+            // Load fresh per-store blob and update labor + workers state
+            const freshStore = await cloudLoad(`pcg_labor_store_${pc}`).catch(() => null);
+            if (freshStore?.daily?.[0]) {
+              const d = freshStore.daily[0];
+              const w = freshStore.weekly?.[0];
+              setLabor({ today: { laborDollars: d.laborDollars, sales: d.sales, laborPct: d.laborPct }, wtd: w ? { laborDollars: w.laborDollars, sales: w.sales, laborPct: w.laborPct } : null });
+              setStoreBlob(freshStore);
+              const empList = d.employees || [];
+              if (empList.length > 0) setWorkers(empList.filter(e => e.hoursToday > 0).map(e => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
+            }
+          }
+        } catch {}
       }
       const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -30657,7 +30673,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.13
+            v14.14
           </div>
         )}
         {/* Collapse toggle — desktop only */}
