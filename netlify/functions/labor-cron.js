@@ -833,6 +833,36 @@ function mergeStoreBlob(existing, todayEntry, weeklyEntry) {
   };
 }
 
+// ── P&L config + COGS helpers ─────────────────────────────────────────────────
+
+const { DEFAULT_COGS_PCT } = require('./analyst-lib/pnl-calc');
+
+/**
+ * Load the COGS-% fallback config once per run.
+ * Blob shape: { defaultCogsPct, byStore: { [pc]: pct }, byDistrict: { [district]: pct } }
+ * @param {object} blobStore  the @netlify/blobs store
+ */
+async function loadPnlConfig(blobStore) {
+  try {
+    const wrapped = await blobStore.get('pcg_pnl_config_v1', { type: 'json' });
+    const cfg = wrapped?.data || {};
+    return {
+      defaultCogsPct: typeof cfg.defaultCogsPct === 'number' ? cfg.defaultCogsPct : DEFAULT_COGS_PCT,
+      byStore:    cfg.byStore || {},
+      byDistrict: cfg.byDistrict || {},
+    };
+  } catch {
+    return { defaultCogsPct: DEFAULT_COGS_PCT, byStore: {}, byDistrict: {} };
+  }
+}
+
+/** Resolve the COGS-% fallback for a store: per-store → per-district → network default. */
+function cogsPctFor(cfg, store) {
+  return cfg.byStore[String(store.pc)]
+    ?? cfg.byDistrict[String(store.district)]
+    ?? cfg.defaultCogsPct;
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 exports.handler = async (event) => {
