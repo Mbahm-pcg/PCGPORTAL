@@ -1099,6 +1099,57 @@ exports.handler = async (event) => {
     }
     console.log('[labor-cron] Wrote per-store blobs for', storeResults.length, 'stores');
 
+    // ── P&L live snapshot + per-store history ────────────────────────────────
+    try {
+      const pnlStores = [];
+      const pnlExcluded = [];
+      for (const r of storeResults) {
+        if (!r) continue;
+        if (!r.pnl || !r.pnl.revenue) {
+          pnlExcluded.push({ pc: r.pc, name: r.name, reason: r.pnl ? 'no revenue' : 'no labor/menu data' });
+          continue;
+        }
+        pnlStores.push({ pc: r.pc, name: r.name, district: r.district, ...r.pnl });
+      }
+
+      const agg = pnlStores.reduce((a, s) => {
+        a.revenue += s.revenue; a.labor += s.labor; a.cogs += s.cogs; a.contribution += s.contribution; return a;
+      }, { revenue: 0, labor: 0, cogs: 0, contribution: 0 });
+      const r2 = (n) => Math.round(n * 100) / 100;
+      const p1 = (num, den) => (den > 0 ? Math.round((num / den) * 1000) / 10 : 0);
+      const pnlNetwork = {
+        revenue: r2(agg.revenue), labor: r2(agg.labor), cogs: r2(agg.cogs), contribution: r2(agg.contribution),
+        marginPct: p1(agg.contribution, agg.revenue), laborPct: p1(agg.labor, agg.revenue), cogsPct: p1(agg.cogs, agg.revenue),
+      };
+
+      await blobStore.setJSON('pcg_pnl_live_v1', {
+        savedAt: new Date().toISOString(),
+        data: { busDt, network: pnlNetwork, stores: pnlStores, excluded: pnlExcluded },
+      });
+      console.log('[labor-cron] Wrote pcg_pnl_live_v1 —', pnlStores.length, 'stores,', pnlExcluded.length, 'excluded');
+
+      for (const s of pnlStores) {
+        const key = `pcg_pnl_store_${s.pc}`;
+        let history = { daily: [] };
+        try {
+          const existing = await blobStore.get(key, { type: 'json' });
+          if (existing?.data?.daily) history = existing.data;
+        } catch {}
+        const point = {
+          date: busDt, revenue: s.revenue, labor: s.labor, cogs: s.cogs,
+          contribution: s.contribution, marginPct: s.marginPct, laborPct: s.laborPct,
+          cogsPct: s.cogsPct, method: s.method,
+        };
+        history.daily = [...history.daily.filter(d => d.date !== busDt), point]
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .slice(-400);
+        await blobStore.setJSON(key, { savedAt: new Date().toISOString(), data: history });
+      }
+      console.log('[labor-cron] Wrote pcg_pnl_store_{pc} history for', pnlStores.length, 'stores');
+    } catch (e) {
+      console.warn('[labor-cron] P&L snapshot write skipped:', e.message);
+    }
+
     // ── Close out pending schedule alerts with actual labor data ─────────────
     // For any alert whose date has already passed, look up the actual labor %
     // from the store's daily history and mark it improved / no_change / worsened.
