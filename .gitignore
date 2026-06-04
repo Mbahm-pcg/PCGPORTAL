@@ -7,3 +7,5 @@ node_modules/
 .firecrawl/
 *.pdf
 paycor-search.md
+deno.lock
+index 2.html
