@@ -1057,6 +1057,8 @@ exports.handler = async (event) => {
     for (let i = 0; i < storeResults.length; i += 8) {
       const batch = storeResults.slice(i, i + 8);
       await Promise.all(batch.map(async (r) => {
+       try {
+        if (!r || !r.today || !r.wtd) { console.warn('[labor-cron] skipping per-store blob — incomplete data for', r?.pc, r?.name); return; }
         const key = `pcg_labor_store_${r.pc}`;
         let existing = null;
         try {
@@ -1091,6 +1093,9 @@ exports.handler = async (event) => {
             busDt, updatedAt: new Date().toISOString(), shifts: r.scheduleShifts,
           }});
         }
+       } catch (e) {
+         console.warn('[labor-cron] per-store blob write failed for', r?.pc, ':', e.message);
+       }
       }));
     }
     console.log('[labor-cron] Wrote per-store blobs for', storeResults.length, 'stores');
