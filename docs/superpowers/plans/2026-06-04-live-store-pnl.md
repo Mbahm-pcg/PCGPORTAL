@@ -4,7 +4,7 @@
 
 **Goal:** Add a near-live, per-store estimated P&L (`Contribution = Revenue − Labor − COGS`) with a contribution-margin–ranked dashboard, weekly/monthly rollups, and trend lines — role-scoped by `userType`.
 
-**Architecture:** A pure compute core (`analyst-lib/pnl-calc.js`) is the single source of truth for the P&L formula. COGS is hybrid: BOM (Pulse menu-mix × per-item cost from an extracted `analyst-lib/cost-lookup.js`) when menu-mix explains ≥70% of revenue, else a category-% fallback from a config blob. `labor-cron.js` computes P&L in its existing per-store loop (reusing its in-file Pulse client) and writes a live snapshot (`pcg_pnl_live_v1`) + per-store daily history (`pcg_pnl_store_{pc}`). The monthly `pnl-cron.js` reads stored COGS so its Orion narrative finally includes COGS. A new `AdminPnL` React component renders the dashboard.
+**Architecture:** A pure compute core (`analyst-lib/pnl-calc.js`) is the single source of truth for the P&L formula. COGS is hybrid: BOM (Pulse menu-mix × per-item cost from an extracted `analyst-lib/cost-lookup.js`) when menu-mix explains ≥85% of revenue, else a category-% fallback from a config blob. `labor-cron.js` computes P&L in its existing per-store loop (reusing its in-file Pulse client) and writes a live snapshot (`pcg_pnl_live_v1`) + per-store daily history (`pcg_pnl_store_{pc}`). The monthly `pnl-cron.js` reads stored COGS so its Orion narrative finally includes COGS. A new `AdminPnL` React component renders the dashboard.
 
 **Tech Stack:** Node.js CommonJS Netlify Functions; Netlify Blobs; React 18 (CDN) authored in JSX, bundled with esbuild; Chart.js (CDN); inline styles only; tests via Node built-in `node:test` + `node:assert` (no new deps).
 
@@ -270,17 +270,29 @@ describe('computeCogs', () => {
   });
 
   test('high coverage → BOM (covered cost + estimated tail)', () => {
-    // 800 of 1000 revenue is covered by known-cost items
+    // 900 of 1000 revenue is covered by known-cost items (90% ≥ 85% threshold)
     const mix = [
-      { name: 'Latte',    slsCnt: 100, slsTtl: 500 }, // cost 100
+      { name: 'Latte',    slsCnt: 100, slsTtl: 600 }, // cost 100
       { name: 'Sandwich', slsCnt: 100, slsTtl: 300 }, // cost 200
-      { name: 'Mystery',  slsCnt: 50,  slsTtl: 200 }, // unknown
+      { name: 'Mystery',  slsCnt: 50,  slsTtl: 100 }, // unknown
     ];
     const r = computeCogs(mix, costOf, 1000, 0.29);
     assert.strictEqual(r.method, 'BOM');
-    // covered cost 300 + tail (1000-800)*0.29 = 58 → 358
-    assert.strictEqual(r.cogs, 358);
+    // covered cost 300 + tail (1000-900)*0.29 = 29 → 329
+    assert.strictEqual(r.cogs, 329);
     assert.ok(r.coverage >= BOM_COVERAGE_THRESHOLD);
+  });
+
+  test('mid coverage below threshold → est fallback', () => {
+    // 800 of 1000 covered = 80% < 85% → est on full revenue
+    const mix = [
+      { name: 'Latte',    slsCnt: 100, slsTtl: 500 },
+      { name: 'Sandwich', slsCnt: 100, slsTtl: 300 },
+      { name: 'Mystery',  slsCnt: 50,  slsTtl: 200 },
+    ];
+    const r = computeCogs(mix, costOf, 1000, 0.29);
+    assert.strictEqual(r.method, 'est');
+    assert.strictEqual(r.cogs, 290);
   });
 
   test('low coverage → est fallback on full revenue', () => {
@@ -299,16 +311,16 @@ describe('computeCogs', () => {
 describe('computeStorePnL', () => {
   test('contribution = revenue − labor − cogs, with percentages', () => {
     const mix = [
-      { name: 'Latte',    slsCnt: 100, slsTtl: 500 },
+      { name: 'Latte',    slsCnt: 100, slsTtl: 600 }, // 90% coverage → BOM
       { name: 'Sandwich', slsCnt: 100, slsTtl: 300 },
-      { name: 'Mystery',  slsCnt: 50,  slsTtl: 200 },
+      { name: 'Mystery',  slsCnt: 50,  slsTtl: 100 },
     ];
     const p = computeStorePnL({ revenue: 1000, labor: 250, menuMix: mix, cogsPct: 0.29 }, costOf);
-    assert.strictEqual(p.cogs, 358);
-    assert.strictEqual(p.contribution, 392); // 1000 - 250 - 358
-    assert.strictEqual(p.marginPct, 39.2);
+    assert.strictEqual(p.cogs, 329);          // covered 300 + tail (100)*0.29 = 29
+    assert.strictEqual(p.contribution, 421);  // 1000 - 250 - 329
+    assert.strictEqual(p.marginPct, 42.1);
     assert.strictEqual(p.laborPct, 25);
-    assert.strictEqual(p.cogsPct, 35.8);
+    assert.strictEqual(p.cogsPct, 32.9);
     assert.strictEqual(p.method, 'BOM');
   });
 
@@ -338,7 +350,7 @@ Create `netlify/functions/analyst-lib/pnl-calc.js`:
 // + a costOf(name) lookup so this module stays fully unit-testable.
 
 const DEFAULT_COGS_PCT = 0.29;        // network fallback (~29% of sales)
-const BOM_COVERAGE_THRESHOLD = 0.70;  // menu-mix must explain ≥70% of revenue to trust BOM
+const BOM_COVERAGE_THRESHOLD = 0.85;  // menu-mix must explain ≥85% of revenue to trust BOM
 
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
 const pct1   = (num, den) => (den > 0 ? Math.round((num / den) * 1000) / 10 : 0); // % to 1 dp
@@ -411,7 +423,7 @@ git add netlify/functions/analyst-lib/pnl-calc.js netlify/functions/analyst-lib/
 git commit -m "feat: pure P&L compute core (pnl-calc) with hybrid COGS"
 ```
 
-> **DECISION POINT (surface to user before/at execution):** `BOM_COVERAGE_THRESHOLD = 0.70` and "estimate the uncovered tail at category %" are the two tunable business rules. Alternatives: (a) require higher coverage (e.g. 0.85) to mark a store `BOM`; (b) treat uncovered items as $0 COGS instead of estimating a tail (understates COGS); (c) only mark `BOM` when coverage ≥ threshold AND ≥N items priced. The plan ships 0.70 + estimated-tail as a sensible default; confirm with Mike or adjust the two constants.
+> **DECISION (settled 2026-06-04):** `BOM_COVERAGE_THRESHOLD = 0.85` — Mike chose the stricter threshold so the `BOM` badge means high confidence. The uncovered remainder is still estimated at the category % (`DEFAULT_COGS_PCT`). Do not lower the threshold without checking back.
 
 ---
 
@@ -1115,6 +1127,6 @@ npx netlify deploy --prod
 - Testing: BOM path, fallback, zero-revenue guard, method badge, margin math → Task 4. ✓
 - District view for DMs → DM scoping in Task 10 (district-filtered grid + re-aggregated header). ✓
 
-**Open decision (carry into execution):** `BOM_COVERAGE_THRESHOLD` (0.70) and the uncovered-tail estimation — flagged in Task 4. Confirm with Mike or tune the two constants in `pnl-calc.js`.
+**Settled decision:** `BOM_COVERAGE_THRESHOLD = 0.85` (stricter — Mike's call 2026-06-04); uncovered tail estimated at the category %.
 
 **Known follow-ups (out of v1 scope per spec):** forecasted P&L, push-to-Paycor scheduling, royalty/ad-fund modeling.
