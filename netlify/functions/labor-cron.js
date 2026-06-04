@@ -5,6 +5,8 @@
 
 const https = require('https');
 const { getStore } = require('@netlify/blobs');
+const { lookupUnitCost } = require('./analyst-lib/cost-lookup');
+const { computeStorePnL, DEFAULT_COGS_PCT } = require('./analyst-lib/pnl-calc');
 
 // ── Store configs (pc = Dunkin store number, paycor = Paycor legal entity ID) ──
 const STORES = [
@@ -153,9 +155,6 @@ function postPOS(cfg, endpoint, body) {
 }
 
 // ── Pulse menu-mix + P&L helpers ─────────────────────────────────────────────
-
-const { lookupUnitCost } = require('./analyst-lib/cost-lookup');
-const { computeStorePnL } = require('./analyst-lib/pnl-calc');
 
 /**
  * Fetch per-item menu mix for a store/day from Pulse.
@@ -760,6 +759,7 @@ async function processStore(store, busDt, { skipSchedules = false, pnlConfig = n
       lookupUnitCost,
     );
   } catch (e) {
+    console.warn('[labor-cron] P&L compute failed for', store.pc, ':', e.message);
     pnl = null; // menu-mix unavailable → labor-only path still works
   }
 
@@ -881,8 +881,6 @@ function mergeStoreBlob(existing, todayEntry, weeklyEntry) {
 }
 
 // ── P&L config + COGS helpers ─────────────────────────────────────────────────
-
-const { DEFAULT_COGS_PCT } = require('./analyst-lib/pnl-calc');
 
 /**
  * Load the COGS-% fallback config once per run.
