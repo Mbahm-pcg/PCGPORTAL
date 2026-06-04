@@ -504,7 +504,7 @@ function overtimeStatus(weeklyHours) {
 
 // ── Process a single store ────────────────────────────────────────────────────
 
-async function processStore(store, busDt, { skipSchedules = false } = {}) {
+async function processStore(store, busDt, { skipSchedules = false, pnlConfig = null } = {}) {
   const { pc, paycor: legalEntityId, name, district } = store;
   const weekDates = weekDatesThrough(busDt);
   const weekOfStr  = weekStart(busDt);
@@ -754,7 +754,7 @@ async function processStore(store, busDt, { skipSchedules = false } = {}) {
   let pnl = null;
   try {
     const menuMix = await getStoreMenuMix(store.pc, busDt);
-    const cogsPct = cogsPctFor(opts.pnlConfig || { defaultCogsPct: undefined, byStore: {}, byDistrict: {} }, store);
+    const cogsPct = cogsPctFor(pnlConfig || { defaultCogsPct: undefined, byStore: {}, byDistrict: {} }, store);
     pnl = computeStorePnL(
       { revenue: sales.netSales, labor: totalLaborDollarsToday, menuMix, cogsPct },
       lookupUnitCost,
