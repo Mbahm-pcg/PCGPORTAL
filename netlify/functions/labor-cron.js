@@ -152,6 +152,39 @@ function postPOS(cfg, endpoint, body) {
   });
 }
 
+// ── Pulse menu-mix + P&L helpers ─────────────────────────────────────────────
+
+const { lookupUnitCost } = require('./analyst-lib/cost-lookup');
+const { computeStorePnL } = require('./analyst-lib/pnl-calc');
+
+/**
+ * Fetch per-item menu mix for a store/day from Pulse.
+ * @returns {Promise<Array<{name:string, slsCnt:number, slsTtl:number}>>}
+ */
+async function getStoreMenuMix(pc, busDt) {
+  const cfg = APIS[apiRoute(String(pc))];
+  const [dims, daily] = await Promise.all([
+    postPOS(cfg, 'getMenuItemDimensions', { locRef: String(pc) }),
+    postPOS(cfg, 'getMenuItemDailyTotals', {
+      locRef: String(pc), busDt,
+      searchCriteria: 'where greaterThan(revenueCenters.menuItems.slsCnt, 0)',
+      include: 'revenueCenters.menuItems.miNum,revenueCenters.menuItems.slsTtl,revenueCenters.menuItems.slsCnt',
+    }),
+  ]);
+  const nameByNum = Object.fromEntries((dims?.menuItems || []).map(m => [m.num, m.name]));
+  const agg = {}; // miNum -> { slsCnt, slsTtl }
+  for (const rc of (daily?.revenueCenters || [])) {
+    for (const mi of (rc.menuItems || [])) {
+      if (!agg[mi.miNum]) agg[mi.miNum] = { slsCnt: 0, slsTtl: 0 };
+      agg[mi.miNum].slsCnt += mi.slsCnt || 0;
+      agg[mi.miNum].slsTtl += mi.slsTtl || 0;
+    }
+  }
+  return Object.entries(agg).map(([miNum, v]) => ({
+    name: nameByNum[miNum] || '', slsCnt: v.slsCnt, slsTtl: v.slsTtl,
+  }));
+}
+
 // ── Paycor OAuth ──────────────────────────────────────────────────────────────
 
 async function getAccessToken() {
@@ -717,6 +750,19 @@ async function processStore(store, busDt, { skipSchedules = false } = {}) {
   const laborPctToday = sales.netSales > 0 ? (totalLaborDollarsToday / sales.netSales) * 100 : 0;
   const wtdLaborPct   = wtdSales > 0 ? (wtdLaborDollars / wtdSales) * 100 : 0;
 
+  // ── Per-store P&L (menu-mix × unit cost → COGS → contribution) ──────────────
+  let pnl = null;
+  try {
+    const menuMix = await getStoreMenuMix(store.pc, busDt);
+    const cogsPct = cogsPctFor(opts.pnlConfig || { defaultCogsPct: undefined, byStore: {}, byDistrict: {} }, store);
+    pnl = computeStorePnL(
+      { revenue: sales.netSales, labor: totalLaborDollarsToday, menuMix, cogsPct },
+      lookupUnitCost,
+    );
+  } catch (e) {
+    pnl = null; // menu-mix unavailable → labor-only path still works
+  }
+
   return {
     pc,
     name,
@@ -748,6 +794,7 @@ async function processStore(store, busDt, { skipSchedules = false } = {}) {
       date:          (s.startDateTime || s.StartDateTime || '').slice(0, 10),
       jobTitle:      s.schedulingJobName || s.jobTitle || s.JobTitle || null,
     })).filter(s => s.employeeId && s.startDateTime),
+    pnl,
   };
 }
 
@@ -944,8 +991,12 @@ exports.handler = async (event) => {
     }
     console.log('[labor-cron] business date:', busDt);
 
-    // Process all stores in batches of 5 (reduced from 8 to avoid Paycor rate limits)
-    const storeResults = await processAllStores(busDt, 5, { skipSchedules: isManual });
+    // Persist to Blobs
+    const blobStore = getLaborStore();
+
+    // Load P&L COGS config + process all stores in batches of 5
+    const pnlConfig = await loadPnlConfig(blobStore);
+    const storeResults = await processAllStores(busDt, 5, { skipSchedules: isManual, pnlConfig });
 
     // Build network summary
     const successStores = storeResults.filter(r => !r.error);
@@ -1000,9 +1051,6 @@ exports.handler = async (event) => {
       },
       stores: storesSummary,
     };
-
-    // Persist to Blobs
-    const blobStore = getLaborStore();
 
     // 1) Network summary blob
     await blobStore.setJSON('pcg_labor_v1', { savedAt: new Date().toISOString(), data: networkBlob });
