@@ -6,9 +6,9 @@
 [functions.pulse-cron]
   schedule = "0 2 * * *"
 
-# Scheduled Labor aggregation — 7am, 12pm, 5pm ET (11:00, 16:00, 21:00 UTC)
+# Scheduled Labor aggregation — hourly 9am–3am ET (09:00–03:00 UTC) for live P&L
 [functions.labor-cron]
-  schedule = "0 11,16,21 * * *"
+  schedule = "0 9-23,0-3 * * *"
 
 # Saturday 11:45 PM ET labor warmup (Sunday 03:45 UTC)
 [functions.labor-cron-warmup]
