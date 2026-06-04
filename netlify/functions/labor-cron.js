@@ -1110,6 +1110,13 @@ exports.handler = async (event) => {
         pnlStores.push({ pc: r.pc, name: r.name, district: r.district, ...r.pnl });
       }
 
+      const bomCount = pnlStores.filter(s => s.method === 'BOM').length;
+      const estCount = pnlStores.length - bomCount;
+      const avgCoverage = pnlStores.length
+        ? Math.round(pnlStores.reduce((sum, s) => sum + (s.coverage || 0), 0) / pnlStores.length)
+        : 0;
+      console.log(`[labor-cron] P&L: ${pnlStores.length} stores (${bomCount} BOM / ${estCount} est, avg coverage ${avgCoverage}%), ${pnlExcluded.length} excluded`);
+
       const agg = pnlStores.reduce((a, s) => {
         a.revenue += s.revenue; a.labor += s.labor; a.cogs += s.cogs; a.contribution += s.contribution; return a;
       }, { revenue: 0, labor: 0, cogs: 0, contribution: 0 });
