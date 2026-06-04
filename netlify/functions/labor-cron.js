@@ -941,6 +941,14 @@ exports.handler = async (event) => {
       const result = await processStore(storeConfig, busDt, { skipSchedules: false });
       if (result.error) return { statusCode: 500, headers, body: JSON.stringify({ error: result.error }) };
 
+      // Safety guard: never overwrite good existing data with zeros.
+      // If Paycor returned no punches (e.g. slow API), keep the old blob intact.
+      const hasNewData = result.today.sales > 0 || result.today.laborDollars > 0;
+      if (!hasNewData) {
+        console.warn('[labor-cron] scoped refresh returned zero data for', scopedPC, '— keeping existing blob');
+        return { statusCode: 200, headers, body: JSON.stringify({ ok: true, store: scopedPC, busDt, skipped: true, reason: 'zero data from Paycor' }) };
+      }
+
       const blobStore = getLaborStore();
       const weekOfStr = weekStart(busDt);
       const key = `pcg_labor_store_${scopedPC}`;
@@ -952,21 +960,11 @@ exports.handler = async (event) => {
       const merged = mergeStoreBlob(existing, dailyEntry, weeklyEntry);
       await blobStore.setJSON(key, { savedAt: new Date().toISOString(), data: merged });
 
-      // Patch just this store's entry in the network blob
-      try {
-        const netRaw = await blobStore.get('pcg_labor_v1', { type: 'json' });
-        const net = netRaw?.data || netRaw || {};
-        if (net.stores) {
-          net.stores[scopedPC] = {
-            name: storeConfig.name, district: storeConfig.district, paycorId: storeConfig.paycor,
-            today: { laborDollars: result.today.laborDollars, sales: result.today.sales, laborPct: result.today.laborPct, hoursWorked: result.today.hoursWorked, employees: result.today.employees, employeesOnClock: result.today.employeesOnClock },
-            wtd: { laborDollars: result.wtd.laborDollars, sales: result.wtd.sales, laborPct: result.wtd.laborPct },
-          };
-          await blobStore.setJSON('pcg_labor_v1', { savedAt: new Date().toISOString(), data: net });
-        }
-      } catch {}
+      // NOTE: Do NOT patch pcg_labor_v1 here — that blob is owned by the full cron.
+      // Patching it from a scoped refresh can overwrite valid network totals with partial data.
+      // The full cron (every 4h) will pick up this store's fresh data on its next run.
 
-      console.log('[labor-cron] scoped refresh complete for', scopedPC, '— labor', result.today.laborPct?.toFixed(1), '%');
+      console.log('[labor-cron] scoped refresh complete for', scopedPC, '— labor', result.today.laborPct?.toFixed(1), '% sales $', Math.round(result.today.sales));
       return { statusCode: 200, headers, body: JSON.stringify({ ok: true, store: scopedPC, busDt, laborPct: result.today.laborPct, laborDollars: result.today.laborDollars, sales: result.today.sales }) };
     } catch (e) {
       console.error('[labor-cron] scoped refresh error:', e.message);
