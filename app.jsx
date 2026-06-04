@@ -23538,7 +23538,7 @@ function PnLStoreDetail({ store, th, onClose }) {
   );
 }
 
-function AdminPnL({ stores, districts, th, user, drillInStore, onClearDrillIn }) {
+function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
   const [pnl, setPnl] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23578,6 +23578,14 @@ function AdminPnL({ stores, districts, th, user, drillInStore, onClearDrillIn })
     const p = (n) => (a.revenue > 0 ? (n / a.revenue) * 100 : 0);
     return { ...a, marginPct: p(a.contribution), laborPct: p(a.labor), cogsPct: p(a.cogs) };
   }, [ranked]);
+
+  useEffect(() => {
+    if (drillInStore && pnl?.stores) {
+      const match = pnl.stores.find(s => String(s.pc) === String(drillInStore));
+      if (match) setSelectedStore(match);
+      if (onClearDrillIn) onClearDrillIn();
+    }
+  }, [drillInStore, pnl]);
 
   if (loading) return <div style={{ padding: '2rem', color: th.muted }}>Loading P&L…</div>;
   if (error)   return <div style={{ padding: '2rem', color: th.muted }}>{error}</div>;
@@ -31279,7 +31287,7 @@ function PCGPortal() {
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
-          {tab === "pnl" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminPnL stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "pnl" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
