@@ -15990,6 +15990,7 @@ const getTabs = (user) => {
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
     { id: "labor",     label: "Labor",          icon: (c) => ICONS.dollar(c) },
+    { id: "pnl",       label: "P&L",            icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
@@ -16023,6 +16024,7 @@ const getTabs = (user) => {
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "anomalies", label: "Anomalies",      icon: (c) => ICONS.anomalies(c) },
     { id: "labor",     label: "Labor",          icon: (c) => ICONS.dollar(c) },
+    { id: "pnl",       label: "District P&L",   icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash",           icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",        icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",       icon: (c) => ICONS.projects(c) },
@@ -16032,6 +16034,7 @@ const getTabs = (user) => {
     ...BASE_TABS,
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "labor",     label: "My Labor",     icon: (c) => ICONS.dollar(c) },
+    { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
   ];
   // Construction & Development → base + locations + projects (no analytics/pulse)
@@ -23443,6 +23446,211 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
   );
 }
 
+function PnLStoreDetail({ store, th, onClose }) {
+  const [history, setHistory] = useState(null);
+  const canvasRef = React.useRef(null);
+  const chartRef = React.useRef(null);
+
+  useEffect(() => {
+    cloudLoad(`pcg_pnl_store_${store.pc}`).then(d => setHistory(d?.daily || [])).catch(() => setHistory([]));
+  }, [store.pc]);
+
+  useEffect(() => {
+    if (!canvasRef.current || typeof Chart === 'undefined' || !history?.length) return;
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+    chartRef.current = new Chart(canvasRef.current, {
+      type: 'line',
+      data: {
+        labels: history.map(h => h.date),
+        datasets: [{ label: 'Margin %', data: history.map(h => h.marginPct), borderColor: '#FF671F', borderWidth: 2, tension: 0.3, fill: false, pointRadius: 0 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: th.muted, maxTicksLimit: 8 } }, y: { ticks: { color: th.muted } } },
+      },
+    });
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [history, th]);
+
+  const rollups = React.useMemo(() => {
+    const sum = (arr) => arr.reduce((a, d) => {
+      a.revenue += d.revenue; a.labor += d.labor; a.cogs += d.cogs; a.contribution += d.contribution; return a;
+    }, { revenue: 0, labor: 0, cogs: 0, contribution: 0 });
+    const bucket = (keyFn) => {
+      const m = {};
+      for (const d of (history || [])) { const k = keyFn(d.date); (m[k] = m[k] || []).push(d); }
+      return Object.entries(m).map(([k, ds]) => { const s = sum(ds); return { key: k, ...s, marginPct: s.revenue > 0 ? (s.contribution / s.revenue) * 100 : 0 }; }).sort((a, b) => b.key.localeCompare(a.key)).slice(0, 8);
+    };
+    const mondayOf = (iso) => { const d = new Date(iso); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return d.toISOString().slice(0, 10); };
+    return { weekly: bucket(mondayOf), monthly: bucket(iso => iso.slice(0, 7)) };
+  }, [history]);
+
+  const waterfall = [
+    { label: 'Revenue', value: store.revenue, color: '#3b82f6' },
+    { label: '− Labor', value: -store.labor, color: '#f59e0b' },
+    { label: '− COGS', value: -store.cogs, color: '#a855f7' },
+    { label: '= Contribution', value: store.contribution, color: '#22c55e' },
+  ];
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'flex-end', zIndex: 1000 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ ...card(th), width: 'min(540px, 92vw)', height: '100%', overflowY: 'auto', borderRadius: 0, padding: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h3 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text }}>{store.name}</h3>
+          <button onClick={onClose} style={{ ...btn(th), padding: '0.3rem 0.7rem' }}>Close</button>
+        </div>
+
+        <div style={{ marginBottom: '1.25rem' }}>
+          {waterfall.map(w => (
+            <div key={w.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: `1px solid ${th.cardBorder}`, color: th.text }}>
+              <span>{w.label}</span>
+              <span style={{ fontWeight: 700, color: w.color }}>{fmtDollars(w.value)}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ ...card(th), padding: '0.75rem', marginBottom: '1.25rem' }}>
+          <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: '0.5rem', textTransform: 'uppercase' }}>Margin % Trend</div>
+          <canvas ref={canvasRef} style={{ maxHeight: '180px' }} />
+        </div>
+
+        {[['Weekly', rollups.weekly], ['Monthly', rollups.monthly]].map(([title, rows]) => (
+          <div key={title} style={{ marginBottom: '1.25rem' }}>
+            <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: '0.4rem', textTransform: 'uppercase' }}>{title}</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', color: th.text }}>
+              <thead><tr style={{ color: th.muted, textAlign: 'left' }}>{['Period', 'Revenue', 'Contribution', 'Margin %'].map(h => <th key={h} style={{ padding: '0.3rem' }}>{h}</th>)}</tr></thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.key} style={{ borderTop: `1px solid ${th.cardBorder}` }}>
+                    <td style={{ padding: '0.3rem' }}>{r.key}</td>
+                    <td style={{ padding: '0.3rem' }}>{fmtDollars(r.revenue)}</td>
+                    <td style={{ padding: '0.3rem' }}>{fmtDollars(r.contribution)}</td>
+                    <td style={{ padding: '0.3rem', color: r.marginPct >= 30 ? '#22c55e' : '#ef4444' }}>{fmtPct(r.marginPct)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminPnL({ stores, districts, th, user, drillInStore, onClearDrillIn }) {
+  const [pnl, setPnl] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedStore, setSelectedStore] = useState(null);
+
+  const isDM = user?.userType === 'dm';
+  const isManager = user?.userType === 'manager';
+
+  useEffect(() => {
+    cloudLoad('pcg_pnl_live_v1')
+      .then(d => { if (d?.stores) { setPnl(d); setError(null); } else setError('No P&L data yet. The labor cron may not have run.'); })
+      .catch(() => setError('Failed to load P&L data'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const managerStorePCs = React.useMemo(() => {
+    if (!isManager) return new Set();
+    return new Set(stores.filter(s => isManagersStore(s, user)).map(s => String(s.pc)));
+  }, [isManager, stores, user]);
+
+  const visibleStores = React.useMemo(() => {
+    const all = pnl?.stores || [];
+    if (isDM && user.district) return all.filter(s => String(s.district) === String(user.district));
+    if (isManager) return all.filter(s => managerStorePCs.has(String(s.pc)));
+    return all;
+  }, [pnl, isDM, isManager, user, managerStorePCs]);
+
+  const ranked = React.useMemo(
+    () => [...visibleStores].sort((a, b) => b.contribution - a.contribution),
+    [visibleStores],
+  );
+
+  const header = React.useMemo(() => {
+    const a = ranked.reduce((acc, s) => {
+      acc.revenue += s.revenue; acc.labor += s.labor; acc.cogs += s.cogs; acc.contribution += s.contribution; return acc;
+    }, { revenue: 0, labor: 0, cogs: 0, contribution: 0 });
+    const p = (n) => (a.revenue > 0 ? (n / a.revenue) * 100 : 0);
+    return { ...a, marginPct: p(a.contribution), laborPct: p(a.labor), cogsPct: p(a.cogs) };
+  }, [ranked]);
+
+  if (loading) return <div style={{ padding: '2rem', color: th.muted }}>Loading P&L…</div>;
+  if (error)   return <div style={{ padding: '2rem', color: th.muted }}>{error}</div>;
+
+  const kpis = [
+    { label: 'Revenue',      value: fmtDollars(header.revenue),      color: '#3b82f6' },
+    { label: 'Labor',        value: fmtDollars(header.labor),        color: '#f59e0b', sub: fmtPct(header.laborPct) },
+    { label: 'COGS',         value: fmtDollars(header.cogs),         color: '#a855f7', sub: fmtPct(header.cogsPct) },
+    { label: 'Contribution', value: fmtDollars(header.contribution), color: '#22c55e' },
+    { label: 'Margin %',     value: fmtPct(header.marginPct),        color: header.marginPct >= 30 ? '#22c55e' : '#ef4444' },
+  ];
+
+  return (
+    <div style={{ padding: '1rem' }}>
+      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>P&amp;L</h2>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        {kpis.map(k => (
+          <div key={k.label} style={{ ...card(th), padding: '1rem 1.125rem', borderTop: `3px solid ${k.color}` }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.45rem', color: th.text }}>{k.value}</div>
+            {k.sub && <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.15rem' }}>{k.sub}</div>}
+            <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>{k.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ ...card(th), overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <thead>
+            <tr style={{ background: th.sidebar, color: th.muted, textAlign: 'left' }}>
+              {['#', 'Store', 'Revenue', 'Labor %', 'COGS %', 'Contribution', 'Margin %', 'Method'].map(h => (
+                <th key={h} style={{ padding: '0.6rem 0.75rem', fontWeight: 700 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ranked.map((s, i) => (
+              <tr key={s.pc}
+                  onClick={() => setSelectedStore(s)}
+                  style={{ cursor: 'pointer', borderTop: `1px solid ${th.cardBorder}`, color: th.text }}>
+                <td style={{ padding: '0.55rem 0.75rem', color: th.muted }}>{i + 1}</td>
+                <td style={{ padding: '0.55rem 0.75rem', fontWeight: 600 }}>{s.name}</td>
+                <td style={{ padding: '0.55rem 0.75rem' }}>{fmtDollars(s.revenue)}</td>
+                <td style={{ padding: '0.55rem 0.75rem' }}>{fmtPct(s.laborPct)}</td>
+                <td style={{ padding: '0.55rem 0.75rem' }}>{fmtPct(s.cogsPct)}</td>
+                <td style={{ padding: '0.55rem 0.75rem', fontWeight: 700 }}>{fmtDollars(s.contribution)}</td>
+                <td style={{ padding: '0.55rem 0.75rem', color: s.marginPct >= 30 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>{fmtPct(s.marginPct)}</td>
+                <td style={{ padding: '0.55rem 0.75rem' }}>
+                  <span style={{
+                    fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: '0.4rem',
+                    background: s.method === 'BOM' ? '#22c55e22' : '#f59e0b22',
+                    color: s.method === 'BOM' ? '#16a34a' : '#d97706',
+                  }}>{s.method === 'BOM' ? 'BOM' : 'est %'}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {pnl?.excluded?.length > 0 && (
+        <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.6rem' }}>
+          Excluded (missing data): {pnl.excluded.map(e => e.name).join(', ')}
+        </div>
+      )}
+
+      {selectedStore && (
+        <PnLStoreDetail store={selectedStore} th={th} onClose={() => setSelectedStore(null)} />
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ═══ UOP Analyst Components (Orion) ══════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════════════════════
@@ -30657,7 +30865,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.13
+            v14.14
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -31071,6 +31279,7 @@ function PCGPortal() {
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "pnl" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminPnL stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
