@@ -16082,6 +16082,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [hourly, setHourly] = useState(null);
   const [workers, setWorkers] = useState([]);
   const [orderTypes, setOrderTypes] = useState([]);
+  const [tenders, setTenders] = useState([]);
   const [lwDaySales, setLwDaySales] = useState(null);
   const [activeAnnouncements, setActiveAnnouncements] = useState([]);
   const [carouselPage, setCarouselPage] = useState(0);
@@ -16111,16 +16112,23 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     }
   }, [dark, toggleDark]);
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (withLaborRefresh = false) => {
     if (!pc) { setLoading(false); return; }
     setRefreshing(true);
     try {
+      // Trigger scoped Paycor labor refresh for this store when manually refreshing
+      if (withLaborRefresh) {
+        fetch('/.netlify/functions/labor-cron', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storePC: pc }),
+        }).catch(() => {});
+      }
       const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra }),
       }).then(r => r.ok ? r.json() : null).catch(() => null);
 
-      const [opsRes, laborBlob, checkRes, storeBlobData, orderDims, orderTotals, announceBlob, opsYestRes, opsLYRes] = await Promise.all([
+      const [opsRes, laborBlob, checkRes, storeBlobData, orderDims, orderTotals, announceBlob, opsYestRes, opsLYRes, tenderDims, tenderTotals] = await Promise.all([
         fetchOpsTotals(pc, todayStr).catch(() => null),
         cloudLoad('pcg_labor_v1').catch(() => null),
         pulsePost('getGuestChecks', { include: 'guestChecks' }),
@@ -16130,6 +16138,8 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         cloudLoad('pcg_announcements_v1').catch(() => null),
         fetchOpsTotals(pc, yesterdayStr).catch(() => null),
         fetchOpsTotals(pc, lastYearStr).catch(() => null),
+        pulsePost('getTenderMediaDimensions'),
+        pulsePost('getTenderMediaDailyTotals', { include: 'revenueCenters.tenderMedias' }),
       ]);
 
       if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
@@ -16169,6 +16179,21 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
           }
         }
         setOrderTypes(Object.values(agg).filter(o => o.sales > 0).sort((a, b) => b.sales - a.sales));
+      }
+
+      // Tender media breakdown
+      if (tenderTotals?.revenueCenters) {
+        const nameMap = {};
+        for (const t of (tenderDims?.tenderMedias || [])) nameMap[t.num] = t.name;
+        const agg = {};
+        for (const rc of tenderTotals.revenueCenters) {
+          for (const tm of (rc.tenderMedias || [])) {
+            if (!agg[tm.tmedNum]) agg[tm.tmedNum] = { name: nameMap[tm.tmedNum] || `Tender ${tm.tmedNum}`, sales: 0, cnt: 0 };
+            agg[tm.tmedNum].sales += tm.tmedTtl || 0;
+            agg[tm.tmedNum].cnt += tm.tmedCnt || 0;
+          }
+        }
+        setTenders(Object.values(agg).filter(t => t.sales > 0).sort((a, b) => b.sales - a.sales));
       }
 
       // Last week same-day sales from store blob history
@@ -16519,6 +16544,34 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
                 })() : <div style={{ color: th.muted, fontSize: "0.72rem" }}>No order type data yet.</div>}
               </>
             )},
+            { id: 'tenders', show: isLive && !loading, content: (
+              <>
+                <Label>Tender Media</Label>
+                {tenders.length > 0 ? (() => {
+                  const total = tenders.reduce((s, t) => s + t.sales, 0);
+                  const colors = ['#00d084', '#ffd43b', '#74c0fc', '#f06595', '#ff9800', '#8b5cf6'];
+                  return (
+                    <div style={{ display: "grid", gap: "0.5rem" }}>
+                      {tenders.map((t, i) => {
+                        const pct = total > 0 ? Math.round((t.sales / total) * 100) : 0;
+                        const c = colors[i % colors.length];
+                        return (
+                          <div key={t.name}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
+                              <span style={{ color: th.text, fontSize: "0.72rem", fontWeight: 600 }}>{t.name}</span>
+                              <span style={{ color: th.muted, fontSize: "0.65rem" }}>{fmt(t.sales)} <span style={{ color: c, fontWeight: 800 }}>{pct}%</span></span>
+                            </div>
+                            <div style={{ height: 5, borderRadius: 99, background: dark ? "rgba(255,255,255,0.07)" : "#e5e7eb" }}>
+                              <div style={{ height: "100%", width: pct + "%", borderRadius: 99, background: c, opacity: 0.85, transition: "width 0.5s ease" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })() : <div style={{ color: th.muted, fontSize: "0.72rem" }}>No tender data yet — tap Refresh.</div>}
+              </>
+            )},
             { id: 'announce', show: activeAnnouncements.length > 0, content: (
               <>
                 <Label right={<span style={{ background: `${O}22`, color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: "0.08rem 0.38rem", fontSize: "0.54rem", fontWeight: 900 }}>{activeAnnouncements.length}</span>}>Announcements</Label>
@@ -16595,7 +16648,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       </div>
 
       <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
-        <button onClick={fetchAll} disabled={refreshing} title="Refresh" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text }}>
+        <button onClick={() => fetchAll(true)} disabled={refreshing} title="Refresh" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text }}>
           <span style={{ fontSize: "1.15rem", lineHeight: 1 }}>{refreshing ? "·" : "↻"}</span>
           <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Refresh</span>
         </button>
@@ -25649,6 +25702,7 @@ function EmailTab({ th, user }) {
 }
 
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
+// ── Mobile Analyst Shell ─────────────────────────────────────────────────────
 function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull }) {
   const O = '#FF671F';
   const [activeTab, setActiveTab] = React.useState('brief');
@@ -30603,7 +30657,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.00
+            v14.13
           </div>
         )}
         {/* Collapse toggle — desktop only */}

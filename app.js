@@ -12694,6 +12694,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [hourly, setHourly] = useState(null);
     const [workers, setWorkers] = useState([]);
     const [orderTypes, setOrderTypes] = useState([]);
+    const [tenders, setTenders] = useState([]);
     const [lwDaySales, setLwDaySales] = useState(null);
     const [activeAnnouncements, setActiveAnnouncements] = useState([]);
     const [carouselPage, setCarouselPage] = useState(0);
@@ -12724,19 +12725,27 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         toggleDark();
       }
     }, [dark, toggleDark]);
-    const fetchAll = useCallback(async () => {
+    const fetchAll = useCallback(async (withLaborRefresh = false) => {
       if (!pc) {
         setLoading(false);
         return;
       }
       setRefreshing(true);
       try {
+        if (withLaborRefresh) {
+          fetch("/.netlify/functions/labor-cron", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ storePC: pc })
+          }).catch(() => {
+          });
+        }
         const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra })
         }).then((r) => r.ok ? r.json() : null).catch(() => null);
-        const [opsRes, laborBlob, checkRes, storeBlobData, orderDims, orderTotals, announceBlob, opsYestRes, opsLYRes] = await Promise.all([
+        const [opsRes, laborBlob, checkRes, storeBlobData, orderDims, orderTotals, announceBlob, opsYestRes, opsLYRes, tenderDims, tenderTotals] = await Promise.all([
           fetchOpsTotals(pc, todayStr).catch(() => null),
           cloudLoad("pcg_labor_v1").catch(() => null),
           pulsePost("getGuestChecks", { include: "guestChecks" }),
@@ -12745,7 +12754,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           pulsePost("getOrderTypeDailyTotals", { include: "revenueCenters.orderTypes" }),
           cloudLoad("pcg_announcements_v1").catch(() => null),
           fetchOpsTotals(pc, yesterdayStr).catch(() => null),
-          fetchOpsTotals(pc, lastYearStr).catch(() => null)
+          fetchOpsTotals(pc, lastYearStr).catch(() => null),
+          pulsePost("getTenderMediaDimensions"),
+          pulsePost("getTenderMediaDailyTotals", { include: "revenueCenters.tenderMedias" })
         ]);
         if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
         if (opsYestRes?.revenueCenters) setSalesYesterday(sumRVC(opsYestRes.revenueCenters));
@@ -12782,6 +12793,19 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             }
           }
           setOrderTypes(Object.values(agg).filter((o) => o.sales > 0).sort((a, b) => b.sales - a.sales));
+        }
+        if (tenderTotals?.revenueCenters) {
+          const nameMap = {};
+          for (const t of tenderDims?.tenderMedias || []) nameMap[t.num] = t.name;
+          const agg = {};
+          for (const rc of tenderTotals.revenueCenters) {
+            for (const tm of rc.tenderMedias || []) {
+              if (!agg[tm.tmedNum]) agg[tm.tmedNum] = { name: nameMap[tm.tmedNum] || `Tender ${tm.tmedNum}`, sales: 0, cnt: 0 };
+              agg[tm.tmedNum].sales += tm.tmedTtl || 0;
+              agg[tm.tmedNum].cnt += tm.tmedCnt || 0;
+            }
+          }
+          setTenders(Object.values(agg).filter((t) => t.sales > 0).sort((a, b) => b.sales - a.sales));
         }
         const daily = storeBlobData?.daily || [];
         const lw = /* @__PURE__ */ new Date();
@@ -12945,6 +12969,15 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             return /* @__PURE__ */ React.createElement("div", { key: o.name }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontSize: "0.72rem", fontWeight: 600 } }, o.name), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.65rem" } }, fmt(o.sales), " ", /* @__PURE__ */ React.createElement("span", { style: { color: c, fontWeight: 800 } }, pct, "%"))), /* @__PURE__ */ React.createElement("div", { style: { height: 5, borderRadius: 99, background: dark ? "rgba(255,255,255,0.07)" : "#e5e7eb" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: pct + "%", borderRadius: 99, background: c, opacity: 0.85, transition: "width 0.5s ease" } })));
           }));
         })() : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, "No order type data yet.")) },
+        { id: "tenders", show: isLive && !loading, content: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Label, null, "Tender Media"), tenders.length > 0 ? (() => {
+          const total = tenders.reduce((s, t) => s + t.sales, 0);
+          const colors = ["#00d084", "#ffd43b", "#74c0fc", "#f06595", "#ff9800", "#8b5cf6"];
+          return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, tenders.map((t, i) => {
+            const pct = total > 0 ? Math.round(t.sales / total * 100) : 0;
+            const c = colors[i % colors.length];
+            return /* @__PURE__ */ React.createElement("div", { key: t.name }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontSize: "0.72rem", fontWeight: 600 } }, t.name), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.65rem" } }, fmt(t.sales), " ", /* @__PURE__ */ React.createElement("span", { style: { color: c, fontWeight: 800 } }, pct, "%"))), /* @__PURE__ */ React.createElement("div", { style: { height: 5, borderRadius: 99, background: dark ? "rgba(255,255,255,0.07)" : "#e5e7eb" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: pct + "%", borderRadius: 99, background: c, opacity: 0.85, transition: "width 0.5s ease" } })));
+          }));
+        })() : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, "No tender data yet \u2014 tap Refresh.")) },
         { id: "announce", show: activeAnnouncements.length > 0, content: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Label, { right: /* @__PURE__ */ React.createElement("span", { style: { background: `${O}22`, color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: "0.08rem 0.38rem", fontSize: "0.54rem", fontWeight: 900 } }, activeAnnouncements.length) }, "Announcements"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.55rem" } }, activeAnnouncements.map((a, i) => /* @__PURE__ */ React.createElement("div", { key: a.id || i, style: { paddingLeft: "0.6rem", borderLeft: `2px solid ${O}66` } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontSize: "0.76rem", fontWeight: 700, lineHeight: 1.3 } }, a.title), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.65rem", marginTop: "0.18rem", lineHeight: 1.4 } }, a.message)))), /* @__PURE__ */ React.createElement("button", { onClick: onFullPortal, style: { marginTop: "0.65rem", background: "none", border: "none", color: O, fontSize: "0.62rem", fontWeight: 800, cursor: "pointer", padding: 0, fontFamily: "'Source Sans 3'" } }, "View all in portal \u2192")) }
       ].filter((p) => p.show);
       if (carouselPages.length === 0) return null;
@@ -12986,7 +13019,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         }
         setCarouselPage(i);
       }, style: { width: i === page ? 20 : 7, height: 7, borderRadius: 99, background: i === page ? "#22c55e" : dark ? "rgba(255,255,255,0.2)" : "#d1d5db", border: "none", cursor: "pointer", padding: 0, transition: "all 0.25s ease" } }))));
-    })(), lastRefresh && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontSize: "0.58rem", color: th.subtle, opacity: 0.7 } }, "Updated ", lastRefresh.toLocaleTimeString())), /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" } }, /* @__PURE__ */ React.createElement("button", { onClick: fetchAll, disabled: refreshing, title: "Refresh", style: { background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.15rem", lineHeight: 1 } }, refreshing ? "\xB7" : "\u21BB"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 } }, "Refresh")), /* @__PURE__ */ React.createElement("button", { onClick: onFullPortal, title: "Full Portal", style: { background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O } }, /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", justifyContent: "center" } }, ICONS.dashboard(O)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 } }, "Full Portal"))), showStoreInfo && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }, onClick: () => setShowStoreInfo(false) }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "1.25rem 1.25rem 0 0", width: "100%", maxWidth: 480, padding: "1.4rem 1.25rem 2.5rem", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 -8px 40px rgba(0,0,0,0.28)" }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: th.text, lineHeight: 1.1 } }, store.name || `Store #${pc}`), store.legal && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.78rem", marginTop: "0.2rem" } }, store.legal)), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowStoreInfo(false), style: { background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", color: th.muted, padding: "0.25rem 0.55rem", cursor: "pointer", fontSize: "1rem", lineHeight: 1, flexShrink: 0 } }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { height: 1, background: th.cardBorder, marginBottom: "1.1rem" } }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "PC Number", value: store.pc, color: O, th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Paycor Client ID", value: store.paycor || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Asset Type", value: assetLabel, color: "#8b5cf6", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "District", value: `District ${store.district || "\u2014"}${store.dmName ? " - " + store.dmName : ""}`, th })), /* @__PURE__ */ React.createElement(InfoCell, { label: "Address", value: `${store.address || ""}${store.city ? ", " + store.city : ""}${store.state ? ", " + store.state : ""}${store.zip ? " " + store.zip : ""}`, th }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Store Manager", value: store.mgr || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Store Email", value: store.email || "\u2014", th })))));
+    })(), lastRefresh && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontSize: "0.58rem", color: th.subtle, opacity: 0.7 } }, "Updated ", lastRefresh.toLocaleTimeString())), /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => fetchAll(true), disabled: refreshing, title: "Refresh", style: { background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.15rem", lineHeight: 1 } }, refreshing ? "\xB7" : "\u21BB"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 } }, "Refresh")), /* @__PURE__ */ React.createElement("button", { onClick: onFullPortal, title: "Full Portal", style: { background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O } }, /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", justifyContent: "center" } }, ICONS.dashboard(O)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 } }, "Full Portal"))), showStoreInfo && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }, onClick: () => setShowStoreInfo(false) }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "1.25rem 1.25rem 0 0", width: "100%", maxWidth: 480, padding: "1.4rem 1.25rem 2.5rem", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 -8px 40px rgba(0,0,0,0.28)" }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: th.text, lineHeight: 1.1 } }, store.name || `Store #${pc}`), store.legal && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.78rem", marginTop: "0.2rem" } }, store.legal)), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowStoreInfo(false), style: { background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", color: th.muted, padding: "0.25rem 0.55rem", cursor: "pointer", fontSize: "1rem", lineHeight: 1, flexShrink: 0 } }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { height: 1, background: th.cardBorder, marginBottom: "1.1rem" } }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "PC Number", value: store.pc, color: O, th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Paycor Client ID", value: store.paycor || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Asset Type", value: assetLabel, color: "#8b5cf6", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "District", value: `District ${store.district || "\u2014"}${store.dmName ? " - " + store.dmName : ""}`, th })), /* @__PURE__ */ React.createElement(InfoCell, { label: "Address", value: `${store.address || ""}${store.city ? ", " + store.city : ""}${store.state ? ", " + store.state : ""}${store.zip ? " " + store.zip : ""}`, th }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Store Manager", value: store.mgr || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Store Email", value: store.email || "\u2014", th })))));
   }
   function InfoCell({ label, value, color, th }) {
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.57rem", fontWeight: 900, letterSpacing: 1.2, textTransform: "uppercase", color: th.muted, marginBottom: "0.2rem" } }, label), /* @__PURE__ */ React.createElement("div", { style: { color: color || th.text, fontWeight: color ? 700 : 500, fontSize: "0.86rem", wordBreak: "break-word" } }, value));
@@ -23111,7 +23144,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.00"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.13"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

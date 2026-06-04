@@ -847,6 +847,58 @@ exports.handler = async (event) => {
 
   const isManual = event.httpMethod === 'POST';
   const startedAt = new Date().toISOString();
+
+  // ── Scoped single-store refresh (for manager/DM mobile Refresh button) ──────
+  // When POST body contains { storePC: "332941" }, only process that one store.
+  // Fast enough for the 26-second HTTP timeout. Updates per-store blob + network entry.
+  let scopedPC = null;
+  if (isManual && event.body) {
+    try { scopedPC = JSON.parse(event.body).storePC || null; } catch {}
+  }
+
+  if (scopedPC) {
+    const storeConfig = STORES.find(s => String(s.pc) === String(scopedPC));
+    if (!storeConfig) return { statusCode: 404, headers, body: JSON.stringify({ error: `Store ${scopedPC} not found` }) };
+
+    console.log('[labor-cron] scoped refresh for store', scopedPC, storeConfig.name);
+    try {
+      const busDt = await fetchLatestBusDt(scopedPC).catch(() => todayET());
+      const result = await processStore(storeConfig, busDt, { skipSchedules: false });
+      if (result.error) return { statusCode: 500, headers, body: JSON.stringify({ error: result.error }) };
+
+      const blobStore = getLaborStore();
+      const weekOfStr = weekStart(busDt);
+      const key = `pcg_labor_store_${scopedPC}`;
+      let existing = null;
+      try { const raw = await blobStore.get(key, { type: 'json' }); existing = raw?.data || raw; } catch {}
+
+      const dailyEntry = { date: busDt, laborDollars: result.today.laborDollars, sales: result.today.sales, laborPct: result.today.laborPct, hoursWorked: result.today.hoursWorked, employees: result.employeeDetails };
+      const weeklyEntry = { weekOf: weekOfStr, laborDollars: result.wtd.laborDollars, sales: result.wtd.sales, laborPct: result.wtd.laborPct, avgDailyEmployees: result.today.employees };
+      const merged = mergeStoreBlob(existing, dailyEntry, weeklyEntry);
+      await blobStore.setJSON(key, { savedAt: new Date().toISOString(), data: merged });
+
+      // Patch just this store's entry in the network blob
+      try {
+        const netRaw = await blobStore.get('pcg_labor_v1', { type: 'json' });
+        const net = netRaw?.data || netRaw || {};
+        if (net.stores) {
+          net.stores[scopedPC] = {
+            name: storeConfig.name, district: storeConfig.district, paycorId: storeConfig.paycor,
+            today: { laborDollars: result.today.laborDollars, sales: result.today.sales, laborPct: result.today.laborPct, hoursWorked: result.today.hoursWorked, employees: result.today.employees, employeesOnClock: result.today.employeesOnClock },
+            wtd: { laborDollars: result.wtd.laborDollars, sales: result.wtd.sales, laborPct: result.wtd.laborPct },
+          };
+          await blobStore.setJSON('pcg_labor_v1', { savedAt: new Date().toISOString(), data: net });
+        }
+      } catch {}
+
+      console.log('[labor-cron] scoped refresh complete for', scopedPC, '— labor', result.today.laborPct?.toFixed(1), '%');
+      return { statusCode: 200, headers, body: JSON.stringify({ ok: true, store: scopedPC, busDt, laborPct: result.today.laborPct, laborDollars: result.today.laborDollars, sales: result.today.sales }) };
+    } catch (e) {
+      console.error('[labor-cron] scoped refresh error:', e.message);
+      return { statusCode: 500, headers, body: JSON.stringify({ error: e.message }) };
+    }
+  }
+
   console.log('[labor-cron] triggered at', startedAt, isManual ? '(manual)' : '(scheduled)');
 
   try {
