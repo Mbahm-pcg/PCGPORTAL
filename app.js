@@ -5786,6 +5786,14 @@
     const [foodCostLoading, setFoodCostLoading] = React.useState(false);
     const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
     const [expandedReview, setExpandedReview] = React.useState(null);
+    const [txnExpanded, setTxnExpanded] = React.useState(false);
+    const [txnList, setTxnList] = React.useState(null);
+    const [txnListLoading, setTxnListLoading] = React.useState(false);
+    const [txnModal, setTxnModal] = React.useState(null);
+    const [txnModalLoading, setTxnModalLoading] = React.useState(false);
+    const [txnOTMap, setTxnOTMap] = React.useState({});
+    const [txnFilters, setTxnFilters] = React.useState({ otCat: "all", voids: false, refunds: false, discounts: false, timeStart: "", timeEnd: "" });
+    const [txnDate, setTxnDate] = React.useState(localDate);
     React.useEffect(() => {
       (async () => {
         try {
@@ -6050,6 +6058,95 @@
         );
       }), hovered ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("text", { x: cx, y: cy - 18, textAnchor: "middle", fill: th.muted, fontSize: "10", fontWeight: "600", style: { textTransform: "uppercase", letterSpacing: 1 } }, hovered.name), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 4, textAnchor: "middle", fill: hovered.color, fontSize: "20", fontWeight: "900", fontFamily: "'Raleway'" }, fmtUSD(hovered.value)), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 22, textAnchor: "middle", fill: th.muted, fontSize: "11", fontWeight: "600" }, hoveredPct.toFixed(1) + "%")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("text", { x: cx, y: cy - 8, textAnchor: "middle", fill: th.muted, fontSize: "11", fontWeight: "600" }, "Total"), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 14, textAnchor: "middle", fill: th.text, fontSize: "20", fontWeight: "900", fontFamily: "'Raleway'" }, fmtUSD(total))));
     };
+    const pulseApi = pc === "345986" ? "p227" : "p228";
+    async function loadTxnList(dateOverride) {
+      const useDate = dateOverride || txnDate;
+      setTxnListLoading(true);
+      setTxnList(null);
+      try {
+        const [checksRes, otRes] = await Promise.all([
+          fetch("/.netlify/functions/pulse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              api: pulseApi,
+              endpoint: "getGuestChecks",
+              locRef: String(pc),
+              opnBusDt: useDate,
+              clsdGuestChecksOnly: true,
+              include: "guestChecks"
+            })
+          }),
+          Object.keys(txnOTMap).length ? Promise.resolve(null) : fetch("/.netlify/functions/pulse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api: pulseApi, endpoint: "getOrderTypeDimensions", locRef: String(pc), include: "orderTypes.num,orderTypes.name" })
+          })
+        ]);
+        const checksData = await checksRes.json();
+        if (otRes) {
+          const otData = await otRes.json();
+          const otMap = {};
+          (otData.orderTypes || []).forEach((ot) => {
+            otMap[ot.num] = ot.name || "";
+          });
+          setTxnOTMap(otMap);
+        }
+        const list = (checksData.guestChecks || []).sort((a, b) => (b.chkNum || 0) - (a.chkNum || 0));
+        setTxnList(list);
+      } catch (e) {
+        setTxnList([]);
+      }
+      setTxnListLoading(false);
+    }
+    async function openTxnDetail(chk) {
+      setTxnModalLoading(true);
+      setTxnModal(null);
+      try {
+        const [detailRes, journalRes, menuRes] = await Promise.all([
+          fetch("/.netlify/functions/pulse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api: pulseApi, endpoint: "getGuestChecks", locRef: String(pc), opnBusDt: txnDate, searchCriteria: `where equals(guestChecks.chkNum,${chk.chkNum})`, include: "guestChecks" })
+          }),
+          fetch("/.netlify/functions/pulse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api: pulseApi, endpoint: "getPOSJournalLogDetails", locRef: String(pc), busDt: txnDate, searchCriteria: `where equals(revenueCenters.logDetails.guestCheckId,${chk.guestCheckId})`, include: "locRef,busDt,revenueCenters.logDetails.type,revenueCenters.logDetails.journalTxt,revenueCenters.logDetails.guestCheckId" })
+          }),
+          fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_menu_v1" }) })
+        ]);
+        const detailData = await detailRes.json();
+        const journalData = await journalRes.json();
+        const menuData2 = await menuRes.json();
+        const fullCheck = (detailData.guestChecks || [])[0] || chk;
+        let journalTxt = "";
+        for (const rc of journalData.revenueCenters || []) {
+          for (const log of rc.logDetails || []) {
+            if (log.type === 129 && log.journalTxt) {
+              journalTxt = log.journalTxt;
+              break;
+            }
+          }
+          if (journalTxt) break;
+        }
+        if (!journalTxt) {
+          for (const rc of journalData.revenueCenters || []) {
+            for (const log of rc.logDetails || []) {
+              if (log.type === 1 && log.journalTxt) {
+                journalTxt = log.journalTxt;
+                break;
+              }
+            }
+            if (journalTxt) break;
+          }
+        }
+        setTxnModal({ check: fullCheck, journalTxt, menuMap: menuData2.data || {} });
+      } catch (e) {
+        console.error("[txn-detail]", e);
+      }
+      setTxnModalLoading(false);
+    }
     return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: {
       position: "relative",
       overflow: "hidden",
@@ -6491,7 +6588,232 @@
         review.themes?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.2rem", marginTop: "0.25rem" } }, review.themes.map((t) => /* @__PURE__ */ React.createElement("span", { key: t, style: { fontSize: "0.55rem", padding: "0.05rem 0.3rem", borderRadius: 999, background: th.card2, color: th.muted } }, t))),
         review.text && !isOpen && review.text.length > 200 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.15rem", fontWeight: 600 } }, "tap to read more")
       );
-    })));
+    })), (() => {
+      const toET = (utc) => {
+        try {
+          return new Date(utc.endsWith("Z") ? utc : utc + "Z").toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
+        } catch {
+          return "--";
+        }
+      };
+      const toETHHMM = (utc) => {
+        try {
+          const d2 = new Date(utc.endsWith("Z") ? utc : utc + "Z");
+          return String(d2.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" })).replace(" AM", "").replace(" PM", "").trim();
+        } catch {
+          return "";
+        }
+      };
+      const otCat = (otNum) => {
+        const n = (txnOTMap[otNum] || "").toLowerCase();
+        if (n.includes("uber")) return "uber";
+        if (n.includes("doordash") || n.includes("door dash")) return "doordash";
+        if (n.includes("delivery") || n.includes("grubhub") || n.includes("instacart")) return "delivery";
+        if (n.includes("drive") || n.includes("dt") || n.includes("d/t") || n.includes("mobile dt") || n.includes("thru")) return "drive_thru";
+        if (n.includes("eat in") || n.includes("dine") || n.includes("walk") || n.includes("otg") || n.includes("in store") || n.includes("instore")) return "eat_in";
+        if (n.includes("mobile") || n.includes("app")) return "mobile";
+        return "other";
+      };
+      const filtered = (txnList || []).filter((chk) => {
+        const f = txnFilters;
+        if (f.otCat !== "all" && otCat(chk.otNum) !== f.otCat) return false;
+        if (f.voids && !(chk.vdTtl && Math.abs(chk.vdTtl) > 0)) return false;
+        if (f.refunds && !((chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
+        if (f.discounts && !(chk.dscTtl && Math.abs(chk.dscTtl) > 0)) return false;
+        if (f.timeStart) {
+          const chkT = toETHHMM(chk.opnUTC || "");
+          if (chkT && chkT < f.timeStart) return false;
+        }
+        if (f.timeEnd) {
+          const chkT = toETHHMM(chk.opnUTC || "");
+          if (chkT && chkT > f.timeEnd) return false;
+        }
+        return true;
+      });
+      const chipStyle = (active) => ({ fontSize: "0.65rem", padding: "0.2rem 0.55rem", borderRadius: 999, border: `1px solid ${active ? O : th.cardBorder}`, background: active ? O + "22" : th.card2, color: active ? O : th.muted, cursor: "pointer", fontWeight: active ? 700 : 400, whiteSpace: "nowrap" });
+      const toggleChip = (key) => setTxnFilters((f) => ({ ...f, [key]: !f[key] }));
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "\u{1F9FE} Transactions"), txnList && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "(", filtered.length, filtered.length !== txnList.length ? `/${txnList.length}` : "", ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", alignItems: "center" } }, txnExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "date",
+          value: txnDate,
+          onChange: (e) => {
+            setTxnDate(e.target.value);
+            setTxnList(null);
+            loadTxnList(e.target.value);
+          },
+          style: { fontSize: "0.7rem", padding: "0.25rem 0.4rem", borderRadius: 6, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, cursor: "pointer" }
+        }
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => loadTxnList(),
+          disabled: txnListLoading,
+          style: { fontSize: "0.7rem", padding: "0.25rem 0.6rem", borderRadius: 6, background: th.card2, border: `1px solid ${th.cardBorder}`, color: th.muted, cursor: "pointer" }
+        },
+        txnListLoading ? "\u2026" : "\u21BA Refresh"
+      )), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            if (!txnExpanded) {
+              setTxnExpanded(true);
+              if (!txnList) loadTxnList();
+            } else setTxnExpanded(false);
+          },
+          style: { fontSize: "0.72rem", padding: "0.3rem 0.7rem", borderRadius: 6, background: th.card2, border: `1px solid ${th.cardBorder}`, color: th.text, cursor: "pointer" }
+        },
+        txnExpanded ? "Hide" : txnListLoading ? "Loading\u2026" : "Load"
+      ))), txnExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.75rem", marginBottom: "0.5rem" } }, [["all", "All"], ["eat_in", "Eat In"], ["drive_thru", "Drive Thru"], ["mobile", "Mobile"], ["uber", "Uber Eats"], ["doordash", "DoorDash"], ["delivery", "Delivery"], ["other", "Other"]].map(([val, label]) => /* @__PURE__ */ React.createElement("span", { key: val, onClick: () => setTxnFilters((f) => ({ ...f, otCat: val })), style: chipStyle(txnFilters.otCat === val) }, label))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("discounts"), style: chipStyle(txnFilters.discounts) }, "\u{1F3F7} Discounts"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("voids"), style: chipStyle(txnFilters.voids) }, "\u{1F6AB} Voids"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("refunds"), style: chipStyle(txnFilters.refunds) }, "\u21A9 Refunds"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center", marginLeft: "auto" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "\u23F1"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "time",
+          value: txnFilters.timeStart,
+          onChange: (e) => setTxnFilters((f) => ({ ...f, timeStart: e.target.value })),
+          style: { fontSize: "0.65rem", padding: "0.2rem 0.35rem", borderRadius: 4, border: `1px solid ${txnFilters.timeStart ? O : th.cardBorder}`, background: th.card2, color: th.text, width: 90 }
+        }
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "\u2013"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "time",
+          value: txnFilters.timeEnd,
+          onChange: (e) => setTxnFilters((f) => ({ ...f, timeEnd: e.target.value })),
+          style: { fontSize: "0.65rem", padding: "0.2rem 0.35rem", borderRadius: 4, border: `1px solid ${txnFilters.timeEnd ? O : th.cardBorder}`, background: th.card2, color: th.text, width: 90 }
+        }
+      ), (txnFilters.timeStart || txnFilters.timeEnd) && /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          onClick: () => setTxnFilters((f) => ({ ...f, timeStart: "", timeEnd: "" })),
+          style: { fontSize: "0.65rem", color: "#ef4444", cursor: "pointer", fontWeight: 700 }
+        },
+        "\u2715"
+      ))), txnListLoading ? /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8rem" } }, "Loading transactions for ", txnDate, "\u2026") : !txnList ? null : txnList.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem", textAlign: "center", color: th.muted, fontSize: "0.8rem" } }, "No transactions found for ", txnDate) : filtered.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem", textAlign: "center", color: th.muted, fontSize: "0.8rem" } }, "No transactions match the current filters") : /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 340, overflowY: "auto", borderTop: `1px solid ${th.cardBorder}` } }, filtered.map((chk, i) => {
+        const t = chk.opnUTC ? toET(chk.opnUTC) : "--";
+        const hasDisc = Math.abs(chk.dscTtl || 0) > 0;
+        const hasVoid = Math.abs(chk.vdTtl || 0) > 0;
+        const hasRefund = (chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0;
+        const otName = txnOTMap[chk.otNum] || "";
+        const cat = otCat(chk.otNum);
+        const otColor = cat === "drive_thru" ? "#3b82f6" : cat === "eat_in" ? "#22c55e" : cat === "uber" ? "#000000" : cat === "doordash" ? "#ef4444" : cat === "mobile" ? "#8b5cf6" : th.muted;
+        return /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            key: chk.guestCheckId || i,
+            onClick: () => openTxnDetail(chk),
+            style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.45rem 0.25rem", borderBottom: i < filtered.length - 1 ? `1px solid ${th.cardBorder}` : "none", cursor: "pointer", borderRadius: 4 },
+            onMouseEnter: (e) => e.currentTarget.style.background = th.card2,
+            onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
+          },
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: O, fontSize: "0.8rem", minWidth: 46 } }, "#", chk.chkNum), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted, minWidth: 52 } }, t), otName && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", padding: "0.1rem 0.3rem", borderRadius: 999, background: otColor + "20", color: otColor, fontWeight: 600, whiteSpace: "nowrap", maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" } }, otName), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.25rem" } }, hasDisc && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", padding: "0.1rem 0.25rem", borderRadius: 999, background: "#22c55e15", color: "#22c55e", fontWeight: 700 } }, "DISC"), hasVoid && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", padding: "0.1rem 0.25rem", borderRadius: 999, background: "#ef444415", color: "#ef4444", fontWeight: 700 } }, "VOID"), hasRefund && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", padding: "0.1rem 0.25rem", borderRadius: 999, background: "#f59e0b15", color: "#f59e0b", fontWeight: 700 } }, "REFUND"))),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", alignItems: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.82rem", color: (chk.chkTtl || 0) < 0 ? "#ef4444" : th.text } }, "$", (chk.chkTtl || 0).toFixed(2)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.7rem" } }, "\u203A"))
+        );
+      }))));
+    })(), (txnModal || txnModalLoading) && (() => {
+      const chk = txnModal?.check || {};
+      const menuMap = txnModal?.menuMap || {};
+      const itemLines = (chk.detailLines || []).filter((l) => l.menuItem && !l.vdFlag);
+      const itemsMap = {};
+      itemLines.forEach((l) => {
+        const mn = l.menuItem.miNum;
+        if (!itemsMap[mn]) itemsMap[mn] = { miNum: mn, qty: 0, total: 0 };
+        itemsMap[mn].qty += Math.abs(l.dspQty || 1);
+        itemsMap[mn].total += l.dspTtl || 0;
+      });
+      const parsedItems = Object.values(itemsMap).map((it) => ({ ...it, name: menuMap[it.miNum]?.name || `Item #${it.miNum}`, unitPrice: it.qty > 0 ? it.total / it.qty : 0 }));
+      const toET = (utc) => {
+        try {
+          return new Date(utc.endsWith("Z") ? utc : utc + "Z").toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
+        } catch {
+          return "--";
+        }
+      };
+      const opnTime = chk.opnUTC ? toET(chk.opnUTC) : "--";
+      const clsdTime = chk.clsdUTC ? toET(chk.clsdUTC) : "--";
+      const svcSecs = chk.opnUTC && chk.clsdUTC ? Math.round((new Date(chk.clsdUTC.endsWith("Z") ? chk.clsdUTC : chk.clsdUTC + "Z") - new Date(chk.opnUTC.endsWith("Z") ? chk.opnUTC : chk.opnUTC + "Z")) / 1e3) : 0;
+      const totalQty = itemLines.reduce((s2, l) => s2 + Math.abs(l.dspQty || 1), 0);
+      const hasDisc = (chk.dscTtl || 0) !== 0;
+      const complexLabel = totalQty <= 3 ? "Simple" : totalQty <= 6 ? "Moderate" : "Complex";
+      const complexColor = totalQty <= 3 ? "#22c55e" : totalQty <= 6 ? "#f59e0b" : "#ef4444";
+      const store2 = stores.find((st) => st.pc === pc) || {};
+      const dash = "----------------------------------------";
+      const pad = (l, r, w = 40) => {
+        const gap = w - l.length - r.length;
+        return l + (gap > 0 ? " ".repeat(gap) : " ") + r;
+      };
+      const center = (s2, w = 40) => {
+        const p = Math.max(0, Math.floor((w - s2.length) / 2));
+        return " ".repeat(p) + s2;
+      };
+      const opnDt = chk.opnUTC ? (() => {
+        try {
+          const d2 = new Date(chk.opnUTC.endsWith("Z") ? chk.opnUTC : chk.opnUTC + "Z");
+          return d2.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "numeric", timeZone: "America/New_York" }) + ", " + d2.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
+        } catch {
+          return "";
+        }
+      })() : "";
+      const allLines = chk.detailLines || [];
+      const mainItems = allLines.filter((l) => l.menuItem && !l.vdFlag && !l.doNotShowFlag);
+      const tenderLines = allLines.filter((l) => l.tenderMedia && !l.vdFlag);
+      const discLines = allLines.filter((l) => l.discount && !l.vdFlag);
+      let rLines = [];
+      rLines.push(center(store2.name ? store2.name.toUpperCase() : "DUNKIN'"));
+      rLines.push("");
+      if (chk.empNum) rLines.push(pad("Emp #" + chk.empNum, "Reg " + (allLines[0]?.wsNum || "--")));
+      rLines.push(dash);
+      rLines.push(pad("CHK " + chk.chkNum, opnDt));
+      rLines.push(dash);
+      rLines.push("");
+      const seen = /* @__PURE__ */ new Set();
+      mainItems.forEach((l) => {
+        if (seen.has(l.guestCheckLineItemId)) return;
+        seen.add(l.guestCheckLineItemId);
+        const nm = menuMap[l.menuItem.miNum]?.name || `Item #${l.menuItem.miNum}`;
+        const qty = Math.abs(l.dspQty || 1);
+        const price = l.dspTtl || 0;
+        const priceStr = price !== 0 ? price < 0 ? "-$" + Math.abs(price).toFixed(2) : "$" + price.toFixed(2) : "";
+        rLines.push(pad("  " + ((qty > 1 ? qty + "x " : "") + nm).slice(0, 33), priceStr));
+      });
+      discLines.forEach((l) => {
+        const nm = menuMap[l.discount?.dscNum]?.name || "Discount";
+        const price = l.dspTtl || 0;
+        const priceStr = price !== 0 ? price < 0 ? "-$" + Math.abs(price).toFixed(2) : "$" + price.toFixed(2) : "";
+        rLines.push(pad("  " + nm.slice(0, 35), priceStr));
+      });
+      rLines.push("");
+      rLines.push(dash);
+      if (chk.subTtl != null) rLines.push(pad("Subtotal:", "$" + (chk.subTtl || 0).toFixed(2)));
+      if (chk.taxCollTtl) rLines.push(pad("Tax:", "$" + chk.taxCollTtl.toFixed(2)));
+      rLines.push(pad("TOTAL:", "$" + (chk.chkTtl || 0).toFixed(2)));
+      rLines.push(dash);
+      tenderLines.forEach((l) => {
+        const tName = menuMap[l.tenderMedia?.tmedNum]?.name || (l.tenderMedia?.tmedNum === 1 ? "Cash" : "Payment");
+        const amt = l.dspTtl || 0;
+        if (amt !== 0) rLines.push(pad(tName + ":", "$" + Math.abs(amt).toFixed(2)));
+      });
+      rLines.push("");
+      rLines.push(center("Thank You! Come Back Soon!"));
+      rLines.push("");
+      const journalTxt = (txnModal?.journalTxt || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+      const receiptText = journalTxt || rLines.join("\n");
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 9999, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "2rem 1rem", overflowY: "auto" },
+          onClick: (e) => {
+            if (e.target === e.currentTarget) setTxnModal(null);
+          }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { background: th.bg, borderRadius: 12, width: "100%", maxWidth: 920, boxShadow: "0 20px 60px rgba(0,0,0,0.4)" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1rem", color: th.text } }, "Transaction Detail ", !txnModalLoading && /* @__PURE__ */ React.createElement("span", { style: { color: O } }, "#", chk.chkNum)), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+          setTxnModal(null);
+          setTxnModalLoading(false);
+        }, style: { background: "none", border: "none", color: th.muted, fontSize: "1.4rem", cursor: "pointer", lineHeight: 1 } }, "\xD7")), txnModalLoading ? /* @__PURE__ */ React.createElement("div", { style: { padding: "4rem", textAlign: "center", color: th.muted } }, "Loading transaction detail\u2026") : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", padding: "1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", borderRadius: 8, padding: "1.5rem 1.25rem", fontFamily: "'Courier New', monospace", fontSize: "0.73rem", color: "#1a1a1a", lineHeight: 1.65, whiteSpace: "pre-wrap", boxShadow: "0 2px 16px rgba(0,0,0,0.14)", maxHeight: 520, overflowY: "auto", wordBreak: "break-word" } }, receiptText), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem" } }, "\u{1F4CA}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Margin Analysis")), parsedItems.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No item data") : /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `1px solid ${th.cardBorder}` } }, ["ITEM", "COST", "PRICE", "MARGIN"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { textAlign: h === "ITEM" ? "left" : "right", padding: "0.3rem 0.25rem", color: th.muted, fontWeight: 600, fontSize: "0.62rem" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, parsedItems.map((it, i) => /* @__PURE__ */ React.createElement("tr", { key: i, style: { borderBottom: i < parsedItems.length - 1 ? `1px solid ${th.cardBorder}` : "none" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", color: th.text, fontWeight: 500, maxWidth: 140, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title: it.name }, it.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", textAlign: "right", color: th.muted } }, "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", textAlign: "right", color: th.text, fontWeight: 600 } }, it.total > 0 ? "$" + it.total.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", textAlign: "right", color: "#22c55e", fontWeight: 700 } }, "\u2014")))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem" } }, "\u{1F4CA}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Order Complexity")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2rem", color: th.text, lineHeight: 1 } }, totalQty), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", padding: "0.2rem 0.6rem", borderRadius: 999, background: `${complexColor}22`, color: complexColor, fontWeight: 700 } }, complexLabel)), [["Items", `${parsedItems.length} item${parsedItems.length !== 1 ? "s" : ""}`], ["Discounts", hasDisc ? `$${Math.abs(chk.dscTtl || 0).toFixed(2)}` : "No"], ["Service Time", svcSecs > 0 ? `${svcSecs}s` : "\u2014"]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { display: "flex", justifyContent: "space-between", padding: "0.3rem 0", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, k), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 600 } }, v)))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem" } }, "\u{1F550}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Transaction Timeline")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, [
+          ["\u{1F7E2}", opnTime, "Transaction Opened", chk.empNum ? `Emp #${chk.empNum}` : null],
+          parsedItems.length > 0 ? ["\u{1F9FE}", null, `${totalQty} item${totalQty !== 1 ? "s" : ""} ordered`, parsedItems.slice(0, 2).map((it) => it.name).join(", ") + (parsedItems.length > 2 ? ` +${parsedItems.length - 2} more` : "")] : null,
+          ["\u2705", clsdTime, "Transaction Closed", `Total: $${(chk.chkTtl || 0).toFixed(2)}`]
+        ].filter(Boolean).map(([icon, time, title, sub], i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: "0.75rem", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 32, height: 32, borderRadius: "50%", background: `${O}20`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "0.7rem" } }, icon), /* @__PURE__ */ React.createElement("div", null, time && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text } }, time), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: time ? 400 : 700, color: th.text } }, title), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, sub)))))))))
+      );
+    })());
   }
   function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView }) {
     const distStores = stores.filter((s) => s.district === distNum);
@@ -24219,7 +24541,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.22"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.26"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

@@ -6349,6 +6349,14 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [foodCostLoading, setFoodCostLoading] = React.useState(false);
   const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
   const [expandedReview, setExpandedReview] = React.useState(null);
+  const [txnExpanded, setTxnExpanded] = React.useState(false);
+  const [txnList, setTxnList] = React.useState(null);
+  const [txnListLoading, setTxnListLoading] = React.useState(false);
+  const [txnModal, setTxnModal] = React.useState(null);
+  const [txnModalLoading, setTxnModalLoading] = React.useState(false);
+  const [txnOTMap, setTxnOTMap] = React.useState({});
+  const [txnFilters, setTxnFilters] = React.useState({ otCat: 'all', voids: false, refunds: false, discounts: false, timeStart: '', timeEnd: '' });
+  const [txnDate, setTxnDate] = React.useState(localDate);
 
   React.useEffect(() => {
     (async () => {
@@ -6651,6 +6659,76 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
       </svg>
     );
   };
+
+  const pulseApi = pc === '345986' ? 'p227' : 'p228';
+
+  async function loadTxnList(dateOverride) {
+    const useDate = dateOverride || txnDate;
+    setTxnListLoading(true);
+    setTxnList(null);
+    try {
+      const [checksRes, otRes] = await Promise.all([
+        fetch('/.netlify/functions/pulse', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api: pulseApi, endpoint: 'getGuestChecks',
+            locRef: String(pc), opnBusDt: useDate,
+            clsdGuestChecksOnly: true,
+            include: 'guestChecks'
+          })
+        }),
+        Object.keys(txnOTMap).length ? Promise.resolve(null) : fetch('/.netlify/functions/pulse', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api: pulseApi, endpoint: 'getOrderTypeDimensions', locRef: String(pc), include: 'orderTypes.num,orderTypes.name' })
+        })
+      ]);
+      const checksData = await checksRes.json();
+      if (otRes) {
+        const otData = await otRes.json();
+        const otMap = {};
+        (otData.orderTypes || []).forEach(ot => { otMap[ot.num] = ot.name || ''; });
+        setTxnOTMap(otMap);
+      }
+      const list = (checksData.guestChecks || []).sort((a, b) => (b.chkNum || 0) - (a.chkNum || 0));
+      setTxnList(list);
+    } catch(e) { setTxnList([]); }
+    setTxnListLoading(false);
+  }
+
+  async function openTxnDetail(chk) {
+    setTxnModalLoading(true);
+    setTxnModal(null);
+    try {
+      const [detailRes, journalRes, menuRes] = await Promise.all([
+        fetch('/.netlify/functions/pulse', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api: pulseApi, endpoint: 'getGuestChecks', locRef: String(pc), opnBusDt: txnDate, searchCriteria: `where equals(guestChecks.chkNum,${chk.chkNum})`, include: 'guestChecks' })
+        }),
+        fetch('/.netlify/functions/pulse', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api: pulseApi, endpoint: 'getPOSJournalLogDetails', locRef: String(pc), busDt: txnDate, searchCriteria: `where equals(revenueCenters.logDetails.guestCheckId,${chk.guestCheckId})`, include: 'locRef,busDt,revenueCenters.logDetails.type,revenueCenters.logDetails.journalTxt,revenueCenters.logDetails.guestCheckId' })
+        }),
+        fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_menu_v1' }) })
+      ]);
+      const detailData = await detailRes.json();
+      const journalData = await journalRes.json();
+      const menuData = await menuRes.json();
+      const fullCheck = (detailData.guestChecks || [])[0] || chk;
+      let journalTxt = '';
+      for (const rc of journalData.revenueCenters || []) {
+        for (const log of rc.logDetails || []) { if (log.type === 129 && log.journalTxt) { journalTxt = log.journalTxt; break; } }
+        if (journalTxt) break;
+      }
+      if (!journalTxt) {
+        for (const rc of journalData.revenueCenters || []) {
+          for (const log of rc.logDetails || []) { if (log.type === 1 && log.journalTxt) { journalTxt = log.journalTxt; break; } }
+          if (journalTxt) break;
+        }
+      }
+      setTxnModal({ check: fullCheck, journalTxt, menuMap: menuData.data || {} });
+    } catch(e) { console.error('[txn-detail]', e); }
+    setTxnModalLoading(false);
+  }
 
   return (
     <div className="fade-in">
@@ -7382,6 +7460,297 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
           })}
         </div>
       )}
+
+      {/* ── Transactions ── */}
+      {(() => {
+        const toET = utc => { try { return new Date(utc.endsWith('Z') ? utc : utc + 'Z').toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/New_York' }); } catch { return '--'; } };
+        const toETHHMM = utc => { try { const d = new Date(utc.endsWith('Z') ? utc : utc + 'Z'); return String(d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/New_York' })).replace(' AM','').replace(' PM','').trim(); } catch { return ''; } };
+
+        // Categorise order type by name
+        const otCat = (otNum) => {
+          const n = (txnOTMap[otNum] || '').toLowerCase();
+          if (n.includes('uber')) return 'uber';
+          if (n.includes('doordash') || n.includes('door dash')) return 'doordash';
+          if (n.includes('delivery') || n.includes('grubhub') || n.includes('instacart')) return 'delivery';
+          if (n.includes('drive') || n.includes('dt') || n.includes('d/t') || n.includes('mobile dt') || n.includes('thru')) return 'drive_thru';
+          if (n.includes('eat in') || n.includes('dine') || n.includes('walk') || n.includes('otg') || n.includes('in store') || n.includes('instore')) return 'eat_in';
+          if (n.includes('mobile') || n.includes('app')) return 'mobile';
+          return 'other';
+        };
+
+        const filtered = (txnList || []).filter(chk => {
+          const f = txnFilters;
+          if (f.otCat !== 'all' && otCat(chk.otNum) !== f.otCat) return false;
+          if (f.voids && !(chk.vdTtl && Math.abs(chk.vdTtl) > 0)) return false;
+          if (f.refunds && !((chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
+          if (f.discounts && !(chk.dscTtl && Math.abs(chk.dscTtl) > 0)) return false;
+          if (f.timeStart) {
+            const chkT = toETHHMM(chk.opnUTC || '');
+            if (chkT && chkT < f.timeStart) return false;
+          }
+          if (f.timeEnd) {
+            const chkT = toETHHMM(chk.opnUTC || '');
+            if (chkT && chkT > f.timeEnd) return false;
+          }
+          return true;
+        });
+
+        const chipStyle = (active) => ({ fontSize: '0.65rem', padding: '0.2rem 0.55rem', borderRadius: 999, border: `1px solid ${active ? O : th.cardBorder}`, background: active ? O + '22' : th.card2, color: active ? O : th.muted, cursor: 'pointer', fontWeight: active ? 700 : 400, whiteSpace: 'nowrap' });
+        const toggleChip = (key) => setTxnFilters(f => ({ ...f, [key]: !f[key] }));
+
+        return (
+          <div style={{ ...card(th), padding: '1rem', marginTop: '1rem' }}>
+            {/* Header row */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text }}>🧾 Transactions</span>
+                {txnList && <span style={{ fontSize: '0.65rem', color: th.muted }}>({filtered.length}{filtered.length !== txnList.length ? `/${txnList.length}` : ''})</span>}
+              </div>
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                {txnExpanded && (
+                  <>
+                    {/* Date picker */}
+                    <input type="date" value={txnDate}
+                      onChange={e => { setTxnDate(e.target.value); setTxnList(null); loadTxnList(e.target.value); }}
+                      style={{ fontSize: '0.7rem', padding: '0.25rem 0.4rem', borderRadius: 6, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, cursor: 'pointer' }} />
+                    <button onClick={() => loadTxnList()} disabled={txnListLoading}
+                      style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: 6, background: th.card2, border: `1px solid ${th.cardBorder}`, color: th.muted, cursor: 'pointer' }}>
+                      {txnListLoading ? '…' : '↺ Refresh'}
+                    </button>
+                  </>
+                )}
+                <button onClick={() => { if (!txnExpanded) { setTxnExpanded(true); if (!txnList) loadTxnList(); } else setTxnExpanded(false); }}
+                  style={{ fontSize: '0.72rem', padding: '0.3rem 0.7rem', borderRadius: 6, background: th.card2, border: `1px solid ${th.cardBorder}`, color: th.text, cursor: 'pointer' }}>
+                  {txnExpanded ? 'Hide' : txnListLoading ? 'Loading…' : 'Load'}
+                </button>
+              </div>
+            </div>
+
+            {txnExpanded && (
+              <>
+                {/* Order Type Filter */}
+                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginTop: '0.75rem', marginBottom: '0.5rem' }}>
+                  {[['all','All'],['eat_in','Eat In'],['drive_thru','Drive Thru'],['mobile','Mobile'],['uber','Uber Eats'],['doordash','DoorDash'],['delivery','Delivery'],['other','Other']].map(([val, label]) => (
+                    <span key={val} onClick={() => setTxnFilters(f => ({...f, otCat: val}))} style={chipStyle(txnFilters.otCat === val)}>{label}</span>
+                  ))}
+                </div>
+
+                {/* Transaction Type + Time Filter row */}
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <span onClick={() => toggleChip('discounts')} style={chipStyle(txnFilters.discounts)}>🏷 Discounts</span>
+                  <span onClick={() => toggleChip('voids')} style={chipStyle(txnFilters.voids)}>🚫 Voids</span>
+                  <span onClick={() => toggleChip('refunds')} style={chipStyle(txnFilters.refunds)}>↩ Refunds</span>
+                  <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', marginLeft: 'auto' }}>
+                    <span style={{ fontSize: '0.65rem', color: th.muted }}>⏱</span>
+                    <input type="time" value={txnFilters.timeStart}
+                      onChange={e => setTxnFilters(f => ({...f, timeStart: e.target.value}))}
+                      style={{ fontSize: '0.65rem', padding: '0.2rem 0.35rem', borderRadius: 4, border: `1px solid ${txnFilters.timeStart ? O : th.cardBorder}`, background: th.card2, color: th.text, width: 90 }} />
+                    <span style={{ fontSize: '0.65rem', color: th.muted }}>–</span>
+                    <input type="time" value={txnFilters.timeEnd}
+                      onChange={e => setTxnFilters(f => ({...f, timeEnd: e.target.value}))}
+                      style={{ fontSize: '0.65rem', padding: '0.2rem 0.35rem', borderRadius: 4, border: `1px solid ${txnFilters.timeEnd ? O : th.cardBorder}`, background: th.card2, color: th.text, width: 90 }} />
+                    {(txnFilters.timeStart || txnFilters.timeEnd) && (
+                      <span onClick={() => setTxnFilters(f => ({...f, timeStart: '', timeEnd: ''}))}
+                        style={{ fontSize: '0.65rem', color: '#ef4444', cursor: 'pointer', fontWeight: 700 }}>✕</span>
+                    )}
+                  </div>
+                </div>
+
+                {txnListLoading ? (
+                  <div style={{ padding: '1rem', textAlign: 'center', color: th.muted, fontSize: '0.8rem' }}>Loading transactions for {txnDate}…</div>
+                ) : !txnList ? null : txnList.length === 0 ? (
+                  <div style={{ padding: '0.75rem', textAlign: 'center', color: th.muted, fontSize: '0.8rem' }}>No transactions found for {txnDate}</div>
+                ) : filtered.length === 0 ? (
+                  <div style={{ padding: '0.75rem', textAlign: 'center', color: th.muted, fontSize: '0.8rem' }}>No transactions match the current filters</div>
+                ) : (
+                  <div style={{ maxHeight: 340, overflowY: 'auto', borderTop: `1px solid ${th.cardBorder}` }}>
+                    {filtered.map((chk, i) => {
+                      const t = chk.opnUTC ? toET(chk.opnUTC) : '--';
+                      const hasDisc = Math.abs(chk.dscTtl || 0) > 0;
+                      const hasVoid = Math.abs(chk.vdTtl || 0) > 0;
+                      const hasRefund = (chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0;
+                      const otName = txnOTMap[chk.otNum] || '';
+                      const cat = otCat(chk.otNum);
+                      const otColor = cat === 'drive_thru' ? '#3b82f6' : cat === 'eat_in' ? '#22c55e' : cat === 'uber' ? '#000000' : cat === 'doordash' ? '#ef4444' : cat === 'mobile' ? '#8b5cf6' : th.muted;
+                      return (
+                        <div key={chk.guestCheckId || i} onClick={() => openTxnDetail(chk)}
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.45rem 0.25rem', borderBottom: i < filtered.length - 1 ? `1px solid ${th.cardBorder}` : 'none', cursor: 'pointer', borderRadius: 4 }}
+                          onMouseEnter={e => e.currentTarget.style.background = th.card2}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', minWidth: 0 }}>
+                            <span style={{ fontFamily: "'Raleway'", fontWeight: 800, color: O, fontSize: '0.8rem', minWidth: 46 }}>#{chk.chkNum}</span>
+                            <span style={{ fontSize: '0.7rem', color: th.muted, minWidth: 52 }}>{t}</span>
+                            {otName && <span style={{ fontSize: '0.58rem', padding: '0.1rem 0.3rem', borderRadius: 999, background: otColor + '20', color: otColor, fontWeight: 600, whiteSpace: 'nowrap', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis' }}>{otName}</span>}
+                            <div style={{ display: 'flex', gap: '0.25rem' }}>
+                              {hasDisc && <span style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#22c55e15', color: '#22c55e', fontWeight: 700 }}>DISC</span>}
+                              {hasVoid && <span style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#ef444415', color: '#ef4444', fontWeight: 700 }}>VOID</span>}
+                              {hasRefund && <span style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#f59e0b15', color: '#f59e0b', fontWeight: 700 }}>REFUND</span>}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
+                            <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.82rem', color: (chk.chkTtl || 0) < 0 ? '#ef4444' : th.text }}>${(chk.chkTtl || 0).toFixed(2)}</span>
+                            <span style={{ color: th.muted, fontSize: '0.7rem' }}>›</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Transaction Detail Modal ── */}
+      {(txnModal || txnModalLoading) && (() => {
+        const chk = txnModal?.check || {};
+        const menuMap = txnModal?.menuMap || {};
+        const itemLines = (chk.detailLines || []).filter(l => l.menuItem && !l.vdFlag);
+        const itemsMap = {};
+        itemLines.forEach(l => {
+          const mn = l.menuItem.miNum;
+          if (!itemsMap[mn]) itemsMap[mn] = { miNum: mn, qty: 0, total: 0 };
+          itemsMap[mn].qty += Math.abs(l.dspQty || 1);
+          itemsMap[mn].total += (l.dspTtl || 0);
+        });
+        const parsedItems = Object.values(itemsMap).map(it => ({ ...it, name: menuMap[it.miNum]?.name || `Item #${it.miNum}`, unitPrice: it.qty > 0 ? it.total / it.qty : 0 }));
+        const toET = utc => { try { return new Date(utc.endsWith('Z') ? utc : utc + 'Z').toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/New_York' }); } catch { return '--'; } };
+        const opnTime = chk.opnUTC ? toET(chk.opnUTC) : '--';
+        const clsdTime = chk.clsdUTC ? toET(chk.clsdUTC) : '--';
+        const svcSecs = chk.opnUTC && chk.clsdUTC ? Math.round((new Date(chk.clsdUTC.endsWith('Z') ? chk.clsdUTC : chk.clsdUTC + 'Z') - new Date(chk.opnUTC.endsWith('Z') ? chk.opnUTC : chk.opnUTC + 'Z')) / 1000) : 0;
+        const totalQty = itemLines.reduce((s, l) => s + Math.abs(l.dspQty || 1), 0);
+        const hasDisc = (chk.dscTtl || 0) !== 0;
+        const complexLabel = totalQty <= 3 ? 'Simple' : totalQty <= 6 ? 'Moderate' : 'Complex';
+        const complexColor = totalQty <= 3 ? '#22c55e' : totalQty <= 6 ? '#f59e0b' : '#ef4444';
+        const store2 = stores.find(st => st.pc === pc) || {};
+
+        // Build synthetic receipt
+        const dash = '----------------------------------------';
+        const pad = (l, r, w = 40) => { const gap = w - l.length - r.length; return l + (gap > 0 ? ' '.repeat(gap) : ' ') + r; };
+        const center = (s, w = 40) => { const p = Math.max(0, Math.floor((w - s.length) / 2)); return ' '.repeat(p) + s; };
+        const opnDt = chk.opnUTC ? (() => { try { const d = new Date(chk.opnUTC.endsWith('Z') ? chk.opnUTC : chk.opnUTC + 'Z'); return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' }) + ', ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' }); } catch { return ''; } })() : '';
+        const allLines = chk.detailLines || [];
+        const mainItems = allLines.filter(l => l.menuItem && !l.vdFlag && !l.doNotShowFlag);
+        const tenderLines = allLines.filter(l => l.tenderMedia && !l.vdFlag);
+        const discLines = allLines.filter(l => l.discount && !l.vdFlag);
+        let rLines = [];
+        rLines.push(center(store2.name ? store2.name.toUpperCase() : "DUNKIN'"));
+        rLines.push('');
+        if (chk.empNum) rLines.push(pad('Emp #' + chk.empNum, 'Reg ' + (allLines[0]?.wsNum || '--')));
+        rLines.push(dash);
+        rLines.push(pad('CHK ' + chk.chkNum, opnDt));
+        rLines.push(dash);
+        rLines.push('');
+        const seen = new Set();
+        mainItems.forEach(l => {
+          if (seen.has(l.guestCheckLineItemId)) return;
+          seen.add(l.guestCheckLineItemId);
+          const nm = menuMap[l.menuItem.miNum]?.name || `Item #${l.menuItem.miNum}`;
+          const qty = Math.abs(l.dspQty || 1);
+          const price = l.dspTtl || 0;
+          const priceStr = price !== 0 ? (price < 0 ? '-$' + Math.abs(price).toFixed(2) : '$' + price.toFixed(2)) : '';
+          rLines.push(pad('  ' + ((qty > 1 ? qty + 'x ' : '') + nm).slice(0, 33), priceStr));
+        });
+        discLines.forEach(l => {
+          const nm = menuMap[l.discount?.dscNum]?.name || 'Discount';
+          const price = l.dspTtl || 0;
+          const priceStr = price !== 0 ? (price < 0 ? '-$' + Math.abs(price).toFixed(2) : '$' + price.toFixed(2)) : '';
+          rLines.push(pad('  ' + nm.slice(0, 35), priceStr));
+        });
+        rLines.push(''); rLines.push(dash);
+        if (chk.subTtl != null) rLines.push(pad('Subtotal:', '$' + (chk.subTtl || 0).toFixed(2)));
+        if (chk.taxCollTtl) rLines.push(pad('Tax:', '$' + chk.taxCollTtl.toFixed(2)));
+        rLines.push(pad('TOTAL:', '$' + (chk.chkTtl || 0).toFixed(2)));
+        rLines.push(dash);
+        tenderLines.forEach(l => {
+          const tName = menuMap[l.tenderMedia?.tmedNum]?.name || (l.tenderMedia?.tmedNum === 1 ? 'Cash' : 'Payment');
+          const amt = l.dspTtl || 0;
+          if (amt !== 0) rLines.push(pad(tName + ':', '$' + Math.abs(amt).toFixed(2)));
+        });
+        rLines.push(''); rLines.push(center('Thank You! Come Back Soon!')); rLines.push('');
+        const journalTxt = (txnModal?.journalTxt || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+        const receiptText = journalTxt || rLines.join('\n');
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 9999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '2rem 1rem', overflowY: 'auto' }}
+            onClick={e => { if (e.target === e.currentTarget) setTxnModal(null); }}>
+            <div style={{ background: th.bg, borderRadius: 12, width: '100%', maxWidth: 920, boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1rem', color: th.text }}>Transaction Detail {!txnModalLoading && <span style={{ color: O }}>#{chk.chkNum}</span>}</div>
+                <button onClick={() => { setTxnModal(null); setTxnModalLoading(false); }} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}>×</button>
+              </div>
+              {txnModalLoading ? (
+                <div style={{ padding: '4rem', textAlign: 'center', color: th.muted }}>Loading transaction detail…</div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', padding: '1.5rem' }}>
+                  <div style={{ background: '#fff', borderRadius: 8, padding: '1.5rem 1.25rem', fontFamily: "'Courier New', monospace", fontSize: '0.73rem', color: '#1a1a1a', lineHeight: 1.65, whiteSpace: 'pre-wrap', boxShadow: '0 2px 16px rgba(0,0,0,0.14)', maxHeight: 520, overflowY: 'auto', wordBreak: 'break-word' }}>
+                    {receiptText}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ ...card(th), padding: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                        <span style={{ fontSize: '0.8rem' }}>📊</span>
+                        <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.85rem', color: th.text }}>Margin Analysis</span>
+                      </div>
+                      {parsedItems.length === 0 ? <div style={{ fontSize: '0.75rem', color: th.muted }}>No item data</div> : (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
+                          <thead><tr style={{ borderBottom: `1px solid ${th.cardBorder}` }}>{['ITEM','COST','PRICE','MARGIN'].map(h => <th key={h} style={{ textAlign: h==='ITEM'?'left':'right', padding: '0.3rem 0.25rem', color: th.muted, fontWeight: 600, fontSize: '0.62rem' }}>{h}</th>)}</tr></thead>
+                          <tbody>{parsedItems.map((it, i) => (
+                            <tr key={i} style={{ borderBottom: i < parsedItems.length-1 ? `1px solid ${th.cardBorder}` : 'none' }}>
+                              <td style={{ padding: '0.4rem 0.25rem', color: th.text, fontWeight: 500, maxWidth: 140, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={it.name}>{it.name}</td>
+                              <td style={{ padding: '0.4rem 0.25rem', textAlign: 'right', color: th.muted }}>—</td>
+                              <td style={{ padding: '0.4rem 0.25rem', textAlign: 'right', color: th.text, fontWeight: 600 }}>{it.total > 0 ? '$'+it.total.toFixed(2) : '—'}</td>
+                              <td style={{ padding: '0.4rem 0.25rem', textAlign: 'right', color: '#22c55e', fontWeight: 700 }}>—</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      )}
+                    </div>
+                    <div style={{ ...card(th), padding: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                        <span style={{ fontSize: '0.8rem' }}>📊</span>
+                        <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.85rem', color: th.text }}>Order Complexity</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                        <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2rem', color: th.text, lineHeight: 1 }}>{totalQty}</span>
+                        <span style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', borderRadius: 999, background: `${complexColor}22`, color: complexColor, fontWeight: 700 }}>{complexLabel}</span>
+                      </div>
+                      {[['Items', `${parsedItems.length} item${parsedItems.length!==1?'s':''}`],['Discounts', hasDisc ? `$${Math.abs(chk.dscTtl||0).toFixed(2)}` : 'No'],['Service Time', svcSecs > 0 ? `${svcSecs}s` : '—']].map(([k,v]) => (
+                        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.3rem 0', borderTop: `1px solid ${th.cardBorder}` }}>
+                          <span style={{ fontSize: '0.75rem', color: th.muted }}>{k}</span>
+                          <span style={{ fontSize: '0.75rem', color: th.text, fontWeight: 600 }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ ...card(th), padding: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                        <span style={{ fontSize: '0.8rem' }}>🕐</span>
+                        <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.85rem', color: th.text }}>Transaction Timeline</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                        {[['🟢', opnTime, 'Transaction Opened', chk.empNum ? `Emp #${chk.empNum}` : null],
+                          parsedItems.length > 0 ? ['🧾', null, `${totalQty} item${totalQty!==1?'s':''} ordered`, parsedItems.slice(0,2).map(it=>it.name).join(', ')+(parsedItems.length>2?` +${parsedItems.length-2} more`:'')] : null,
+                          ['✅', clsdTime, 'Transaction Closed', `Total: $${(chk.chkTtl||0).toFixed(2)}`]
+                        ].filter(Boolean).map(([icon, time, title, sub], i) => (
+                          <div key={i} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: `${O}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '0.7rem' }}>{icon}</div>
+                            <div>
+                              {time && <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.text }}>{time}</div>}
+                              <div style={{ fontSize: '0.75rem', fontWeight: time ? 400 : 700, color: th.text }}>{title}</div>
+                              {sub && <div style={{ fontSize: '0.65rem', color: th.muted }}>{sub}</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -32038,7 +32407,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.22
+            v14.26
           </div>
         )}
         {/* Collapse toggle — desktop only */}
