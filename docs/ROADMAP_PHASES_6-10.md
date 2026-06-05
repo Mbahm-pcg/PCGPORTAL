@@ -168,6 +168,34 @@
 
 ---
 
+## Phase 11 — Deal Pipeline & Real Estate (Pre-Construction)
+Dedicated pre-construction real estate deal tracker for leased AND purchased sites — separate
+from the Projects/Construction tracker. Owns a site from sourcing → LOI → due diligence →
+lease/PSA execution → closing/possession → **"Ready for Construction" handoff**. Everything
+before we break ground. Design spec: `docs/superpowers/specs/2026-06-05-deal-pipeline-design.md`.
+
+### 11.1 Deal Pipeline v1 (Core + high-value gaps) — IN PROGRESS (branch `feature/deal-pipeline`)
+- Kanban + sortable/filterable table over one dataset (toggle); 8 stages, handoff on stage 8
+- Deal record: core + full lease + full purchase field sets; brand (Dunkin/Papa John's/BWW GO/dual), PA/NJ
+- High-value gaps folded in: split possession/lease-commencement/rent-commencement dates; recurring
+  critical dates; **tiered escalating + acknowledged** alerts; dead-deal reason codes; SPE/entity field;
+  extended lease abstract (CAM cap/gross-up/audit, co-tenancy, kick-out, holdover, ROFR/ROFO, delivery condition)
+- Documents with **version history** (redline trail, no overwrite) via chunked uploader
+- Critical dates → one-click **.ics** now (Google Calendar auto-push later); configurable advance warnings
+- Dashboard (deals by stage, committed capital / annual pipeline rent, 30/60/90-day deadlines, red flags) + filters
+- **Server-side RBAC** (view vs edit) — real auth on the data/document endpoints (net-new for the portal)
+
+### 11.2+ Deferred (multi-track depth)
+- Parallel tracks: Entitlement (PennDOT HOP / NJDOT MAP, land-development, stormwater, utility will-serve,
+  building/sign permits → computed Ready-for-Construction gate); Franchisor (site/RDA approval as condition
+  precedent, SDA development-schedule obligation, prototype approval); Financing/SPE entity module
+- Underwriting fields + Investment-Committee go/no-go gate (occupancy-cost %, rent-to-sales %, total project
+  cost, cash-on-cash, cap rate); pipeline analytics (weighted/probability value, days-in-stage, conversion)
+- Full 1031 (45/180-day) tracking; Google Calendar auto-push; auto-create construction project on handoff
+- Structured "Ready for Construction" handoff checklist + permit-expiration tracking
+
+---
+
 ## Implementation Priority
 
 **Phase 6 is the inflection point.** Action Queue + AI Forecasting shift the platform from "shows data" to "tells you what to do." Everything in Phases 7–10 builds on that predictive foundation.
