@@ -11,15 +11,18 @@ function authUser(event) {
   const h = event.headers || {};
   const raw = h.authorization || h.Authorization || '';
   const token = raw.startsWith('Bearer ') ? raw.slice(7) : '';
-  return verifyToken(token, process.env.DEAL_SESSION_SECRET || '');
+  // No `|| ''` fallback — fail closed if the secret is unset (the handler also guards this).
+  return verifyToken(token, process.env.DEAL_SESSION_SECRET);
 }
 
 const STAGES = ['sourcing','loi_out','loi_executed','due_diligence','negotiating','executed','closing','ready_for_construction'];
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
+  if (!process.env.DEAL_SESSION_SECRET) return reply(500, { error: 'server not configured' });
   const user = authUser(event);
   if (!user) return reply(401, { error: 'unauthorized' });
+  if (!roleSatisfies(user.role, 'view')) return reply(403, { error: 'forbidden' }); // explicit read gate
 
   let body; try { body = JSON.parse(event.body || '{}'); } catch { return reply(400, { error: 'bad json' }); }
   const action = body.action;

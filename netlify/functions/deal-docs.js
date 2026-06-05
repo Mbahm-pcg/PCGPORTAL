@@ -15,7 +15,8 @@ function authUser(event) {
   const h = event.headers || {};
   const raw = h.authorization || h.Authorization || '';
   const token = raw.startsWith('Bearer ') ? raw.slice(7) : '';
-  return verifyToken(token, process.env.DEAL_SESSION_SECRET || '');
+  // No `|| ''` fallback — fail closed if the secret is unset (the handler also guards this).
+  return verifyToken(token, process.env.DEAL_SESSION_SECRET);
 }
 
 // Isolated store — NOT 'pcg-portal', so storage.js (no auth) cannot serve these blobs.
@@ -27,14 +28,16 @@ const safeKey = (s) => String(s || '').replace(/[^a-zA-Z0-9_-]/g, '');
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
+  if (!process.env.DEAL_SESSION_SECRET) return reply(500, { error: 'server not configured' });
   const user = authUser(event);
   if (!user) return reply(401, { error: 'unauthorized' });
+  if (!roleSatisfies(user.role, 'view')) return reply(403, { error: 'forbidden' }); // explicit read gate
 
   let body; try { body = JSON.parse(event.body || '{}'); } catch { return reply(400, { error: 'bad json' }); }
   const action = body.action;
   const db = sql();
   const store = dealStore();
-  const needWrite = ['createDoc', 'uploadChunk', 'finalizeVersion', 'deleteDoc'].includes(action);
+  const needWrite = ['createDoc', 'uploadChunk', 'finalizeVersion'].includes(action);
   if (needWrite && !roleSatisfies(user.role, 'edit')) return reply(403, { error: 'read-only access' });
 
   try {
@@ -72,9 +75,12 @@ exports.handler = async (event) => {
       if (!key || !body.document_id) return reply(400, { error: 'document_id + blobKey required' });
       const [{ next }] = await db`
         SELECT COALESCE(MAX(version_no), 0) + 1 AS next FROM deal_document_versions WHERE document_id = ${body.document_id}`;
+      // Server-derive the MIME + data-URL prefix (don't trust client prefix); clamp chunk count.
+      const mime = /^[\w.+-]+\/[\w.+-]+$/.test(body.type || '') ? body.type : 'application/octet-stream';
+      const chunks = Math.min(Math.max(1, Number(body.chunks) || 1), 512);
       await store.setJSON(`${key}_meta`, {
-        filename: body.filename || '', type: body.type || 'application/octet-stream',
-        size: body.size || 0, chunks: Number(body.chunks) || 1, prefix: body.prefix || 'data:application/octet-stream;base64,',
+        filename: String(body.filename || '').slice(0, 255), type: mime,
+        size: Number(body.size) || 0, chunks, prefix: `data:${mime};base64,`,
       });
       const [version] = await db`
         INSERT INTO deal_document_versions (document_id, version_no, blob_key, filename, size, uploaded_by)
