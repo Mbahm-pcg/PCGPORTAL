@@ -17,7 +17,9 @@ function signToken(payload, secret, opts = {}) {
 function verifyToken(token, secret, opts = {}) {
   if (typeof token !== 'string' || token.indexOf('.') === -1) return null;
   const nowMs = typeof opts.nowMs === 'number' ? opts.nowMs : Date.now();
-  const [p, sig] = token.split('.');
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [p, sig] = parts;
   if (!p || !sig) return null;
   const expected = hmac(p, secret);
   const a = Buffer.from(sig), b = Buffer.from(expected);

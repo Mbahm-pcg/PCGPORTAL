@@ -33,4 +33,10 @@ describe('signToken / verifyToken', () => {
     assert.strictEqual(verifyToken('no-dot', SECRET, { nowMs: NOW }), null);
     assert.strictEqual(verifyToken(null, SECRET, { nowMs: NOW }), null);
   });
+  test('rejects tokens with extra or missing segments', () => {
+    const t = signToken({ role: 'admin' }, SECRET, { nowMs: NOW });
+    assert.strictEqual(verifyToken(t + '.garbage', SECRET, { nowMs: NOW }), null);
+    assert.strictEqual(verifyToken('.' + t.split('.')[1], SECRET, { nowMs: NOW }), null);
+    assert.strictEqual(verifyToken('.', SECRET, { nowMs: NOW }), null);
+  });
 });
