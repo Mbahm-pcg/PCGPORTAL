@@ -224,6 +224,78 @@
     return r;
   }
 
+  // src/deal-dates.mjs
+  var DATE_TYPES = [
+    { id: "loi_expiration", label: "LOI Response / Expiration", defaultTiers: [14, 7, 3, 1] },
+    { id: "dd_expiration", label: "Due Diligence Expiration", defaultTiers: [30, 14, 7, 3, 1] },
+    { id: "emd_hard", label: "Earnest Money Goes Hard", defaultTiers: [14, 7, 3, 1] },
+    { id: "financing_contingency", label: "Financing Contingency", defaultTiers: [30, 14, 7, 3, 1] },
+    { id: "closing", label: "Closing", defaultTiers: [60, 30, 14, 7] },
+    { id: "lease_execution", label: "Lease Execution Target", defaultTiers: [30, 14, 7] },
+    { id: "possession", label: "Delivery of Possession", defaultTiers: [30, 14, 7] },
+    { id: "rent_commencement", label: "Rent Commencement", defaultTiers: [30, 14] },
+    { id: "construction_commencement", label: "Construction Commencement", defaultTiers: [30, 14] },
+    { id: "option_notice", label: "Option / Renewal Notice", defaultTiers: [180, 120, 90, 60, 30] },
+    { id: "pct_rent_report", label: "% Rent Report Due", defaultTiers: [30, 7] },
+    { id: "cam_audit", label: "CAM Reconciliation / Audit Window", defaultTiers: [30, 7] },
+    { id: "coi_renewal", label: "Insurance / COI Renewal", defaultTiers: [30, 7] },
+    { id: "estoppel_response", label: "Estoppel / SNDA Response", defaultTiers: [7, 3, 1] }
+  ];
+  var dateLabel = (id) => (DATE_TYPES.find((t) => t.id === id) || {}).label || id;
+  var DAY = 864e5;
+  function daysUntil(dueDateStr, nowMs) {
+    if (!dueDateStr) return Infinity;
+    const due = Date.parse(String(dueDateStr).slice(0, 10) + "T00:00:00Z");
+    if (Number.isNaN(due)) return Infinity;
+    return Math.ceil((due - nowMs) / DAY);
+  }
+  function warningStatus(dueDateStr, warningTiers, nowMs) {
+    const daysOut = daysUntil(dueDateStr, nowMs);
+    const tiers = (Array.isArray(warningTiers) ? warningTiers : []).map(Number).filter((n) => n > 0);
+    if (daysOut < 0) return { daysOut, active: true, level: "overdue", tier: null };
+    const maxTier = tiers.length ? Math.max(...tiers) : 30;
+    const active = daysOut <= maxTier;
+    const tier = tiers.filter((t) => daysOut <= t).sort((a, b) => a - b)[0] ?? null;
+    return { daysOut, active, level: active ? "warning" : "none", tier };
+  }
+  function nextDeadline(dates, nowMs) {
+    const up = (dates || []).filter((d) => d && d.due_date && !d.acknowledged_at).map((d) => ({ ...d, daysOut: daysUntil(d.due_date, nowMs) })).sort((a, b) => a.daysOut - b.daysOut);
+    return up[0] || null;
+  }
+  function dealDeadlineFlag(dates, nowMs) {
+    let level = "none";
+    let nearest = null;
+    for (const d of dates || []) {
+      if (!d || !d.due_date || d.acknowledged_at) continue;
+      const w = warningStatus(d.due_date, d.warning_tiers, nowMs);
+      if (!nearest || w.daysOut < nearest.daysOut) nearest = { ...d, ...w };
+      if (w.level === "overdue") level = "overdue";
+      else if (w.level === "warning" && level !== "overdue") level = "warning";
+    }
+    return { level, nearest };
+  }
+  var esc = (s) => String(s == null ? "" : s).replace(/([,;\\])/g, "\\$1").replace(/\r?\n/g, "\\n");
+  var icsDay = (s) => String(s).slice(0, 10).replace(/-/g, "");
+  function icsForDeal(deal, dates) {
+    const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//PCG//Deal Pipeline//EN", "CALSCALE:GREGORIAN"];
+    for (const d of dates || []) {
+      if (!d || !d.due_date) continue;
+      const label = dateLabel(d.date_type);
+      lines.push("BEGIN:VEVENT");
+      lines.push(`UID:deal-${deal && deal.id}-date-${d.id}@pcg-deals`);
+      lines.push(`SUMMARY:${esc((deal && deal.name ? deal.name + " \u2014 " : "") + label)}`);
+      lines.push(`DTSTART;VALUE=DATE:${icsDay(d.due_date)}`);
+      if (d.notes) lines.push(`DESCRIPTION:${esc(d.notes)}`);
+      for (const t of Array.isArray(d.warning_tiers) ? d.warning_tiers : []) {
+        const n = Number(t);
+        if (n > 0) lines.push("BEGIN:VALARM", "ACTION:DISPLAY", `TRIGGER:-P${n}D`, `DESCRIPTION:${esc(label + " in " + n + " days")}`, "END:VALARM");
+      }
+      lines.push("END:VEVENT");
+    }
+    lines.push("END:VCALENDAR");
+    return lines.join("\r\n");
+  }
+
   // app.jsx
   var { useState, useRef, useCallback, useEffect } = React;
   var GOOGLE_CLIENT_ID = "450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com";
@@ -17288,7 +17360,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       const metricCard = (label, value, sub, color) => /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.75rem", padding: "1rem", flex: 1, minWidth: 140 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.3rem" } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: color || th.text } }, value), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.2rem" } }, sub));
       return /* @__PURE__ */ React.createElement("div", null, !hasData && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, marginBottom: "1rem" } }, "Not enough history yet \u2014 needs at least 7 days of data."), hasData && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.75rem" } }, "\u{1F4CA} Break-Even Analysis ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 400, color: th.muted } }, "based on last ", last30.length, " days")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" } }, metricCard("Avg Daily Labor Cost", fmtDollars(avgLaborDollars), `~${fmtDollars(avgWage)}/hr avg wage`), metricCard("Break-Even Sales/Day", fmtDollars(breakEvenSales), `at ${TARGET_PCT}% labor target`, "#f59e0b"), metricCard("Your Avg Daily Sales", fmtDollars(avgSales), `${fmtPct(avgLaborPct)} avg labor`, laborColor(avgLaborPct)), metricCard(onTarget ? "Above Break-Even \u2705" : "Below Break-Even \u26A0\uFE0F", `${onTarget ? "+" : ""}${fmtDollars(gapVsTarget)}`, onTarget ? "Healthy margin" : "At risk \u2014 needs attention", onTarget ? "#4caf50" : "#f44336")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: th.muted, marginBottom: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", null, "$0"), /* @__PURE__ */ React.createElement("span", null, "Break-even: ", fmtDollars(breakEvenSales)), /* @__PURE__ */ React.createElement("span", null, "Avg: ", fmtDollars(avgSales))), /* @__PURE__ */ React.createElement("div", { style: { height: 8, borderRadius: 4, background: th.card3, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(100, avgSales / (breakEvenSales * 1.5) * 100)}%`, background: onTarget ? "#4caf50" : "#f44336", borderRadius: 4 } })))), (() => {
         const shifts = weekSchedule?.shifts || [];
-        const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const DAY2 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         const daily2 = storeHistory?.daily || [];
         const dowSales = Array(7).fill(null).map(() => ({ total: 0, count: 0 }));
         daily2.slice(-30).forEach((d) => {
@@ -17347,7 +17419,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           const projPct = histSales > 0 ? projLaborCost / histSales * 100 : 0;
           const isToday = d.getTime() === today.getTime();
           const isPast = d < today;
-          const label = `${DAY[dow]} ${d.getMonth() + 1}/${d.getDate()}`;
+          const label = `${DAY2[dow]} ${d.getMonth() + 1}/${d.getDate()}`;
           const hasCuts = dayEmps.some((e) => e.adjHrs < e.shiftHrs);
           return { dateStr, label, dow, staffCount: dayEmps.length, schedHours, dayEmps, projLaborCost, origLaborCost, histSales, projPct, isToday, isPast, hasCuts };
         });
@@ -17467,7 +17539,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const next7Days = React.useMemo(() => {
-      const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const DAY2 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const now = /* @__PURE__ */ new Date();
       const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
       const todayDate = new Date(et.getFullYear(), et.getMonth(), et.getDate());
@@ -17477,7 +17549,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         const d = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + i);
         const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
         const todayDs = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
-        return { dateStr: ds, dow: d.getDay(), abbr: DAY[d.getDay()], isToday: ds === todayDs, isPast: d < todayDate };
+        return { dateStr: ds, dow: d.getDay(), abbr: DAY2[d.getDay()], isToday: ds === todayDs, isPast: d < todayDate };
       });
     }, []);
     const todayStr = next7Days.find((d) => d.isToday)?.dateStr;
@@ -17822,16 +17894,27 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [docBusy, setDocBusy] = useState(false);
     const [docErr, setDocErr] = useState(null);
     const [newDocType, setNewDocType] = useState("loi");
+    const [allDates, setAllDates] = useState([]);
+    const [newDateType, setNewDateType] = useState(DATE_TYPES[0]?.id || "");
+    const [newDateDue, setNewDateDue] = useState("");
+    const [newDateTiers, setNewDateTiers] = useState(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
+    const [newDateNotes, setNewDateNotes] = useState("");
+    const [dateAdding, setDateAdding] = useState(false);
+    const [dateErr, setDateErr] = useState(null);
+    const loadList = () => {
+      setLoading(true);
+      return dealApi(token, { action: "list", status: "active" }).then((r) => {
+        setDeals(r.deals || []);
+        setAllDates(r.dates || []);
+        setError(null);
+      }).catch((e) => setError(e.message)).finally(() => setLoading(false));
+    };
     useEffect(() => {
       if (!token) {
         setLoading(false);
         return;
       }
-      setLoading(true);
-      dealApi(token, { action: "list", status: "active" }).then((r) => {
-        setDeals(r.deals || []);
-        setError(null);
-      }).catch((e) => setError(e.message)).finally(() => setLoading(false));
+      loadList();
     }, [token]);
     const loadDocs = (dealId) => {
       setDocErr(null);
@@ -17873,17 +17956,46 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       if (filterLead !== "all" && d.deal_lead !== filterLead) return false;
       return true;
     });
+    const datesByDeal = React.useMemo(() => {
+      const m = {};
+      for (const d of allDates) (m[d.deal_id] = m[d.deal_id] || []).push(d);
+      return m;
+    }, [allDates]);
     const totalActive = deals.length;
     const totalPurchaseCapital = deals.filter((d) => d.deal_type === "purchase").reduce((s, d) => s + (Number(d.purchase_price) || 0), 0);
     const totalBaseRent = deals.filter((d) => d.deal_type === "lease").reduce((s, d) => s + (Number(d.base_rent) || 0), 0);
     const leaseCount = deals.filter((d) => d.deal_type === "lease").length;
     const purchaseCount = deals.filter((d) => d.deal_type === "purchase").length;
+    const nowMs = Date.now();
+    const dealFlagMap = React.useMemo(() => {
+      const m = {};
+      for (const deal of deals) m[deal.id] = dealDeadlineFlag(datesByDeal[deal.id], nowMs);
+      return m;
+    }, [deals, datesByDeal, nowMs]);
+    const within30 = deals.filter((d) => {
+      const nd = nextDeadline(datesByDeal[d.id], nowMs);
+      return nd && nd.daysOut <= 30 && nd.daysOut >= 0;
+    }).length;
+    const within60 = deals.filter((d) => {
+      const nd = nextDeadline(datesByDeal[d.id], nowMs);
+      return nd && nd.daysOut <= 60 && nd.daysOut >= 0;
+    }).length;
+    const within90 = deals.filter((d) => {
+      const nd = nextDeadline(datesByDeal[d.id], nowMs);
+      return nd && nd.daysOut <= 90 && nd.daysOut >= 0;
+    }).length;
+    const overdueCount = deals.filter((d) => dealFlagMap[d.id]?.level === "overdue").length;
+    const warningCount = deals.filter((d) => dealFlagMap[d.id]?.level === "warning").length;
     const kpiCards = [
       { label: "Active Deals", value: totalActive, color: "#3b82f6" },
       { label: "Leases", value: leaseCount, color: "#22c55e" },
       { label: "Purchases", value: purchaseCount, color: "#f59e0b" },
       { label: "Pipeline Base Rent", value: fmtDollars(totalBaseRent), color: "#a855f7" },
-      { label: "Committed Capital", value: fmtDollars(totalPurchaseCapital), color: "#ef4444" }
+      { label: "Committed Capital", value: fmtDollars(totalPurchaseCapital), color: "#ef4444" },
+      { label: "Due \u226430d", value: within30, color: within30 > 0 ? "#ef4444" : "#64748b" },
+      { label: "Due \u226460d", value: within60, color: "#f59e0b" },
+      { label: "Due \u226490d", value: within90, color: "#64748b" },
+      { label: "Overdue / Warning", value: `${overdueCount > 0 ? "\u{1F534}" : ""}${overdueCount} / ${warningCount > 0 ? "\u{1F7E1}" : ""}${warningCount}`, color: overdueCount > 0 ? "#ef4444" : warningCount > 0 ? "#f59e0b" : "#64748b" }
     ];
     const Chip = ({ label, color, small }) => /* @__PURE__ */ React.createElement("span", { style: {
       display: "inline-block",
@@ -17975,6 +18087,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         return /* @__PURE__ */ React.createElement("div", { key: stageId, style: { minWidth: 220, maxWidth: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.5rem", borderRadius: "0.5rem", background: `${color}18`, borderBottom: `2px solid ${color}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 800, color, letterSpacing: 0.5, textTransform: "uppercase" } }, STAGE_MAP[stageId]), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.68rem", background: `${color}33`, color, borderRadius: 999, padding: "1px 7px", fontWeight: 700 } }, stageDeals.length)), stageDeals.map((deal) => {
           const prevStage = stageOrder[si - 1];
           const nextStage = stageOrder[si + 1];
+          const flag = dealDeadlineFlag(datesByDeal[deal.id], Date.now());
           return /* @__PURE__ */ React.createElement(
             "div",
             {
@@ -17986,6 +18099,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.25rem", marginBottom: "0.3rem" } }, deal.brand && /* @__PURE__ */ React.createElement(BrandChip, { brand: deal.brand }), /* @__PURE__ */ React.createElement(TypeChip, { type: deal.deal_type })),
             deal.deal_lead && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted } }, deal.deal_lead),
             deal.deal_type === "lease" && deal.base_rent ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.2rem" } }, fmtDollars(deal.base_rent), "/mo") : deal.purchase_price ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.2rem" } }, fmtDollars(deal.purchase_price)) : null,
+            flag.level === "overdue" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginTop: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block", flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#ef4444", fontWeight: 700 } }, "\u26A0 overdue")),
+            flag.level === "warning" && flag.nearest && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginTop: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", display: "inline-block", flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#f59e0b", fontWeight: 700 } }, "next: ", dateLabel(flag.nearest.date_type), " in ", flag.nearest.daysOut, "d")),
             canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", marginTop: "0.4rem" }, onClick: (e) => e.stopPropagation() }, prevStage && /* @__PURE__ */ React.createElement("button", { onClick: () => doMoveStage(deal, prevStage), style: { ...btn(th), padding: "2px 7px", fontSize: "0.68rem", lineHeight: 1 } }, "\u25C0"), nextStage && !isLast && /* @__PURE__ */ React.createElement("button", { onClick: () => doMoveStage(deal, nextStage), style: { ...btn(th), padding: "2px 7px", fontSize: "0.68rem", lineHeight: 1 } }, "\u25B6"), isLast && /* @__PURE__ */ React.createElement("button", { onClick: () => doHandoff(deal), style: { ...btn(th), padding: "2px 7px", fontSize: "0.68rem", lineHeight: 1, color: "#a855f7" } }, "Hand off \u2192"))
           );
         }));
@@ -18000,33 +18115,38 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         { key: "stage", label: "Stage" },
         { key: "deal_lead", label: "Lead" },
         { key: "base_rent", label: "Base Rent" },
-        { key: "purchase_price", label: "Purchase $" }
+        { key: "purchase_price", label: "Purchase $" },
+        { key: "_deadline", label: "Deadline", noSort: true }
       ];
       return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflow: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.sidebar, color: th.muted, textAlign: "left" } }, cols.map((c) => /* @__PURE__ */ React.createElement(
         "th",
         {
           key: c.key,
-          onClick: () => toggleSort(c.key),
-          style: { padding: "0.6rem 0.75rem", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }
+          onClick: () => !c.noSort && toggleSort(c.key),
+          style: { padding: "0.6rem 0.75rem", fontWeight: 700, cursor: c.noSort ? "default" : "pointer", whiteSpace: "nowrap", userSelect: "none" }
         },
         c.label,
-        sortCol === c.key ? sortDir === "asc" ? " \u2191" : " \u2193" : ""
-      )))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => /* @__PURE__ */ React.createElement(
-        "tr",
-        {
-          key: d.id,
-          onClick: () => openDetail(d),
-          style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}`, color: th.text }
-        },
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", fontWeight: 600 } }, d.name),
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(BrandChip, { brand: d.brand })),
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(TypeChip, { type: d.deal_type })),
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.muted } }, d.state),
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(StageChip, { stage: d.stage })),
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.muted } }, d.deal_lead || "\u2014"),
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, d.base_rent ? fmtDollars(d.base_rent) : "\u2014"),
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, d.purchase_price ? fmtDollars(d.purchase_price) : "\u2014")
-      )), sorted.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { padding: "1.5rem", textAlign: "center", color: th.muted } }, "No deals match filters.")))));
+        !c.noSort && sortCol === c.key ? sortDir === "asc" ? " \u2191" : " \u2193" : ""
+      )))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => {
+        const tf = dealDeadlineFlag(datesByDeal[d.id], Date.now());
+        return /* @__PURE__ */ React.createElement(
+          "tr",
+          {
+            key: d.id,
+            onClick: () => openDetail(d),
+            style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}`, color: th.text }
+          },
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", fontWeight: 600 } }, d.name),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(BrandChip, { brand: d.brand })),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(TypeChip, { type: d.deal_type })),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.muted } }, d.state),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(StageChip, { stage: d.stage })),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.muted } }, d.deal_lead || "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, d.base_rent ? fmtDollars(d.base_rent) : "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, d.purchase_price ? fmtDollars(d.purchase_price) : "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, tf.level === "overdue" && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block" } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#ef4444", fontWeight: 700 } }, "overdue")), tf.level === "warning" && tf.nearest && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", display: "inline-block" } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#f59e0b", fontWeight: 700 } }, tf.nearest.daysOut, "d")), tf.level === "none" && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.68rem" } }, "\u2014"))
+        );
+      }), sorted.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 9, style: { padding: "1.5rem", textAlign: "center", color: th.muted } }, "No deals match filters.")))));
     };
     const DetailModal = () => {
       if (!selectedDeal) return null;
@@ -18077,6 +18197,93 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         },
         addingNote ? "\u2026" : "Add"
       ))), (() => {
+        const nowMsD = Date.now();
+        const sortedDates = [...detailDates].sort((a, b) => (a.due_date || "").localeCompare(b.due_date || ""));
+        const doAck = (dateId) => {
+          dealApi(token, { action: "ackDate", id: dateId }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
+            setDetailDates(r.dates || []);
+            setDetailNotes(r.notes || []);
+          }).then(() => loadList()).catch((e) => alert("Ack failed: " + e.message));
+        };
+        const doDelDate = (dateId) => {
+          if (!window.confirm("Delete this date?")) return;
+          dealApi(token, { action: "deleteDate", id: dateId }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
+            setDetailDates(r.dates || []);
+            setDetailNotes(r.notes || []);
+          }).then(() => loadList()).catch((e) => alert("Delete failed: " + e.message));
+        };
+        const doAddDate = () => {
+          if (!newDateDue) {
+            setDateErr("Due date is required");
+            return;
+          }
+          const parsedTiers = newDateTiers.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n) && n > 0);
+          setDateAdding(true);
+          setDateErr(null);
+          dealApi(token, { action: "addDate", deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, notes: newDateNotes }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
+            setDetailDates(r.dates || []);
+            setNewDateDue("");
+            setNewDateNotes("");
+            const dt = DATE_TYPES.find((t) => t.id === newDateType);
+            setNewDateTiers(dt?.defaultTiers?.join(",") || "");
+          }).then(() => loadList()).catch((e) => setDateErr(e.message)).finally(() => setDateAdding(false));
+        };
+        const doIcs = () => {
+          const ics = icsForDeal(d, detailDates);
+          const blob = new Blob([ics], { type: "text/calendar" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = (d.name || "deal") + "-dates.ics";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        };
+        return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Critical Dates"), detailDates.length > 0 && /* @__PURE__ */ React.createElement("button", { onClick: doIcs, style: { ...btn(th), padding: "2px 8px", fontSize: "0.7rem" } }, "\u{1F4C5} Add to Calendar (.ics)")), sortedDates.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" } }, "No dates yet."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" } }, sortedDates.map((dt) => {
+          const ws = warningStatus(dt.due_date, dt.warning_tiers, nowMsD);
+          const statusColor = ws.level === "overdue" ? "#ef4444" : ws.level === "warning" ? "#f59e0b" : th.muted;
+          const statusText = ws.level === "overdue" ? "\u26A0 overdue" : ws.level === "warning" ? `in ${ws.daysOut}d` : `in ${ws.daysOut}d`;
+          const tiers = Array.isArray(dt.warning_tiers) ? dt.warning_tiers : [];
+          return /* @__PURE__ */ React.createElement("div", { key: dt.id, style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, dateLabel(dt.date_type)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, dt.due_date), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: statusColor } }, statusText), tiers.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.2rem" } }, tiers.map((t, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", padding: "1px 5px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.6rem", fontWeight: 700 } }, t)))), dt.acknowledged_at ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#22c55e" } }, "\u2713 ack'd by ", dt.acknowledged_by || "unknown") : null, dt.notes ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem" } }, dt.notes) : null), canEdit && !dt.acknowledged_at && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => doAck(dt.id), style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", color: "#22c55e" } }, "Acknowledge"), /* @__PURE__ */ React.createElement("button", { onClick: () => doDelDate(dt.id), style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", color: "#ef4444" } }, "Delete")), canEdit && dt.acknowledged_at && /* @__PURE__ */ React.createElement("button", { onClick: () => doDelDate(dt.id), style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", color: "#ef4444" } }, "Delete")));
+        })), canEdit && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Add Date"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+          "select",
+          {
+            value: newDateType,
+            onChange: (e) => {
+              setNewDateType(e.target.value);
+              const dt2 = DATE_TYPES.find((t) => t.id === e.target.value);
+              setNewDateTiers(dt2?.defaultTiers?.join(",") || "");
+            },
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          },
+          DATE_TYPES.map((t) => /* @__PURE__ */ React.createElement("option", { key: t.id, value: t.id }, t.label))
+        ), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            type: "date",
+            value: newDateDue,
+            onChange: (e) => setNewDateDue(e.target.value),
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          }
+        ), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            value: newDateTiers,
+            onChange: (e) => setNewDateTiers(e.target.value),
+            placeholder: "Warning tiers (e.g. 30,14,7)",
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          }
+        ), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            value: newDateNotes,
+            onChange: (e) => setNewDateNotes(e.target.value),
+            placeholder: "Notes (optional)",
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          }
+        )), dateErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#ef4444" } }, dateErr), /* @__PURE__ */ React.createElement("button", { onClick: doAddDate, disabled: dateAdding, style: { ...btn(th), padding: "0.35rem 0.9rem", fontSize: "0.8rem", alignSelf: "flex-start", background: "#3b82f6", color: "#fff", border: "none", fontWeight: 700 } }, dateAdding ? "Adding\u2026" : "Add Date")));
+      })(), (() => {
         const DOC_TYPE_LABELS = {
           loi: "LOI",
           lease_psa: "Lease / PSA",
@@ -23932,7 +24139,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.20"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.21"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

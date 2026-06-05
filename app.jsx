@@ -3,6 +3,7 @@ import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
+import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -23678,15 +23679,26 @@ function AdminDeals({ th, user, dealAuth }) {
   const [docBusy, setDocBusy] = useState(false);
   const [docErr, setDocErr] = useState(null);
   const [newDocType, setNewDocType] = useState('loi');
+  const [allDates, setAllDates] = useState([]);
+  const [newDateType, setNewDateType] = useState(DATE_TYPES[0]?.id || '');
+  const [newDateDue, setNewDateDue] = useState('');
+  const [newDateTiers, setNewDateTiers] = useState(DATE_TYPES[0]?.defaultTiers?.join(',') || '');
+  const [newDateNotes, setNewDateNotes] = useState('');
+  const [dateAdding, setDateAdding] = useState(false);
+  const [dateErr, setDateErr] = useState(null);
 
   // ── load deals ──
-  useEffect(() => {
-    if (!token) { setLoading(false); return; }
+  const loadList = () => {
     setLoading(true);
-    dealApi(token, { action: 'list', status: 'active' })
-      .then(r => { setDeals(r.deals || []); setError(null); })
+    return dealApi(token, { action: 'list', status: 'active' })
+      .then(r => { setDeals(r.deals || []); setAllDates(r.dates || []); setError(null); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (!token) { setLoading(false); return; }
+    loadList();
   }, [token]);
 
   // ── open detail ──
@@ -23734,6 +23746,13 @@ function AdminDeals({ th, user, dealAuth }) {
     return true;
   });
 
+  // ── dates by deal ──
+  const datesByDeal = React.useMemo(() => {
+    const m = {};
+    for (const d of allDates) (m[d.deal_id] = m[d.deal_id] || []).push(d);
+    return m;
+  }, [allDates]);
+
   // ── KPI header ──
   const totalActive = deals.length;
   const totalPurchaseCapital = deals.filter(d => d.deal_type === 'purchase').reduce((s, d) => s + (Number(d.purchase_price) || 0), 0);
@@ -23741,12 +23760,30 @@ function AdminDeals({ th, user, dealAuth }) {
   const leaseCount = deals.filter(d => d.deal_type === 'lease').length;
   const purchaseCount = deals.filter(d => d.deal_type === 'purchase').length;
 
+  // deadline KPIs
+  const nowMs = Date.now();
+  const dealFlagMap = React.useMemo(() => {
+    const m = {};
+    for (const deal of deals) m[deal.id] = dealDeadlineFlag(datesByDeal[deal.id], nowMs);
+    return m;
+  }, [deals, datesByDeal, nowMs]);
+
+  const within30 = deals.filter(d => { const nd = nextDeadline(datesByDeal[d.id], nowMs); return nd && nd.daysOut <= 30 && nd.daysOut >= 0; }).length;
+  const within60 = deals.filter(d => { const nd = nextDeadline(datesByDeal[d.id], nowMs); return nd && nd.daysOut <= 60 && nd.daysOut >= 0; }).length;
+  const within90 = deals.filter(d => { const nd = nextDeadline(datesByDeal[d.id], nowMs); return nd && nd.daysOut <= 90 && nd.daysOut >= 0; }).length;
+  const overdueCount = deals.filter(d => dealFlagMap[d.id]?.level === 'overdue').length;
+  const warningCount = deals.filter(d => dealFlagMap[d.id]?.level === 'warning').length;
+
   const kpiCards = [
     { label: 'Active Deals', value: totalActive, color: '#3b82f6' },
     { label: 'Leases', value: leaseCount, color: '#22c55e' },
     { label: 'Purchases', value: purchaseCount, color: '#f59e0b' },
     { label: 'Pipeline Base Rent', value: fmtDollars(totalBaseRent), color: '#a855f7' },
     { label: 'Committed Capital', value: fmtDollars(totalPurchaseCapital), color: '#ef4444' },
+    { label: 'Due ≤30d', value: within30, color: within30 > 0 ? '#ef4444' : '#64748b' },
+    { label: 'Due ≤60d', value: within60, color: '#f59e0b' },
+    { label: 'Due ≤90d', value: within90, color: '#64748b' },
+    { label: 'Overdue / Warning', value: `${overdueCount > 0 ? '🔴' : ''}${overdueCount} / ${warningCount > 0 ? '🟡' : ''}${warningCount}`, color: overdueCount > 0 ? '#ef4444' : warningCount > 0 ? '#f59e0b' : '#64748b' },
   ];
 
   // ── chip helpers ──
@@ -23865,6 +23902,7 @@ function AdminDeals({ th, user, dealAuth }) {
               {stageDeals.map(deal => {
                 const prevStage = stageOrder[si - 1];
                 const nextStage = stageOrder[si + 1];
+                const flag = dealDeadlineFlag(datesByDeal[deal.id], Date.now());
                 return (
                   <div key={deal.id}
                     onClick={() => openDetail(deal)}
@@ -23880,6 +23918,18 @@ function AdminDeals({ th, user, dealAuth }) {
                       : deal.purchase_price
                         ? <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.2rem' }}>{fmtDollars(deal.purchase_price)}</div>
                         : null}
+                    {flag.level === 'overdue' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.3rem' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block', flexShrink: 0 }} />
+                        <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}>⚠ overdue</span>
+                      </div>
+                    )}
+                    {flag.level === 'warning' && flag.nearest && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.3rem' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', display: 'inline-block', flexShrink: 0 }} />
+                        <span style={{ fontSize: '0.65rem', color: '#f59e0b', fontWeight: 700 }}>next: {dateLabel(flag.nearest.date_type)} in {flag.nearest.daysOut}d</span>
+                      </div>
+                    )}
                     {canEdit && (
                       <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.4rem' }} onClick={e => e.stopPropagation()}>
                         {prevStage && (
@@ -23914,6 +23964,7 @@ function AdminDeals({ th, user, dealAuth }) {
       { key: 'deal_lead', label: 'Lead' },
       { key: 'base_rent', label: 'Base Rent' },
       { key: 'purchase_price', label: 'Purchase $' },
+      { key: '_deadline', label: 'Deadline', noSort: true },
     ];
     return (
       <div style={{ ...card(th), overflow: 'auto' }}>
@@ -23921,29 +23972,47 @@ function AdminDeals({ th, user, dealAuth }) {
           <thead>
             <tr style={{ background: th.sidebar, color: th.muted, textAlign: 'left' }}>
               {cols.map(c => (
-                <th key={c.key} onClick={() => toggleSort(c.key)}
-                  style={{ padding: '0.6rem 0.75rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none' }}>
-                  {c.label}{sortCol === c.key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                <th key={c.key} onClick={() => !c.noSort && toggleSort(c.key)}
+                  style={{ padding: '0.6rem 0.75rem', fontWeight: 700, cursor: c.noSort ? 'default' : 'pointer', whiteSpace: 'nowrap', userSelect: 'none' }}>
+                  {c.label}{!c.noSort && sortCol === c.key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {sorted.map(d => (
-              <tr key={d.id} onClick={() => openDetail(d)}
-                style={{ cursor: 'pointer', borderTop: `1px solid ${th.cardBorder}`, color: th.text }}>
-                <td style={{ padding: '0.5rem 0.75rem', fontWeight: 600 }}>{d.name}</td>
-                <td style={{ padding: '0.5rem 0.75rem' }}><BrandChip brand={d.brand} /></td>
-                <td style={{ padding: '0.5rem 0.75rem' }}><TypeChip type={d.deal_type} /></td>
-                <td style={{ padding: '0.5rem 0.75rem', color: th.muted }}>{d.state}</td>
-                <td style={{ padding: '0.5rem 0.75rem' }}><StageChip stage={d.stage} /></td>
-                <td style={{ padding: '0.5rem 0.75rem', color: th.muted }}>{d.deal_lead || '—'}</td>
-                <td style={{ padding: '0.5rem 0.75rem' }}>{d.base_rent ? fmtDollars(d.base_rent) : '—'}</td>
-                <td style={{ padding: '0.5rem 0.75rem' }}>{d.purchase_price ? fmtDollars(d.purchase_price) : '—'}</td>
-              </tr>
-            ))}
+            {sorted.map(d => {
+              const tf = dealDeadlineFlag(datesByDeal[d.id], Date.now());
+              return (
+                <tr key={d.id} onClick={() => openDetail(d)}
+                  style={{ cursor: 'pointer', borderTop: `1px solid ${th.cardBorder}`, color: th.text }}>
+                  <td style={{ padding: '0.5rem 0.75rem', fontWeight: 600 }}>{d.name}</td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}><BrandChip brand={d.brand} /></td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}><TypeChip type={d.deal_type} /></td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: th.muted }}>{d.state}</td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}><StageChip stage={d.stage} /></td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: th.muted }}>{d.deal_lead || '—'}</td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>{d.base_rent ? fmtDollars(d.base_rent) : '—'}</td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>{d.purchase_price ? fmtDollars(d.purchase_price) : '—'}</td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    {tf.level === 'overdue' && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                        <span style={{ fontSize: '0.68rem', color: '#ef4444', fontWeight: 700 }}>overdue</span>
+                      </span>
+                    )}
+                    {tf.level === 'warning' && tf.nearest && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
+                        <span style={{ fontSize: '0.68rem', color: '#f59e0b', fontWeight: 700 }}>{tf.nearest.daysOut}d</span>
+                      </span>
+                    )}
+                    {tf.level === 'none' && <span style={{ color: th.muted, fontSize: '0.68rem' }}>—</span>}
+                  </td>
+                </tr>
+              );
+            })}
             {sorted.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: '1.5rem', textAlign: 'center', color: th.muted }}>No deals match filters.</td></tr>
+              <tr><td colSpan={9} style={{ padding: '1.5rem', textAlign: 'center', color: th.muted }}>No deals match filters.</td></tr>
             )}
           </tbody>
         </table>
@@ -24120,6 +24189,143 @@ function AdminDeals({ th, user, dealAuth }) {
               </div>
             )}
           </div>
+
+          {/* Documents */}
+          {/* Critical Dates */}
+          {(() => {
+            const nowMsD = Date.now();
+            const sortedDates = [...detailDates].sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''));
+
+            const doAck = (dateId) => {
+              dealApi(token, { action: 'ackDate', id: dateId })
+                .then(() => dealApi(token, { action: 'get', id: d.id }))
+                .then(r => { setDetailDates(r.dates || []); setDetailNotes(r.notes || []); })
+                .then(() => loadList())
+                .catch(e => alert('Ack failed: ' + e.message));
+            };
+
+            const doDelDate = (dateId) => {
+              if (!window.confirm('Delete this date?')) return;
+              dealApi(token, { action: 'deleteDate', id: dateId })
+                .then(() => dealApi(token, { action: 'get', id: d.id }))
+                .then(r => { setDetailDates(r.dates || []); setDetailNotes(r.notes || []); })
+                .then(() => loadList())
+                .catch(e => alert('Delete failed: ' + e.message));
+            };
+
+            const doAddDate = () => {
+              if (!newDateDue) { setDateErr('Due date is required'); return; }
+              const parsedTiers = newDateTiers.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
+              setDateAdding(true); setDateErr(null);
+              dealApi(token, { action: 'addDate', deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, notes: newDateNotes })
+                .then(() => dealApi(token, { action: 'get', id: d.id }))
+                .then(r => {
+                  setDetailDates(r.dates || []);
+                  setNewDateDue(''); setNewDateNotes('');
+                  const dt = DATE_TYPES.find(t => t.id === newDateType);
+                  setNewDateTiers(dt?.defaultTiers?.join(',') || '');
+                })
+                .then(() => loadList())
+                .catch(e => setDateErr(e.message))
+                .finally(() => setDateAdding(false));
+            };
+
+            const doIcs = () => {
+              const ics = icsForDeal(d, detailDates);
+              const blob = new Blob([ics], { type: 'text/calendar' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = (d.name || 'deal') + '-dates.ics';
+              document.body.appendChild(a); a.click();
+              document.body.removeChild(a); URL.revokeObjectURL(url);
+            };
+
+            return (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 1 }}>Critical Dates</div>
+                  {detailDates.length > 0 && (
+                    <button onClick={doIcs} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.7rem' }}>📅 Add to Calendar (.ics)</button>
+                  )}
+                </div>
+
+                {sortedDates.length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '0.5rem' }}>No dates yet.</div>}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                  {sortedDates.map(dt => {
+                    const ws = warningStatus(dt.due_date, dt.warning_tiers, nowMsD);
+                    const statusColor = ws.level === 'overdue' ? '#ef4444' : ws.level === 'warning' ? '#f59e0b' : th.muted;
+                    const statusText = ws.level === 'overdue' ? '⚠ overdue' : ws.level === 'warning' ? `in ${ws.daysOut}d` : `in ${ws.daysOut}d`;
+                    const tiers = Array.isArray(dt.warning_tiers) ? dt.warning_tiers : [];
+                    return (
+                      <div key={dt.id} style={{ ...card(th), padding: '0.6rem 0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: th.text }}>{dateLabel(dt.date_type)}</span>
+                              <span style={{ fontSize: '0.75rem', color: th.muted }}>·</span>
+                              <span style={{ fontSize: '0.75rem', color: th.muted }}>{dt.due_date}</span>
+                              <span style={{ fontSize: '0.75rem', color: th.muted }}>·</span>
+                              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: statusColor }}>{statusText}</span>
+                              {tiers.length > 0 && (
+                                <span style={{ display: 'inline-flex', gap: '0.2rem' }}>
+                                  {tiers.map((t, i) => (
+                                    <span key={i} style={{ display: 'inline-block', padding: '1px 5px', borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: '0.6rem', fontWeight: 700 }}>{t}</span>
+                                  ))}
+                                </span>
+                              )}
+                            </div>
+                            {dt.acknowledged_at ? (
+                              <div style={{ fontSize: '0.68rem', color: '#22c55e' }}>✓ ack'd by {dt.acknowledged_by || 'unknown'}</div>
+                            ) : null}
+                            {dt.notes ? <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.1rem' }}>{dt.notes}</div> : null}
+                          </div>
+                          {canEdit && !dt.acknowledged_at && (
+                            <div style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
+                              <button onClick={() => doAck(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#22c55e' }}>Acknowledge</button>
+                              <button onClick={() => doDelDate(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#ef4444' }}>Delete</button>
+                            </div>
+                          )}
+                          {canEdit && dt.acknowledged_at && (
+                            <button onClick={() => doDelDate(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#ef4444' }}>Delete</button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {canEdit && (
+                  <div style={{ ...card(th), padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Add Date</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                      <select value={newDateType}
+                        onChange={e => {
+                          setNewDateType(e.target.value);
+                          const dt2 = DATE_TYPES.find(t => t.id === e.target.value);
+                          setNewDateTiers(dt2?.defaultTiers?.join(',') || '');
+                        }}
+                        style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}>
+                        {DATE_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                      </select>
+                      <input type="date" value={newDateDue} onChange={e => setNewDateDue(e.target.value)}
+                        style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} />
+                      <input value={newDateTiers} onChange={e => setNewDateTiers(e.target.value)}
+                        placeholder="Warning tiers (e.g. 30,14,7)"
+                        style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} />
+                      <input value={newDateNotes} onChange={e => setNewDateNotes(e.target.value)}
+                        placeholder="Notes (optional)"
+                        style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} />
+                    </div>
+                    {dateErr && <div style={{ fontSize: '0.75rem', color: '#ef4444' }}>{dateErr}</div>}
+                    <button onClick={doAddDate} disabled={dateAdding} style={{ ...btn(th), padding: '0.35rem 0.9rem', fontSize: '0.8rem', alignSelf: 'flex-start', background: '#3b82f6', color: '#fff', border: 'none', fontWeight: 700 }}>
+                      {dateAdding ? 'Adding…' : 'Add Date'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Documents */}
           {(() => {
@@ -31714,7 +31920,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.20
+            v14.21
           </div>
         )}
         {/* Collapse toggle — desktop only */}
