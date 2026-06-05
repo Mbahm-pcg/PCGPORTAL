@@ -18563,13 +18563,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           const statusText = ws.level === "overdue" ? "\u26A0 overdue" : ws.level === "warning" ? `in ${ws.daysOut}d` : `in ${ws.daysOut}d`;
           const tiers = Array.isArray(dt.warning_tiers) ? dt.warning_tiers : [];
           const isRemindOpen = remindFor && remindFor.id === dt.id;
+          const fmtDealDate = (s) => {
+            const ymd = String(s || "").slice(0, 10);
+            const p = ymd.split("-");
+            return p.length === 3 ? `${p[1]}/${p[2]}/${p[0]}` : ymd;
+          };
           const openReminder = (dateRow) => {
             const due = dateRow.due_date || "";
-            let dueFmt = due;
-            if (due) {
-              const parts = due.split("-");
-              if (parts.length === 3) dueFmt = `${parts[1]}/${parts[2]}/${parts[0]}`;
-            }
+            const dueFmt = fmtDealDate(due);
             const days = daysUntil(due, Date.now());
             const tail = days < 0 ? `\u2014 OVERDUE by ${Math.abs(days)} days` : `\u2014 in ${days} days`;
             const autoMsg = `${detailDeal.name} \u2014 ${dateLabel(dateRow.date_type)} needed on ${dueFmt} ${tail}`;
@@ -18595,7 +18596,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
               setRemindBusy(false);
             }
           };
-          return /* @__PURE__ */ React.createElement("div", { key: dt.id }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, dateLabel(dt.date_type)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, dt.due_date), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: statusColor } }, statusText), tiers.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.2rem" } }, tiers.map((t, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", padding: "1px 5px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.6rem", fontWeight: 700 } }, t)))), dt.acknowledged_at ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#22c55e" } }, "\u2713 ack'd by ", dt.acknowledged_by || "unknown") : null, dt.notes ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem" } }, dt.notes) : null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap" } }, canEdit && /* @__PURE__ */ React.createElement(
+          return /* @__PURE__ */ React.createElement("div", { key: dt.id }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, dateLabel(dt.date_type)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, fmtDealDate(dt.due_date)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: statusColor } }, statusText), tiers.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.2rem" } }, tiers.map((t, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", padding: "1px 5px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.6rem", fontWeight: 700 } }, t)))), dt.acknowledged_at ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#22c55e" } }, "\u2713 ack'd by ", dt.acknowledged_by || "unknown") : null, dt.notes ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem" } }, dt.notes) : null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap" } }, canEdit && /* @__PURE__ */ React.createElement(
             "button",
             {
               onClick: () => isRemindOpen ? setRemindFor(null) : openReminder(dt),
@@ -24639,7 +24640,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.37"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.38"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

@@ -24699,13 +24699,11 @@ function AdminDeals({ th, user, dealAuth }) {
                     const tiers = Array.isArray(dt.warning_tiers) ? dt.warning_tiers : [];
                     const isRemindOpen = remindFor && remindFor.id === dt.id;
 
+                    // Date-only display: slice YYYY-MM-DD first (handles Neon ISO timestamps + avoids TZ off-by-one), then MM/DD/YYYY.
+                    const fmtDealDate = (s) => { const ymd = String(s || '').slice(0, 10); const p = ymd.split('-'); return p.length === 3 ? `${p[1]}/${p[2]}/${p[0]}` : ymd; };
                     const openReminder = (dateRow) => {
                       const due = dateRow.due_date || '';
-                      let dueFmt = due;
-                      if (due) {
-                        const parts = due.split('-');
-                        if (parts.length === 3) dueFmt = `${parts[1]}/${parts[2]}/${parts[0]}`;
-                      }
+                      const dueFmt = fmtDealDate(due);
                       const days = daysUntil(due, Date.now());
                       const tail = days < 0
                         ? `— OVERDUE by ${Math.abs(days)} days`
@@ -24739,7 +24737,7 @@ function AdminDeals({ th, user, dealAuth }) {
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: '0.82rem', fontWeight: 700, color: th.text }}>{dateLabel(dt.date_type)}</span>
                                 <span style={{ fontSize: '0.75rem', color: th.muted }}>·</span>
-                                <span style={{ fontSize: '0.75rem', color: th.muted }}>{dt.due_date}</span>
+                                <span style={{ fontSize: '0.75rem', color: th.muted }}>{fmtDealDate(dt.due_date)}</span>
                                 <span style={{ fontSize: '0.75rem', color: th.muted }}>·</span>
                                 <span style={{ fontSize: '0.72rem', fontWeight: 700, color: statusColor }}>{statusText}</span>
                                 {tiers.length > 0 && (
@@ -32590,7 +32588,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.37
+            v14.38
           </div>
         )}
         {/* Collapse toggle — desktop only */}
