@@ -19,6 +19,8 @@ const DATE_LABELS = {
   estoppel_response: 'Estoppel / SNDA Response',
 };
 const lc = (s) => (s == null ? '' : String(s).trim().toLowerCase());
+// Escape DB free-text before interpolating into the digest email HTML (prevents HTML injection).
+const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
 
 // Neon returns DATE columns as JS Date objects (not strings) — normalize to YYYY-MM-DD.
 function toYMD(d) {
@@ -95,7 +97,7 @@ exports.handler = async (event) => {
       const when = r.w.level === 'overdue'
         ? `<span style="color:#ef4444;font-weight:700">OVERDUE ${Math.abs(r.w.daysOut)}d</span>`
         : `<span style="color:#f59e0b;font-weight:700">in ${r.w.daysOut}d</span>${r.w.tier ? ` (${r.w.tier}d tier)` : ''}`;
-      return `<tr><td style="padding:6px 10px">${r.deal_name}</td><td style="padding:6px 10px">${label}</td><td style="padding:6px 10px">${toYMD(r.due_date)}</td><td style="padding:6px 10px">${when}</td><td style="padding:6px 10px">${r.deal_lead || ''}</td></tr>`;
+      return `<tr><td style="padding:6px 10px">${esc(r.deal_name)}</td><td style="padding:6px 10px">${esc(label)}</td><td style="padding:6px 10px">${toYMD(r.due_date)}</td><td style="padding:6px 10px">${when}</td><td style="padding:6px 10px">${esc(r.deal_lead)}</td></tr>`;
     };
     const html = `
       <h2 style="font-family:Arial">PCG Deal Pipeline — Critical Date Reminders</h2>
