@@ -17,10 +17,14 @@ async function loadUsers() {
   catch { return []; }
 }
 
+// Public OAuth client id (NOT a secret — already shipped in the browser bundle, app.jsx).
+// Hardcoded rather than an env var to stay under AWS Lambda's 4KB env-var limit.
+const GSI_CLIENT_ID = '450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com';
+
 async function verifyGoogle(idToken) {
   const { OAuth2Client } = require('google-auth-library');
-  const client = new OAuth2Client(process.env.GOOGLE_GSI_CLIENT_ID);
-  const ticket = await client.verifyIdToken({ idToken, audience: process.env.GOOGLE_GSI_CLIENT_ID });
+  const client = new OAuth2Client(GSI_CLIENT_ID);
+  const ticket = await client.verifyIdToken({ idToken, audience: GSI_CLIENT_ID });
   const p = ticket.getPayload();
   if (!p?.email_verified) return null;
   return lc(p.email);
