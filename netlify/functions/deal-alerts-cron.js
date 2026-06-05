@@ -20,9 +20,14 @@ const DATE_LABELS = {
 };
 const lc = (s) => (s == null ? '' : String(s).trim().toLowerCase());
 
-function daysUntil(dueStr, nowMs) {
-  const d = Date.parse(String(dueStr).slice(0, 10) + 'T00:00:00Z');
-  return Number.isNaN(d) ? Infinity : Math.ceil((d - nowMs) / 86400000);
+// Neon returns DATE columns as JS Date objects (not strings) — normalize to YYYY-MM-DD.
+function toYMD(d) {
+  if (d instanceof Date) return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())).toISOString().slice(0, 10);
+  return String(d == null ? '' : d).slice(0, 10);
+}
+function daysUntil(due, nowMs) {
+  const t = Date.parse(toYMD(due) + 'T00:00:00Z');
+  return Number.isNaN(t) ? Infinity : Math.ceil((t - nowMs) / 86400000);
 }
 function warnLevel(dueStr, tiers, nowMs) {
   const daysOut = daysUntil(dueStr, nowMs);
@@ -90,7 +95,7 @@ exports.handler = async (event) => {
       const when = r.w.level === 'overdue'
         ? `<span style="color:#ef4444;font-weight:700">OVERDUE ${Math.abs(r.w.daysOut)}d</span>`
         : `<span style="color:#f59e0b;font-weight:700">in ${r.w.daysOut}d</span>${r.w.tier ? ` (${r.w.tier}d tier)` : ''}`;
-      return `<tr><td style="padding:6px 10px">${r.deal_name}</td><td style="padding:6px 10px">${label}</td><td style="padding:6px 10px">${String(r.due_date).slice(0, 10)}</td><td style="padding:6px 10px">${when}</td><td style="padding:6px 10px">${r.deal_lead || ''}</td></tr>`;
+      return `<tr><td style="padding:6px 10px">${r.deal_name}</td><td style="padding:6px 10px">${label}</td><td style="padding:6px 10px">${toYMD(r.due_date)}</td><td style="padding:6px 10px">${when}</td><td style="padding:6px 10px">${r.deal_lead || ''}</td></tr>`;
     };
     const html = `
       <h2 style="font-family:Arial">PCG Deal Pipeline — Critical Date Reminders</h2>
