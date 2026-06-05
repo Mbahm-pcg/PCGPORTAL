@@ -1,5 +1,7 @@
-// PCG Portal — SMS Notifications via Twilio
-// Sends SMS alerts for project changes, deadlines, chat mentions
+// PCG Portal — SMS Notifications via Textbelt (https://textbelt.com)
+// Sends SMS alerts for project changes, deadlines, chat mentions.
+// Contract is unchanged from the previous Twilio version: POST { to, message }
+// where `to` is a single phone number or an array of numbers.
 
 const https = require('https');
 
@@ -23,12 +25,9 @@ exports.handler = async (event) => {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing to or message' }) };
   }
 
-  const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-  const AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN;
-  const FROM_NUMBER = process.env.TWILIO_PHONE_NUMBER;
-
-  if (!ACCOUNT_SID || !AUTH_TOKEN || !FROM_NUMBER) {
-    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Twilio credentials not configured' }) };
+  const KEY = process.env.TEXTBELT_API_KEY;
+  if (!KEY) {
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Textbelt API key not configured' }) };
   }
 
   // Send to one or multiple phone numbers
@@ -36,26 +35,21 @@ exports.handler = async (event) => {
   const results = [];
 
   for (const number of numbers) {
-    // Normalize phone number — strip formatting, ensure +1 prefix for US
-    let cleaned = number.replace(/\D/g, '');
+    // Normalize to E.164 US (+1XXXXXXXXXX). Textbelt also accepts a bare 10-digit number.
+    let cleaned = String(number).replace(/\D/g, '');
     if (cleaned.length === 10) cleaned = '1' + cleaned;
-    if (!cleaned.startsWith('+')) cleaned = '+' + cleaned;
+    const phone = '+' + cleaned;
 
-    const postData = new URLSearchParams({
-      To: cleaned,
-      From: FROM_NUMBER,
-      Body: message,
-    }).toString();
+    const postData = new URLSearchParams({ phone, message, key: KEY }).toString();
 
     const result = await new Promise((resolve) => {
       const options = {
-        hostname: 'api.twilio.com',
+        hostname: 'textbelt.com',
         port: 443,
-        path: `/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`,
+        path: '/text',
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': 'Basic ' + Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64'),
           'Content-Length': Buffer.byteLength(postData),
         },
       };
@@ -64,12 +58,21 @@ exports.handler = async (event) => {
         let raw = '';
         res.on('data', d => raw += d);
         res.on('end', () => {
-          resolve({ number: cleaned, statusCode: res.statusCode, response: raw });
+          let j = {};
+          try { j = JSON.parse(raw); } catch {}
+          // Textbelt: { success, textId, quotaRemaining } or { success:false, error }
+          resolve({
+            number: phone,
+            success: !!j.success,
+            quotaRemaining: j.quotaRemaining,
+            textId: j.textId,
+            error: j.error,
+          });
         });
       });
 
       req.on('error', (err) => {
-        resolve({ number: cleaned, statusCode: 500, error: err.message });
+        resolve({ number: phone, success: false, error: err.message });
       });
 
       req.write(postData);
@@ -79,10 +82,10 @@ exports.handler = async (event) => {
     results.push(result);
   }
 
-  const allOk = results.every(r => r.statusCode >= 200 && r.statusCode < 300);
+  const allOk = results.every(r => r.success);
   return {
     statusCode: allOk ? 200 : 207,
     headers,
-    body: JSON.stringify({ results }),
+    body: JSON.stringify({ provider: 'textbelt', results }),
   };
 };
