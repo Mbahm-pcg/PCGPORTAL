@@ -2,7 +2,7 @@
 import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
-import { dealLogin, dealApi } from './src/deal-api.mjs';
+import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -23673,6 +23673,11 @@ function AdminDeals({ th, user, dealAuth }) {
   const [createForm, setCreateForm] = useState({ name: '', deal_type: 'lease', brand: 'dunkin', state: 'PA', address: '', deal_lead: '' });
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState(null);
+  const [docs, setDocs] = useState([]);
+  const [docVersions, setDocVersions] = useState([]);
+  const [docBusy, setDocBusy] = useState(false);
+  const [docErr, setDocErr] = useState(null);
+  const [newDocType, setNewDocType] = useState('loi');
 
   // ── load deals ──
   useEffect(() => {
@@ -23685,11 +23690,21 @@ function AdminDeals({ th, user, dealAuth }) {
   }, [token]);
 
   // ── open detail ──
+  const loadDocs = (dealId) => {
+    setDocErr(null);
+    dealDocsApi(token, { action: 'list', deal_id: dealId })
+      .then(r => { setDocs(r.docs || []); setDocVersions(r.versions || []); })
+      .catch(e => setDocErr(e.message));
+  };
+
   const openDetail = (deal) => {
     setSelectedDeal(deal);
     setDetailDeal(deal);
     setDetailDates([]);
     setDetailNotes([]);
+    setDocs([]);
+    setDocVersions([]);
+    setDocErr(null);
     setEditFields({});
     setSaveMsg(null);
     setDetailLoading(true);
@@ -23703,6 +23718,7 @@ function AdminDeals({ th, user, dealAuth }) {
       })
       .catch(e => setDetailError(e.message))
       .finally(() => setDetailLoading(false));
+    loadDocs(deal.id);
   };
 
   const closeDetail = () => { setSelectedDeal(null); setDetailDeal(null); };
@@ -24104,6 +24120,125 @@ function AdminDeals({ th, user, dealAuth }) {
               </div>
             )}
           </div>
+
+          {/* Documents */}
+          {(() => {
+            const DOC_TYPE_LABELS = {
+              loi: 'LOI', lease_psa: 'Lease / PSA', amendment: 'Amendment',
+              estoppel: 'Estoppel', snda: 'SNDA', title: 'Title',
+              survey: 'Survey', phase1: 'Phase I', zoning: 'Zoning',
+              appraisal: 'Appraisal', guaranty: 'Guaranty', closing: 'Closing',
+              other: 'Other',
+            };
+            const DOC_TYPE_OPTIONS = Object.entries(DOC_TYPE_LABELS);
+            const fmtBytes = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? (n / 1024).toFixed(0) + ' KB' : (n || 0) + ' B';
+            const fmtDate = (s) => s ? new Date(s).toLocaleDateString() : '';
+
+            const doUploadNew = async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              e.target.value = '';
+              setDocBusy(true); setDocErr(null);
+              try {
+                await dealUploadDoc(token, { deal_id: d.id, doc_type: newDocType, file });
+                loadDocs(d.id);
+              } catch (err) {
+                setDocErr(err.message);
+              } finally {
+                setDocBusy(false);
+              }
+            };
+
+            const doUploadVersion = async (doc, e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              e.target.value = '';
+              setDocBusy(true); setDocErr(null);
+              try {
+                await dealUploadDoc(token, { deal_id: d.id, document_id: doc.id, doc_type: doc.doc_type, file });
+                loadDocs(d.id);
+              } catch (err) {
+                setDocErr(err.message);
+              } finally {
+                setDocBusy(false);
+              }
+            };
+
+            const sortedDocs = [...docs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+            return (
+              <div>
+                <div style={{ fontSize: '0.7rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.6rem' }}>Documents</div>
+                {docErr && <div style={{ fontSize: '0.78rem', color: '#ef4444', marginBottom: '0.5rem' }}>Error: {docErr}</div>}
+
+                {sortedDocs.length === 0 && !docBusy && (
+                  <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '0.75rem' }}>No documents yet.</div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '0.75rem' }}>
+                  {sortedDocs.map(doc => {
+                    const versions = [...docVersions.filter(v => v.document_id === doc.id)]
+                      .sort((a, b) => b.version_no - a.version_no);
+                    return (
+                      <div key={doc.id} style={{ ...card(th), padding: '0.65rem 0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.3rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span style={{ display: 'inline-block', padding: '1px 7px', borderRadius: 999, background: '#3b82f622', color: '#3b82f6', fontSize: '0.62rem', fontWeight: 700, letterSpacing: 0.3 }}>
+                              {DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type}
+                            </span>
+                            <span style={{ fontSize: '0.82rem', fontWeight: 600, color: th.text }}>{doc.title || '—'}</span>
+                          </div>
+                          {canEdit && (
+                            <label style={{ cursor: docBusy ? 'not-allowed' : 'pointer' }}>
+                              <span style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', opacity: docBusy ? 0.5 : 1 }}>↑ New version</span>
+                              <input type="file" style={{ display: 'none' }} disabled={docBusy} onChange={e => doUploadVersion(doc, e)} />
+                            </label>
+                          )}
+                        </div>
+                        {versions.length === 0 && (
+                          <div style={{ fontSize: '0.75rem', color: th.muted }}>No versions uploaded.</div>
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                          {versions.map(v => (
+                            <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <span style={{ display: 'inline-block', padding: '1px 6px', borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: '0.62rem', fontWeight: 700 }}>
+                                v{v.version_no}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: th.text, fontWeight: 500 }}>{v.filename}</span>
+                              <span style={{ fontSize: '0.68rem', color: th.muted }}>{fmtBytes(v.size)}</span>
+                              <span style={{ fontSize: '0.68rem', color: th.muted }}>·</span>
+                              <span style={{ fontSize: '0.68rem', color: th.muted }}>{v.uploaded_by}</span>
+                              <span style={{ fontSize: '0.68rem', color: th.muted }}>·</span>
+                              <span style={{ fontSize: '0.68rem', color: th.muted }}>{fmtDate(v.uploaded_at)}</span>
+                              <button onClick={() => dealDownloadVersion(token, v.id)}
+                                style={{ ...btn(th), padding: '1px 8px', fontSize: '0.68rem', marginLeft: 'auto' }}>
+                                Download
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {canEdit && (
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <select value={newDocType} onChange={e => setNewDocType(e.target.value)}
+                      style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem', minWidth: 130 }}>
+                      {DOC_TYPE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                    <label style={{ cursor: docBusy ? 'not-allowed' : 'pointer' }}>
+                      <span style={{ ...btn(th), padding: '0.35rem 0.8rem', fontSize: '0.8rem', opacity: docBusy ? 0.5 : 1, display: 'inline-block' }}>
+                        {docBusy ? 'Uploading…' : 'Upload Document'}
+                      </span>
+                      <input type="file" style={{ display: 'none' }} disabled={docBusy} onChange={doUploadNew} />
+                    </label>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
     );
@@ -31579,7 +31714,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.19
+            v14.20
           </div>
         )}
         {/* Collapse toggle — desktop only */}

@@ -172,6 +172,57 @@
     if (!res.ok) throw new Error(`deals ${body && body.action} \u2192 ${res.status}`);
     return res.json();
   }
+  async function dealDocsApi(token, body) {
+    const res = await fetch(`${FN}/deal-docs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(`deal-docs ${body && body.action} \u2192 ${res.status}`);
+    return res.json();
+  }
+  var DOC_CHUNK = 4 * 1024 * 1024;
+  async function dealUploadDoc(token, { deal_id, document_id, doc_type, title, file }) {
+    let docId = document_id;
+    if (!docId) {
+      const r2 = await dealDocsApi(token, { action: "createDoc", deal_id, doc_type, title: title || file.name });
+      docId = r2.doc.id;
+    }
+    const dataUrl = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = () => reject(fr.error);
+      fr.readAsDataURL(file);
+    });
+    const base64 = String(dataUrl).split(",")[1] || "";
+    const prefix = String(dataUrl).split(",")[0] + ",";
+    const total = Math.ceil(base64.length / DOC_CHUNK) || 1;
+    const blobKey = "dealup_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    for (let i = 0; i < total; i++) {
+      await dealDocsApi(token, { action: "uploadChunk", blobKey, index: i, chunk: base64.slice(i * DOC_CHUNK, (i + 1) * DOC_CHUNK) });
+    }
+    const r = await dealDocsApi(token, {
+      action: "finalizeVersion",
+      document_id: docId,
+      blobKey,
+      chunks: total,
+      filename: file.name,
+      type: file.type,
+      size: file.size,
+      prefix
+    });
+    return { document_id: docId, version: r.version };
+  }
+  async function dealDownloadVersion(token, version_id) {
+    const r = await dealDocsApi(token, { action: "download", version_id });
+    const a = document.createElement("a");
+    a.href = r.dataUrl;
+    a.download = r.filename || "document";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return r;
+  }
 
   // app.jsx
   var { useState, useRef, useCallback, useEffect } = React;
@@ -17766,6 +17817,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [createForm, setCreateForm] = useState({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
     const [creating, setCreating] = useState(false);
     const [createError, setCreateError] = useState(null);
+    const [docs, setDocs] = useState([]);
+    const [docVersions, setDocVersions] = useState([]);
+    const [docBusy, setDocBusy] = useState(false);
+    const [docErr, setDocErr] = useState(null);
+    const [newDocType, setNewDocType] = useState("loi");
     useEffect(() => {
       if (!token) {
         setLoading(false);
@@ -17777,11 +17833,21 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         setError(null);
       }).catch((e) => setError(e.message)).finally(() => setLoading(false));
     }, [token]);
+    const loadDocs = (dealId) => {
+      setDocErr(null);
+      dealDocsApi(token, { action: "list", deal_id: dealId }).then((r) => {
+        setDocs(r.docs || []);
+        setDocVersions(r.versions || []);
+      }).catch((e) => setDocErr(e.message));
+    };
     const openDetail = (deal) => {
       setSelectedDeal(deal);
       setDetailDeal(deal);
       setDetailDates([]);
       setDetailNotes([]);
+      setDocs([]);
+      setDocVersions([]);
+      setDocErr(null);
       setEditFields({});
       setSaveMsg(null);
       setDetailLoading(true);
@@ -17792,6 +17858,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         setDetailNotes(r.notes || []);
         setEditFields({});
       }).catch((e) => setDetailError(e.message)).finally(() => setDetailLoading(false));
+      loadDocs(deal.id);
     };
     const closeDetail = () => {
       setSelectedDeal(null);
@@ -18009,7 +18076,76 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           style: { ...btn(th), padding: "0.4rem 0.8rem", fontSize: "0.8rem" }
         },
         addingNote ? "\u2026" : "Add"
-      )))));
+      ))), (() => {
+        const DOC_TYPE_LABELS = {
+          loi: "LOI",
+          lease_psa: "Lease / PSA",
+          amendment: "Amendment",
+          estoppel: "Estoppel",
+          snda: "SNDA",
+          title: "Title",
+          survey: "Survey",
+          phase1: "Phase I",
+          zoning: "Zoning",
+          appraisal: "Appraisal",
+          guaranty: "Guaranty",
+          closing: "Closing",
+          other: "Other"
+        };
+        const DOC_TYPE_OPTIONS = Object.entries(DOC_TYPE_LABELS);
+        const fmtBytes = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? (n / 1024).toFixed(0) + " KB" : (n || 0) + " B";
+        const fmtDate = (s) => s ? new Date(s).toLocaleDateString() : "";
+        const doUploadNew = async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          e.target.value = "";
+          setDocBusy(true);
+          setDocErr(null);
+          try {
+            await dealUploadDoc(token, { deal_id: d.id, doc_type: newDocType, file });
+            loadDocs(d.id);
+          } catch (err) {
+            setDocErr(err.message);
+          } finally {
+            setDocBusy(false);
+          }
+        };
+        const doUploadVersion = async (doc, e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          e.target.value = "";
+          setDocBusy(true);
+          setDocErr(null);
+          try {
+            await dealUploadDoc(token, { deal_id: d.id, document_id: doc.id, doc_type: doc.doc_type, file });
+            loadDocs(d.id);
+          } catch (err) {
+            setDocErr(err.message);
+          } finally {
+            setDocBusy(false);
+          }
+        };
+        const sortedDocs = [...docs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Documents"), docErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.5rem" } }, "Error: ", docErr), sortedDocs.length === 0 && !docBusy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" } }, "No documents yet."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "0.75rem" } }, sortedDocs.map((doc) => {
+          const versions = [...docVersions.filter((v) => v.document_id === doc.id)].sort((a, b) => b.version_no - a.version_no);
+          return /* @__PURE__ */ React.createElement("div", { key: doc.id, style: { ...card(th), padding: "0.65rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem", flexWrap: "wrap", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 7px", borderRadius: 999, background: "#3b82f622", color: "#3b82f6", fontSize: "0.62rem", fontWeight: 700, letterSpacing: 0.3 } }, DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, doc.title || "\u2014")), canEdit && /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", opacity: docBusy ? 0.5 : 1 } }, "\u2191 New version"), /* @__PURE__ */ React.createElement("input", { type: "file", style: { display: "none" }, disabled: docBusy, onChange: (e) => doUploadVersion(doc, e) }))), versions.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No versions uploaded."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, versions.map((v) => /* @__PURE__ */ React.createElement("div", { key: v.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 6px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.62rem", fontWeight: 700 } }, "v", v.version_no), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 500 } }, v.filename), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtBytes(v.size)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, v.uploaded_by), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtDate(v.uploaded_at)), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: () => dealDownloadVersion(token, v.id),
+              style: { ...btn(th), padding: "1px 8px", fontSize: "0.68rem", marginLeft: "auto" }
+            },
+            "Download"
+          )))));
+        })), canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+          "select",
+          {
+            value: newDocType,
+            onChange: (e) => setNewDocType(e.target.value),
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem", minWidth: 130 }
+          },
+          DOC_TYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))
+        ), /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", opacity: docBusy ? 0.5 : 1, display: "inline-block" } }, docBusy ? "Uploading\u2026" : "Upload Document"), /* @__PURE__ */ React.createElement("input", { type: "file", style: { display: "none" }, disabled: docBusy, onChange: doUploadNew }))));
+      })()));
     };
     const CreateModal = () => {
       if (!showCreate) return null;
@@ -23796,7 +23932,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.19"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.20"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
