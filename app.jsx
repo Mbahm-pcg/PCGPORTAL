@@ -6349,6 +6349,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [foodCostLoading, setFoodCostLoading] = React.useState(false);
   const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
   const [expandedReview, setExpandedReview] = React.useState(null);
+  const [storeTab, setStoreTab] = React.useState('sales');
   const [txnExpanded, setTxnExpanded] = React.useState(false);
   const [txnList, setTxnList] = React.useState(null);
   const [txnListLoading, setTxnListLoading] = React.useState(false);
@@ -6357,6 +6358,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [txnOTMap, setTxnOTMap] = React.useState({});
   const [txnFilters, setTxnFilters] = React.useState({ otCat: 'all', voids: false, refunds: false, discounts: false, timeStart: '', timeEnd: '' });
   const [txnDate, setTxnDate] = React.useState(localDate);
+  const [txnMenuMap, setTxnMenuMap] = React.useState(null);
 
   React.useEffect(() => {
     (async () => {
@@ -6708,137 +6710,110 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ api: pulseApi, endpoint: 'getPOSJournalLogDetails', locRef: String(pc), busDt: txnDate, searchCriteria: `where equals(revenueCenters.logDetails.guestCheckId,${chk.guestCheckId})`, include: 'locRef,busDt,revenueCenters.logDetails.type,revenueCenters.logDetails.journalTxt,revenueCenters.logDetails.guestCheckId' })
         }),
-        fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_menu_v1' }) })
+        txnMenuMap ? Promise.resolve(null) : fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_menu_v1' }) })
       ]);
       const detailData = await detailRes.json();
       const journalData = await journalRes.json();
-      const menuData = await menuRes.json();
+      let menuMap = txnMenuMap;
+      if (menuRes) { const md = await menuRes.json(); menuMap = md.data || {}; setTxnMenuMap(menuMap); }
       const fullCheck = (detailData.guestChecks || [])[0] || chk;
-      let journalTxt = '';
-      for (const rc of journalData.revenueCenters || []) {
-        for (const log of rc.logDetails || []) { if (log.type === 129 && log.journalTxt) { journalTxt = log.journalTxt; break; } }
-        if (journalTxt) break;
-      }
-      if (!journalTxt) {
-        for (const rc of journalData.revenueCenters || []) {
-          for (const log of rc.logDetails || []) { if (log.type === 1 && log.journalTxt) { journalTxt = log.journalTxt; break; } }
-          if (journalTxt) break;
-        }
-      }
-      setTxnModal({ check: fullCheck, journalTxt, menuMap: menuData.data || {} });
+      // Pick best journal log — must have items (prices + subtotal), skip card slips and promo-only inserts
+      const isBad = t => !t || t.includes('Entry Mode') || t.includes('AID:') || t.includes('No Signature Required') || t.includes('agree to pay');
+      const isPromo = t => t && !t.includes('Subtotal') && !t.match(/CHK\s+\d+/) && (t.includes('Survey Code') || t.includes('restrictions on') || t.includes('Promotional'));
+      // Score = number of price patterns (X.XX) before "Subtotal" — more prices = more items listed
+      const score = t => { const sub = t.indexOf('Subtotal'); const body = sub > 0 ? t.slice(0, sub) : t; return (body.match(/\d+\.\d{2}/g) || []).length; };
+      const allLogs = (journalData.revenueCenters || []).flatMap(rc => rc.logDetails || []).filter(l => l.journalTxt && !isBad(l.journalTxt) && !isPromo(l.journalTxt));
+      const ranked = allLogs.sort((a, b) => score(b.journalTxt) - score(a.journalTxt));
+      let journalTxt = (ranked[0])?.journalTxt || '';
+      setTxnModal({ check: fullCheck, journalTxt, menuMap: menuMap || {} });
     } catch(e) { console.error('[txn-detail]', e); }
     setTxnModalLoading(false);
   }
 
   return (
     <div className="fade-in">
-      {/* Store Header Hero */}
-      <div style={{
-        position: 'relative', overflow: 'hidden', borderRadius: '1rem', marginBottom: '1.25rem',
-        padding: '1.75rem 2rem', background: 'linear-gradient(135deg, ' + th.card + ' 0%, ' + th.card2 + ' 100%)',
-        border: '1px solid ' + G + '33', boxShadow: '0 4px 24px ' + G + '11',
-      }}>
-        <div style={{ position:'absolute', top:-40, right:-40, width:160, height:160, borderRadius:'50%', background:G+'08', pointerEvents:'none' }} />
-        <div style={{ position:'absolute', bottom:-60, left:'30%', width:200, height:200, borderRadius:'50%', background:G+'05', pointerEvents:'none' }} />
-        <div style={{ position:'relative', zIndex:1 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:'1rem' }}>
-            <div>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:th.text, marginBottom:'0.25rem' }}>
-                {s?.name || pc}
-                {s?.status !== 'Open' && <span style={{ marginLeft:10, fontSize:'0.65rem', padding:'2px 8px', borderRadius:4, fontWeight:700, color:'#fff', verticalAlign:'middle', background: s?.status === 'Remodel' ? '#fd7e14' : '#dc3545' }}>{s?.status}</span>}
+      {/* ── Unified PULSE + Store Header ── */}
+      <div style={{ position:'relative', overflow:'hidden', borderRadius:'1rem', marginBottom:'1.25rem', padding:'1.25rem 1.5rem', background:'linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)', border:`1px solid ${G}33`, boxShadow:`0 4px 24px ${G}11` }}>
+        <div style={{ position:'absolute', top:-60, right:-60, width:200, height:200, borderRadius:'50%', background:`${G}15`, pointerEvents:'none' }} />
+        <div style={{ position:'absolute', bottom:-40, left:'20%', width:150, height:150, borderRadius:'50%', background:`${G}05`, pointerEvents:'none' }} />
+        <div style={{ position:'relative', zIndex:1, display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:'1rem' }}>
+          <div>
+            <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', marginBottom:'0.2rem' }}>
+              <div style={{ position:'relative', display:'flex', alignItems:'center', justifyContent:'center', width:38, height:38, borderRadius:'50%', background:`${G}22`, border:`2px solid ${G}`, boxShadow:`0 0 14px ${G}66`, flexShrink:0 }}>
+                <span style={{ fontSize:'1.1rem', filter:`drop-shadow(0 0 6px ${G})` }}>💚</span>
+                <div style={{ position:'absolute', top:0,left:0,right:0,bottom:0, borderRadius:'50%', border:`2px solid ${G}`, animation:'pulseRing 2s ease-out infinite' }} />
               </div>
-              <div style={{ fontSize:'0.8rem', color:th.muted }}>{'PC# ' + pc + ' \u00b7 ' + (s?.city || '') + ', ' + (s?.state || '') + ' \u00b7 District ' + (s?.district || '')}</div>
-            </div>
-            <div style={{ textAlign:'right' }}>
-              {/* Day / Week toggle */}
-              <div style={{ display:'inline-flex', background:th.card2, border:`1px solid ${G}55`, borderRadius:'0.5rem', padding:'0.15rem', marginBottom:'0.4rem' }}>
-                {['day','week'].map(m => (
-                  <button key={m} onClick={() => setViewMode(m)}
-                    style={{
-                      background: viewMode === m ? G : 'transparent',
-                      color: viewMode === m ? '#0a2e0a' : th.muted,
-                      border: 'none', borderRadius:'0.35rem',
-                      padding:'0.3rem 0.85rem', fontSize:'0.7rem', fontWeight:800, cursor:'pointer',
-                      textTransform:'uppercase', letterSpacing:1, fontFamily:"'Source Sans 3'",
-                      transition:'all .15s',
-                    }}>
-                    {m}
-                  </button>
-                ))}
-              </div>
-              <div style={{ fontSize:'0.65rem', color:th.muted, textTransform:'uppercase', letterSpacing:1.5, fontWeight:600, marginBottom:'0.25rem' }}>
-                {viewMode === 'week' ? 'Week Of' : 'Business Date'}
-              </div>
-              {viewMode === 'week' ? (
-                <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', justifyContent:'flex-end' }}>
-                  <button onClick={() => {
-                    const dt = new Date(localDate + 'T12:00:00');
-                    dt.setDate(dt.getDate() - 7);
-                    setLocalDate(dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0'));
-                  }} style={{ background:th.card2, color:G, border:`1px solid ${G}55`, borderRadius:'0.4rem', padding:'0.3rem 0.6rem', fontSize:'0.8rem', fontWeight:700, cursor:'pointer' }}>‹</button>
-                  <div style={{ background:th.card2, color:G, border:`1px solid ${G}55`, borderRadius:'0.5rem', padding:'0.4rem 0.75rem', fontSize:'0.8rem', fontFamily:"'Raleway'", fontWeight:700, whiteSpace:'nowrap' }}>{weekLabel}</div>
-                  <button disabled={weekRange.sat >= busDt} onClick={() => {
-                    const dt = new Date(localDate + 'T12:00:00');
-                    dt.setDate(dt.getDate() + 7);
-                    const candidate = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
-                    if (candidate <= busDt) setLocalDate(candidate);
-                  }} style={{ background:th.card2, color: weekRange.sat >= busDt ? th.muted : G, border:`1px solid ${weekRange.sat >= busDt ? th.cardBorder : G + '55'}`, borderRadius:'0.4rem', padding:'0.3rem 0.6rem', fontSize:'0.8rem', fontWeight:700, cursor: weekRange.sat >= busDt ? 'default' : 'pointer', opacity: weekRange.sat >= busDt ? 0.4 : 1 }}>›</button>
+              <div>
+                <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
+                  <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1rem', color:G, textShadow:`0 0 16px ${G}99`, letterSpacing:1 }}>PULSE</span>
+                  <span style={{ color:`${G}44` }}>·</span>
+                  <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.3rem', color:'#fff' }}>
+                    {s?.name || pc}
+                    {s?.status !== 'Open' && <span style={{ marginLeft:8, fontSize:'0.6rem', padding:'2px 7px', borderRadius:4, fontWeight:700, color:'#fff', verticalAlign:'middle', background: s?.status === 'Remodel' ? '#fd7e14' : '#dc3545' }}>{s?.status}</span>}
+                  </span>
                 </div>
-              ) : (
-                <input type="date" value={localDate} max={busDt} onChange={e => setLocalDate(e.target.value)}
-                  style={{ background:th.card2, color:G, border:`1px solid ${G}55`, borderRadius:'0.5rem', padding:'0.4rem 0.65rem', fontSize:'0.85rem', fontFamily:"'Raleway'", fontWeight:700, cursor:'pointer', outline:'none' }} />
-              )}
-              {viewMode === 'day' && localDate !== busDt && (
-                <div style={{ marginTop:'0.25rem' }}>
-                  <button onClick={() => setLocalDate(busDt)} style={{ background:'none', border:'none', color:th.muted, fontSize:'0.65rem', cursor:'pointer', fontFamily:"'Source Sans 3'", textDecoration:'underline' }}>← Back to today</button>
-                </div>
-              )}
+                <div style={{ fontSize:'0.68rem', color:`${G}77`, fontWeight:600, letterSpacing:1 }}>{'PC# ' + pc + ' · ' + (s?.city||'') + ', ' + (s?.state||'') + ' · District ' + (s?.district||'') + (s?.baseAsset ? ' · ' + s.baseAsset : '')}</div>
+              </div>
             </div>
+            <HeartbeatLine />
           </div>
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:'0.5rem' }}>
+            <div style={{ display:'inline-flex', background:'#001a0d', border:`1px solid ${G}44`, borderRadius:'0.5rem', padding:'0.15rem' }}>
+              {['day','week'].map(m => (
+                <button key={m} onClick={() => setViewMode(m)} style={{ background: viewMode===m ? G : 'transparent', color: viewMode===m ? '#0a2e0a' : `${G}88`, border:'none', borderRadius:'0.35rem', padding:'0.3rem 0.85rem', fontSize:'0.7rem', fontWeight:800, cursor:'pointer', textTransform:'uppercase', letterSpacing:1, fontFamily:"'Source Sans 3'", transition:'all .15s' }}>{m}</button>
+              ))}
+            </div>
+            {viewMode === 'week' ? (
+              <div style={{ display:'flex', alignItems:'center', gap:'0.3rem' }}>
+                <button onClick={() => { const dt=new Date(localDate+'T12:00:00'); dt.setDate(dt.getDate()-7); setLocalDate(dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0')); }} style={{ background:'#001a0d', color:G, border:`1px solid ${G}44`, borderRadius:'0.4rem', padding:'0.3rem 0.6rem', fontSize:'0.8rem', fontWeight:700, cursor:'pointer' }}>‹</button>
+                <div style={{ background:'#001a0d', color:G, border:`1px solid ${G}44`, borderRadius:'0.5rem', padding:'0.4rem 0.75rem', fontSize:'0.8rem', fontFamily:"'Raleway'", fontWeight:700, whiteSpace:'nowrap' }}>{weekLabel}</div>
+                <button disabled={weekRange.sat>=busDt} onClick={() => { const dt=new Date(localDate+'T12:00:00'); dt.setDate(dt.getDate()+7); const c=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); if(c<=busDt) setLocalDate(c); }} style={{ background:'#001a0d', color:weekRange.sat>=busDt?`${G}33`:G, border:`1px solid ${weekRange.sat>=busDt?G+'22':G+'44'}`, borderRadius:'0.4rem', padding:'0.3rem 0.6rem', fontSize:'0.8rem', fontWeight:700, cursor:weekRange.sat>=busDt?'default':'pointer', opacity:weekRange.sat>=busDt?0.4:1 }}>›</button>
+              </div>
+            ) : (
+              <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                <input type="date" value={localDate} max={busDt} onChange={e => setLocalDate(e.target.value)} style={{ background:'#001a0d', color:G, border:`1px solid ${G}44`, borderRadius:'0.5rem', padding:'0.4rem 0.65rem', fontSize:'0.85rem', fontFamily:"'Raleway'", fontWeight:700, cursor:'pointer', outline:'none' }} />
+                {localDate !== busDt && <button onClick={() => setLocalDate(busDt)} style={{ background:`${G}22`, border:`1px solid ${G}44`, color:G, borderRadius:'0.4rem', padding:'0.3rem 0.6rem', fontSize:'0.65rem', cursor:'pointer', fontWeight:700 }}>Today</button>}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* KPI bubbles */}
+        <div style={{ display:'flex', flexWrap:'wrap', gap:'0.4rem', marginTop:'0.8rem', paddingTop:'0.7rem', borderTop:'1px solid rgba(34,197,94,0.15)' }}>
+          {[
+            { label:'Net Sales', value: fmtUSD(d.netSales), color: G },
+            { label:'Checks',    value: fmtNum(d.guests),   color: '#74c0fc' },
+            { label:'Avg Check', value: fmtAvg(d.avgCheck), color: '#ffd43b' },
+            { label:'Discounts', value: fmtUSD(d.discounts), color: '#f06595' },
+            { label:'Void Rate', value: voidPct.toFixed(2)+'%', color: voidPct > 1 ? '#ff6b6b' : '#69db7c' },
+            { label:'Tax',       value: fmtUSD(d.tax),       color: '#20c997' },
+            { label:'Err Cor',   value: fmtUSD(d.errCor),    color: '#868e96' },
+            { label: viewMode==='week'?'Wk Total':'WTD', value: weekTotals ? fmtUSD(viewMode==='week'?weekTotals.wtdSales:wtdTotalSales) : '—', color: '#4dabf7', sub: weekTotals?(viewMode==='week'?weekTotals.daysLoaded+'d':(weekTotals.daysLoaded+1)+'d'):null },
+            { label:'Forecast', value: weeklyForecast>0 ? fmtUSD(weeklyForecast) : (weekTotals?'—':'…'), color: '#cc5de8', sub: weekTotals?.lyWeekSales>0?'LY+2%':null },
+          ].map(k => (
+            <div key={k.label} style={{ display:'flex', flexDirection:'column', alignItems:'center', background: k.color+'12', border:`1px solid ${k.color}30`, borderRadius:'999px', padding:'0.28rem 0.75rem', minWidth:64 }}>
+              <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.8rem', color:k.color, lineHeight:1.1, whiteSpace:'nowrap' }}>{k.value}</span>
+              <span style={{ fontSize:'0.5rem', color:k.color+'77', textTransform:'uppercase', letterSpacing:0.8, fontWeight:700, whiteSpace:'nowrap' }}>{k.label}{k.sub?' · '+k.sub:''}</span>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(170px, 1fr))', gap:'0.75rem', marginBottom:'1.25rem' }}>
-        {[
-          { label: 'Net Sales', value: fmtUSD(d.netSales), color: G, glow: true },
-          { label: 'Checks', value: fmtNum(d.guests), color: '#74c0fc' },
-          { label: 'Avg Check', value: fmtAvg(d.avgCheck), color: '#ffd43b' },
-          { label: 'Discounts', value: fmtUSD(d.discounts), color: '#f06595' },
-          { label: 'Void Rate', value: voidPct.toFixed(2)+'%', color: voidPct > 1 ? '#ff6b6b' : '#69db7c' },
-          { label: 'Tax Collected', value: fmtUSD(d.tax), color: '#20c997' },
-          { label: 'Error Corrections', value: fmtUSD(d.errCor), color: '#868e96' },
-          { label: viewMode === 'week' ? 'Week Total' : 'Week to Date', value: weekTotals ? fmtUSD(viewMode === 'week' ? weekTotals.wtdSales : wtdTotalSales) : '\u2014', color: '#4dabf7', sub: weekTotals ? (viewMode === 'week' ? weekTotals.daysLoaded + ' days' : (weekTotals.daysLoaded + 1) + ' days') : 'Loading\u2026' },
-          { label: 'Weekly Forecast', value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : (weekTotals ? '\u2014' : 'Loading\u2026'), color: '#cc5de8', sub: weekTotals?.lyWeekSales > 0 ? 'LY + 2%' : (weekTotals ? 'No LY data' : null) },
-        ].map(k => (
-          <div key={k.label} style={{
-            position: 'relative',
-            background: th.card,
-            borderRadius: '0.75rem',
-            padding: '1rem 1.1rem 0.9rem',
-            border: `1px solid ${th.cardBorder}`,
-            overflow: 'hidden',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-            transition: 'all .2s cubic-bezier(.4,0,.2,1)',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = k.color + '55'; e.currentTarget.style.boxShadow = `0 10px 24px rgba(0,0,0,0.08), 0 0 0 1px ${k.color}33, 0 0 18px ${k.color}22`; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = th.cardBorder; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'; }}
-          >
-            {/* Top accent strip */}
-            <div aria-hidden="true" style={{
-              position: 'absolute', top: 0, left: 0, right: 0, height: 3,
-              background: `linear-gradient(90deg, ${k.color}, ${k.color}88 40%, transparent)`,
-            }} />
-            <div style={{
-              fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.45rem',
-              color: k.color, letterSpacing: -0.5, lineHeight: 1,
-              textShadow: k.glow ? `0 0 18px ${k.color}55` : 'none',
-            }}>{k.value}</div>
-            <div style={{ fontSize: '0.6rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 800, marginTop: '0.35rem' }}>{k.label}</div>
-            {k.sub && <div style={{ fontSize: '0.58rem', color: th.muted, opacity: 0.7, marginTop: '0.2rem', fontWeight: 600 }}>{k.sub}</div>}
-          </div>
+
+
+      {/* ── Tab Navigation ── */}
+      <div style={{ display:'flex', marginBottom:'1.25rem', background:th.card, borderRadius:'0.75rem', border:`1px solid ${th.cardBorder}`, overflow:'hidden' }}>
+        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},{id:'reviews',label:'⭐ Reviews'}].map((t,i,arr) => (
+          <button key={t.id} onClick={() => {
+              setStoreTab(t.id);
+              if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
+              if(t.id==='foodcost' && !foodCostT && !foodCostLoading){ setFoodCostLoading(true); fetch('/.netlify/functions/food-cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'store',pc,date:localDate})}).then(r=>r.ok?r.json():null).then(j=>{if(j)setFoodCostT(j);}).catch(()=>{}).finally(()=>setFoodCostLoading(false)); }
+            }}
+            style={{ flex:1, padding:'0.7rem 0.5rem', border:'none', borderRight:i<arr.length-1?`1px solid ${th.cardBorder}`:'none', background:storeTab===t.id?O+'18':'transparent', color:storeTab===t.id?O:th.muted, fontWeight:storeTab===t.id?700:400, fontSize:'0.78rem', cursor:'pointer', transition:'all .15s', borderBottom:storeTab===t.id?`2px solid ${O}`:'2px solid transparent', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
         ))}
       </div>
+
+      {/* ════ SALES TAB ════ */}
+      {storeTab === 'sales' && <>
 
       {/* Forecast Attainment Bar — switches to week forecast in week mode */}
       {((viewMode === 'week' ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0) && (() => {
@@ -7278,6 +7253,12 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
         </div>
       )}
 
+      {/* ════ END SALES TAB ════ */}
+      </>}
+
+      {/* ════ FOOD COST TAB ════ */}
+      {storeTab === 'foodcost' && <>
+
       {/* ── Food Cost (Theoretical) ── */}
       <div style={{ ...card(th), padding: '1rem', marginTop: '1rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -7345,6 +7326,12 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
         )}
         {foodCostT?.error && <div style={{ color: '#f44336', fontSize: '0.78rem', marginTop: '0.5rem' }}>{foodCostT.error}</div>}
       </div>
+
+      {/* ════ END FOOD COST TAB ════ */}
+      </>}
+
+      {/* ════ REVIEWS TAB ════ */}
+      {storeTab === 'reviews' && <>
 
       {/* ── Guest Reviews ── */}
       {storeReviews && (
@@ -7461,6 +7448,12 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
         </div>
       )}
 
+      {/* ════ END REVIEWS TAB ════ */}
+      </>}
+
+      {/* ════ TRANSACTIONS TAB ════ */}
+      {storeTab === 'transactions' && <>
+
       {/* ── Transactions ── */}
       {(() => {
         const toET = utc => { try { return new Date(utc.endsWith('Z') ? utc : utc + 'Z').toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/New_York' }); } catch { return '--'; } };
@@ -7514,13 +7507,13 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
                       onChange={e => { setTxnDate(e.target.value); setTxnList(null); loadTxnList(e.target.value); }}
                       style={{ fontSize: '0.7rem', padding: '0.25rem 0.4rem', borderRadius: 6, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, cursor: 'pointer' }} />
                     <button onClick={() => loadTxnList()} disabled={txnListLoading}
-                      style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: 6, background: th.card2, border: `1px solid ${th.cardBorder}`, color: th.muted, cursor: 'pointer' }}>
+                      style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: 6, background: txnListLoading ? th.card2 : '#3b82f6', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 600, opacity: txnListLoading ? 0.6 : 1 }}>
                       {txnListLoading ? '…' : '↺ Refresh'}
                     </button>
                   </>
                 )}
                 <button onClick={() => { if (!txnExpanded) { setTxnExpanded(true); if (!txnList) loadTxnList(); } else setTxnExpanded(false); }}
-                  style={{ fontSize: '0.72rem', padding: '0.3rem 0.7rem', borderRadius: 6, background: th.card2, border: `1px solid ${th.cardBorder}`, color: th.text, cursor: 'pointer' }}>
+                  style={{ fontSize: '0.72rem', padding: '0.3rem 0.7rem', borderRadius: 6, background: txnExpanded ? '#ef444422' : O, border: txnExpanded ? `1px solid #ef444455` : 'none', color: txnExpanded ? '#ef4444' : '#fff', cursor: 'pointer', fontWeight: 700 }}>
                   {txnExpanded ? 'Hide' : txnListLoading ? 'Loading…' : 'Load'}
                 </button>
               </div>
@@ -7571,7 +7564,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
                       const hasRefund = (chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0;
                       const otName = txnOTMap[chk.otNum] || '';
                       const cat = otCat(chk.otNum);
-                      const otColor = cat === 'drive_thru' ? '#3b82f6' : cat === 'eat_in' ? '#22c55e' : cat === 'uber' ? '#000000' : cat === 'doordash' ? '#ef4444' : cat === 'mobile' ? '#8b5cf6' : th.muted;
+                      const otColor = cat === 'drive_thru' ? '#2563eb' : cat === 'eat_in' ? '#059669' : cat === 'uber' ? '#d97706' : cat === 'doordash' ? '#dc2626' : cat === 'mobile' ? '#7c3aed' : cat === 'delivery' ? '#0891b2' : '#64748b';
                       return (
                         <div key={chk.guestCheckId || i} onClick={() => openTxnDetail(chk)}
                           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.45rem 0.25rem', borderBottom: i < filtered.length - 1 ? `1px solid ${th.cardBorder}` : 'none', cursor: 'pointer', borderRadius: 4 }}
@@ -7673,7 +7666,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
         const receiptText = journalTxt || rLines.join('\n');
 
         return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 9999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '2rem 1rem', overflowY: 'auto' }}
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 99999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '1.5rem 1rem', overflowY: 'auto' }}
             onClick={e => { if (e.target === e.currentTarget) setTxnModal(null); }}>
             <div style={{ background: th.bg, borderRadius: 12, width: '100%', maxWidth: 920, boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: `1px solid ${th.cardBorder}` }}>
@@ -7751,6 +7744,10 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
           </div>
         );
       })()}
+
+      {/* ════ END TRANSACTIONS TAB ════ */}
+      </>}
+
     </div>
   );
 }
@@ -9181,8 +9178,8 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
         </div>
       )}
 
-      {/* ── Header ── */}
-      <div style={{ ...card(th), padding:'1.25rem 1.5rem', marginBottom:'1rem',
+      {/* ── Header — hidden in store view (store has its own unified header) ── */}
+      {pulseView?.level !== 'store' && <div style={{ ...card(th), padding:'1.25rem 1.5rem', marginBottom:'1rem',
         background:'linear-gradient(135deg, #001a0d 0%, #00120a 50%, #001810 100%)',
         border:`1px solid ${G}33`, position:'relative', overflow:'hidden' }}>
         <div style={{ position:'absolute', top:-60, right:-60, width:200, height:200,
@@ -9305,7 +9302,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
             <span style={{ fontSize:'0.65rem', color:`${G}88` }}>Loading WTD data…</span>
           </div>
         )}
-      </div>
+      </div>}
 
       {/* ── Non-Open Stores Banner ── */}
       {(() => {
@@ -32407,7 +32404,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.26
+            v14.33
           </div>
         )}
         {/* Collapse toggle — desktop only */}

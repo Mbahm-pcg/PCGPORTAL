@@ -5786,6 +5786,7 @@
     const [foodCostLoading, setFoodCostLoading] = React.useState(false);
     const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
     const [expandedReview, setExpandedReview] = React.useState(null);
+    const [storeTab, setStoreTab] = React.useState("sales");
     const [txnExpanded, setTxnExpanded] = React.useState(false);
     const [txnList, setTxnList] = React.useState(null);
     const [txnListLoading, setTxnListLoading] = React.useState(false);
@@ -5794,6 +5795,7 @@
     const [txnOTMap, setTxnOTMap] = React.useState({});
     const [txnFilters, setTxnFilters] = React.useState({ otCat: "all", voids: false, refunds: false, discounts: false, timeStart: "", timeEnd: "" });
     const [txnDate, setTxnDate] = React.useState(localDate);
+    const [txnMenuMap, setTxnMenuMap] = React.useState(null);
     React.useEffect(() => {
       (async () => {
         try {
@@ -6114,142 +6116,74 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ api: pulseApi, endpoint: "getPOSJournalLogDetails", locRef: String(pc), busDt: txnDate, searchCriteria: `where equals(revenueCenters.logDetails.guestCheckId,${chk.guestCheckId})`, include: "locRef,busDt,revenueCenters.logDetails.type,revenueCenters.logDetails.journalTxt,revenueCenters.logDetails.guestCheckId" })
           }),
-          fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_menu_v1" }) })
+          txnMenuMap ? Promise.resolve(null) : fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_menu_v1" }) })
         ]);
         const detailData = await detailRes.json();
         const journalData = await journalRes.json();
-        const menuData2 = await menuRes.json();
+        let menuMap = txnMenuMap;
+        if (menuRes) {
+          const md = await menuRes.json();
+          menuMap = md.data || {};
+          setTxnMenuMap(menuMap);
+        }
         const fullCheck = (detailData.guestChecks || [])[0] || chk;
-        let journalTxt = "";
-        for (const rc of journalData.revenueCenters || []) {
-          for (const log of rc.logDetails || []) {
-            if (log.type === 129 && log.journalTxt) {
-              journalTxt = log.journalTxt;
-              break;
-            }
-          }
-          if (journalTxt) break;
-        }
-        if (!journalTxt) {
-          for (const rc of journalData.revenueCenters || []) {
-            for (const log of rc.logDetails || []) {
-              if (log.type === 1 && log.journalTxt) {
-                journalTxt = log.journalTxt;
-                break;
-              }
-            }
-            if (journalTxt) break;
-          }
-        }
-        setTxnModal({ check: fullCheck, journalTxt, menuMap: menuData2.data || {} });
+        const isBad = (t) => !t || t.includes("Entry Mode") || t.includes("AID:") || t.includes("No Signature Required") || t.includes("agree to pay");
+        const isPromo = (t) => t && !t.includes("Subtotal") && !t.match(/CHK\s+\d+/) && (t.includes("Survey Code") || t.includes("restrictions on") || t.includes("Promotional"));
+        const score = (t) => {
+          const sub = t.indexOf("Subtotal");
+          const body = sub > 0 ? t.slice(0, sub) : t;
+          return (body.match(/\d+\.\d{2}/g) || []).length;
+        };
+        const allLogs = (journalData.revenueCenters || []).flatMap((rc) => rc.logDetails || []).filter((l) => l.journalTxt && !isBad(l.journalTxt) && !isPromo(l.journalTxt));
+        const ranked = allLogs.sort((a, b) => score(b.journalTxt) - score(a.journalTxt));
+        let journalTxt = ranked[0]?.journalTxt || "";
+        setTxnModal({ check: fullCheck, journalTxt, menuMap: menuMap || {} });
       } catch (e) {
         console.error("[txn-detail]", e);
       }
       setTxnModalLoading(false);
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: {
-      position: "relative",
-      overflow: "hidden",
-      borderRadius: "1rem",
-      marginBottom: "1.25rem",
-      padding: "1.75rem 2rem",
-      background: "linear-gradient(135deg, " + th.card + " 0%, " + th.card2 + " 100%)",
-      border: "1px solid " + G + "33",
-      boxShadow: "0 4px 24px " + G + "11"
-    } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: -40, right: -40, width: 160, height: 160, borderRadius: "50%", background: G + "08", pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", bottom: -60, left: "30%", width: 200, height: 200, borderRadius: "50%", background: G + "05", pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: th.text, marginBottom: "0.25rem" } }, s?.name || pc, s?.status !== "Open" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 10, fontSize: "0.65rem", padding: "2px 8px", borderRadius: 4, fontWeight: 700, color: "#fff", verticalAlign: "middle", background: s?.status === "Remodel" ? "#fd7e14" : "#dc3545" } }, s?.status)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "PC# " + pc + " \xB7 " + (s?.city || "") + ", " + (s?.state || "") + " \xB7 District " + (s?.district || ""))), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: th.card2, border: `1px solid ${G}55`, borderRadius: "0.5rem", padding: "0.15rem", marginBottom: "0.4rem" } }, ["day", "week"].map((m) => /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        key: m,
-        onClick: () => setViewMode(m),
-        style: {
-          background: viewMode === m ? G : "transparent",
-          color: viewMode === m ? "#0a2e0a" : th.muted,
-          border: "none",
-          borderRadius: "0.35rem",
-          padding: "0.3rem 0.85rem",
-          fontSize: "0.7rem",
-          fontWeight: 800,
-          cursor: "pointer",
-          textTransform: "uppercase",
-          letterSpacing: 1,
-          fontFamily: "'Source Sans 3'",
-          transition: "all .15s"
-        }
-      },
-      m
-    ))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 600, marginBottom: "0.25rem" } }, viewMode === "week" ? "Week Of" : "Business Date"), viewMode === "week" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", overflow: "hidden", borderRadius: "1rem", marginBottom: "1.25rem", padding: "1.25rem 1.5rem", background: "linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)", border: `1px solid ${G}33`, boxShadow: `0 4px 24px ${G}11` } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: -60, right: -60, width: 200, height: 200, borderRadius: "50%", background: `${G}15`, pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", bottom: -40, left: "20%", width: 150, height: 150, borderRadius: "50%", background: `${G}05`, pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: 38, height: 38, borderRadius: "50%", background: `${G}22`, border: `2px solid ${G}`, boxShadow: `0 0 14px ${G}66`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem", filter: `drop-shadow(0 0 6px ${G})` } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: "50%", border: `2px solid ${G}`, animation: "pulseRing 2s ease-out infinite" } })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", color: G, textShadow: `0 0 16px ${G}99`, letterSpacing: 1 } }, "PULSE"), /* @__PURE__ */ React.createElement("span", { style: { color: `${G}44` } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.3rem", color: "#fff" } }, s?.name || pc, s?.status !== "Open" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 8, fontSize: "0.6rem", padding: "2px 7px", borderRadius: 4, fontWeight: 700, color: "#fff", verticalAlign: "middle", background: s?.status === "Remodel" ? "#fd7e14" : "#dc3545" } }, s?.status))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: `${G}77`, fontWeight: 600, letterSpacing: 1 } }, "PC# " + pc + " \xB7 " + (s?.city || "") + ", " + (s?.state || "") + " \xB7 District " + (s?.district || "") + (s?.baseAsset ? " \xB7 " + s.baseAsset : "")))), /* @__PURE__ */ React.createElement(HeartbeatLine, null)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: "#001a0d", border: `1px solid ${G}44`, borderRadius: "0.5rem", padding: "0.15rem" } }, ["day", "week"].map((m) => /* @__PURE__ */ React.createElement("button", { key: m, onClick: () => setViewMode(m), style: { background: viewMode === m ? G : "transparent", color: viewMode === m ? "#0a2e0a" : `${G}88`, border: "none", borderRadius: "0.35rem", padding: "0.3rem 0.85rem", fontSize: "0.7rem", fontWeight: 800, cursor: "pointer", textTransform: "uppercase", letterSpacing: 1, fontFamily: "'Source Sans 3'", transition: "all .15s" } }, m))), viewMode === "week" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       const dt = /* @__PURE__ */ new Date(localDate + "T12:00:00");
       dt.setDate(dt.getDate() - 7);
       setLocalDate(dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0"));
-    }, style: { background: th.card2, color: G, border: `1px solid ${G}55`, borderRadius: "0.4rem", padding: "0.3rem 0.6rem", fontSize: "0.8rem", fontWeight: 700, cursor: "pointer" } }, "\u2039"), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, color: G, border: `1px solid ${G}55`, borderRadius: "0.5rem", padding: "0.4rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Raleway'", fontWeight: 700, whiteSpace: "nowrap" } }, weekLabel), /* @__PURE__ */ React.createElement("button", { disabled: weekRange.sat >= busDt, onClick: () => {
+    }, style: { background: "#001a0d", color: G, border: `1px solid ${G}44`, borderRadius: "0.4rem", padding: "0.3rem 0.6rem", fontSize: "0.8rem", fontWeight: 700, cursor: "pointer" } }, "\u2039"), /* @__PURE__ */ React.createElement("div", { style: { background: "#001a0d", color: G, border: `1px solid ${G}44`, borderRadius: "0.5rem", padding: "0.4rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Raleway'", fontWeight: 700, whiteSpace: "nowrap" } }, weekLabel), /* @__PURE__ */ React.createElement("button", { disabled: weekRange.sat >= busDt, onClick: () => {
       const dt = /* @__PURE__ */ new Date(localDate + "T12:00:00");
       dt.setDate(dt.getDate() + 7);
-      const candidate = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
-      if (candidate <= busDt) setLocalDate(candidate);
-    }, style: { background: th.card2, color: weekRange.sat >= busDt ? th.muted : G, border: `1px solid ${weekRange.sat >= busDt ? th.cardBorder : G + "55"}`, borderRadius: "0.4rem", padding: "0.3rem 0.6rem", fontSize: "0.8rem", fontWeight: 700, cursor: weekRange.sat >= busDt ? "default" : "pointer", opacity: weekRange.sat >= busDt ? 0.4 : 1 } }, "\u203A")) : /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        type: "date",
-        value: localDate,
-        max: busDt,
-        onChange: (e) => setLocalDate(e.target.value),
-        style: { background: th.card2, color: G, border: `1px solid ${G}55`, borderRadius: "0.5rem", padding: "0.4rem 0.65rem", fontSize: "0.85rem", fontFamily: "'Raleway'", fontWeight: 700, cursor: "pointer", outline: "none" }
-      }
-    ), viewMode === "day" && localDate !== busDt && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setLocalDate(busDt), style: { background: "none", border: "none", color: th.muted, fontSize: "0.65rem", cursor: "pointer", fontFamily: "'Source Sans 3'", textDecoration: "underline" } }, "\u2190 Back to today")))))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, [
-      { label: "Net Sales", value: fmtUSD(d.netSales), color: G, glow: true },
+      const c = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+      if (c <= busDt) setLocalDate(c);
+    }, style: { background: "#001a0d", color: weekRange.sat >= busDt ? `${G}33` : G, border: `1px solid ${weekRange.sat >= busDt ? G + "22" : G + "44"}`, borderRadius: "0.4rem", padding: "0.3rem 0.6rem", fontSize: "0.8rem", fontWeight: 700, cursor: weekRange.sat >= busDt ? "default" : "pointer", opacity: weekRange.sat >= busDt ? 0.4 : 1 } }, "\u203A")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: localDate, max: busDt, onChange: (e) => setLocalDate(e.target.value), style: { background: "#001a0d", color: G, border: `1px solid ${G}44`, borderRadius: "0.5rem", padding: "0.4rem 0.65rem", fontSize: "0.85rem", fontFamily: "'Raleway'", fontWeight: 700, cursor: "pointer", outline: "none" } }), localDate !== busDt && /* @__PURE__ */ React.createElement("button", { onClick: () => setLocalDate(busDt), style: { background: `${G}22`, border: `1px solid ${G}44`, color: G, borderRadius: "0.4rem", padding: "0.3rem 0.6rem", fontSize: "0.65rem", cursor: "pointer", fontWeight: 700 } }, "Today")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.8rem", paddingTop: "0.7rem", borderTop: "1px solid rgba(34,197,94,0.15)" } }, [
+      { label: "Net Sales", value: fmtUSD(d.netSales), color: G },
       { label: "Checks", value: fmtNum(d.guests), color: "#74c0fc" },
       { label: "Avg Check", value: fmtAvg(d.avgCheck), color: "#ffd43b" },
       { label: "Discounts", value: fmtUSD(d.discounts), color: "#f06595" },
       { label: "Void Rate", value: voidPct.toFixed(2) + "%", color: voidPct > 1 ? "#ff6b6b" : "#69db7c" },
-      { label: "Tax Collected", value: fmtUSD(d.tax), color: "#20c997" },
-      { label: "Error Corrections", value: fmtUSD(d.errCor), color: "#868e96" },
-      { label: viewMode === "week" ? "Week Total" : "Week to Date", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + " days" : weekTotals.daysLoaded + 1 + " days" : "Loading\u2026" },
-      { label: "Weekly Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "Loading\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY + 2%" : weekTotals ? "No LY data" : null }
-    ].map((k) => /* @__PURE__ */ React.createElement(
-      "div",
+      { label: "Tax", value: fmtUSD(d.tax), color: "#20c997" },
+      { label: "Err Cor", value: fmtUSD(d.errCor), color: "#868e96" },
+      { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
+      { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null }
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", marginBottom: "1.25rem", background: th.card, borderRadius: "0.75rem", border: `1px solid ${th.cardBorder}`, overflow: "hidden" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, { id: "reviews", label: "\u2B50 Reviews" }].map((t, i, arr) => /* @__PURE__ */ React.createElement(
+      "button",
       {
-        key: k.label,
-        style: {
-          position: "relative",
-          background: th.card,
-          borderRadius: "0.75rem",
-          padding: "1rem 1.1rem 0.9rem",
-          border: `1px solid ${th.cardBorder}`,
-          overflow: "hidden",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-          transition: "all .2s cubic-bezier(.4,0,.2,1)"
+        key: t.id,
+        onClick: () => {
+          setStoreTab(t.id);
+          if (t.id === "transactions" && !txnList && !txnListLoading) {
+            setTxnExpanded(true);
+            loadTxnList();
+          }
+          if (t.id === "foodcost" && !foodCostT && !foodCostLoading) {
+            setFoodCostLoading(true);
+            fetch("/.netlify/functions/food-cost", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "store", pc, date: localDate }) }).then((r) => r.ok ? r.json() : null).then((j) => {
+              if (j) setFoodCostT(j);
+            }).catch(() => {
+            }).finally(() => setFoodCostLoading(false));
+          }
         },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.transform = "translateY(-2px)";
-          e.currentTarget.style.borderColor = k.color + "55";
-          e.currentTarget.style.boxShadow = `0 10px 24px rgba(0,0,0,0.08), 0 0 0 1px ${k.color}33, 0 0 18px ${k.color}22`;
-        },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.transform = "none";
-          e.currentTarget.style.borderColor = th.cardBorder;
-          e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.04)";
-        }
+        style: { flex: 1, padding: "0.7rem 0.5rem", border: "none", borderRight: i < arr.length - 1 ? `1px solid ${th.cardBorder}` : "none", background: storeTab === t.id ? O + "18" : "transparent", color: storeTab === t.id ? O : th.muted, fontWeight: storeTab === t.id ? 700 : 400, fontSize: "0.78rem", cursor: "pointer", transition: "all .15s", borderBottom: storeTab === t.id ? `2px solid ${O}` : "2px solid transparent", fontFamily: "'Raleway',sans-serif" }
       },
-      /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 3,
-        background: `linear-gradient(90deg, ${k.color}, ${k.color}88 40%, transparent)`
-      } }),
-      /* @__PURE__ */ React.createElement("div", { style: {
-        fontFamily: "'Raleway'",
-        fontWeight: 900,
-        fontSize: "1.45rem",
-        color: k.color,
-        letterSpacing: -0.5,
-        lineHeight: 1,
-        textShadow: k.glow ? `0 0 18px ${k.color}55` : "none"
-      } }, k.value),
-      /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 800, marginTop: "0.35rem" } }, k.label),
-      k.sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, opacity: 0.7, marginTop: "0.2rem", fontWeight: 600 } }, k.sub)
-    ))), (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
+      t.label
+    ))), storeTab === "sales" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
       const isWeek = viewMode === "week";
       const forecast = isWeek ? weekTotals.weekForecast : weekTotals.dayForecast;
       const atPct = d.netSales / forecast * 100;
@@ -6519,7 +6453,7 @@
       const maxSales = menuData[0]?.slsTtl || 1;
       const barPct = mi.slsTtl / maxSales * 100;
       return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 24, textAlign: "right", color: th.muted, fontSize: "0.68rem", fontWeight: 600, flexShrink: 0 } }, "#" + (i + 1)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: "0.15rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, mi.name), /* @__PURE__ */ React.createElement("span", { style: { color: G, fontWeight: 700, flexShrink: 0, marginLeft: "0.5rem" } }, fmtUSD(mi.slsTtl))), /* @__PURE__ */ React.createElement("div", { style: { background: th.card3, borderRadius: 3, height: 6, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", borderRadius: 3, background: "linear-gradient(90deg, " + G + ", " + G + "88)", width: barPct + "%", transition: "width .5s ease" } }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, flexShrink: 0, minWidth: 50, textAlign: "right" } }, fmtNum(mi.slsCnt) + " sold"));
-    })) : /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "1rem", color: th.muted, fontSize: "0.8rem" } }, "No menu item data")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "\u{1F369} Food Cost (T)"), /* @__PURE__ */ React.createElement("button", { onClick: async () => {
+    })) : /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "1rem", color: th.muted, fontSize: "0.8rem" } }, "No menu item data"))), storeTab === "foodcost" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "\u{1F369} Food Cost (T)"), /* @__PURE__ */ React.createElement("button", { onClick: async () => {
       if (foodCostT) {
         setFoodCostT(null);
         return;
@@ -6542,7 +6476,7 @@
       },
       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.9rem" } }, cat.icon), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", fontWeight: 600, color: th.text } }, cat.label), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, cat.totalQty, " sold")),
       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, cat.totalCost > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: O } }, "$", cat.totalCost.toFixed(2)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "$", cat.totalRevenue.toFixed(0), " rev"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, expandedFoodCat === key ? "\u25B2" : "\u25BC"))
-    ), expandedFoodCat === key && /* @__PURE__ */ React.createElement("div", { style: { paddingLeft: "1.25rem", paddingTop: "0.25rem" } }, cat.items.slice(0, 10).map((item, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.2rem 0", borderBottom: `1px solid ${th.cardBorder}44` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.text, flex: 1 } }, item.name), item.unitCost > 0 ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, marginRight: "0.5rem" } }, "$", item.unitCost.toFixed(2), "/ea") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.subtle, marginRight: "0.5rem" } }, "\u2014"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, marginRight: "0.5rem" } }, "\xD7", item.qtySold), item.totalCost > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", fontWeight: 700, color: O } }, "$", item.totalCost.toFixed(2)))))))), foodCostT?.error && /* @__PURE__ */ React.createElement("div", { style: { color: "#f44336", fontSize: "0.78rem", marginTop: "0.5rem" } }, foodCostT.error)), storeReviews && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "Guest Reviews"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: storeReviews.googleRating >= 4 ? "#4caf50" : storeReviews.googleRating >= 3.5 ? "#ff9800" : "#f44336" } }, "\u2605 ", storeReviews.googleRating), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "(", storeReviews.totalReviews, " reviews)"), storeReviews.trendDirection && storeReviews.trendDirection !== "stable" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, color: storeReviews.trendDirection === "improving" ? "#4caf50" : "#f44336" } }, storeReviews.trendDirection === "improving" ? "\u2191" : "\u2193"))), storeReviews.themeSummary && Object.keys(storeReviews.themeSummary).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, Object.entries(storeReviews.themeSummary).sort((a, b) => b[1].mentions - a[1].mentions).slice(0, 6).map(([theme, data]) => {
+    ), expandedFoodCat === key && /* @__PURE__ */ React.createElement("div", { style: { paddingLeft: "1.25rem", paddingTop: "0.25rem" } }, cat.items.slice(0, 10).map((item, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.2rem 0", borderBottom: `1px solid ${th.cardBorder}44` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.text, flex: 1 } }, item.name), item.unitCost > 0 ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, marginRight: "0.5rem" } }, "$", item.unitCost.toFixed(2), "/ea") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.subtle, marginRight: "0.5rem" } }, "\u2014"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, marginRight: "0.5rem" } }, "\xD7", item.qtySold), item.totalCost > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", fontWeight: 700, color: O } }, "$", item.totalCost.toFixed(2)))))))), foodCostT?.error && /* @__PURE__ */ React.createElement("div", { style: { color: "#f44336", fontSize: "0.78rem", marginTop: "0.5rem" } }, foodCostT.error))), storeTab === "reviews" && /* @__PURE__ */ React.createElement(React.Fragment, null, storeReviews && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "Guest Reviews"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: storeReviews.googleRating >= 4 ? "#4caf50" : storeReviews.googleRating >= 3.5 ? "#ff9800" : "#f44336" } }, "\u2605 ", storeReviews.googleRating), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "(", storeReviews.totalReviews, " reviews)"), storeReviews.trendDirection && storeReviews.trendDirection !== "stable" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, color: storeReviews.trendDirection === "improving" ? "#4caf50" : "#f44336" } }, storeReviews.trendDirection === "improving" ? "\u2191" : "\u2193"))), storeReviews.themeSummary && Object.keys(storeReviews.themeSummary).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, Object.entries(storeReviews.themeSummary).sort((a, b) => b[1].mentions - a[1].mentions).slice(0, 6).map(([theme, data]) => {
       const color = data.avgSentiment >= 4 ? "#4caf50" : data.avgSentiment >= 3 ? "#ff9800" : "#f44336";
       return /* @__PURE__ */ React.createElement("span", { key: theme, style: {
         display: "inline-flex",
@@ -6588,7 +6522,7 @@
         review.themes?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.2rem", marginTop: "0.25rem" } }, review.themes.map((t) => /* @__PURE__ */ React.createElement("span", { key: t, style: { fontSize: "0.55rem", padding: "0.05rem 0.3rem", borderRadius: 999, background: th.card2, color: th.muted } }, t))),
         review.text && !isOpen && review.text.length > 200 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.15rem", fontWeight: 600 } }, "tap to read more")
       );
-    })), (() => {
+    }))), storeTab === "transactions" && /* @__PURE__ */ React.createElement(React.Fragment, null, (() => {
       const toET = (utc) => {
         try {
           return new Date(utc.endsWith("Z") ? utc : utc + "Z").toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
@@ -6649,7 +6583,7 @@
         {
           onClick: () => loadTxnList(),
           disabled: txnListLoading,
-          style: { fontSize: "0.7rem", padding: "0.25rem 0.6rem", borderRadius: 6, background: th.card2, border: `1px solid ${th.cardBorder}`, color: th.muted, cursor: "pointer" }
+          style: { fontSize: "0.7rem", padding: "0.25rem 0.6rem", borderRadius: 6, background: txnListLoading ? th.card2 : "#3b82f6", border: "none", color: "#fff", cursor: "pointer", fontWeight: 600, opacity: txnListLoading ? 0.6 : 1 }
         },
         txnListLoading ? "\u2026" : "\u21BA Refresh"
       )), /* @__PURE__ */ React.createElement(
@@ -6661,7 +6595,7 @@
               if (!txnList) loadTxnList();
             } else setTxnExpanded(false);
           },
-          style: { fontSize: "0.72rem", padding: "0.3rem 0.7rem", borderRadius: 6, background: th.card2, border: `1px solid ${th.cardBorder}`, color: th.text, cursor: "pointer" }
+          style: { fontSize: "0.72rem", padding: "0.3rem 0.7rem", borderRadius: 6, background: txnExpanded ? "#ef444422" : O, border: txnExpanded ? `1px solid #ef444455` : "none", color: txnExpanded ? "#ef4444" : "#fff", cursor: "pointer", fontWeight: 700 }
         },
         txnExpanded ? "Hide" : txnListLoading ? "Loading\u2026" : "Load"
       ))), txnExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.75rem", marginBottom: "0.5rem" } }, [["all", "All"], ["eat_in", "Eat In"], ["drive_thru", "Drive Thru"], ["mobile", "Mobile"], ["uber", "Uber Eats"], ["doordash", "DoorDash"], ["delivery", "Delivery"], ["other", "Other"]].map(([val, label]) => /* @__PURE__ */ React.createElement("span", { key: val, onClick: () => setTxnFilters((f) => ({ ...f, otCat: val })), style: chipStyle(txnFilters.otCat === val) }, label))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("discounts"), style: chipStyle(txnFilters.discounts) }, "\u{1F3F7} Discounts"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("voids"), style: chipStyle(txnFilters.voids) }, "\u{1F6AB} Voids"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("refunds"), style: chipStyle(txnFilters.refunds) }, "\u21A9 Refunds"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center", marginLeft: "auto" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "\u23F1"), /* @__PURE__ */ React.createElement(
@@ -6694,7 +6628,7 @@
         const hasRefund = (chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0;
         const otName = txnOTMap[chk.otNum] || "";
         const cat = otCat(chk.otNum);
-        const otColor = cat === "drive_thru" ? "#3b82f6" : cat === "eat_in" ? "#22c55e" : cat === "uber" ? "#000000" : cat === "doordash" ? "#ef4444" : cat === "mobile" ? "#8b5cf6" : th.muted;
+        const otColor = cat === "drive_thru" ? "#2563eb" : cat === "eat_in" ? "#059669" : cat === "uber" ? "#d97706" : cat === "doordash" ? "#dc2626" : cat === "mobile" ? "#7c3aed" : cat === "delivery" ? "#0891b2" : "#64748b";
         return /* @__PURE__ */ React.createElement(
           "div",
           {
@@ -6799,7 +6733,7 @@
       return /* @__PURE__ */ React.createElement(
         "div",
         {
-          style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 9999, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "2rem 1rem", overflowY: "auto" },
+          style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 99999, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "1.5rem 1rem", overflowY: "auto" },
           onClick: (e) => {
             if (e.target === e.currentTarget) setTxnModal(null);
           }
@@ -6813,7 +6747,7 @@
           ["\u2705", clsdTime, "Transaction Closed", `Total: $${(chk.chkTtl || 0).toFixed(2)}`]
         ].filter(Boolean).map(([icon, time, title, sub], i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: "0.75rem", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 32, height: 32, borderRadius: "50%", background: `${O}20`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "0.7rem" } }, icon), /* @__PURE__ */ React.createElement("div", null, time && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text } }, time), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: time ? 400 : 700, color: th.text } }, title), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, sub)))))))))
       );
-    })());
+    })()));
   }
   function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView }) {
     const distStores = stores.filter((s) => s.district === distNum);
@@ -7949,7 +7883,7 @@ ${t2.slice(0, 300)}`);
     return /* @__PURE__ */ React.createElement("div", null, pulseView !== "network" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.75rem", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPulseView("network"), style: { background: "none", border: "none", color: G, cursor: "pointer", fontWeight: 600, fontFamily: "'Source Sans 3'", fontSize: "0.8rem" } }, "Network"), pulseView.level === "district" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, "District ", pulseView.num, " \u2014 ", dmName(pulseView.num))), pulseView.level === "store" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
       const s = stores.find((st) => st.pc === pulseView.pc);
       if (s?.district) setPulseView({ level: "district", num: s.district });
-    }, style: { background: "none", border: "none", color: G, cursor: "pointer", fontWeight: 600, fontFamily: "'Source Sans 3'", fontSize: "0.8rem" } }, "District ", stores.find((st) => st.pc === pulseView.pc)?.district || "?"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, stores.find((st) => st.pc === pulseView.pc)?.name || pulseView.pc))), /* @__PURE__ */ React.createElement("div", { style: {
+    }, style: { background: "none", border: "none", color: G, cursor: "pointer", fontWeight: 600, fontFamily: "'Source Sans 3'", fontSize: "0.8rem" } }, "District ", stores.find((st) => st.pc === pulseView.pc)?.district || "?"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, stores.find((st) => st.pc === pulseView.pc)?.name || pulseView.pc))), pulseView?.level !== "store" && /* @__PURE__ */ React.createElement("div", { style: {
       ...card(th),
       padding: "1.25rem 1.5rem",
       marginBottom: "1rem",
@@ -24541,7 +24475,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.26"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.33"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
