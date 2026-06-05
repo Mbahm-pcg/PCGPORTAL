@@ -24078,6 +24078,12 @@ function AdminDeals({ th, user, dealAuth }) {
   // ── deal leads state ──
   const [dealLeads, setDealLeads] = useState([]);
   const [newLeadName, setNewLeadName] = useState('');
+  // ── send reminder state ──
+  const [remindFor, setRemindFor] = useState(null);
+  const [remindPhone, setRemindPhone] = useState('');
+  const [remindMsg, setRemindMsg] = useState('');
+  const [remindBusy, setRemindBusy] = useState(false);
+  const [remindStatus, setRemindStatus] = useState(null);
 
   // ── load deals ──
   const loadList = () => {
@@ -24691,39 +24697,115 @@ function AdminDeals({ th, user, dealAuth }) {
                     const statusColor = ws.level === 'overdue' ? '#ef4444' : ws.level === 'warning' ? '#f59e0b' : th.muted;
                     const statusText = ws.level === 'overdue' ? '⚠ overdue' : ws.level === 'warning' ? `in ${ws.daysOut}d` : `in ${ws.daysOut}d`;
                     const tiers = Array.isArray(dt.warning_tiers) ? dt.warning_tiers : [];
+                    const isRemindOpen = remindFor && remindFor.id === dt.id;
+
+                    const openReminder = (dateRow) => {
+                      const due = dateRow.due_date || '';
+                      let dueFmt = due;
+                      if (due) {
+                        const parts = due.split('-');
+                        if (parts.length === 3) dueFmt = `${parts[1]}/${parts[2]}/${parts[0]}`;
+                      }
+                      const days = daysUntil(due, Date.now());
+                      const tail = days < 0
+                        ? `— OVERDUE by ${Math.abs(days)} days`
+                        : `— in ${days} days`;
+                      const autoMsg = `${detailDeal.name} — ${dateLabel(dateRow.date_type)} needed on ${dueFmt} ${tail}`;
+                      setRemindFor(dateRow);
+                      setRemindPhone('');
+                      setRemindMsg(autoMsg);
+                      setRemindStatus(null);
+                    };
+
+                    const doSendReminder = async () => {
+                      setRemindBusy(true); setRemindStatus(null);
+                      try {
+                        const r = await dealApi(token, { action: 'sendReminder', deal_id: detailDeal.id, phone: remindPhone, message: remindMsg });
+                        if (r.notes) setDetailNotes(r.notes);
+                        setRemindStatus(r.ok ? '✅ Sent' : '⚠ Logged but SMS failed');
+                        if (r.ok) setTimeout(() => { setRemindFor(null); setRemindStatus(null); }, 1800);
+                      } catch (e) {
+                        setRemindStatus('❌ Error: ' + e.message);
+                      } finally {
+                        setRemindBusy(false);
+                      }
+                    };
+
                     return (
-                      <div key={dt.id} style={{ ...card(th), padding: '0.6rem 0.75rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', flex: 1 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: th.text }}>{dateLabel(dt.date_type)}</span>
-                              <span style={{ fontSize: '0.75rem', color: th.muted }}>·</span>
-                              <span style={{ fontSize: '0.75rem', color: th.muted }}>{dt.due_date}</span>
-                              <span style={{ fontSize: '0.75rem', color: th.muted }}>·</span>
-                              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: statusColor }}>{statusText}</span>
-                              {tiers.length > 0 && (
-                                <span style={{ display: 'inline-flex', gap: '0.2rem' }}>
-                                  {tiers.map((t, i) => (
-                                    <span key={i} style={{ display: 'inline-block', padding: '1px 5px', borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: '0.6rem', fontWeight: 700 }}>{t}</span>
-                                  ))}
-                                </span>
+                      <div key={dt.id}>
+                        <div style={{ ...card(th), padding: '0.6rem 0.75rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: th.text }}>{dateLabel(dt.date_type)}</span>
+                                <span style={{ fontSize: '0.75rem', color: th.muted }}>·</span>
+                                <span style={{ fontSize: '0.75rem', color: th.muted }}>{dt.due_date}</span>
+                                <span style={{ fontSize: '0.75rem', color: th.muted }}>·</span>
+                                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: statusColor }}>{statusText}</span>
+                                {tiers.length > 0 && (
+                                  <span style={{ display: 'inline-flex', gap: '0.2rem' }}>
+                                    {tiers.map((t, i) => (
+                                      <span key={i} style={{ display: 'inline-block', padding: '1px 5px', borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: '0.6rem', fontWeight: 700 }}>{t}</span>
+                                    ))}
+                                  </span>
+                                )}
+                              </div>
+                              {dt.acknowledged_at ? (
+                                <div style={{ fontSize: '0.68rem', color: '#22c55e' }}>✓ ack'd by {dt.acknowledged_by || 'unknown'}</div>
+                              ) : null}
+                              {dt.notes ? <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.1rem' }}>{dt.notes}</div> : null}
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.3rem', flexShrink: 0, flexWrap: 'wrap' }}>
+                              {canEdit && (
+                                <button onClick={() => isRemindOpen ? setRemindFor(null) : openReminder(dt)}
+                                  style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#a855f7' }}>📱 Remind</button>
+                              )}
+                              {canEdit && !dt.acknowledged_at && (
+                                <>
+                                  <button onClick={() => doAck(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#22c55e' }}>Acknowledge</button>
+                                  <button onClick={() => doDelDate(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#ef4444' }}>Delete</button>
+                                </>
+                              )}
+                              {canEdit && dt.acknowledged_at && (
+                                <button onClick={() => doDelDate(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#ef4444' }}>Delete</button>
                               )}
                             </div>
-                            {dt.acknowledged_at ? (
-                              <div style={{ fontSize: '0.68rem', color: '#22c55e' }}>✓ ack'd by {dt.acknowledged_by || 'unknown'}</div>
-                            ) : null}
-                            {dt.notes ? <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.1rem' }}>{dt.notes}</div> : null}
                           </div>
-                          {canEdit && !dt.acknowledged_at && (
-                            <div style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
-                              <button onClick={() => doAck(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#22c55e' }}>Acknowledge</button>
-                              <button onClick={() => doDelDate(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#ef4444' }}>Delete</button>
-                            </div>
-                          )}
-                          {canEdit && dt.acknowledged_at && (
-                            <button onClick={() => doDelDate(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#ef4444' }}>Delete</button>
-                          )}
                         </div>
+                        {isRemindOpen && (
+                          <div style={{ ...card(th), padding: '0.75rem', marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderLeft: '3px solid #a855f7' }}>
+                            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#a855f7', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              Send reminder — {detailDeal.name}
+                            </div>
+                            <input
+                              value={remindPhone}
+                              onChange={e => setRemindPhone(e.target.value)}
+                              placeholder="(555) 555-5555"
+                              style={{ ...inp(th), fontSize: '0.82rem', padding: '0.35rem 0.5rem' }}
+                            />
+                            <textarea
+                              value={remindMsg}
+                              onChange={e => setRemindMsg(e.target.value)}
+                              rows={3}
+                              style={{ ...inp(th), fontSize: '0.8rem', padding: '0.35rem 0.5rem', resize: 'vertical' }}
+                            />
+                            {remindStatus && (
+                              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: remindStatus.startsWith('✅') ? '#22c55e' : remindStatus.startsWith('⚠') ? '#f59e0b' : '#ef4444' }}>
+                                {remindStatus}
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              <button onClick={doSendReminder} disabled={remindBusy}
+                                style={{ ...btn(th), padding: '0.35rem 0.9rem', fontSize: '0.8rem', background: '#a855f7', color: '#fff', border: 'none', fontWeight: 700 }}>
+                                {remindBusy ? 'Sending…' : 'Send'}
+                              </button>
+                              <button onClick={() => { setRemindFor(null); setRemindStatus(null); }}
+                                style={{ ...btn(th), padding: '0.35rem 0.9rem', fontSize: '0.8rem' }}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -32499,7 +32581,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.35
+            v14.36
           </div>
         )}
         {/* Collapse toggle — desktop only */}

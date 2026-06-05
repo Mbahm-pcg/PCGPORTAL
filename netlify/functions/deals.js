@@ -1,5 +1,6 @@
 // PCG Deal Pipeline — authenticated deal CRUD. Every request requires a valid
 // deal session token; reads need 'view', writes need 'edit'.
+const https = require('https');
 const { sql } = require('./db');
 const { verifyToken } = require('./deal-lib/token');
 const { roleSatisfies } = require('./deal-lib/roles');
@@ -27,7 +28,7 @@ exports.handler = async (event) => {
   let body; try { body = JSON.parse(event.body || '{}'); } catch { return reply(400, { error: 'bad json' }); }
   const action = body.action;
   const db = sql();
-  const needWrite = ['create','update','moveStage','handoff','markDead','addNote','addDate','updateDate','deleteDate','ackDate'].includes(action);
+  const needWrite = ['create','update','moveStage','handoff','markDead','addNote','addDate','updateDate','deleteDate','ackDate','sendReminder'].includes(action);
   if (needWrite && !roleSatisfies(user.role, 'edit')) return reply(403, { error: 'read-only access' });
 
   try {
@@ -151,6 +152,30 @@ exports.handler = async (event) => {
       await db`DELETE FROM deal_leads WHERE id = ${body.id}`;
       const leads = await db`SELECT id, name FROM deal_leads ORDER BY name`;
       return reply(200, { leads });
+    }
+    if (action === 'sendReminder') {
+      const rawPhone = String(body.phone || '').replace(/\D/g, '');
+      const msg = String(body.message || '').slice(0, 600);
+      if (!rawPhone || !msg) return reply(400, { error: 'phone and message required' });
+      const KEY = process.env.TEXTBELT_API_KEY;
+      let smsOk = false, smsInfo = { error: 'TEXTBELT_API_KEY not set' };
+      if (KEY) {
+        let cleaned = rawPhone; if (cleaned.length === 10) cleaned = '1' + cleaned;
+        const postData = new URLSearchParams({ phone: '+' + cleaned, message: msg, key: KEY }).toString();
+        smsInfo = await new Promise((resolve) => {
+          const req = https.request({ hostname: 'textbelt.com', port: 443, path: '/text', method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(postData) } },
+            (res) => { let raw = ''; res.on('data', d => raw += d); res.on('end', () => { let j = {}; try { j = JSON.parse(raw); } catch {} resolve(j); }); });
+          req.on('error', (e) => resolve({ success: false, error: e.message }));
+          req.write(postData); req.end();
+        });
+        smsOk = !!smsInfo.success;
+      }
+      // Audit note (logged whether the send succeeded or failed). author + created_at recorded by the table.
+      const noteBody = `📱 SMS reminder ${smsOk ? 'sent' : 'FAILED'} to ${body.phone || rawPhone} — "${msg}"`;
+      await db`INSERT INTO deal_notes (deal_id, author, body) VALUES (${body.deal_id}, ${user.username}, ${noteBody})`;
+      const notes = await db`SELECT * FROM deal_notes WHERE deal_id = ${body.deal_id} ORDER BY created_at DESC`;
+      return reply(smsOk ? 200 : 207, { ok: smsOk, sms: smsInfo, notes });
     }
     return reply(400, { error: 'unknown action' });
   } catch (e) {
