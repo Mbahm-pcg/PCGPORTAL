@@ -13,7 +13,7 @@
     "web-push": "^3.6.7"
   },
   "scripts": {
-    "test": "node --test 'netlify/functions/analyst-lib/*.test.js'",
+    "test": "node --test 'netlify/functions/analyst-lib/*.test.js' 'src/*.test.mjs'",
     "build": "esbuild app.jsx --bundle --outfile=app.js --jsx=transform --platform=browser",
     "watch": "esbuild app.jsx --bundle --outfile=app.js --jsx=transform --platform=browser --watch",
     "build:src": "esbuild src/main.jsx --bundle --outfile=app.js --jsx=transform --platform=browser",

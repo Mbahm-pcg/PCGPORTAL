@@ -1,6 +1,7 @@
 
 import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard } from './src/theme.js';
+import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -13097,6 +13098,65 @@ function AnnouncementsPanel({ th, user, showAlert, announcements, setAnnouncemen
 }
 
 // ── Admin: Settings ───────────────────────────────────────────────────────
+// Manager-only (Mike & Ahmed) control for who can see the P&L tab. Writes pcg_pnl_access_v1.
+function PnlAccessPanel({ th, user, users, showAlert }) {
+  const [allowed, setAllowed] = useState(null);
+  const [input, setInput] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    cloudLoad('pcg_pnl_access_v1')
+      .then(d => setAllowed(Array.isArray(d?.allowed) ? d.allowed : [...DEFAULT_PNL_ALLOWED]))
+      .catch(() => setAllowed([...DEFAULT_PNL_ALLOWED]));
+  }, []);
+
+  const persist = async (next) => {
+    setSaving(true);
+    const ok = await cloudSave('pcg_pnl_access_v1', { allowed: next, updatedAt: new Date().toISOString(), updatedBy: user?.username || user?.email || 'unknown' });
+    setSaving(false);
+    if (ok) { setAllowed(next); showAlert && showAlert('P&L access updated', 'success'); }
+    else showAlert && showAlert('Failed to save P&L access', 'error');
+  };
+  const add = () => {
+    const id = normalizeId(input);
+    if (!id) return;
+    if ((allowed || []).map(normalizeId).includes(id)) { setInput(''); return; }
+    persist([...(allowed || []), id]); setInput('');
+  };
+  const remove = (id) => persist((allowed || []).filter(a => normalizeId(a) !== normalizeId(id)));
+  const nameFor = (id) => {
+    const n = normalizeId(id);
+    const u = (users || []).find(u => normalizeId(u.username) === n || normalizeId(u.email) === n);
+    return u ? u.name : id;
+  };
+
+  if (allowed === null) return <div style={{ ...card(th), padding: '1rem', marginBottom: '1.25rem' }}>Loading P&L access…</div>;
+  return (
+    <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
+      <div style={{ fontWeight: 800, fontFamily: "'Raleway'", color: th.text, marginBottom: '0.25rem' }}>🔒 P&amp;L Access</div>
+      <div style={{ color: th.muted, fontSize: '0.8rem', marginBottom: '0.9rem' }}>Control who can see the P&amp;L tab. You and Ahmed always have access and can manage this list.</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.75rem' }}>
+        {['Mike Bahm', 'Ahmed Bhuiyan'].map(m => (
+          <span key={m} style={{ fontSize: '0.78rem', padding: '0.25rem 0.6rem', borderRadius: '0.5rem', background: th.card2 || th.card, color: th.muted, border: `1px solid ${th.cardBorder}` }}>{m} · manager 🔒</span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.9rem' }}>
+        {(allowed || []).length === 0 && <span style={{ color: th.muted, fontSize: '0.8rem' }}>No additional users yet.</span>}
+        {(allowed || []).map(id => (
+          <span key={id} style={{ fontSize: '0.78rem', padding: '0.25rem 0.5rem 0.25rem 0.6rem', borderRadius: '0.5rem', background: '#22c55e18', color: th.text, border: '1px solid #22c55e55', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+            {nameFor(id)}
+            <button onClick={() => remove(id)} disabled={saving} title="Remove access" style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 800, fontSize: '0.95rem', lineHeight: 1, padding: 0 }}>×</button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }} placeholder="Add by email or username" style={{ ...inp(th), flex: 1 }} />
+        <button onClick={add} disabled={saving || !input.trim()} style={{ ...btn(th), opacity: (saving || !input.trim()) ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Add'}</button>
+      </div>
+    </div>
+  );
+}
+
 function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
@@ -13207,6 +13267,9 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           }}>{t.icon ? <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}>{t.icon}{t.label}</span> : t.label}</button>
         ))}
       </div>
+
+      {/* P&L Access — managers (Mike & Ahmed) only; shows on all settings sub-tabs */}
+      {canManagePnlAccess(user) && <PnlAccessPanel th={th} user={user} users={users} showAlert={showAlert} />}
 
       {/* ── Tab: Notifications ── */}
       {settingsTab === 'notifications' && <>
@@ -29078,7 +29141,13 @@ function PCGPortal() {
   const todoDeepLinkRef = useRef(null);
   const isMobile = useIsMobile();
   const th = getTheme(dark);
-  const TABS = getTabs(user);
+  // P&L access: who can see the P&L tab (managers + allowlist blob). Client-side gate.
+  const [pnlAllowed, setPnlAllowed] = useState(DEFAULT_PNL_ALLOWED);
+  useEffect(() => { cloudLoad('pcg_pnl_access_v1').then(d => { if (Array.isArray(d?.allowed)) setPnlAllowed(d.allowed); }).catch(() => {}); }, []);
+  const canPnl = canViewPnl(user, pnlAllowed);
+  const canManagePnl = canManagePnlAccess(user);
+  const tabsForUser = (u) => { const t = getTabs(u); return canPnl ? t : t.filter(x => x.id !== 'pnl'); };
+  const TABS = tabsForUser(user);
 
   // Lock body scroll while mobile drawer is open
   useEffect(() => {
@@ -30765,7 +30834,7 @@ function PCGPortal() {
 
         {/* DM section — grouped accordion */}
         {user?.userType === "dm" && (() => {
-          const dmTabs = getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id));
+          const dmTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
           const DM_GROUPS = [
             { key:'dm_loc',  label:'Locations & Map', color:'#74c0fc', icon:(c)=>ICONS.locations(c), ids:['map','locations'] },
             { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['pulse','labor','pnl','analytics','anomalies'] },
@@ -30798,7 +30867,7 @@ function PCGPortal() {
         {user?.userType === "manager" && (
           <>
             <SectionHeader label="My Store" accent="#22c55e" collapsed={collapsed} />
-            {getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
+            {tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
@@ -30816,7 +30885,7 @@ function PCGPortal() {
         {user?.userType === "construction" && (
           <>
             <SectionHeader label="Construction" accent="#fb923c" collapsed={collapsed} />
-            {getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
+            {tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
@@ -30833,7 +30902,7 @@ function PCGPortal() {
         {user?.userType === "maintenance" && (
           <>
             <SectionHeader label="Maintenance" accent="#a78bfa" collapsed={collapsed} />
-            {getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
+            {tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
@@ -30851,7 +30920,7 @@ function PCGPortal() {
           <>
             <SectionHeader label={isFullAdmin(user) ? "Admin" : "Operations"} accent={O} collapsed={collapsed} />
             {(() => {
-              const adminTabs = getTabs(user).filter(t => !BASE_TAB_IDS.includes(t.id));
+              const adminTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
               return ADMIN_GROUPS.map(grp => {
                 const grpTabs = grp.ids.map(id => adminTabs.find(t => t.id === id)).filter(Boolean);
                 if (grpTabs.length === 0) return null;
@@ -30890,7 +30959,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.17
+            v14.18
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -31304,7 +31373,7 @@ function PCGPortal() {
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
-          {tab === "pnl" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
