@@ -109,8 +109,14 @@ exports.handler = async (event) => {
       <p style="font-family:Arial;color:#888;font-size:12px">Acknowledge a date in the Deal Pipeline to stop reminders for it.</p>`;
 
     const to = await recipientEmails(db);
-    const overdue = atRisk.filter((r) => r.w.level === 'overdue').length;
-    const subject = `⚠ ${atRisk.length} deal deadline${atRisk.length > 1 ? 's' : ''} need attention${overdue ? ` (${overdue} overdue)` : ''}`;
+    // Lead the subject with the most-urgent deal + date (list is sorted soonest-first),
+    // then "+N more". Name + date type only — no $ amounts in the subject (preview-safe).
+    const top = atRisk[0];
+    const topLabel = DATE_LABELS[top.date_type] || top.date_type;
+    const topPhrase = top.w.level === 'overdue' ? `OVERDUE ${Math.abs(top.w.daysOut)}d` : `in ${top.w.daysOut}d`;
+    const safeName = String(top.deal_name || 'Deal').replace(/[\r\n]+/g, ' ').trim().slice(0, 80);
+    const more = atRisk.length - 1;
+    const subject = `⚠ ${safeName} — ${topLabel} (${topPhrase})${more > 0 ? ` +${more} more` : ''}`;
     const sent = await sendEmail(to, subject, html);
     console.log(`[deal-alerts] ${atRisk.length} at-risk, emailed ${to.length} recipient(s): ${sent}`);
     return isManual ? { statusCode: 200, body: JSON.stringify({ ok: true, atRisk: atRisk.length, recipients: to.length, sent }) } : undefined;
