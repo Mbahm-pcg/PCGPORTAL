@@ -134,6 +134,24 @@ exports.handler = async (event) => {
       await db`DELETE FROM deal_access WHERE user_key = ${key}`;
       return reply(200, { ok: true });
     }
+    if (action === 'listLeads') {
+      const leads = await db`SELECT id, name FROM deal_leads ORDER BY name`;
+      return reply(200, { leads });
+    }
+    if (action === 'addLead') {
+      if (!roleSatisfies(user.role, 'admin')) return reply(403, { error: 'admin only' });
+      const name = String(body.name || '').trim();
+      if (!name) return reply(400, { error: 'name required' });
+      await db`INSERT INTO deal_leads (name, added_by) VALUES (${name}, ${user.username}) ON CONFLICT (name) DO NOTHING`;
+      const leads = await db`SELECT id, name FROM deal_leads ORDER BY name`;
+      return reply(200, { leads });
+    }
+    if (action === 'removeLead') {
+      if (!roleSatisfies(user.role, 'admin')) return reply(403, { error: 'admin only' });
+      await db`DELETE FROM deal_leads WHERE id = ${body.id}`;
+      const leads = await db`SELECT id, name FROM deal_leads ORDER BY name`;
+      return reply(200, { leads });
+    }
     return reply(400, { error: 'unknown action' });
   } catch (e) {
     return reply(500, { error: 'server error' });

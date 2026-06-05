@@ -131,6 +131,9 @@ exports.handler = async (event) => {
   await db`CREATE INDEX IF NOT EXISTS idx_deals_status_stage ON deals(status, stage)`;
   await db`CREATE INDEX IF NOT EXISTS idx_deal_dates_due ON deal_dates(due_date)`;
 
+  await db`CREATE TABLE IF NOT EXISTS deal_leads (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, added_by TEXT, added_at TIMESTAMPTZ DEFAULT now())`;
+  await db`INSERT INTO deal_leads (name, added_by) VALUES ('Krunal Rao','system'),('Mike Bahm','system'),('Bill DePrinzio','system'),('Sam Brown','system') ON CONFLICT (name) DO NOTHING`;
+
   await db`
     INSERT INTO deal_access (user_key, role, added_by) VALUES
       ('mike.bahm', 'admin', 'system'),

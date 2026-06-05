@@ -18163,6 +18163,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [accessRole, setAccessRole] = useState("view");
     const [accessBusy, setAccessBusy] = useState(false);
     const [accessErr, setAccessErr] = useState(null);
+    const [dealLeads, setDealLeads] = useState([]);
+    const [newLeadName, setNewLeadName] = useState("");
     const loadList = () => {
       setLoading(true);
       return dealApi(token, { action: "list", status: "active" }).then((r) => {
@@ -18177,6 +18179,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         return;
       }
       loadList();
+      dealApi(token, { action: "listLeads" }).then((r) => setDealLeads(r.leads || [])).catch(() => {
+      });
     }, [token]);
     const loadAccess = () => {
       setAccessErr(null);
@@ -18458,7 +18462,21 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           style: { ...selLabel, padding: "0.35rem 0.6rem", fontSize: "0.8rem" }
         },
         STAGES.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.label))
-      ), /* @__PURE__ */ React.createElement("button", { onClick: () => doHandoff(d), style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", color: "#a855f7" } }, "Hand off \u2192"), /* @__PURE__ */ React.createElement("button", { onClick: () => doMarkDead(d), style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", color: "#ef4444" } }, "Mark Dead")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Core"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement(Field, { label: "Name", fkey: "name" }), /* @__PURE__ */ React.createElement(Field, { label: "Address", fkey: "address" }), /* @__PURE__ */ React.createElement(Field, { label: "City", fkey: "city" }), /* @__PURE__ */ React.createElement(SelectField, { label: "State", fkey: "state", options: [{ v: "PA", l: "PA" }, { v: "NJ", l: "NJ" }] }), /* @__PURE__ */ React.createElement(SelectField, { label: "Brand", fkey: "brand", options: [{ v: "dunkin", l: "Dunkin'" }, { v: "papajohns", l: "Papa Johns" }, { v: "bww_go", l: "BWW Go" }, { v: "dual", l: "Dual" }] }), /* @__PURE__ */ React.createElement(SelectField, { label: "Deal Type", fkey: "deal_type", options: [{ v: "lease", l: "Lease" }, { v: "purchase", l: "Purchase" }] }), /* @__PURE__ */ React.createElement(Field, { label: "Deal Lead", fkey: "deal_lead" }), /* @__PURE__ */ React.createElement(Field, { label: "Broker Source", fkey: "broker_source" }), /* @__PURE__ */ React.createElement(Field, { label: "PC Number", fkey: "pc_number" }), /* @__PURE__ */ React.createElement(Field, { label: "Sq Ft", fkey: "sqft", type: "number" }))), d.deal_type === "lease" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Lease Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement(Field, { label: "Landlord Entity", fkey: "landlord_entity" }), /* @__PURE__ */ React.createElement(Field, { label: "Landlord Contact", fkey: "landlord_contact" }), /* @__PURE__ */ React.createElement(Field, { label: "Lease Structure", fkey: "lease_structure" }), /* @__PURE__ */ React.createElement(Field, { label: "Base Rent ($/mo)", fkey: "base_rent", type: "number" }), /* @__PURE__ */ React.createElement(Field, { label: "Rent PSF", fkey: "rent_psf", type: "number" }), /* @__PURE__ */ React.createElement(Field, { label: "Term (years)", fkey: "term_years", type: "number" }), /* @__PURE__ */ React.createElement(Field, { label: "TI Allowance", fkey: "ti_allowance", type: "number" }), /* @__PURE__ */ React.createElement(Field, { label: "Free Rent (mo)", fkey: "free_rent", type: "number" }), /* @__PURE__ */ React.createElement(Field, { label: "Est NNN/CAM", fkey: "est_nnn_cam", type: "number" }), /* @__PURE__ */ React.createElement(Field, { label: "CAM Cap", fkey: "cam_cap" }), /* @__PURE__ */ React.createElement(Field, { label: "Guaranty Type", fkey: "guaranty_type" }), /* @__PURE__ */ React.createElement(Field, { label: "Use Clause", fkey: "use_clause" }), /* @__PURE__ */ React.createElement(Field, { label: "Exclusivity", fkey: "exclusivity" }), /* @__PURE__ */ React.createElement(Field, { label: "Escalations", fkey: "escalations" }), /* @__PURE__ */ React.createElement(Field, { label: "Renewal Options", fkey: "renewal_options" }), /* @__PURE__ */ React.createElement(Field, { label: "Security Deposit", fkey: "security_deposit", type: "number" }))), d.deal_type === "purchase" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Purchase Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement(Field, { label: "Seller Entity", fkey: "seller_entity" }), /* @__PURE__ */ React.createElement(Field, { label: "Seller Contact", fkey: "seller_contact" }), /* @__PURE__ */ React.createElement(Field, { label: "Purchase Price", fkey: "purchase_price", type: "number" }), /* @__PURE__ */ React.createElement(Field, { label: "Earnest Money", fkey: "earnest_money", type: "number" }), /* @__PURE__ */ React.createElement(Field, { label: "EMD Hard Date", fkey: "emd_hard" }), /* @__PURE__ */ React.createElement(Field, { label: "Title/Escrow Co", fkey: "title_escrow_co" }), /* @__PURE__ */ React.createElement(Field, { label: "Lender", fkey: "lender" }), /* @__PURE__ */ React.createElement(Field, { label: "Loan Terms", fkey: "loan_terms" }), /* @__PURE__ */ React.createElement(Field, { label: "Appraisal Status", fkey: "appraisal_status" }), /* @__PURE__ */ React.createElement(Field, { label: "Phase 1 Status", fkey: "phase1_status" }), /* @__PURE__ */ React.createElement(Field, { label: "Survey Status", fkey: "survey_status" }), /* @__PURE__ */ React.createElement(Field, { label: "Zoning Status", fkey: "zoning_status" }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement(Field, { label: "SPE Entity", fkey: "spe_entity" })), canEdit && Object.keys(editFields).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: doSave, disabled: saving, style: { ...btn(th), padding: "0.45rem 1.2rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none" } }, saving ? "Saving\u2026" : "Save Changes"), saveMsg && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: saveMsg.startsWith("Error") ? "#ef4444" : "#22c55e" } }, saveMsg)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" } }, detailNotes.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No notes yet."), detailNotes.map((n, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, n.author || "Unknown"), n.created_at ? " \xB7 " + new Date(n.created_at).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text } }, n.body || n.note)))), canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+      ), /* @__PURE__ */ React.createElement("button", { onClick: () => doHandoff(d), style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", color: "#a855f7" } }, "Hand off \u2192"), /* @__PURE__ */ React.createElement("button", { onClick: () => doMarkDead(d), style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", color: "#ef4444" } }, "Mark Dead")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Core"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Name", fkey: "name" }), Field({ label: "Address", fkey: "address" }), Field({ label: "City", fkey: "city" }), SelectField({ label: "State", fkey: "state", options: [{ v: "PA", l: "PA" }, { v: "NJ", l: "NJ" }] }), SelectField({ label: "Brand", fkey: "brand", options: [{ v: "dunkin", l: "Dunkin'" }, { v: "papajohns", l: "Papa Johns" }, { v: "bww_go", l: "BWW Go" }, { v: "dual", l: "Dual" }] }), SelectField({ label: "Deal Type", fkey: "deal_type", options: [{ v: "lease", l: "Lease" }, { v: "purchase", l: "Purchase" }] }), (() => {
+        const currentVal = fv("deal_lead");
+        const inList = dealLeads.some((l) => l.name === currentVal);
+        return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Deal Lead"), canEdit ? /* @__PURE__ */ React.createElement(
+          "select",
+          {
+            value: currentVal,
+            onChange: (e) => set("deal_lead", e.target.value),
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          },
+          /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Select Lead \u2014"),
+          !inList && currentVal && /* @__PURE__ */ React.createElement("option", { value: currentVal }, currentVal),
+          dealLeads.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.name }, l.name))
+        ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, padding: "0.2rem 0" } }, d["deal_lead"] ?? "\u2014"));
+      })(), Field({ label: "Broker Source", fkey: "broker_source" }), Field({ label: "PC Number", fkey: "pc_number" }), Field({ label: "Sq Ft", fkey: "sqft", type: "number" }))), d.deal_type === "lease" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Lease Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Landlord Entity", fkey: "landlord_entity" }), Field({ label: "Landlord Contact", fkey: "landlord_contact" }), Field({ label: "Lease Structure", fkey: "lease_structure" }), Field({ label: "Base Rent ($/mo)", fkey: "base_rent", type: "number" }), Field({ label: "Rent PSF", fkey: "rent_psf", type: "number" }), Field({ label: "Term (years)", fkey: "term_years", type: "number" }), Field({ label: "TI Allowance", fkey: "ti_allowance", type: "number" }), Field({ label: "Free Rent (mo)", fkey: "free_rent", type: "number" }), Field({ label: "Est NNN/CAM", fkey: "est_nnn_cam", type: "number" }), Field({ label: "CAM Cap", fkey: "cam_cap" }), Field({ label: "Guaranty Type", fkey: "guaranty_type" }), Field({ label: "Use Clause", fkey: "use_clause" }), Field({ label: "Exclusivity", fkey: "exclusivity" }), Field({ label: "Escalations", fkey: "escalations" }), Field({ label: "Renewal Options", fkey: "renewal_options" }), Field({ label: "Security Deposit", fkey: "security_deposit", type: "number" }))), d.deal_type === "purchase" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Purchase Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Seller Entity", fkey: "seller_entity" }), Field({ label: "Seller Contact", fkey: "seller_contact" }), Field({ label: "Purchase Price", fkey: "purchase_price", type: "number" }), Field({ label: "Earnest Money", fkey: "earnest_money", type: "number" }), Field({ label: "EMD Hard Date", fkey: "emd_hard" }), Field({ label: "Title/Escrow Co", fkey: "title_escrow_co" }), Field({ label: "Lender", fkey: "lender" }), Field({ label: "Loan Terms", fkey: "loan_terms" }), Field({ label: "Appraisal Status", fkey: "appraisal_status" }), Field({ label: "Phase 1 Status", fkey: "phase1_status" }), Field({ label: "Survey Status", fkey: "survey_status" }), Field({ label: "Zoning Status", fkey: "zoning_status" }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "SPE Entity", fkey: "spe_entity" })), canEdit && Object.keys(editFields).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: doSave, disabled: saving, style: { ...btn(th), padding: "0.45rem 1.2rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none" } }, saving ? "Saving\u2026" : "Save Changes"), saveMsg && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: saveMsg.startsWith("Error") ? "#ef4444" : "#22c55e" } }, saveMsg)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" } }, detailNotes.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No notes yet."), detailNotes.map((n, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, n.author || "Unknown"), n.created_at ? " \xB7 " + new Date(n.created_at).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text } }, n.body || n.note)))), canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
         "input",
         {
           value: newNote,
@@ -18637,8 +18655,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       if (!showCreate) return null;
       return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setShowCreate(false), style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", background: th.bg, borderRadius: "0.75rem", padding: "1.5rem", width: "100%", maxWidth: 480, boxShadow: "0 8px 40px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "New Deal"), [
         { label: "Name", key: "name", type: "text" },
-        { label: "Address", key: "address", type: "text" },
-        { label: "Deal Lead", key: "deal_lead", type: "text" }
+        { label: "Address", key: "address", type: "text" }
       ].map((f) => /* @__PURE__ */ React.createElement("div", { key: f.key, style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, f.label), /* @__PURE__ */ React.createElement(
         "input",
         {
@@ -18659,7 +18676,16 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           style: { ...selLabel, padding: "0.4rem 0.6rem", fontSize: "0.85rem" }
         },
         f.options.map((o) => /* @__PURE__ */ React.createElement("option", { key: o.v, value: o.v }, o.l))
-      ))), createError && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem" } }, createError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCreate(false), style: { ...btn(th), padding: "0.45rem 0.9rem" } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: doCreate, disabled: creating, style: { ...btn(th), padding: "0.45rem 1.2rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none" } }, creating ? "Creating\u2026" : "Create Deal"))));
+      ))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Deal Lead"), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: createForm.deal_lead,
+          onChange: (e) => setCreateForm((p) => ({ ...p, deal_lead: e.target.value })),
+          style: { ...selLabel, padding: "0.4rem 0.6rem", fontSize: "0.85rem" }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Select Lead \u2014"),
+        dealLeads.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.name }, l.name))
+      )), createError && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem" } }, createError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCreate(false), style: { ...btn(th), padding: "0.45rem 0.9rem" } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: doCreate, disabled: creating, style: { ...btn(th), padding: "0.45rem 1.2rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none" } }, creating ? "Creating\u2026" : "Create Deal"))));
     };
     return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "Deal Pipeline"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.25rem", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", padding: "0.2rem" } }, ["kanban", "table"].map((v) => /* @__PURE__ */ React.createElement(
       "button",
@@ -18711,7 +18737,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         style: { ...btn(th), padding: "0.35rem 0.7rem", fontSize: "0.78rem", color: "#ef4444" }
       },
       "Clear"
-    )), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), /* @__PURE__ */ React.createElement(DetailModal, null), /* @__PURE__ */ React.createElement(CreateModal, null), showAccess && /* @__PURE__ */ React.createElement(
+    )), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), DetailModal(), CreateModal(), showAccess && /* @__PURE__ */ React.createElement(
       "div",
       {
         style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1e3, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
@@ -18767,7 +18793,50 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           style: { ...btn(th), padding: "0.35rem 0.9rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", fontSize: "0.82rem", opacity: accessBusy || !accessInput.trim() ? 0.5 : 1 }
         },
         "Grant Access"
-      )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.4rem" } }, "Tip: add by the person's login email or username (case-insensitive).")))
+      )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.4rem" } }, "Tip: add by the person's login email or username (case-insensitive).")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, "Deal Leads"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "0.75rem" } }, dealLeads.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No leads yet."), dealLeads.map((l) => /* @__PURE__ */ React.createElement("div", { key: l.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", padding: "0.3rem 0.5rem", background: th.card, borderRadius: "0.35rem", border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, l.name), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          disabled: accessBusy,
+          onClick: () => {
+            setAccessBusy(true);
+            dealApi(token, { action: "removeLead", id: l.id }).then((r) => setDealLeads(r.leads || [])).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
+          },
+          style: { ...btn(th), padding: "0.15rem 0.5rem", fontSize: "0.75rem", color: "#ef4444", background: "transparent", border: `1px solid #ef4444` }
+        },
+        "\xD7"
+      )))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          value: newLeadName,
+          onChange: (e) => setNewLeadName(e.target.value),
+          placeholder: "New lead name",
+          style: { ...inp(th), flex: 1, padding: "0.35rem 0.6rem", fontSize: "0.82rem" },
+          onKeyDown: (e) => {
+            if (e.key === "Enter" && newLeadName.trim()) {
+              setAccessBusy(true);
+              dealApi(token, { action: "addLead", name: newLeadName.trim() }).then((r) => {
+                setDealLeads(r.leads || []);
+                setNewLeadName("");
+              }).catch((e2) => setAccessErr(e2.message)).finally(() => setAccessBusy(false));
+            }
+          }
+        }
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          disabled: accessBusy || !newLeadName.trim(),
+          onClick: () => {
+            if (!newLeadName.trim()) return;
+            setAccessBusy(true);
+            dealApi(token, { action: "addLead", name: newLeadName.trim() }).then((r) => {
+              setDealLeads(r.leads || []);
+              setNewLeadName("");
+            }).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
+          },
+          style: { ...btn(th), padding: "0.35rem 0.9rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", fontSize: "0.82rem", opacity: accessBusy || !newLeadName.trim() ? 0.5 : 1 }
+        },
+        "Add Lead"
+      ))))
     ));
   }
   function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
@@ -24475,7 +24544,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.33"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.34"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
