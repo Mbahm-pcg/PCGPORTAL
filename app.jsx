@@ -23686,6 +23686,13 @@ function AdminDeals({ th, user, dealAuth }) {
   const [newDateNotes, setNewDateNotes] = useState('');
   const [dateAdding, setDateAdding] = useState(false);
   const [dateErr, setDateErr] = useState(null);
+  // ── access panel state ──
+  const [showAccess, setShowAccess] = useState(false);
+  const [accessRows, setAccessRows] = useState(null);
+  const [accessInput, setAccessInput] = useState('');
+  const [accessRole, setAccessRole] = useState('view');
+  const [accessBusy, setAccessBusy] = useState(false);
+  const [accessErr, setAccessErr] = useState(null);
 
   // ── load deals ──
   const loadList = () => {
@@ -23700,6 +23707,29 @@ function AdminDeals({ th, user, dealAuth }) {
     if (!token) { setLoading(false); return; }
     loadList();
   }, [token]);
+
+  // ── access panel helpers ──
+  const loadAccess = () => {
+    setAccessErr(null);
+    dealApi(token, { action: 'listAccess' })
+      .then(r => setAccessRows(r.access || []))
+      .catch(e => setAccessErr(e.message));
+  };
+  useEffect(() => { if (showAccess) loadAccess(); }, [showAccess]);
+  const doSetAccess = (key, r) => {
+    setAccessBusy(true); setAccessErr(null);
+    dealApi(token, { action: 'setAccess', user_key: key, role: r })
+      .then(() => loadAccess())
+      .catch(e => setAccessErr(e.message))
+      .finally(() => setAccessBusy(false));
+  };
+  const doRemoveAccess = (key) => {
+    setAccessBusy(true); setAccessErr(null);
+    dealApi(token, { action: 'removeAccess', user_key: key })
+      .then(() => loadAccess())
+      .catch(e => setAccessErr(e.message))
+      .finally(() => setAccessBusy(false));
+  };
 
   // ── open detail ──
   const loadDocs = (dealId) => {
@@ -24505,13 +24535,18 @@ function AdminDeals({ th, user, dealAuth }) {
               <button key={v} onClick={() => setView(v)}
                 style={{ padding: '0.3rem 0.75rem', borderRadius: '0.35rem', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.78rem',
                   background: view === v ? '#3b82f6' : 'transparent', color: view === v ? '#fff' : th.muted, transition: 'all .15s' }}>
-                {v === 'kanban' ? 'Kanban' : 'Table'}
+                {v === 'kanban' ? 'Dealboard' : 'Table'}
               </button>
             ))}
           </div>
           {canEdit && (
             <button onClick={() => setShowCreate(true)} style={{ ...btn(th), padding: '0.4rem 0.9rem', fontWeight: 700, background: '#22c55e', color: '#fff', border: 'none', fontSize: '0.82rem' }}>
               + New Deal
+            </button>
+          )}
+          {role === 'admin' && (
+            <button onClick={() => setShowAccess(true)} style={{ ...btn(th), padding: '0.4rem 0.9rem', fontWeight: 700, background: th.card, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.82rem' }}>
+              🔒 Manage Access
             </button>
           )}
         </div>
@@ -24564,6 +24599,89 @@ function AdminDeals({ th, user, dealAuth }) {
       {/* Modals */}
       <DetailModal />
       <CreateModal />
+
+      {/* Access Management Modal */}
+      {showAccess && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowAccess(false); }}>
+          <div style={{ ...card(th), width: '100%', maxWidth: 560, maxHeight: '85vh', overflowY: 'auto', padding: '1.5rem', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+              <div>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.15rem', color: th.text }}>🔒 Manage Deal Pipeline Access</div>
+                <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.25rem' }}>Who can see and edit the Deal Pipeline. Admins manage this list.</div>
+              </div>
+              <button onClick={() => setShowAccess(false)} style={{ ...btn(th), padding: '0.25rem 0.6rem', fontSize: '0.78rem', color: th.muted, background: 'transparent', border: 'none' }}>✕</button>
+            </div>
+
+            {accessErr && <div style={{ background: '#fee2e2', color: '#991b1b', borderRadius: '0.4rem', padding: '0.5rem 0.75rem', marginBottom: '0.75rem', fontSize: '0.82rem' }}>{accessErr}</div>}
+
+            {/* Current access list */}
+            <div style={{ marginBottom: '1rem' }}>
+              {accessRows === null ? (
+                <div style={{ color: th.muted, fontSize: '0.85rem' }}>Loading…</div>
+              ) : accessRows.length === 0 ? (
+                <div style={{ color: th.muted, fontSize: '0.85rem' }}>No access entries yet.</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                      <th style={{ textAlign: 'left', padding: '0.35rem 0.5rem', color: th.muted, fontWeight: 600 }}>User</th>
+                      <th style={{ textAlign: 'left', padding: '0.35rem 0.5rem', color: th.muted, fontWeight: 600 }}>Role</th>
+                      <th style={{ textAlign: 'left', padding: '0.35rem 0.5rem', color: th.muted, fontWeight: 600 }}>Added by</th>
+                      <th style={{ padding: '0.35rem 0.5rem' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {accessRows.map(row => (
+                      <tr key={row.user_key} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                        <td style={{ padding: '0.4rem 0.5rem', color: th.text, fontWeight: 600 }}>{row.user_key}</td>
+                        <td style={{ padding: '0.4rem 0.5rem' }}>
+                          <select value={row.role} disabled={accessBusy}
+                            onChange={e => doSetAccess(row.user_key, e.target.value)}
+                            style={{ ...inp(th), padding: '0.2rem 0.4rem', fontSize: '0.78rem', width: 'auto' }}>
+                            <option value="view">view</option>
+                            <option value="edit">edit</option>
+                            <option value="admin">admin</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: '0.4rem 0.5rem', color: th.muted, fontSize: '0.75rem' }}>{row.added_by || '—'}</td>
+                        <td style={{ padding: '0.4rem 0.5rem' }}>
+                          <button disabled={accessBusy} onClick={() => doRemoveAccess(row.user_key)}
+                            style={{ ...btn(th), padding: '0.2rem 0.5rem', fontSize: '0.75rem', color: '#ef4444', background: 'transparent', border: `1px solid #ef4444` }}>
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Grant access row */}
+            <div style={{ borderTop: `1px solid ${th.cardBorder}`, paddingTop: '1rem' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.82rem', color: th.text, marginBottom: '0.5rem' }}>Grant Access</div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <input value={accessInput} onChange={e => setAccessInput(e.target.value)}
+                  placeholder="email or username"
+                  style={{ ...inp(th), flex: 1, minWidth: 160, padding: '0.35rem 0.6rem', fontSize: '0.82rem' }} />
+                <select value={accessRole} onChange={e => setAccessRole(e.target.value)}
+                  style={{ ...inp(th), padding: '0.35rem 0.5rem', fontSize: '0.82rem', width: 'auto' }}>
+                  <option value="view">view</option>
+                  <option value="edit">edit</option>
+                  <option value="admin">admin</option>
+                </select>
+                <button disabled={accessBusy || !accessInput.trim()}
+                  onClick={() => { doSetAccess(accessInput.trim(), accessRole); setAccessInput(''); }}
+                  style={{ ...btn(th), padding: '0.35rem 0.9rem', fontWeight: 700, background: '#3b82f6', color: '#fff', border: 'none', fontSize: '0.82rem', opacity: (accessBusy || !accessInput.trim()) ? 0.5 : 1 }}>
+                  Grant Access
+                </button>
+              </div>
+              <div style={{ fontSize: '0.73rem', color: th.muted, marginTop: '0.4rem' }}>Tip: add by the person's login email or username (case-insensitive).</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -31920,7 +32038,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.21
+            v14.22
           </div>
         )}
         {/* Collapse toggle — desktop only */}

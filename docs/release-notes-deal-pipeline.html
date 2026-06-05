@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Release Notes: Deal Pipeline — People Capital Group</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600;700;800;900&family=Source+Sans+3:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --o:#FF671F; --od:#cc4f12; --ink:#11181f; --slate:#3b4754; --muted:#6b7280;
+    --line:#e7e9ee; --bg:#f6f7f9; --card:#ffffff; --green:#22c55e; --amber:#f59e0b; --red:#ef4444; --blue:#3b82f6; --violet:#a855f7;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Source Sans 3',system-ui,sans-serif;color:var(--ink);background:var(--bg);line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:0 22px 70px}
+  h1,h2,h3,.brandname{font-family:'Raleway',system-ui,sans-serif}
+  .muted{color:var(--muted)}
+
+  /* Hero */
+  .hero{background:radial-gradient(120% 140% at 85% -10%, #2a2f37 0%, #14181d 55%, #0d1014 100%);color:#fff;border-radius:0 0 28px 28px;padding:34px 0 40px;position:relative;overflow:hidden}
+  .hero::after{content:"";position:absolute;right:-90px;top:-90px;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,rgba(255,103,31,.32),transparent 65%)}
+  .hero .wrap{position:relative;z-index:2}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .logo{display:flex;align-items:center;gap:12px}
+  .seal{width:48px;height:48px;border-radius:13px;background:linear-gradient(140deg,var(--o),var(--od));display:flex;align-items:center;justify-content:center;font-family:'Raleway';font-weight:900;color:#fff;font-size:18px;letter-spacing:.5px;box-shadow:0 6px 18px rgba(255,103,31,.45)}
+  .brandname{font-weight:800;font-size:.78rem;letter-spacing:2.5px;color:#fff;line-height:1.25}
+  .brandname small{display:block;font-weight:600;font-size:.6rem;letter-spacing:3.5px;color:#9aa3ad;margin-top:2px}
+  .pill{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#e7e9ee;font-weight:600;font-size:.72rem;letter-spacing:.5px;padding:6px 12px;border-radius:999px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green)}
+  .eyebrow{margin-top:30px;color:var(--o);font-weight:700;letter-spacing:3px;font-size:.74rem;text-transform:uppercase}
+  .hero h1{font-weight:900;font-size:2.7rem;line-height:1.05;margin:8px 0 12px;letter-spacing:-.5px}
+  .hero p{color:#c4ccd4;font-size:1.06rem;max-width:680px}
+  .meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+  .chip{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:8px 13px;font-size:.8rem;color:#dfe4e9}
+  .chip b{color:#fff;font-family:'Raleway';font-weight:800}
+
+  section{margin-top:40px}
+  .sec-h{display:flex;align-items:center;gap:11px;margin-bottom:16px}
+  .sec-h .ic{width:34px;height:34px;border-radius:9px;background:var(--o);color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex:none}
+  .sec-h h2{font-size:1.32rem;font-weight:800;letter-spacing:-.2px}
+  .lead{color:var(--slate);font-size:1.02rem;max-width:760px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+
+  .stages{display:flex;flex-wrap:wrap;gap:9px;align-items:stretch}
+  .stage{flex:1 1 150px;min-width:150px;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--o);border-radius:12px;padding:12px 14px;position:relative}
+  .stage .n{font-family:'Raleway';font-weight:900;color:var(--o);font-size:.78rem;opacity:.6}
+  .stage .t{font-weight:700;font-size:.92rem;margin-top:2px}
+  .stage.handoff{border-left-color:var(--green);background:linear-gradient(180deg,#fff,#f3fcf6)}
+  .stage.handoff .n{color:var(--green)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:16px}
+  .feat{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .feat .fic{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;margin-bottom:11px}
+  .feat h3{font-size:1.04rem;font-weight:800;margin-bottom:5px}
+  .feat p{color:var(--slate);font-size:.92rem}
+  .b-blue{background:#3b82f618;color:var(--blue)} .b-orange{background:#FF671F18;color:var(--o)}
+  .b-violet{background:#a855f718;color:var(--violet)} .b-green{background:#22c55e18;color:#16a34a}
+  .b-amber{background:#f59e0b18;color:#d97706} .b-slate{background:#64748b18;color:#475569}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  @media(max-width:760px){.cols{grid-template-columns:1fr}}
+  .fcard h3{font-size:.98rem;font-weight:800;display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .tag{font-size:.6rem;font-weight:700;letter-spacing:.5px;padding:2px 8px;border-radius:6px;text-transform:uppercase}
+  .fcard ul{list-style:none;font-size:.86rem;color:var(--slate)}
+  .fcard li{padding:3px 0 3px 16px;position:relative}
+  .fcard li::before{content:"";position:absolute;left:0;top:11px;width:5px;height:5px;border-radius:50%;background:var(--o);opacity:.5}
+
+  .star{background:linear-gradient(135deg,#fff 0%,#fff8f3 100%);border:1px solid #ffd9c2;border-radius:18px;padding:24px 26px}
+  .tiers{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px}
+  .tier{font-family:'Raleway';font-weight:800;font-size:.82rem;padding:8px 14px;border-radius:999px;border:1.5px solid var(--o);color:var(--od);background:#fff}
+  .tier.day{background:var(--o);color:#fff}
+  .flagrow{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px}
+  .flag{display:flex;align-items:center;gap:8px;font-size:.86rem;color:var(--slate)}
+  .fd{width:10px;height:10px;border-radius:50%}
+
+  .steps{counter-reset:s;display:grid;gap:11px}
+  .step{display:flex;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px 18px;align-items:center}
+  .step::before{counter-increment:s;content:counter(s);font-family:'Raleway';font-weight:900;color:#fff;background:linear-gradient(140deg,var(--o),var(--od));width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:none;font-size:.92rem}
+  .step b{font-weight:700}
+  .step span{color:var(--slate);font-size:.93rem}
+
+  .sec-band{background:#11181f;color:#cfd6dd;border-radius:18px;padding:22px 26px;display:flex;gap:16px;align-items:flex-start}
+  .sec-band .lock{font-size:1.6rem}
+  .sec-band b{color:#fff}
+
+  footer{margin-top:42px;text-align:center;color:var(--muted);font-size:.8rem}
+  footer .seal{width:34px;height:34px;border-radius:9px;font-size:13px;margin:0 auto 8px}
+  @media print{body{background:#fff}.hero{border-radius:0}.feat,.card,.step,.stage{break-inside:avoid}}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="topbar">
+      <div class="logo">
+        <div class="seal">PCG</div>
+        <div class="brandname">PEOPLE CAPITAL GROUP<small>UNIFIED OPERATIONS PORTAL</small></div>
+      </div>
+      <div class="pill"><span class="dot"></span> Live in Production · v14.21</div>
+    </div>
+    <div class="eyebrow">Release Notes</div>
+    <h1>Deal Pipeline</h1>
+    <p>A dedicated command center for every real estate deal — leased <em>and</em> purchased — from the moment we start chasing a site through LOI, due diligence, and lease execution or closing. Everything that happens <strong>before</strong> we break ground, in one place.</p>
+    <div class="meta">
+      <div class="chip"><b>Phase 11.1</b> · Pre-Construction Real Estate</div>
+      <div class="chip">Separate from the <b>Construction</b> tracker</div>
+      <div class="chip">Restricted &amp; <b>server-secured</b> access</div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <div class="sec-h"><div class="ic">📍</div><h2>What it does</h2></div>
+    <div class="card lead">
+      The Deal Pipeline owns a site for its entire pre-construction life. You work deals by stage, capture every term, store the paper trail with full version history, and never miss a critical date. The moment a deal hits <strong>Ready for Construction</strong>, it hands off to the development tracker and clears out of this view — so the pipeline only ever shows what's still in play.
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><div class="ic">🛤️</div><h2>The pipeline · 8 stages</h2></div>
+    <div class="stages">
+      <div class="stage"><div class="n">01</div><div class="t">Sourcing / Identified</div></div>
+      <div class="stage"><div class="n">02</div><div class="t">LOI Out / Negotiating</div></div>
+      <div class="stage"><div class="n">03</div><div class="t">LOI Executed</div></div>
+      <div class="stage"><div class="n">04</div><div class="t">Due Diligence</div></div>
+      <div class="stage"><div class="n">05</div><div class="t">Lease / PSA Negotiating</div></div>
+      <div class="stage"><div class="n">06</div><div class="t">Executed</div></div>
+      <div class="stage"><div class="n">07</div><div class="t">Closing / Possession</div></div>
+      <div class="stage handoff"><div class="n">08 ✓</div><div class="t">Ready for Construction → hands off</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><div class="ic">🔀</div><h2>Two views, one toggle</h2></div>
+    <div class="grid">
+      <div class="feat"><div class="fic b-orange">🗂️</div><h3>Dealboard</h3><p>Work the pipeline by stage. Drag a deal forward with the ◀ ▶ controls; the last column hands it off to construction. Each card flags its nearest deadline.</p></div>
+      <div class="feat"><div class="fic b-blue">📊</div><h3>Sortable table</h3><p>The data-dense view. Sort by closing date, rent, brand, stage, deal lead, or next deadline. Same underlying deals — just flip the toggle.</p></div>
+      <div class="feat"><div class="fic b-slate">🔎</div><h3>Filters</h3><p>Narrow by brand (Dunkin', Papa John's, BWW GO, dual), deal type (lease / purchase), state (PA / NJ), stage, and deal lead.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><div class="ic">🧾</div><h2>What every deal captures</h2></div>
+    <div class="cols">
+      <div class="card fcard">
+        <h3>Core <span class="tag b-slate">every deal</span></h3>
+        <ul><li>Deal name / site nickname</li><li>Address (PA or NJ)</li><li>Lease or Purchase</li><li>Brand / concept</li><li>PC# (once assigned)</li><li>Stage &amp; deal lead</li><li>Broker / source · sq ft</li><li>Running activity notes</li></ul>
+      </div>
+      <div class="card fcard">
+        <h3>If it's a Lease <span class="tag b-orange">lease</span></h3>
+        <ul><li>Landlord entity + contact</li><li>Structure (NNN / gross / ground)</li><li>Base rent + rent PSF · escalations</li><li>Term + renewal options</li><li>TI allowance · free rent</li><li>Est. NNN/CAM · CAM cap / audit</li><li>% rent · guaranty type</li><li>Use / exclusivity / radius</li><li>Security deposit</li></ul>
+      </div>
+      <div class="card fcard">
+        <h3>If it's a Purchase <span class="tag b-green">buy</span></h3>
+        <ul><li>Seller entity + contact</li><li>Purchase price · earnest money</li><li>DD expiration · financing date</li><li>Closing date</li><li>Title / escrow company</li><li>Lender + loan terms</li><li>Appraisal status</li><li>Phase I / survey / zoning</li></ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><div class="ic">📁</div><h2>Documents — with version history</h2></div>
+    <div class="grid">
+      <div class="feat"><div class="fic b-violet">📎</div><h3>Every deal has a vault</h3><p>Upload the LOI, lease / PSA, amendments, estoppels &amp; SNDA, title, survey, Phase I, zoning, appraisal, guaranty, and closing docs — organized by type.</p></div>
+      <div class="feat"><div class="fic b-amber">🕒</div><h3>The redline trail</h3><p>Re-uploading a document keeps a <b>new version</b> — drafts are never overwritten. Download any prior version anytime.</p></div>
+      <div class="feat"><div class="fic b-green">🔒</div><h3>Locked down</h3><p>Documents live in a private store, served only to authenticated, authorized users — not the portal's general file storage.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><div class="ic">⏰</div><h2>Critical dates &amp; reminders</h2></div>
+    <div class="star">
+      <p class="lead" style="margin-bottom:6px">Every deal carries its critical dates — LOI expiration, DD expiration, earnest money goes hard, financing contingency, closing, lease execution, delivery, rent commencement, construction commencement, and <strong>option / renewal notice deadlines</strong>. Each date has <strong>configurable advance warnings</strong>, not day-of alarms.</p>
+      <div class="tiers">
+        <span class="tier">180 days</span><span class="tier">120 days</span><span class="tier">90 days</span><span class="tier">60 days</span><span class="tier day">30 days</span>
+      </div>
+      <p class="muted" style="font-size:.84rem">Example lead-times for an option/renewal notice — you set the tiers per date. Missing one of these is how you lose a location or get locked into rent you didn't want, so the runway is built in.</p>
+      <div class="flagrow">
+        <div class="flag"><span class="fd" style="background:var(--red)"></span> <b style="color:var(--red)">Overdue</b> — past due, surfaced on the board &amp; dashboard</div>
+        <div class="flag"><span class="fd" style="background:var(--amber)"></span> <b style="color:var(--amber)">Warning</b> — inside its advance-warning window</div>
+        <div class="flag"><span class="fd" style="background:var(--green)"></span> Acknowledge a date to stop its reminders</div>
+      </div>
+      <div class="grid" style="margin-top:18px">
+        <div class="feat"><div class="fic b-blue">📅</div><h3>One-click "Add to Calendar"</h3><p>Export a deal's dates as a calendar file (.ics) with the reminders baked in — drops straight into Google, Outlook, or Apple Calendar.</p></div>
+        <div class="feat"><div class="fic b-orange">✉️</div><h3>Daily email digest</h3><p>Each morning the deal team gets an email of every date in its warning window or overdue — the subject leads with the most urgent deal.</p></div>
+        <div class="feat"><div class="fic b-violet">📈</div><h3>Dashboard radar</h3><p>Up top: deals by stage, committed capital &amp; pipeline rent, and anything due in the next 30 / 60 / 90 days — color-coded red.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><div class="ic">🚀</div><h2>How to use it</h2></div>
+    <div class="steps">
+      <div class="step"><span><b>Open the Deal Pipeline tab.</b> In the sidebar under Team &amp; Sites (visible only to authorized users).</span></div>
+      <div class="step"><span><b>Add a deal.</b> Hit <b>+ New Deal</b>, give it a name, type (lease / purchase), brand, and state. It lands in Sourcing.</span></div>
+      <div class="step"><span><b>Work it down the board.</b> Drag through stages as it progresses; open a card to fill in lease or purchase terms and log activity notes.</span></div>
+      <div class="step"><span><b>Attach the paper.</b> In the deal's Documents section, upload the LOI, lease / PSA, title, Phase I… re-upload to add a new version.</span></div>
+      <div class="step"><span><b>Set the critical dates.</b> Add each date with its warning tiers (defaults pre-fill). Click <b>Add to Calendar</b> for an .ics, and let the daily digest watch your back.</span></div>
+      <div class="step"><span><b>Hand off.</b> When the site is ready to build, move it to <b>Ready for Construction</b> — it leaves the pipeline for the development tracker.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-band">
+      <div class="lock">🛡️</div>
+      <div>
+        <b style="font-family:'Raleway';font-size:1.05rem">Built for confidential terms.</b>
+        <p style="margin-top:6px">This module holds executed agreements and financial terms, so it's protected differently from the rest of the portal: a <b>real, server-verified login</b> issues a signed token, and <b>every</b> data and document request is authorized on the server — view vs. edit by role. The tab is restricted, and the documents sit in a private store the public endpoints can't reach. <span style="color:#9aa3ad">Access is managed by People Capital Group leadership.</span></p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="seal">PCG</div>
+    <div><b style="font-family:'Raleway'">People Capital Group</b> · Unified Operations Portal</div>
+    <div>Release Notes: Deal Pipeline · Phase 11.1 · v14.21 · Confidential — Internal Use Only</div>
+  </footer>
+
+</div>
+</body>
+</html>

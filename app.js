@@ -17901,6 +17901,12 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [newDateNotes, setNewDateNotes] = useState("");
     const [dateAdding, setDateAdding] = useState(false);
     const [dateErr, setDateErr] = useState(null);
+    const [showAccess, setShowAccess] = useState(false);
+    const [accessRows, setAccessRows] = useState(null);
+    const [accessInput, setAccessInput] = useState("");
+    const [accessRole, setAccessRole] = useState("view");
+    const [accessBusy, setAccessBusy] = useState(false);
+    const [accessErr, setAccessErr] = useState(null);
     const loadList = () => {
       setLoading(true);
       return dealApi(token, { action: "list", status: "active" }).then((r) => {
@@ -17916,6 +17922,23 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       }
       loadList();
     }, [token]);
+    const loadAccess = () => {
+      setAccessErr(null);
+      dealApi(token, { action: "listAccess" }).then((r) => setAccessRows(r.access || [])).catch((e) => setAccessErr(e.message));
+    };
+    useEffect(() => {
+      if (showAccess) loadAccess();
+    }, [showAccess]);
+    const doSetAccess = (key, r) => {
+      setAccessBusy(true);
+      setAccessErr(null);
+      dealApi(token, { action: "setAccess", user_key: key, role: r }).then(() => loadAccess()).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
+    };
+    const doRemoveAccess = (key) => {
+      setAccessBusy(true);
+      setAccessErr(null);
+      dealApi(token, { action: "removeAccess", user_key: key }).then(() => loadAccess()).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
+    };
     const loadDocs = (dealId) => {
       setDocErr(null);
       dealDocsApi(token, { action: "list", deal_id: dealId }).then((r) => {
@@ -18399,8 +18422,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           transition: "all .15s"
         }
       },
-      v === "kanban" ? "Kanban" : "Table"
-    ))), canEdit && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCreate(true), style: { ...btn(th), padding: "0.4rem 0.9rem", fontWeight: 700, background: "#22c55e", color: "#fff", border: "none", fontSize: "0.82rem" } }, "+ New Deal"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, kpiCards.map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { ...card(th), padding: "1rem 1.125rem", borderTop: `3px solid ${k.color}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.45rem", color: th.text } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, k.label)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "1rem" } }, STAGES.map((s) => {
+      v === "kanban" ? "Dealboard" : "Table"
+    ))), canEdit && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCreate(true), style: { ...btn(th), padding: "0.4rem 0.9rem", fontWeight: 700, background: "#22c55e", color: "#fff", border: "none", fontSize: "0.82rem" } }, "+ New Deal"), role === "admin" && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAccess(true), style: { ...btn(th), padding: "0.4rem 0.9rem", fontWeight: 700, background: th.card, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.82rem" } }, "\u{1F512} Manage Access"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, kpiCards.map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { ...card(th), padding: "1rem 1.125rem", borderTop: `3px solid ${k.color}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.45rem", color: th.text } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, k.label)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "1rem" } }, STAGES.map((s) => {
       const cnt = deals.filter((d) => d.stage === s.id).length;
       if (!cnt) return null;
       return /* @__PURE__ */ React.createElement(Chip, { key: s.id, label: `${s.label}: ${cnt}`, color: STAGE_COLORS[s.id], small: true });
@@ -18432,7 +18455,64 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         style: { ...btn(th), padding: "0.35rem 0.7rem", fontSize: "0.78rem", color: "#ef4444" }
       },
       "Clear"
-    )), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), /* @__PURE__ */ React.createElement(DetailModal, null), /* @__PURE__ */ React.createElement(CreateModal, null));
+    )), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), /* @__PURE__ */ React.createElement(DetailModal, null), /* @__PURE__ */ React.createElement(CreateModal, null), showAccess && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1e3, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
+        onClick: (e) => {
+          if (e.target === e.currentTarget) setShowAccess(false);
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { ...card(th), width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto", padding: "1.5rem", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.15rem", color: th.text } }, "\u{1F512} Manage Deal Pipeline Access"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.25rem" } }, "Who can see and edit the Deal Pipeline. Admins manage this list.")), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAccess(false), style: { ...btn(th), padding: "0.25rem 0.6rem", fontSize: "0.78rem", color: th.muted, background: "transparent", border: "none" } }, "\u2715")), accessErr && /* @__PURE__ */ React.createElement("div", { style: { background: "#fee2e2", color: "#991b1b", borderRadius: "0.4rem", padding: "0.5rem 0.75rem", marginBottom: "0.75rem", fontSize: "0.82rem" } }, accessErr), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, accessRows === null ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026") : accessRows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No access entries yet.") : /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.35rem 0.5rem", color: th.muted, fontWeight: 600 } }, "User"), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.35rem 0.5rem", color: th.muted, fontWeight: 600 } }, "Role"), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.35rem 0.5rem", color: th.muted, fontWeight: 600 } }, "Added by"), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.35rem 0.5rem" } }))), /* @__PURE__ */ React.createElement("tbody", null, accessRows.map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.user_key, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.text, fontWeight: 600 } }, row.user_key), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem" } }, /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: row.role,
+          disabled: accessBusy,
+          onChange: (e) => doSetAccess(row.user_key, e.target.value),
+          style: { ...inp(th), padding: "0.2rem 0.4rem", fontSize: "0.78rem", width: "auto" }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "view" }, "view"),
+        /* @__PURE__ */ React.createElement("option", { value: "edit" }, "edit"),
+        /* @__PURE__ */ React.createElement("option", { value: "admin" }, "admin")
+      )), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.muted, fontSize: "0.75rem" } }, row.added_by || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          disabled: accessBusy,
+          onClick: () => doRemoveAccess(row.user_key),
+          style: { ...btn(th), padding: "0.2rem 0.5rem", fontSize: "0.75rem", color: "#ef4444", background: "transparent", border: `1px solid #ef4444` }
+        },
+        "Remove"
+      ))))))), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, "Grant Access"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          value: accessInput,
+          onChange: (e) => setAccessInput(e.target.value),
+          placeholder: "email or username",
+          style: { ...inp(th), flex: 1, minWidth: 160, padding: "0.35rem 0.6rem", fontSize: "0.82rem" }
+        }
+      ), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: accessRole,
+          onChange: (e) => setAccessRole(e.target.value),
+          style: { ...inp(th), padding: "0.35rem 0.5rem", fontSize: "0.82rem", width: "auto" }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "view" }, "view"),
+        /* @__PURE__ */ React.createElement("option", { value: "edit" }, "edit"),
+        /* @__PURE__ */ React.createElement("option", { value: "admin" }, "admin")
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          disabled: accessBusy || !accessInput.trim(),
+          onClick: () => {
+            doSetAccess(accessInput.trim(), accessRole);
+            setAccessInput("");
+          },
+          style: { ...btn(th), padding: "0.35rem 0.9rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", fontSize: "0.82rem", opacity: accessBusy || !accessInput.trim() ? 0.5 : 1 }
+        },
+        "Grant Access"
+      )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.4rem" } }, "Tip: add by the person's login email or username (case-insensitive).")))
+    ));
   }
   function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
     const [pnl, setPnl] = useState(null);
@@ -24139,7 +24219,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.21"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.22"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

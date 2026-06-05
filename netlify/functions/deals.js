@@ -113,6 +113,27 @@ exports.handler = async (event) => {
       const [row] = await db`UPDATE deal_dates SET acknowledged_by = ${user.username}, acknowledged_at = now() WHERE id = ${body.id} RETURNING *`;
       return reply(200, { date: row });
     }
+    if (action === 'listAccess') {
+      if (!roleSatisfies(user.role, 'admin')) return reply(403, { error: 'admin only' });
+      const access = await db`SELECT user_key, role, added_by, added_at FROM deal_access ORDER BY role DESC, user_key`;
+      return reply(200, { access });
+    }
+    if (action === 'setAccess') {
+      if (!roleSatisfies(user.role, 'admin')) return reply(403, { error: 'admin only' });
+      const key = String(body.user_key || '').trim().toLowerCase();
+      const role = ['view', 'edit', 'admin'].includes(body.role) ? body.role : 'view';
+      if (!key) return reply(400, { error: 'user_key required' });
+      await db`INSERT INTO deal_access (user_key, role, added_by) VALUES (${key}, ${role}, ${user.username})
+               ON CONFLICT (user_key) DO UPDATE SET role = ${role}, added_by = ${user.username}`;
+      return reply(200, { ok: true });
+    }
+    if (action === 'removeAccess') {
+      if (!roleSatisfies(user.role, 'admin')) return reply(403, { error: 'admin only' });
+      const key = String(body.user_key || '').trim().toLowerCase();
+      if (key === String(user.username || '').trim().toLowerCase()) return reply(400, { error: 'cannot remove yourself' });
+      await db`DELETE FROM deal_access WHERE user_key = ${key}`;
+      return reply(200, { ok: true });
+    }
     return reply(400, { error: 'unknown action' });
   } catch (e) {
     return reply(500, { error: 'server error' });
