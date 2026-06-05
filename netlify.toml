@@ -10,6 +10,11 @@
 [functions.labor-cron]
   schedule = "0 9-23,0-3 * * *"
 
+# Deal Pipeline critical-date reminders — daily 8am ET (12:00 UTC). Emails the deal team
+# a digest of dates inside their warning window (or overdue).
+[functions.deal-alerts-cron]
+  schedule = "0 12 * * *"
+
 # Saturday 11:45 PM ET labor warmup (Sunday 03:45 UTC)
 [functions.labor-cron-warmup]
   schedule = "45 3 * * 0"
