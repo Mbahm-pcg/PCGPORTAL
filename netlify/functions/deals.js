@@ -27,13 +27,19 @@ exports.handler = async (event) => {
   let body; try { body = JSON.parse(event.body || '{}'); } catch { return reply(400, { error: 'bad json' }); }
   const action = body.action;
   const db = sql();
-  const needWrite = ['create','update','moveStage','handoff','markDead','addNote'].includes(action);
+  const needWrite = ['create','update','moveStage','handoff','markDead','addNote','addDate','updateDate','deleteDate','ackDate'].includes(action);
   if (needWrite && !roleSatisfies(user.role, 'edit')) return reply(403, { error: 'read-only access' });
 
   try {
     if (action === 'list') {
-      const rows = await db`SELECT * FROM deals WHERE status = ${body.status || 'active'} ORDER BY updated_at DESC`;
-      return reply(200, { deals: rows });
+      const status = body.status || 'active';
+      const rows = await db`SELECT * FROM deals WHERE status = ${status} ORDER BY updated_at DESC`;
+      // Unacknowledged dates for the listed deals → lets the dashboard flag deadlines client-side.
+      const dates = await db`
+        SELECT * FROM deal_dates
+        WHERE acknowledged_at IS NULL AND deal_id IN (SELECT id FROM deals WHERE status = ${status})
+        ORDER BY due_date`;
+      return reply(200, { deals: rows, dates });
     }
     if (action === 'get') {
       const [deal] = await db`SELECT * FROM deals WHERE id = ${body.id}`;
@@ -84,6 +90,28 @@ exports.handler = async (event) => {
       await db`INSERT INTO deal_notes (deal_id, author, body) VALUES (${body.id}, ${user.username}, ${body.note})`;
       const notes = await db`SELECT * FROM deal_notes WHERE deal_id = ${body.id} ORDER BY created_at DESC`;
       return reply(200, { notes });
+    }
+    if (action === 'addDate') {
+      const [row] = await db`
+        INSERT INTO deal_dates (deal_id, date_type, due_date, warning_tiers, notes)
+        VALUES (${body.deal_id}, ${body.date_type}, ${body.due_date}, ${JSON.stringify(body.warning_tiers || [])}::jsonb, ${body.notes || null})
+        RETURNING *`;
+      return reply(200, { date: row });
+    }
+    if (action === 'updateDate') {
+      const [row] = await db`
+        UPDATE deal_dates SET date_type = ${body.date_type}, due_date = ${body.due_date},
+          warning_tiers = ${JSON.stringify(body.warning_tiers || [])}::jsonb, notes = ${body.notes || null}
+        WHERE id = ${body.id} RETURNING *`;
+      return reply(200, { date: row });
+    }
+    if (action === 'deleteDate') {
+      await db`DELETE FROM deal_dates WHERE id = ${body.id}`;
+      return reply(200, { ok: true });
+    }
+    if (action === 'ackDate') {
+      const [row] = await db`UPDATE deal_dates SET acknowledged_by = ${user.username}, acknowledged_at = now() WHERE id = ${body.id} RETURNING *`;
+      return reply(200, { date: row });
     }
     return reply(400, { error: 'unknown action' });
   } catch (e) {
