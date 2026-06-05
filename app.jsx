@@ -2,6 +2,7 @@
 import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
+import { dealLogin, dealApi } from './src/deal-api.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -16058,6 +16059,7 @@ const getTabs = (user) => {
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
+    { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",        icon: (c) => ICONS.users(c) },
     { id: "email",     label: "Email",        icon: '📧' },
     { id: "settings",  label: "Settings",     icon: (c) => ICONS.settings(c) },
@@ -16092,6 +16094,7 @@ const getTabs = (user) => {
     { id: "cash",      label: "Cash",           icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",        icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",       icon: (c) => ICONS.projects(c) },
+    { id: "deals",     label: "Deal Pipeline",  icon: (c) => ICONS.projects(c) },
   ];
   // Store managers see only their assigned stores.
   if (ut === "manager") return [
@@ -16100,6 +16103,7 @@ const getTabs = (user) => {
     { id: "labor",     label: "My Labor",     icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
+    { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
   ];
   // Construction & Development → base + locations + projects (no analytics/pulse)
   if (ut === "construction") return [
@@ -23618,6 +23622,611 @@ function PnLStoreDetail({ store, th, onClose }) {
   );
 }
 
+// ─── AdminDeals ──────────────────────────────────────────────────────────────
+function AdminDeals({ th, user, dealAuth }) {
+  const { token, role } = dealAuth;
+  const canEdit = role === 'edit' || role === 'admin';
+
+  const STAGES = [
+    { id: 'sourcing',               label: 'Sourcing' },
+    { id: 'loi_out',                label: 'LOI Out' },
+    { id: 'loi_executed',           label: 'LOI Executed' },
+    { id: 'due_diligence',          label: 'Due Diligence' },
+    { id: 'negotiating',            label: 'Lease/PSA Negotiating' },
+    { id: 'executed',               label: 'Executed' },
+    { id: 'closing',                label: 'Closing/Possession' },
+    { id: 'ready_for_construction', label: 'Ready for Construction' },
+  ];
+  const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.id, s.label]));
+  const STAGE_COLORS = {
+    sourcing: '#64748b', loi_out: '#3b82f6', loi_executed: '#6366f1',
+    due_diligence: '#f59e0b', negotiating: '#f97316', executed: '#22c55e',
+    closing: '#14b8a6', ready_for_construction: '#a855f7',
+  };
+  const BRAND_COLORS = { dunkin: '#FF671F', papajohns: '#ef4444', bww_go: '#f59e0b', dual: '#6366f1' };
+  const BRAND_LABELS = { dunkin: 'Dunkin\'', papajohns: 'Papa Johns', bww_go: 'BWW Go', dual: 'Dual' };
+
+  // ── state ──
+  const [deals, setDeals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [view, setView] = useState('kanban');
+  const [filterBrand, setFilterBrand] = useState('all');
+  const [filterType, setFilterType] = useState('all');
+  const [filterState, setFilterState] = useState('all');
+  const [filterStage, setFilterStage] = useState('all');
+  const [filterLead, setFilterLead] = useState('all');
+  const [sortCol, setSortCol] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+  const [selectedDeal, setSelectedDeal] = useState(null);
+  const [detailDeal, setDetailDeal] = useState(null);
+  const [detailDates, setDetailDates] = useState([]);
+  const [detailNotes, setDetailNotes] = useState([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState(null);
+  const [editFields, setEditFields] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null);
+  const [newNote, setNewNote] = useState('');
+  const [addingNote, setAddingNote] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: '', deal_type: 'lease', brand: 'dunkin', state: 'PA', address: '', deal_lead: '' });
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(null);
+
+  // ── load deals ──
+  useEffect(() => {
+    if (!token) { setLoading(false); return; }
+    setLoading(true);
+    dealApi(token, { action: 'list', status: 'active' })
+      .then(r => { setDeals(r.deals || []); setError(null); })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  // ── open detail ──
+  const openDetail = (deal) => {
+    setSelectedDeal(deal);
+    setDetailDeal(deal);
+    setDetailDates([]);
+    setDetailNotes([]);
+    setEditFields({});
+    setSaveMsg(null);
+    setDetailLoading(true);
+    setDetailError(null);
+    dealApi(token, { action: 'get', id: deal.id })
+      .then(r => {
+        setDetailDeal(r.deal);
+        setDetailDates(r.dates || []);
+        setDetailNotes(r.notes || []);
+        setEditFields({});
+      })
+      .catch(e => setDetailError(e.message))
+      .finally(() => setDetailLoading(false));
+  };
+
+  const closeDetail = () => { setSelectedDeal(null); setDetailDeal(null); };
+
+  // ── filters ──
+  const leads = Array.from(new Set(deals.map(d => d.deal_lead).filter(Boolean))).sort();
+  const filtered = deals.filter(d => {
+    if (filterBrand !== 'all' && d.brand !== filterBrand) return false;
+    if (filterType !== 'all' && d.deal_type !== filterType) return false;
+    if (filterState !== 'all' && d.state !== filterState) return false;
+    if (filterStage !== 'all' && d.stage !== filterStage) return false;
+    if (filterLead !== 'all' && d.deal_lead !== filterLead) return false;
+    return true;
+  });
+
+  // ── KPI header ──
+  const totalActive = deals.length;
+  const totalPurchaseCapital = deals.filter(d => d.deal_type === 'purchase').reduce((s, d) => s + (Number(d.purchase_price) || 0), 0);
+  const totalBaseRent = deals.filter(d => d.deal_type === 'lease').reduce((s, d) => s + (Number(d.base_rent) || 0), 0);
+  const leaseCount = deals.filter(d => d.deal_type === 'lease').length;
+  const purchaseCount = deals.filter(d => d.deal_type === 'purchase').length;
+
+  const kpiCards = [
+    { label: 'Active Deals', value: totalActive, color: '#3b82f6' },
+    { label: 'Leases', value: leaseCount, color: '#22c55e' },
+    { label: 'Purchases', value: purchaseCount, color: '#f59e0b' },
+    { label: 'Pipeline Base Rent', value: fmtDollars(totalBaseRent), color: '#a855f7' },
+    { label: 'Committed Capital', value: fmtDollars(totalPurchaseCapital), color: '#ef4444' },
+  ];
+
+  // ── chip helpers ──
+  const Chip = ({ label, color, small }) => (
+    <span style={{
+      display: 'inline-block', padding: small ? '1px 6px' : '2px 8px',
+      borderRadius: 999, background: `${color}22`, color,
+      fontSize: small ? '0.62rem' : '0.68rem', fontWeight: 700, letterSpacing: 0.3,
+    }}>{label}</span>
+  );
+
+  const BrandChip = ({ brand }) => brand ? <Chip label={BRAND_LABELS[brand] || brand} color={BRAND_COLORS[brand] || '#64748b'} small /> : null;
+  const TypeChip = ({ type }) => <Chip label={type === 'lease' ? 'Lease' : 'Purchase'} color={type === 'lease' ? '#22c55e' : '#f59e0b'} small />;
+  const StageChip = ({ stage }) => <Chip label={STAGE_MAP[stage] || stage} color={STAGE_COLORS[stage] || '#64748b'} small />;
+
+  // ── move stage ──
+  const doMoveStage = (deal, newStage) => {
+    setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, stage: newStage } : d));
+    if (detailDeal?.id === deal.id) setDetailDeal(prev => ({ ...prev, stage: newStage }));
+    dealApi(token, { action: 'moveStage', id: deal.id, stage: newStage }).catch(() => {
+      setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, stage: deal.stage } : d));
+    });
+  };
+
+  const doHandoff = (deal) => {
+    if (!window.confirm(`Hand off "${deal.name}" to construction?`)) return;
+    dealApi(token, { action: 'handoff', id: deal.id })
+      .then(() => setDeals(prev => prev.filter(d => d.id !== deal.id)))
+      .catch(e => alert('Handoff failed: ' + e.message));
+    if (detailDeal?.id === deal.id) closeDetail();
+  };
+
+  const doMarkDead = (deal) => {
+    const reason = window.prompt(`Reason for marking "${deal.name}" as dead?`);
+    if (!reason) return;
+    dealApi(token, { action: 'markDead', id: deal.id, reason })
+      .then(() => setDeals(prev => prev.filter(d => d.id !== deal.id)))
+      .catch(e => alert('Failed: ' + e.message));
+    if (detailDeal?.id === deal.id) closeDetail();
+  };
+
+  const doSave = () => {
+    if (!Object.keys(editFields).length) return;
+    setSaving(true); setSaveMsg(null);
+    dealApi(token, { action: 'update', id: detailDeal.id, deal: editFields })
+      .then(r => {
+        setDetailDeal(r.deal);
+        setDeals(prev => prev.map(d => d.id === r.deal.id ? r.deal : d));
+        setEditFields({});
+        setSaveMsg('Saved!');
+        setTimeout(() => setSaveMsg(null), 2000);
+      })
+      .catch(e => setSaveMsg('Error: ' + e.message))
+      .finally(() => setSaving(false));
+  };
+
+  const doAddNote = () => {
+    if (!newNote.trim()) return;
+    setAddingNote(true);
+    dealApi(token, { action: 'addNote', id: detailDeal.id, note: newNote.trim() })
+      .then(r => { setDetailNotes(r.notes || []); setNewNote(''); })
+      .catch(e => alert('Failed: ' + e.message))
+      .finally(() => setAddingNote(false));
+  };
+
+  const doCreate = () => {
+    if (!createForm.name.trim()) { setCreateError('Name is required'); return; }
+    setCreating(true); setCreateError(null);
+    dealApi(token, { action: 'create', deal: createForm })
+      .then(r => {
+        setDeals(prev => [r.deal, ...prev]);
+        setShowCreate(false);
+        setCreateForm({ name: '', deal_type: 'lease', brand: 'dunkin', state: 'PA', address: '', deal_lead: '' });
+        openDetail(r.deal);
+      })
+      .catch(e => setCreateError(e.message))
+      .finally(() => setCreating(false));
+  };
+
+  // ── sort for table ──
+  const sorted = [...filtered].sort((a, b) => {
+    const va = a[sortCol] ?? '', vb = b[sortCol] ?? '';
+    const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb));
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  const toggleSort = (col) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('asc'); }
+  };
+
+  // ── early returns AFTER all hooks ──
+  if (!token || !role) return (
+    <div style={{ padding: '2rem', color: th.muted }}>You don't have access to the Deal Pipeline.</div>
+  );
+  if (loading) return <div style={{ padding: '2rem', color: th.muted }}>Loading deals…</div>;
+  if (error) return <div style={{ padding: '2rem', color: '#ef4444' }}>Error: {error}</div>;
+
+  const selLabel = inp(th);
+
+  // ── Kanban ──
+  const KanbanView = () => {
+    const stageOrder = STAGES.map(s => s.id);
+    return (
+      <div style={{ display: 'flex', gap: '0.75rem', overflowX: 'auto', paddingBottom: '1rem', alignItems: 'flex-start' }}>
+        {stageOrder.map((stageId, si) => {
+          const stageDeals = filtered.filter(d => d.stage === stageId);
+          const color = STAGE_COLORS[stageId] || '#64748b';
+          const isLast = si === stageOrder.length - 1;
+          return (
+            <div key={stageId} style={{ minWidth: 220, maxWidth: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.5rem', borderRadius: '0.5rem', background: `${color}18`, borderBottom: `2px solid ${color}` }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, color, letterSpacing: 0.5, textTransform: 'uppercase' }}>{STAGE_MAP[stageId]}</span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.68rem', background: `${color}33`, color, borderRadius: 999, padding: '1px 7px', fontWeight: 700 }}>{stageDeals.length}</span>
+              </div>
+              {stageDeals.map(deal => {
+                const prevStage = stageOrder[si - 1];
+                const nextStage = stageOrder[si + 1];
+                return (
+                  <div key={deal.id}
+                    onClick={() => openDetail(deal)}
+                    style={{ ...card(th), padding: '0.65rem 0.75rem', cursor: 'pointer', borderLeft: `3px solid ${color}` }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.82rem', color: th.text, marginBottom: '0.25rem', lineHeight: 1.3 }}>{deal.name}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginBottom: '0.3rem' }}>
+                      {deal.brand && <BrandChip brand={deal.brand} />}
+                      <TypeChip type={deal.deal_type} />
+                    </div>
+                    {deal.deal_lead && <div style={{ fontSize: '0.68rem', color: th.muted }}>{deal.deal_lead}</div>}
+                    {deal.deal_type === 'lease' && deal.base_rent
+                      ? <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.2rem' }}>{fmtDollars(deal.base_rent)}/mo</div>
+                      : deal.purchase_price
+                        ? <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.2rem' }}>{fmtDollars(deal.purchase_price)}</div>
+                        : null}
+                    {canEdit && (
+                      <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.4rem' }} onClick={e => e.stopPropagation()}>
+                        {prevStage && (
+                          <button onClick={() => doMoveStage(deal, prevStage)} style={{ ...btn(th), padding: '2px 7px', fontSize: '0.68rem', lineHeight: 1 }}>◀</button>
+                        )}
+                        {nextStage && !isLast && (
+                          <button onClick={() => doMoveStage(deal, nextStage)} style={{ ...btn(th), padding: '2px 7px', fontSize: '0.68rem', lineHeight: 1 }}>▶</button>
+                        )}
+                        {isLast && (
+                          <button onClick={() => doHandoff(deal)} style={{ ...btn(th), padding: '2px 7px', fontSize: '0.68rem', lineHeight: 1, color: '#a855f7' }}>Hand off →</button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ── Table ──
+  const TableView = () => {
+    const cols = [
+      { key: 'name', label: 'Name' },
+      { key: 'brand', label: 'Brand' },
+      { key: 'deal_type', label: 'Type' },
+      { key: 'state', label: 'State' },
+      { key: 'stage', label: 'Stage' },
+      { key: 'deal_lead', label: 'Lead' },
+      { key: 'base_rent', label: 'Base Rent' },
+      { key: 'purchase_price', label: 'Purchase $' },
+    ];
+    return (
+      <div style={{ ...card(th), overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+          <thead>
+            <tr style={{ background: th.sidebar, color: th.muted, textAlign: 'left' }}>
+              {cols.map(c => (
+                <th key={c.key} onClick={() => toggleSort(c.key)}
+                  style={{ padding: '0.6rem 0.75rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none' }}>
+                  {c.label}{sortCol === c.key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(d => (
+              <tr key={d.id} onClick={() => openDetail(d)}
+                style={{ cursor: 'pointer', borderTop: `1px solid ${th.cardBorder}`, color: th.text }}>
+                <td style={{ padding: '0.5rem 0.75rem', fontWeight: 600 }}>{d.name}</td>
+                <td style={{ padding: '0.5rem 0.75rem' }}><BrandChip brand={d.brand} /></td>
+                <td style={{ padding: '0.5rem 0.75rem' }}><TypeChip type={d.deal_type} /></td>
+                <td style={{ padding: '0.5rem 0.75rem', color: th.muted }}>{d.state}</td>
+                <td style={{ padding: '0.5rem 0.75rem' }}><StageChip stage={d.stage} /></td>
+                <td style={{ padding: '0.5rem 0.75rem', color: th.muted }}>{d.deal_lead || '—'}</td>
+                <td style={{ padding: '0.5rem 0.75rem' }}>{d.base_rent ? fmtDollars(d.base_rent) : '—'}</td>
+                <td style={{ padding: '0.5rem 0.75rem' }}>{d.purchase_price ? fmtDollars(d.purchase_price) : '—'}</td>
+              </tr>
+            ))}
+            {sorted.length === 0 && (
+              <tr><td colSpan={8} style={{ padding: '1.5rem', textAlign: 'center', color: th.muted }}>No deals match filters.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  // ── Detail modal ──
+  const DetailModal = () => {
+    if (!selectedDeal) return null;
+    const d = detailDeal || selectedDeal;
+    const fv = (key) => editFields[key] !== undefined ? editFields[key] : (d[key] ?? '');
+    const set = (key, val) => setEditFields(prev => ({ ...prev, [key]: val }));
+    const Field = ({ label, fkey, type = 'text', readOnly = false }) => (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</label>
+        {canEdit && !readOnly ? (
+          <input type={type} value={fv(fkey)} onChange={e => set(fkey, e.target.value)}
+            style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} />
+        ) : (
+          <div style={{ fontSize: '0.82rem', color: th.text, padding: '0.2rem 0' }}>{d[fkey] ?? '—'}</div>
+        )}
+      </div>
+    );
+    const SelectField = ({ label, fkey, options }) => (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</label>
+        {canEdit ? (
+          <select value={fv(fkey)} onChange={e => set(fkey, e.target.value)}
+            style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}>
+            {options.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+          </select>
+        ) : (
+          <div style={{ fontSize: '0.82rem', color: th.text, padding: '0.2rem 0' }}>{d[fkey] ?? '—'}</div>
+        )}
+      </div>
+    );
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', justifyContent: 'flex-end' }}>
+        <div onClick={closeDetail} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
+        <div style={{ position: 'relative', width: '100%', maxWidth: 640, background: th.bg, overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', boxShadow: '-8px 0 30px rgba(0,0,0,0.4)', zIndex: 1 }}>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+            <div>
+              <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0, fontSize: '1.2rem' }}>{d.name}</h2>
+              <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
+                <BrandChip brand={d.brand} />
+                <TypeChip type={d.deal_type} />
+                <StageChip stage={d.stage} />
+                {d.state && <Chip label={d.state} color="#64748b" small />}
+              </div>
+            </div>
+            <button onClick={closeDetail} style={{ ...btn(th), padding: '0.3rem 0.7rem', fontSize: '0.8rem', flexShrink: 0 }}>✕</button>
+          </div>
+
+          {detailLoading && <div style={{ color: th.muted, fontSize: '0.85rem' }}>Loading…</div>}
+          {detailError && <div style={{ color: '#ef4444', fontSize: '0.85rem' }}>Error: {detailError}</div>}
+
+          {/* Actions */}
+          {canEdit && !detailLoading && (
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <select value={d.stage} onChange={e => doMoveStage(d, e.target.value)}
+                style={{ ...selLabel, padding: '0.35rem 0.6rem', fontSize: '0.8rem' }}>
+                {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+              <button onClick={() => doHandoff(d)} style={{ ...btn(th), padding: '0.35rem 0.8rem', fontSize: '0.8rem', color: '#a855f7' }}>Hand off →</button>
+              <button onClick={() => doMarkDead(d)} style={{ ...btn(th), padding: '0.35rem 0.8rem', fontSize: '0.8rem', color: '#ef4444' }}>Mark Dead</button>
+            </div>
+          )}
+
+          {/* Core fields */}
+          <div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.6rem' }}>Core</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <Field label="Name" fkey="name" />
+              <Field label="Address" fkey="address" />
+              <Field label="City" fkey="city" />
+              <SelectField label="State" fkey="state" options={[{v:'PA',l:'PA'},{v:'NJ',l:'NJ'}]} />
+              <SelectField label="Brand" fkey="brand" options={[{v:'dunkin',l:"Dunkin'"},{v:'papajohns',l:'Papa Johns'},{v:'bww_go',l:'BWW Go'},{v:'dual',l:'Dual'}]} />
+              <SelectField label="Deal Type" fkey="deal_type" options={[{v:'lease',l:'Lease'},{v:'purchase',l:'Purchase'}]} />
+              <Field label="Deal Lead" fkey="deal_lead" />
+              <Field label="Broker Source" fkey="broker_source" />
+              <Field label="PC Number" fkey="pc_number" />
+              <Field label="Sq Ft" fkey="sqft" type="number" />
+            </div>
+          </div>
+
+          {/* Lease terms */}
+          {d.deal_type === 'lease' && (
+            <div>
+              <div style={{ fontSize: '0.7rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.6rem' }}>Lease Terms</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <Field label="Landlord Entity" fkey="landlord_entity" />
+                <Field label="Landlord Contact" fkey="landlord_contact" />
+                <Field label="Lease Structure" fkey="lease_structure" />
+                <Field label="Base Rent ($/mo)" fkey="base_rent" type="number" />
+                <Field label="Rent PSF" fkey="rent_psf" type="number" />
+                <Field label="Term (years)" fkey="term_years" type="number" />
+                <Field label="TI Allowance" fkey="ti_allowance" type="number" />
+                <Field label="Free Rent (mo)" fkey="free_rent" type="number" />
+                <Field label="Est NNN/CAM" fkey="est_nnn_cam" type="number" />
+                <Field label="CAM Cap" fkey="cam_cap" />
+                <Field label="Guaranty Type" fkey="guaranty_type" />
+                <Field label="Use Clause" fkey="use_clause" />
+                <Field label="Exclusivity" fkey="exclusivity" />
+                <Field label="Escalations" fkey="escalations" />
+                <Field label="Renewal Options" fkey="renewal_options" />
+                <Field label="Security Deposit" fkey="security_deposit" type="number" />
+              </div>
+            </div>
+          )}
+
+          {/* Purchase terms */}
+          {d.deal_type === 'purchase' && (
+            <div>
+              <div style={{ fontSize: '0.7rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.6rem' }}>Purchase Terms</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <Field label="Seller Entity" fkey="seller_entity" />
+                <Field label="Seller Contact" fkey="seller_contact" />
+                <Field label="Purchase Price" fkey="purchase_price" type="number" />
+                <Field label="Earnest Money" fkey="earnest_money" type="number" />
+                <Field label="EMD Hard Date" fkey="emd_hard" />
+                <Field label="Title/Escrow Co" fkey="title_escrow_co" />
+                <Field label="Lender" fkey="lender" />
+                <Field label="Loan Terms" fkey="loan_terms" />
+                <Field label="Appraisal Status" fkey="appraisal_status" />
+                <Field label="Phase 1 Status" fkey="phase1_status" />
+                <Field label="Survey Status" fkey="survey_status" />
+                <Field label="Zoning Status" fkey="zoning_status" />
+              </div>
+            </div>
+          )}
+
+          {/* SPE */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <Field label="SPE Entity" fkey="spe_entity" />
+          </div>
+
+          {/* Save */}
+          {canEdit && Object.keys(editFields).length > 0 && (
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button onClick={doSave} disabled={saving} style={{ ...btn(th), padding: '0.45rem 1.2rem', fontWeight: 700, background: '#3b82f6', color: '#fff', border: 'none' }}>
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+              {saveMsg && <span style={{ fontSize: '0.8rem', color: saveMsg.startsWith('Error') ? '#ef4444' : '#22c55e' }}>{saveMsg}</span>}
+            </div>
+          )}
+
+          {/* Notes */}
+          <div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.6rem' }}>Notes</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              {detailNotes.length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted }}>No notes yet.</div>}
+              {detailNotes.map((n, i) => (
+                <div key={i} style={{ ...card(th), padding: '0.6rem 0.75rem' }}>
+                  <div style={{ fontSize: '0.68rem', color: th.muted, marginBottom: '0.2rem' }}>
+                    <strong style={{ color: th.text }}>{n.author || 'Unknown'}</strong>
+                    {n.created_at ? ' · ' + new Date(n.created_at).toLocaleDateString() : ''}
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: th.text }}>{n.body || n.note}</div>
+                </div>
+              ))}
+            </div>
+            {canEdit && (
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input value={newNote} onChange={e => setNewNote(e.target.value)}
+                  placeholder="Add a note…"
+                  style={{ ...selLabel, flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.82rem' }}
+                  onKeyDown={e => e.key === 'Enter' && doAddNote()} />
+                <button onClick={doAddNote} disabled={addingNote || !newNote.trim()}
+                  style={{ ...btn(th), padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>
+                  {addingNote ? '…' : 'Add'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Create modal ──
+  const CreateModal = () => {
+    if (!showCreate) return null;
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div onClick={() => setShowCreate(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)' }} />
+        <div style={{ position: 'relative', background: th.bg, borderRadius: '0.75rem', padding: '1.5rem', width: '100%', maxWidth: 480, boxShadow: '0 8px 40px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <h3 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 }}>New Deal</h3>
+          {[
+            { label: 'Name', key: 'name', type: 'text' },
+            { label: 'Address', key: 'address', type: 'text' },
+            { label: 'Deal Lead', key: 'deal_lead', type: 'text' },
+          ].map(f => (
+            <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <label style={{ fontSize: '0.68rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{f.label}</label>
+              <input type={f.type} value={createForm[f.key]} onChange={e => setCreateForm(p => ({ ...p, [f.key]: e.target.value }))}
+                style={{ ...selLabel, padding: '0.4rem 0.6rem', fontSize: '0.85rem' }} />
+            </div>
+          ))}
+          {[
+            { label: 'Deal Type', key: 'deal_type', options: [{v:'lease',l:'Lease'},{v:'purchase',l:'Purchase'}] },
+            { label: 'Brand', key: 'brand', options: [{v:'dunkin',l:"Dunkin'"},{v:'papajohns',l:'Papa Johns'},{v:'bww_go',l:'BWW Go'},{v:'dual',l:'Dual'}] },
+            { label: 'State', key: 'state', options: [{v:'PA',l:'PA'},{v:'NJ',l:'NJ'}] },
+          ].map(f => (
+            <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <label style={{ fontSize: '0.68rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{f.label}</label>
+              <select value={createForm[f.key]} onChange={e => setCreateForm(p => ({ ...p, [f.key]: e.target.value }))}
+                style={{ ...selLabel, padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}>
+                {f.options.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+              </select>
+            </div>
+          ))}
+          {createError && <div style={{ color: '#ef4444', fontSize: '0.82rem' }}>{createError}</div>}
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+            <button onClick={() => setShowCreate(false)} style={{ ...btn(th), padding: '0.45rem 0.9rem' }}>Cancel</button>
+            <button onClick={doCreate} disabled={creating} style={{ ...btn(th), padding: '0.45rem 1.2rem', fontWeight: 700, background: '#3b82f6', color: '#fff', border: 'none' }}>
+              {creating ? 'Creating…' : 'Create Deal'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: '1rem' }}>
+      {/* Page header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 }}>Deal Pipeline</h2>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '0.25rem', background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', padding: '0.2rem' }}>
+            {['kanban','table'].map(v => (
+              <button key={v} onClick={() => setView(v)}
+                style={{ padding: '0.3rem 0.75rem', borderRadius: '0.35rem', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.78rem',
+                  background: view === v ? '#3b82f6' : 'transparent', color: view === v ? '#fff' : th.muted, transition: 'all .15s' }}>
+                {v === 'kanban' ? 'Kanban' : 'Table'}
+              </button>
+            ))}
+          </div>
+          {canEdit && (
+            <button onClick={() => setShowCreate(true)} style={{ ...btn(th), padding: '0.4rem 0.9rem', fontWeight: 700, background: '#22c55e', color: '#fff', border: 'none', fontSize: '0.82rem' }}>
+              + New Deal
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        {kpiCards.map(k => (
+          <div key={k.label} style={{ ...card(th), padding: '1rem 1.125rem', borderTop: `3px solid ${k.color}` }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.45rem', color: th.text }}>{k.value}</div>
+            <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>{k.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Stage chips summary */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '1rem' }}>
+        {STAGES.map(s => {
+          const cnt = deals.filter(d => d.stage === s.id).length;
+          if (!cnt) return null;
+          return <Chip key={s.id} label={`${s.label}: ${cnt}`} color={STAGE_COLORS[s.id]} small />;
+        })}
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        {[
+          { label: 'Brand', val: filterBrand, set: setFilterBrand, opts: [['all','All Brands'],['dunkin',"Dunkin'"],['papajohns','Papa Johns'],['bww_go','BWW Go'],['dual','Dual']] },
+          { label: 'Type', val: filterType, set: setFilterType, opts: [['all','All Types'],['lease','Lease'],['purchase','Purchase']] },
+          { label: 'State', val: filterState, set: setFilterState, opts: [['all','All States'],['PA','PA'],['NJ','NJ']] },
+          { label: 'Stage', val: filterStage, set: setFilterStage, opts: [['all','All Stages'], ...STAGES.map(s => [s.id, s.label])] },
+          { label: 'Lead', val: filterLead, set: setFilterLead, opts: [['all','All Leads'], ...leads.map(l => [l, l])] },
+        ].map(f => (
+          <select key={f.label} value={f.val} onChange={e => f.set(e.target.value)}
+            style={{ ...selLabel, padding: '0.35rem 0.6rem', fontSize: '0.8rem', minWidth: 110 }}>
+            {f.opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        ))}
+        {(filterBrand !== 'all' || filterType !== 'all' || filterState !== 'all' || filterStage !== 'all' || filterLead !== 'all') && (
+          <button onClick={() => { setFilterBrand('all'); setFilterType('all'); setFilterState('all'); setFilterStage('all'); setFilterLead('all'); }}
+            style={{ ...btn(th), padding: '0.35rem 0.7rem', fontSize: '0.78rem', color: '#ef4444' }}>
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Main view */}
+      {view === 'kanban' ? <KanbanView /> : <TableView />}
+
+      {/* Modals */}
+      <DetailModal />
+      <CreateModal />
+    </div>
+  );
+}
+
 function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
   const [pnl, setPnl] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -29146,7 +29755,18 @@ function PCGPortal() {
   useEffect(() => { cloudLoad('pcg_pnl_access_v1').then(d => { if (Array.isArray(d?.allowed)) setPnlAllowed(d.allowed); }).catch(() => {}); }, []);
   const canPnl = canViewPnl(user, pnlAllowed);
   const canManagePnl = canManagePnlAccess(user);
-  const tabsForUser = (u) => { const t = getTabs(u); return canPnl ? t : t.filter(x => x.id !== 'pnl'); };
+  const [dealAuth, setDealAuth] = useState({ token: null, role: null, loaded: false });
+  useEffect(() => {
+    if (!user) { setDealAuth({ token: null, role: null, loaded: false }); return; }
+    dealLogin(user).then(r => setDealAuth({ token: r.token, role: r.role, loaded: true })).catch(() => setDealAuth({ token: null, role: null, loaded: true }));
+  }, [user]);
+  const canDeals = !!dealAuth.role;
+  const tabsForUser = (u) => {
+    let t = getTabs(u);
+    if (!canPnl) t = t.filter(x => x.id !== 'pnl');
+    if (!canDeals) t = t.filter(x => x.id !== 'deals');
+    return t;
+  };
   const TABS = tabsForUser(user);
 
   // Lock body scroll while mobile drawer is open
@@ -30502,7 +31122,7 @@ function PCGPortal() {
   const ADMIN_GROUPS = [
     { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'pnl', 'analytics', 'anomalies', 'scorecard'] },
     { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['cash', 'recon'] },
-    { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'projects', 'users'] },
+    { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'projects', 'deals', 'users'] },
     { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'settings'] },
   ];
 
@@ -30838,7 +31458,7 @@ function PCGPortal() {
           const DM_GROUPS = [
             { key:'dm_loc',  label:'Locations & Map', color:'#74c0fc', icon:(c)=>ICONS.locations(c), ids:['map','locations'] },
             { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['pulse','labor','pnl','analytics','anomalies'] },
-            { key:'dm_biz',  label:'District',        color:'#74c0fc', icon:(c)=>ICONS.dollar(c),    ids:['cash','reports','projects','scorecard'] },
+            { key:'dm_biz',  label:'District',        color:'#74c0fc', icon:(c)=>ICONS.dollar(c),    ids:['cash','reports','projects','deals','scorecard'] },
           ];
           return (
             <>
@@ -30959,7 +31579,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.18
+            v14.19
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -31374,6 +31994,7 @@ function PCGPortal() {
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
