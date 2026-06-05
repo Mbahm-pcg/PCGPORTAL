@@ -24777,12 +24777,21 @@ function AdminDeals({ th, user, dealAuth }) {
                             <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#a855f7', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                               Send reminder — {detailDeal.name}
                             </div>
-                            <input
-                              value={remindPhone}
-                              onChange={e => setRemindPhone(e.target.value)}
-                              placeholder="(555) 555-5555"
-                              style={{ ...inp(th), fontSize: '0.82rem', padding: '0.35rem 0.5rem' }}
-                            />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              <label style={{ fontSize: '0.72rem', color: th.muted, fontWeight: 600 }}>Recipient</label>
+                              <select
+                                value={remindPhone}
+                                onChange={e => setRemindPhone(e.target.value)}
+                                style={{ ...inp(th), fontSize: '0.82rem', padding: '0.35rem 0.5rem' }}
+                              >
+                                <option value="">— Select recipient —</option>
+                                {dealLeads.map(l => (
+                                  <option key={l.id} value={l.phone || ''} disabled={!l.phone}>
+                                    {l.name}{l.phone ? ` — ${formatPhone(l.phone)}` : ' (no number on file)'}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                             <textarea
                               value={remindMsg}
                               onChange={e => setRemindMsg(e.target.value)}
@@ -24795,8 +24804,8 @@ function AdminDeals({ th, user, dealAuth }) {
                               </div>
                             )}
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              <button onClick={doSendReminder} disabled={remindBusy}
-                                style={{ ...btn(th), padding: '0.35rem 0.9rem', fontSize: '0.8rem', background: '#a855f7', color: '#fff', border: 'none', fontWeight: 700 }}>
+                              <button onClick={doSendReminder} disabled={remindBusy || !remindPhone}
+                                style={{ ...btn(th), padding: '0.35rem 0.9rem', fontSize: '0.8rem', background: '#a855f7', color: '#fff', border: 'none', fontWeight: 700, opacity: (!remindPhone || remindBusy) ? 0.5 : 1 }}>
                                 {remindBusy ? 'Sending…' : 'Send'}
                               </button>
                               <button onClick={() => { setRemindFor(null); setRemindStatus(null); }}
@@ -32581,7 +32590,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.36
+            v14.37
           </div>
         )}
         {/* Collapse toggle — desktop only */}

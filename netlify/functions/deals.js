@@ -2,6 +2,7 @@
 // deal session token; reads need 'view', writes need 'edit'.
 const https = require('https');
 const { sql } = require('./db');
+const { getStore } = require('@netlify/blobs');
 const { verifyToken } = require('./deal-lib/token');
 const { roleSatisfies } = require('./deal-lib/roles');
 
@@ -137,7 +138,21 @@ exports.handler = async (event) => {
     }
     if (action === 'listLeads') {
       const leads = await db`SELECT id, name FROM deal_leads ORDER BY name`;
-      return reply(200, { leads });
+      // Resolve each lead's phone from the pcg_users_v1 blob by case-insensitive name match.
+      let users = [];
+      try {
+        const store = getStore({ name: 'pcg-portal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
+        const w = await store.get('pcg_users_v1', { type: 'json' });
+        const d = w?.data || w; users = Array.isArray(d) ? d : (d?.users || []);
+      } catch {}
+      const phoneByName = {};
+      for (const u of users) {
+        const nm = String(u.name || '').trim().toLowerCase();
+        const ph = String(u.phone || '').replace(/\D/g, '');
+        if (nm && ph && !phoneByName[nm]) phoneByName[nm] = ph; // first non-empty wins
+      }
+      const withPhones = leads.map(l => ({ ...l, phone: phoneByName[String(l.name || '').trim().toLowerCase()] || null }));
+      return reply(200, { leads: withPhones });
     }
     if (action === 'addLead') {
       if (!roleSatisfies(user.role, 'admin')) return reply(403, { error: 'admin only' });

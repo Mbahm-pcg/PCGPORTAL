@@ -18602,15 +18602,16 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
               style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", color: "#a855f7" }
             },
             "\u{1F4F1} Remind"
-          ), canEdit && !dt.acknowledged_at && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => doAck(dt.id), style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", color: "#22c55e" } }, "Acknowledge"), /* @__PURE__ */ React.createElement("button", { onClick: () => doDelDate(dt.id), style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", color: "#ef4444" } }, "Delete")), canEdit && dt.acknowledged_at && /* @__PURE__ */ React.createElement("button", { onClick: () => doDelDate(dt.id), style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", color: "#ef4444" } }, "Delete")))), isRemindOpen && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem", marginTop: "0.25rem", display: "flex", flexDirection: "column", gap: "0.5rem", borderLeft: "3px solid #a855f7" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: "#a855f7", textTransform: "uppercase", letterSpacing: 0.5 } }, "Send reminder \u2014 ", detailDeal.name), /* @__PURE__ */ React.createElement(
-            "input",
+          ), canEdit && !dt.acknowledged_at && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => doAck(dt.id), style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", color: "#22c55e" } }, "Acknowledge"), /* @__PURE__ */ React.createElement("button", { onClick: () => doDelDate(dt.id), style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", color: "#ef4444" } }, "Delete")), canEdit && dt.acknowledged_at && /* @__PURE__ */ React.createElement("button", { onClick: () => doDelDate(dt.id), style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", color: "#ef4444" } }, "Delete")))), isRemindOpen && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem", marginTop: "0.25rem", display: "flex", flexDirection: "column", gap: "0.5rem", borderLeft: "3px solid #a855f7" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: "#a855f7", textTransform: "uppercase", letterSpacing: 0.5 } }, "Send reminder \u2014 ", detailDeal.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.72rem", color: th.muted, fontWeight: 600 } }, "Recipient"), /* @__PURE__ */ React.createElement(
+            "select",
             {
               value: remindPhone,
               onChange: (e) => setRemindPhone(e.target.value),
-              placeholder: "(555) 555-5555",
               style: { ...inp(th), fontSize: "0.82rem", padding: "0.35rem 0.5rem" }
-            }
-          ), /* @__PURE__ */ React.createElement(
+            },
+            /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Select recipient \u2014"),
+            dealLeads.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.phone || "", disabled: !l.phone }, l.name, l.phone ? ` \u2014 ${formatPhone(l.phone)}` : " (no number on file)"))
+          )), /* @__PURE__ */ React.createElement(
             "textarea",
             {
               value: remindMsg,
@@ -18622,8 +18623,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             "button",
             {
               onClick: doSendReminder,
-              disabled: remindBusy,
-              style: { ...btn(th), padding: "0.35rem 0.9rem", fontSize: "0.8rem", background: "#a855f7", color: "#fff", border: "none", fontWeight: 700 }
+              disabled: remindBusy || !remindPhone,
+              style: { ...btn(th), padding: "0.35rem 0.9rem", fontSize: "0.8rem", background: "#a855f7", color: "#fff", border: "none", fontWeight: 700, opacity: !remindPhone || remindBusy ? 0.5 : 1 }
             },
             remindBusy ? "Sending\u2026" : "Send"
           ), /* @__PURE__ */ React.createElement(
@@ -24638,7 +24639,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.36"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.37"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
