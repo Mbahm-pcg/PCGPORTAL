@@ -11111,6 +11111,21 @@ ${t2.slice(0, 300)}`);
     const [testStatus, setTestStatus] = React.useState(null);
     const [testPhone, setTestPhone] = React.useState(user?.phone || "");
     const [testEmail, setTestEmail] = React.useState(user?.email || "");
+    const [quota, setQuota] = React.useState(null);
+    const checkQuota = async () => {
+      setQuota("checking");
+      try {
+        const res = await fetch("/.netlify/functions/sms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "quota" })
+        });
+        const d = await res.json();
+        setQuota(d && d.success ? d.quotaRemaining : "error");
+      } catch {
+        setQuota("error");
+      }
+    };
     const sendTestSMS = async () => {
       if (!testPhone) {
         showAlert("error", "Enter a phone number first");
@@ -11158,7 +11173,7 @@ ${t2.slice(0, 300)}`);
       }
       setTimeout(() => setTestStatus(null), 5e3);
     };
-    return /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#00d084", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F9EA}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Test Notifications")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "Send a test message to verify your Twilio SMS and email integrations are working."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.5rem", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.5rem" } }, "\u{1F4F1} Test SMS (Twilio)"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#00d084", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F9EA}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Test Notifications")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "Send a test message to verify your Textbelt SMS and email integrations are working."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.5rem", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.5rem" } }, "\u{1F4F1} Test SMS (Textbelt)"), /* @__PURE__ */ React.createElement(
       "input",
       {
         style: { ...inp(th), marginBottom: "0.5rem" },
@@ -11169,7 +11184,7 @@ ${t2.slice(0, 300)}`);
           setTestPhone(formatPhone(digits));
         }
       }
-    ), /* @__PURE__ */ React.createElement("button", { onClick: sendTestSMS, disabled: testStatus === "sending_sms", style: btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", opacity: testStatus === "sending_sms" ? 0.6 : 1 }) }, testStatus === "sending_sms" ? "\u23F3 Sending..." : testStatus === "sms_ok" ? "\u2705 Sent!" : testStatus === "sms_fail" ? "\u274C Failed" : "\u{1F4F1} Send Test SMS")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.5rem", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.5rem" } }, "\u{1F4E7} Test Email (Resend)"), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("button", { onClick: sendTestSMS, disabled: testStatus === "sending_sms", style: btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", opacity: testStatus === "sending_sms" ? 0.6 : 1 }) }, testStatus === "sending_sms" ? "\u23F3 Sending..." : testStatus === "sms_ok" ? "\u2705 Sent!" : testStatus === "sms_fail" ? "\u274C Failed" : "\u{1F4F1} Send Test SMS"), /* @__PURE__ */ React.createElement("button", { onClick: checkQuota, disabled: quota === "checking", style: btn(th, { width: "100%", padding: "0.4rem", fontSize: "0.75rem", marginTop: "0.4rem", background: "transparent", color: th.muted, border: `1px solid ${th.cardBorder}` }) }, quota === "checking" ? "\u23F3 Checking\u2026" : quota === "error" ? "\u274C Quota check failed" : quota != null ? `\u{1F4CA} ${quota} texts left \u2014 re-check` : "\u{1F4CA} Check Quota")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.5rem", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.5rem" } }, "\u{1F4E7} Test Email (Resend)"), /* @__PURE__ */ React.createElement(
       "input",
       {
         style: { ...inp(th), marginBottom: "0.5rem" },
@@ -24544,7 +24559,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.34"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.35"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

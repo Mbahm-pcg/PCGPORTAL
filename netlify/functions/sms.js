@@ -20,14 +20,26 @@ exports.handler = async (event) => {
   try { payload = JSON.parse(event.body || '{}'); }
   catch { return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { to, message } = payload;
-  if (!to || !message) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing to or message' }) };
-  }
-
   const KEY = process.env.TEXTBELT_API_KEY;
   if (!KEY) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: 'Textbelt API key not configured' }) };
+  }
+
+  // Quota check — no SMS sent. GET https://textbelt.com/quota/<key> → { success, quotaRemaining }
+  if (payload.action === 'quota') {
+    const q = await new Promise((resolve) => {
+      https.get(`https://textbelt.com/quota/${encodeURIComponent(KEY)}`, (res) => {
+        let raw = '';
+        res.on('data', d => raw += d);
+        res.on('end', () => { let j = {}; try { j = JSON.parse(raw); } catch {} resolve(j); });
+      }).on('error', (err) => resolve({ success: false, error: err.message }));
+    });
+    return { statusCode: 200, headers, body: JSON.stringify({ success: !!q.success, quotaRemaining: q.quotaRemaining, error: q.error }) };
+  }
+
+  const { to, message } = payload;
+  if (!to || !message) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing to or message' }) };
   }
 
   // Send to one or multiple phone numbers

@@ -13255,6 +13255,19 @@ function TestNotificationsPanel({ th, user, showAlert }) {
   const [testStatus, setTestStatus] = React.useState(null);
   const [testPhone, setTestPhone] = React.useState(user?.phone || "");
   const [testEmail, setTestEmail] = React.useState(user?.email || "");
+  const [quota, setQuota] = React.useState(null);
+
+  const checkQuota = async () => {
+    setQuota('checking');
+    try {
+      const res = await fetch('/.netlify/functions/sms', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'quota' }),
+      });
+      const d = await res.json();
+      setQuota(d && d.success ? d.quotaRemaining : 'error');
+    } catch { setQuota('error'); }
+  };
 
   const sendTestSMS = async () => {
     if (!testPhone) { showAlert("error", "Enter a phone number first"); return; }
@@ -13290,15 +13303,18 @@ function TestNotificationsPanel({ th, user, showAlert }) {
         <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Test Notifications</span>
       </div>
       <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
-        Send a test message to verify your Twilio SMS and email integrations are working.
+        Send a test message to verify your Textbelt SMS and email integrations are working.
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem" }}>
         <div style={{ background: th.card2, borderRadius: "0.5rem", padding: "1rem" }}>
-          <div style={{ fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.5rem" }}>📱 Test SMS (Twilio)</div>
+          <div style={{ fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.5rem" }}>📱 Test SMS (Textbelt)</div>
           <input style={{ ...inp(th), marginBottom: "0.5rem" }} placeholder="(555) 555-5555" value={testPhone}
             onChange={e => { const digits = e.target.value.replace(/\D/g, '').slice(0,10); setTestPhone(formatPhone(digits)); }} />
           <button onClick={sendTestSMS} disabled={testStatus === "sending_sms"} style={btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", opacity: testStatus === "sending_sms" ? 0.6 : 1 })}>
             {testStatus === "sending_sms" ? "⏳ Sending..." : testStatus === "sms_ok" ? "✅ Sent!" : testStatus === "sms_fail" ? "❌ Failed" : "📱 Send Test SMS"}
+          </button>
+          <button onClick={checkQuota} disabled={quota === 'checking'} style={btn(th, { width: "100%", padding: "0.4rem", fontSize: "0.75rem", marginTop: "0.4rem", background: "transparent", color: th.muted, border: `1px solid ${th.cardBorder}` })}>
+            {quota === 'checking' ? "⏳ Checking…" : quota === 'error' ? "❌ Quota check failed" : (quota != null ? `📊 ${quota} texts left — re-check` : "📊 Check Quota")}
           </button>
         </div>
         <div style={{ background: th.card2, borderRadius: "0.5rem", padding: "1rem" }}>
@@ -32483,7 +32499,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.34
+            v14.35
           </div>
         )}
         {/* Collapse toggle — desktop only */}
