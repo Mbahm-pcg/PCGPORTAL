@@ -51,6 +51,7 @@ exports.handler = async (event) => {
         SELECT l.order_number, l.store_name, l.account, l.email_type, l.email_date,
                l.date_ordered, l.date_shipped, l.warehouse, l.terms,
                l.total_order, l.item_subtotal, l.tax, l.item_count, l.subject,
+               l.category_subtotals,
                c.versions, c.revisions, c.orig_total
         FROM latest l JOIN counts c USING (order_number)
         ORDER BY l.email_date DESC NULLS LAST`;
