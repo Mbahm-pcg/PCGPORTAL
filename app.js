@@ -18536,6 +18536,25 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
   function AdminDeals({ th, user, dealAuth }) {
     const { token, role } = dealAuth;
     const canEdit = role === "edit" || role === "admin";
+    const relTime = (ts) => {
+      const t = new Date(ts).getTime();
+      if (Number.isNaN(t)) return "";
+      const s = Math.floor((Date.now() - t) / 1e3);
+      if (s < 45) return "just now";
+      if (s < 5400) {
+        const m = Math.round(s / 60);
+        return `${m}m ago`;
+      }
+      if (s < 86400) {
+        const h = Math.round(s / 3600);
+        return `${h}h ago`;
+      }
+      if (s < 7 * 86400) {
+        const d = Math.round(s / 86400);
+        return `${d}d ago`;
+      }
+      return new Date(ts).toLocaleDateString();
+    };
     const STAGES = [
       { id: "sourcing", label: "Sourcing" },
       { id: "loi_out", label: "LOI Out" },
@@ -18559,6 +18578,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     };
     const BRAND_COLORS = { dunkin: "#FF671F", papajohns: "#ef4444", bww_go: "#f59e0b", dual: "#6366f1" };
     const BRAND_LABELS = { dunkin: "Dunkin'", papajohns: "Papa Johns", bww_go: "BWW Go", dual: "Dual" };
+    const DEAD_REASONS = ["Lost to competitor", "Failed due diligence", "Zoning denied", "Franchisor rejected", "Economics", "Financing fell through", "Other"];
     const [deals, setDeals] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -18581,6 +18601,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [saveMsg, setSaveMsg] = useState(null);
     const [newNote, setNewNote] = useState("");
     const [addingNote, setAddingNote] = useState(false);
+    const [noteErr, setNoteErr] = useState(null);
+    const [actionErr, setActionErr] = useState(null);
     const [showCreate, setShowCreate] = useState(false);
     const [createForm, setCreateForm] = useState({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
     const [creating, setCreating] = useState(false);
@@ -18595,6 +18617,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [newDateDue, setNewDateDue] = useState("");
     const [newDateTiers, setNewDateTiers] = useState(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
     const [newDateNotes, setNewDateNotes] = useState("");
+    const [newDateRecurring, setNewDateRecurring] = useState("");
     const [dateAdding, setDateAdding] = useState(false);
     const [dateErr, setDateErr] = useState(null);
     const [showAccess, setShowAccess] = useState(false);
@@ -18605,6 +18628,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [accessErr, setAccessErr] = useState(null);
     const [dealLeads, setDealLeads] = useState([]);
     const [newLeadName, setNewLeadName] = useState("");
+    const [deadFor, setDeadFor] = useState(null);
+    const [deadReason, setDeadReason] = useState(DEAD_REASONS[0]);
+    const [deadNote, setDeadNote] = useState("");
+    const [deadBusy, setDeadBusy] = useState(false);
+    const [deadErr, setDeadErr] = useState(null);
     const [remindFor, setRemindFor] = useState(null);
     const [remindPhone, setRemindPhone] = useState("");
     const [remindMsg, setRemindMsg] = useState("");
@@ -18739,22 +18767,41 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const TypeChip = ({ type }) => /* @__PURE__ */ React.createElement(Chip, { label: type === "lease" ? "Lease" : "Purchase", color: type === "lease" ? "#22c55e" : "#f59e0b", small: true });
     const StageChip = ({ stage }) => /* @__PURE__ */ React.createElement(Chip, { label: STAGE_MAP[stage] || stage, color: STAGE_COLORS[stage] || "#64748b", small: true });
     const doMoveStage = (deal, newStage) => {
+      setActionErr(null);
       setDeals((prev) => prev.map((d) => d.id === deal.id ? { ...d, stage: newStage } : d));
       if (detailDeal?.id === deal.id) setDetailDeal((prev) => ({ ...prev, stage: newStage }));
-      dealApi(token, { action: "moveStage", id: deal.id, stage: newStage }).catch(() => {
+      dealApi(token, { action: "moveStage", id: deal.id, stage: newStage }).catch((e) => {
         setDeals((prev) => prev.map((d) => d.id === deal.id ? { ...d, stage: deal.stage } : d));
+        setActionErr(`Could not move "${deal.name}": ${e.message}`);
       });
     };
     const doHandoff = (deal) => {
       if (!window.confirm(`Hand off "${deal.name}" to construction?`)) return;
-      dealApi(token, { action: "handoff", id: deal.id }).then(() => setDeals((prev) => prev.filter((d) => d.id !== deal.id))).catch((e) => alert("Handoff failed: " + e.message));
-      if (detailDeal?.id === deal.id) closeDetail();
+      setActionErr(null);
+      dealApi(token, { action: "handoff", id: deal.id }).then(() => {
+        setDeals((prev) => prev.filter((d) => d.id !== deal.id));
+        if (detailDeal?.id === deal.id) closeDetail();
+      }).catch((e) => setActionErr(`Handoff failed: ${e.message}`));
     };
     const doMarkDead = (deal) => {
-      const reason = window.prompt(`Reason for marking "${deal.name}" as dead?`);
-      if (!reason) return;
-      dealApi(token, { action: "markDead", id: deal.id, reason }).then(() => setDeals((prev) => prev.filter((d) => d.id !== deal.id))).catch((e) => alert("Failed: " + e.message));
-      if (detailDeal?.id === deal.id) closeDetail();
+      if (!canEdit) return;
+      setDeadFor(deal);
+      setDeadReason(DEAD_REASONS[0]);
+      setDeadNote("");
+      setDeadErr(null);
+    };
+    const confirmMarkDead = () => {
+      if (!canEdit || !deadFor) return;
+      const note = deadNote.trim();
+      const reason = note ? `${deadReason} \u2014 ${note}` : deadReason;
+      const deal = deadFor;
+      setDeadBusy(true);
+      setDeadErr(null);
+      dealApi(token, { action: "markDead", id: deal.id, reason }).then(() => {
+        setDeals((prev) => prev.filter((d) => d.id !== deal.id));
+        setDeadFor(null);
+        if (detailDeal?.id === deal.id) closeDetail();
+      }).catch((e) => setDeadErr(e.message)).finally(() => setDeadBusy(false));
     };
     const doSave = () => {
       if (!Object.keys(editFields).length) return;
@@ -18771,10 +18818,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const doAddNote = () => {
       if (!newNote.trim()) return;
       setAddingNote(true);
+      setNoteErr(null);
       dealApi(token, { action: "addNote", id: detailDeal.id, note: newNote.trim() }).then((r) => {
         setDetailNotes(r.notes || []);
         setNewNote("");
-      }).catch((e) => alert("Failed: " + e.message)).finally(() => setAddingNote(false));
+      }).catch((e) => setNoteErr(e.message)).finally(() => setAddingNote(false));
     };
     const doCreate = () => {
       if (!createForm.name.trim()) {
@@ -18808,11 +18856,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const selLabel = inp(th);
     const KanbanView = () => {
       const stageOrder = STAGES.map((s) => s.id);
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", overflowX: "auto", paddingBottom: "1rem", alignItems: "flex-start" } }, stageOrder.map((stageId, si) => {
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", overflowX: "auto", paddingBottom: "1rem", alignItems: "flex-start", WebkitOverflowScrolling: "touch", scrollSnapType: "x proximity" } }, stageOrder.map((stageId, si) => {
         const stageDeals = filtered.filter((d) => d.stage === stageId);
         const color = STAGE_COLORS[stageId] || "#64748b";
         const isLast = si === stageOrder.length - 1;
-        return /* @__PURE__ */ React.createElement("div", { key: stageId, style: { minWidth: 220, maxWidth: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.5rem", borderRadius: "0.5rem", background: `${color}18`, borderBottom: `2px solid ${color}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 800, color, letterSpacing: 0.5, textTransform: "uppercase" } }, STAGE_MAP[stageId]), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.68rem", background: `${color}33`, color, borderRadius: 999, padding: "1px 7px", fontWeight: 700 } }, stageDeals.length)), stageDeals.map((deal) => {
+        return /* @__PURE__ */ React.createElement("div", { key: stageId, style: { minWidth: 220, maxWidth: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: "0.5rem", scrollSnapAlign: "start" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.5rem", borderRadius: "0.5rem", background: `${color}18`, borderBottom: `2px solid ${color}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 800, color, letterSpacing: 0.5, textTransform: "uppercase" } }, STAGE_MAP[stageId]), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.68rem", background: `${color}33`, color, borderRadius: 999, padding: "1px 7px", fontWeight: 700 } }, stageDeals.length)), stageDeals.map((deal) => {
           const prevStage = stageOrder[si - 1];
           const nextStage = stageOrder[si + 1];
           const flag = dealDeadlineFlag(datesByDeal[deal.id], Date.now());
@@ -18921,7 +18969,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           !inList && currentVal && /* @__PURE__ */ React.createElement("option", { value: currentVal }, currentVal),
           dealLeads.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.name }, l.name))
         ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, padding: "0.2rem 0" } }, d["deal_lead"] ?? "\u2014"));
-      })(), Field({ label: "Broker Source", fkey: "broker_source" }), Field({ label: "PC Number", fkey: "pc_number" }), Field({ label: "Sq Ft", fkey: "sqft", type: "number" }))), d.deal_type === "lease" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Lease Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Landlord Entity", fkey: "landlord_entity" }), Field({ label: "Landlord Contact", fkey: "landlord_contact" }), Field({ label: "Lease Structure", fkey: "lease_structure" }), Field({ label: "Base Rent ($/mo)", fkey: "base_rent", type: "number" }), Field({ label: "Rent PSF", fkey: "rent_psf", type: "number" }), Field({ label: "Term (years)", fkey: "term_years", type: "number" }), Field({ label: "TI Allowance", fkey: "ti_allowance", type: "number" }), Field({ label: "Free Rent (mo)", fkey: "free_rent", type: "number" }), Field({ label: "Est NNN/CAM", fkey: "est_nnn_cam", type: "number" }), Field({ label: "CAM Cap", fkey: "cam_cap" }), Field({ label: "Guaranty Type", fkey: "guaranty_type" }), Field({ label: "Use Clause", fkey: "use_clause" }), Field({ label: "Exclusivity", fkey: "exclusivity" }), Field({ label: "Escalations", fkey: "escalations" }), Field({ label: "Renewal Options", fkey: "renewal_options" }), Field({ label: "Security Deposit", fkey: "security_deposit", type: "number" }))), d.deal_type === "purchase" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Purchase Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Seller Entity", fkey: "seller_entity" }), Field({ label: "Seller Contact", fkey: "seller_contact" }), Field({ label: "Purchase Price", fkey: "purchase_price", type: "number" }), Field({ label: "Earnest Money", fkey: "earnest_money", type: "number" }), Field({ label: "EMD Hard Date", fkey: "emd_hard" }), Field({ label: "Title/Escrow Co", fkey: "title_escrow_co" }), Field({ label: "Lender", fkey: "lender" }), Field({ label: "Loan Terms", fkey: "loan_terms" }), Field({ label: "Appraisal Status", fkey: "appraisal_status" }), Field({ label: "Phase 1 Status", fkey: "phase1_status" }), Field({ label: "Survey Status", fkey: "survey_status" }), Field({ label: "Zoning Status", fkey: "zoning_status" }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "SPE Entity", fkey: "spe_entity" })), canEdit && Object.keys(editFields).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: doSave, disabled: saving, style: { ...btn(th), padding: "0.45rem 1.2rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none" } }, saving ? "Saving\u2026" : "Save Changes"), saveMsg && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: saveMsg.startsWith("Error") ? "#ef4444" : "#22c55e" } }, saveMsg)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" } }, detailNotes.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No notes yet."), detailNotes.map((n, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, n.author || "Unknown"), n.created_at ? " \xB7 " + new Date(n.created_at).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text } }, n.body || n.note)))), canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+      })(), Field({ label: "Broker Source", fkey: "broker_source" }), Field({ label: "PC Number", fkey: "pc_number" }), Field({ label: "Sq Ft", fkey: "sqft", type: "number" }))), d.deal_type === "lease" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Lease Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Landlord Entity", fkey: "landlord_entity" }), Field({ label: "Landlord Contact", fkey: "landlord_contact" }), Field({ label: "Lease Structure", fkey: "lease_structure" }), Field({ label: "Base Rent ($/mo)", fkey: "base_rent", type: "number" }), Field({ label: "Rent PSF", fkey: "rent_psf", type: "number" }), Field({ label: "Term (years)", fkey: "term_years", type: "number" }), Field({ label: "TI Allowance", fkey: "ti_allowance", type: "number" }), Field({ label: "Free Rent (mo)", fkey: "free_rent", type: "number" }), Field({ label: "Est NNN/CAM", fkey: "est_nnn_cam", type: "number" }), Field({ label: "CAM Cap", fkey: "cam_cap" }), Field({ label: "Guaranty Type", fkey: "guaranty_type" }), Field({ label: "Use Clause", fkey: "use_clause" }), Field({ label: "Exclusivity", fkey: "exclusivity" }), Field({ label: "Escalations", fkey: "escalations" }), Field({ label: "Renewal Options", fkey: "renewal_options" }), Field({ label: "Security Deposit", fkey: "security_deposit", type: "number" }))), d.deal_type === "purchase" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Purchase Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Seller Entity", fkey: "seller_entity" }), Field({ label: "Seller Contact", fkey: "seller_contact" }), Field({ label: "Purchase Price", fkey: "purchase_price", type: "number" }), Field({ label: "Earnest Money", fkey: "earnest_money", type: "number" }), Field({ label: "EMD Hard Date", fkey: "emd_hard" }), Field({ label: "Title/Escrow Co", fkey: "title_escrow_co" }), Field({ label: "Lender", fkey: "lender" }), Field({ label: "Loan Terms", fkey: "loan_terms" }), Field({ label: "Appraisal Status", fkey: "appraisal_status" }), Field({ label: "Phase 1 Status", fkey: "phase1_status" }), Field({ label: "Survey Status", fkey: "survey_status" }), Field({ label: "Zoning Status", fkey: "zoning_status" }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "SPE Entity", fkey: "spe_entity" })), canEdit && Object.keys(editFields).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: doSave, disabled: saving, style: { ...btn(th), padding: "0.45rem 1.2rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none" } }, saving ? "Saving\u2026" : "Save Changes"), saveMsg && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: saveMsg.startsWith("Error") ? "#ef4444" : "#22c55e" } }, saveMsg)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Activity Log"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" } }, detailNotes.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No activity yet."), detailNotes.map((n, i) => {
+        const isSys = n.kind === "system";
+        return /* @__PURE__ */ React.createElement("div", { key: i, style: {
+          ...card(th),
+          padding: "0.6rem 0.75rem",
+          ...isSys ? { borderLeft: `3px solid ${O}`, background: th.bg, opacity: 0.95 } : {}
+        } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: "0.2rem", display: "flex", alignItems: "center", gap: "0.4rem" } }, isSys && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, color: O, background: O + "22", padding: "0.05rem 0.35rem", borderRadius: 4 } }, "System"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, n.author || "Unknown"), n.created_at ? /* @__PURE__ */ React.createElement("span", null, " \xB7 ", relTime(n.created_at)) : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, fontStyle: isSys ? "italic" : "normal" } }, n.body || n.note));
+      })), canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
         "input",
         {
           value: newNote,
@@ -18938,7 +18993,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           style: { ...btn(th), padding: "0.4rem 0.8rem", fontSize: "0.8rem" }
         },
         addingNote ? "\u2026" : "Add"
-      ))), (() => {
+      )), noteErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#ef4444", marginTop: "0.4rem" } }, "Error: ", noteErr)), (() => {
         const nowMsD = Date.now();
         const sortedDates = [...detailDates].sort((a, b) => (a.due_date || "").localeCompare(b.due_date || ""));
         const doAck = (dateId) => {
@@ -18962,10 +19017,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           const parsedTiers = newDateTiers.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n) && n > 0);
           setDateAdding(true);
           setDateErr(null);
-          dealApi(token, { action: "addDate", deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, notes: newDateNotes }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
+          dealApi(token, { action: "addDate", deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, recurring: newDateRecurring || null, notes: newDateNotes }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
             setDetailDates(r.dates || []);
             setNewDateDue("");
             setNewDateNotes("");
+            setNewDateRecurring("");
             const dt = DATE_TYPES.find((t) => t.id === newDateType);
             setNewDateTiers(dt?.defaultTiers?.join(",") || "");
           }).then(() => loadList()).catch((e) => setDateErr(e.message)).finally(() => setDateAdding(false));
@@ -19021,7 +19077,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
               setRemindBusy(false);
             }
           };
-          return /* @__PURE__ */ React.createElement("div", { key: dt.id }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, dateLabel(dt.date_type)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, fmtDealDate(dt.due_date)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: statusColor } }, statusText), tiers.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.2rem" } }, tiers.map((t, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", padding: "1px 5px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.6rem", fontWeight: 700 } }, t)))), dt.acknowledged_at ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#22c55e" } }, "\u2713 ack'd by ", dt.acknowledged_by || "unknown") : null, dt.notes ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem" } }, dt.notes) : null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap" } }, canEdit && /* @__PURE__ */ React.createElement(
+          return /* @__PURE__ */ React.createElement("div", { key: dt.id }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, dateLabel(dt.date_type)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, fmtDealDate(dt.due_date)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: statusColor } }, statusText), dt.recurring && /* @__PURE__ */ React.createElement("span", { title: `Recurring (${dt.recurring})`, style: { fontSize: "0.72rem", color: th.muted, fontWeight: 700 } }, "\u{1F501} ", dt.recurring), tiers.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.2rem" } }, tiers.map((t, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", padding: "1px 5px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.6rem", fontWeight: 700 } }, t)))), dt.acknowledged_at ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#22c55e" } }, "\u2713 ack'd by ", dt.acknowledged_by || "unknown") : null, dt.notes ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem" } }, dt.notes) : null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap" } }, canEdit && /* @__PURE__ */ React.createElement(
             "button",
             {
               onClick: () => isRemindOpen ? setRemindFor(null) : openReminder(dt),
@@ -19093,6 +19149,17 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
           }
         ), /* @__PURE__ */ React.createElement(
+          "select",
+          {
+            value: newDateRecurring,
+            onChange: (e) => setNewDateRecurring(e.target.value),
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          },
+          /* @__PURE__ */ React.createElement("option", { value: "" }, "Does not recur"),
+          /* @__PURE__ */ React.createElement("option", { value: "monthly" }, "\u{1F501} Recurring \u2014 Monthly"),
+          /* @__PURE__ */ React.createElement("option", { value: "quarterly" }, "\u{1F501} Recurring \u2014 Quarterly"),
+          /* @__PURE__ */ React.createElement("option", { value: "annual" }, "\u{1F501} Recurring \u2014 Annual")
+        ), /* @__PURE__ */ React.createElement(
           "input",
           {
             value: newDateNotes,
@@ -19153,7 +19220,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         const sortedDocs = [...docs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Documents"), docErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.5rem" } }, "Error: ", docErr), sortedDocs.length === 0 && !docBusy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" } }, "No documents yet."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "0.75rem" } }, sortedDocs.map((doc) => {
           const versions = [...docVersions.filter((v) => v.document_id === doc.id)].sort((a, b) => b.version_no - a.version_no);
-          return /* @__PURE__ */ React.createElement("div", { key: doc.id, style: { ...card(th), padding: "0.65rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem", flexWrap: "wrap", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 7px", borderRadius: 999, background: "#3b82f622", color: "#3b82f6", fontSize: "0.62rem", fontWeight: 700, letterSpacing: 0.3 } }, DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, doc.title || "\u2014")), canEdit && /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", opacity: docBusy ? 0.5 : 1 } }, "\u2191 New version"), /* @__PURE__ */ React.createElement("input", { type: "file", style: { display: "none" }, disabled: docBusy, onChange: (e) => doUploadVersion(doc, e) }))), versions.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No versions uploaded."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, versions.map((v) => /* @__PURE__ */ React.createElement("div", { key: v.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 6px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.62rem", fontWeight: 700 } }, "v", v.version_no), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 500 } }, v.filename), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtBytes(v.size)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, v.uploaded_by), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtDate(v.uploaded_at)), /* @__PURE__ */ React.createElement(
+          return /* @__PURE__ */ React.createElement("div", { key: doc.id, style: { ...card(th), padding: "0.65rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem", flexWrap: "wrap", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 7px", borderRadius: 999, background: "#3b82f622", color: "#3b82f6", fontSize: "0.62rem", fontWeight: 700, letterSpacing: 0.3 } }, DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, doc.title || "\u2014")), canEdit && /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", opacity: docBusy ? 0.5 : 1 } }, "\u2191 New version"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv", style: { display: "none" }, disabled: docBusy, onChange: (e) => doUploadVersion(doc, e) }))), versions.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No versions uploaded."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, versions.map((v) => /* @__PURE__ */ React.createElement("div", { key: v.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 6px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.62rem", fontWeight: 700 } }, "v", v.version_no), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 500 } }, v.filename), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtBytes(v.size)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, v.uploaded_by), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtDate(v.uploaded_at)), /* @__PURE__ */ React.createElement(
             "button",
             {
               onClick: () => dealDownloadVersion(token, v.id),
@@ -19169,7 +19236,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem", minWidth: 130 }
           },
           DOC_TYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))
-        ), /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", opacity: docBusy ? 0.5 : 1, display: "inline-block" } }, docBusy ? "Uploading\u2026" : "Upload Document"), /* @__PURE__ */ React.createElement("input", { type: "file", style: { display: "none" }, disabled: docBusy, onChange: doUploadNew }))));
+        ), /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", opacity: docBusy ? 0.5 : 1, display: "inline-block" } }, docBusy ? "Uploading\u2026" : "Upload Document"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv", style: { display: "none" }, disabled: docBusy, onChange: doUploadNew }))));
       })()));
     };
     const CreateModal = () => {
@@ -19258,7 +19325,52 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         style: { ...btn(th), padding: "0.35rem 0.7rem", fontSize: "0.78rem", color: "#ef4444" }
       },
       "Clear"
-    )), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), DetailModal(), CreateModal(), showAccess && /* @__PURE__ */ React.createElement(
+    )), actionErr && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", background: "#ef444418", border: "1px solid #ef444455", color: "#ef4444", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", marginBottom: "0.75rem", fontSize: "0.8rem", fontWeight: 600 } }, /* @__PURE__ */ React.createElement("span", { style: { flex: 1 } }, actionErr), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionErr(null), style: { background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "0.9rem", lineHeight: 1 } }, "\xD7")), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), DetailModal(), CreateModal(), canEdit && deadFor && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: { position: "fixed", inset: 0, zIndex: 1e4, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
+        onClick: (e) => {
+          if (e.target === e.currentTarget && !deadBusy) setDeadFor(null);
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)" }, onClick: () => {
+        if (!deadBusy) setDeadFor(null);
+      } }),
+      /* @__PURE__ */ React.createElement("div", { style: { position: "relative", background: th.bg, borderRadius: "0.75rem", padding: "1.5rem", width: "100%", maxWidth: 440, boxShadow: "0 8px 40px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "Mark Deal Dead"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, '"', deadFor.name, '" will be marked dead and removed from the active pipeline.'), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Reason"), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: deadReason,
+          onChange: (e) => setDeadReason(e.target.value),
+          style: { ...selLabel, padding: "0.45rem 0.6rem", fontSize: "0.85rem" }
+        },
+        DEAD_REASONS.map((r) => /* @__PURE__ */ React.createElement("option", { key: r, value: r }, r))
+      )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Note (optional)"), /* @__PURE__ */ React.createElement(
+        "textarea",
+        {
+          value: deadNote,
+          onChange: (e) => setDeadNote(e.target.value),
+          rows: 3,
+          placeholder: "Additional detail\u2026",
+          style: { ...inp(th), fontSize: "0.82rem", padding: "0.4rem 0.6rem", resize: "vertical" }
+        }
+      )), deadErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444" } }, "Error: ", deadErr), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setDeadFor(null),
+          disabled: deadBusy,
+          style: { ...btn(th), padding: "0.45rem 1rem", fontSize: "0.82rem" }
+        },
+        "Cancel"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: confirmMarkDead,
+          disabled: deadBusy,
+          style: { ...btn(th), padding: "0.45rem 1.1rem", fontSize: "0.82rem", fontWeight: 700, background: "#ef4444", color: "#fff", border: "none" }
+        },
+        deadBusy ? "Marking\u2026" : "Mark Dead"
+      )))
+    ), showAccess && /* @__PURE__ */ React.createElement(
       "div",
       {
         style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1e3, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
@@ -25090,7 +25202,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.43", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.47", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

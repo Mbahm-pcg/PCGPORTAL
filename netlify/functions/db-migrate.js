@@ -88,7 +88,7 @@ exports.handler = async (event) => {
     CREATE TABLE IF NOT EXISTS deal_notes (
       id SERIAL PRIMARY KEY,
       deal_id INTEGER REFERENCES deals(id) ON DELETE CASCADE,
-      author TEXT, body TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now()
+      author TEXT, body TEXT NOT NULL, kind TEXT DEFAULT 'user', created_at TIMESTAMPTZ DEFAULT now()
     )
   `;
 
@@ -100,6 +100,7 @@ exports.handler = async (event) => {
       due_date DATE NOT NULL,
       recurring TEXT,                       -- null | 'monthly' | 'quarterly' | 'annual'
       warning_tiers JSONB DEFAULT '[]'::jsonb,  -- e.g. [180,120,90,60,30]
+      alerted_tiers JSONB DEFAULT '[]'::jsonb,  -- fired tier keys for de-dup (e.g. ['overdue','30'])
       acknowledged_by TEXT, acknowledged_at TIMESTAMPTZ,
       notes TEXT,
       created_at TIMESTAMPTZ DEFAULT now()
@@ -127,6 +128,16 @@ exports.handler = async (event) => {
       UNIQUE(document_id, version_no)
     )
   `;
+
+  // Idempotent column adds for deal_dates (in case the table predates these columns).
+  await db`ALTER TABLE deal_dates ADD COLUMN IF NOT EXISTS recurring TEXT`;
+  await db`ALTER TABLE deal_dates ADD COLUMN IF NOT EXISTS warning_tiers JSONB DEFAULT '[]'::jsonb`;
+  // Per-(date,tier) de-dup for deal-alerts-cron: tiers already alerted on for this date.
+  // Stored as a JSONB array of fired tier keys (e.g. ['overdue','30','60']).
+  await db`ALTER TABLE deal_dates ADD COLUMN IF NOT EXISTS alerted_tiers JSONB DEFAULT '[]'::jsonb`;
+
+  // deal_notes: distinguish system events (stage moves, marked dead, handoff) from user notes.
+  await db`ALTER TABLE deal_notes ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'user'`;
 
   await db`CREATE INDEX IF NOT EXISTS idx_deals_status_stage ON deals(status, stage)`;
   await db`CREATE INDEX IF NOT EXISTS idx_deal_dates_due ON deal_dates(due_date)`;

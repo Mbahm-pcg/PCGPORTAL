@@ -26,6 +26,31 @@ function dealStore() {
 
 const safeKey = (s) => String(s || '').replace(/[^a-zA-Z0-9_-]/g, '');
 
+// Conservative server-side allowlist for deal documents. Validated on finalize so a
+// client can't store arbitrary/executable content in the confidential deal blob store.
+// Permissive enough for the real workflow: PDFs, common images, Office docs, text/CSV.
+const ALLOWED_EXT = new Set([
+  'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif',
+  'doc', 'docx', 'xls', 'xlsx', 'txt', 'csv',
+]);
+const ALLOWED_MIME = new Set([
+  'application/pdf',
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/heic', 'image/heif',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/plain', 'text/csv', 'application/csv',
+]);
+// Accept if EITHER the extension OR the declared MIME is on the allowlist (browsers are
+// inconsistent about MIME for Office/HEIC files, so requiring both would break real uploads).
+function isAllowedFile(filename, mime) {
+  const ext = String(filename || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  if (ext && ALLOWED_EXT.has(ext[1])) return true;
+  if (mime && ALLOWED_MIME.has(String(mime).toLowerCase())) return true;
+  return false;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
   if (!process.env.DEAL_SESSION_SECRET) return reply(500, { error: 'server not configured' });
@@ -73,6 +98,10 @@ exports.handler = async (event) => {
     if (action === 'finalizeVersion') {
       const key = safeKey(body.blobKey);
       if (!key || !body.document_id) return reply(400, { error: 'document_id + blobKey required' });
+      // Reject disallowed file types before recording a version row.
+      if (!isAllowedFile(body.filename, body.type)) {
+        return reply(400, { error: 'unsupported file type — allowed: PDF, images (png/jpg/gif/webp/heic), Word, Excel, txt, csv' });
+      }
       const [{ next }] = await db`
         SELECT COALESCE(MAX(version_no), 0) + 1 AS next FROM deal_document_versions WHERE document_id = ${body.document_id}`;
       // Server-derive the MIME + data-URL prefix (don't trust client prefix); clamp chunk count.

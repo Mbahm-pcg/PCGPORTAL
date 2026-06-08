@@ -24625,6 +24625,18 @@ function AdminDeals({ th, user, dealAuth }) {
   const { token, role } = dealAuth;
   const canEdit = role === 'edit' || role === 'admin';
 
+  // Relative time for the activity log (e.g. "just now", "3h ago", "2d ago"); falls back to date.
+  const relTime = (ts) => {
+    const t = new Date(ts).getTime();
+    if (Number.isNaN(t)) return '';
+    const s = Math.floor((Date.now() - t) / 1000);
+    if (s < 45) return 'just now';
+    if (s < 5400) { const m = Math.round(s / 60); return `${m}m ago`; }
+    if (s < 86400) { const h = Math.round(s / 3600); return `${h}h ago`; }
+    if (s < 7 * 86400) { const d = Math.round(s / 86400); return `${d}d ago`; }
+    return new Date(ts).toLocaleDateString();
+  };
+
   const STAGES = [
     { id: 'sourcing',               label: 'Sourcing' },
     { id: 'loi_out',                label: 'LOI Out' },
@@ -24643,6 +24655,7 @@ function AdminDeals({ th, user, dealAuth }) {
   };
   const BRAND_COLORS = { dunkin: '#FF671F', papajohns: '#ef4444', bww_go: '#f59e0b', dual: '#6366f1' };
   const BRAND_LABELS = { dunkin: 'Dunkin\'', papajohns: 'Papa Johns', bww_go: 'BWW Go', dual: 'Dual' };
+  const DEAD_REASONS = ['Lost to competitor', 'Failed due diligence', 'Zoning denied', 'Franchisor rejected', 'Economics', 'Financing fell through', 'Other'];
 
   // ── state ──
   const [deals, setDeals] = useState([]);
@@ -24667,6 +24680,8 @@ function AdminDeals({ th, user, dealAuth }) {
   const [saveMsg, setSaveMsg] = useState(null);
   const [newNote, setNewNote] = useState('');
   const [addingNote, setAddingNote] = useState(false);
+  const [noteErr, setNoteErr] = useState(null);
+  const [actionErr, setActionErr] = useState(null); // inline surfacing for stage-move / handoff failures
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', deal_type: 'lease', brand: 'dunkin', state: 'PA', address: '', deal_lead: '' });
   const [creating, setCreating] = useState(false);
@@ -24681,6 +24696,7 @@ function AdminDeals({ th, user, dealAuth }) {
   const [newDateDue, setNewDateDue] = useState('');
   const [newDateTiers, setNewDateTiers] = useState(DATE_TYPES[0]?.defaultTiers?.join(',') || '');
   const [newDateNotes, setNewDateNotes] = useState('');
+  const [newDateRecurring, setNewDateRecurring] = useState('');
   const [dateAdding, setDateAdding] = useState(false);
   const [dateErr, setDateErr] = useState(null);
   // ── access panel state ──
@@ -24693,6 +24709,12 @@ function AdminDeals({ th, user, dealAuth }) {
   // ── deal leads state ──
   const [dealLeads, setDealLeads] = useState([]);
   const [newLeadName, setNewLeadName] = useState('');
+  // ── mark-dead modal state ──
+  const [deadFor, setDeadFor] = useState(null);
+  const [deadReason, setDeadReason] = useState(DEAD_REASONS[0]);
+  const [deadNote, setDeadNote] = useState('');
+  const [deadBusy, setDeadBusy] = useState(false);
+  const [deadErr, setDeadErr] = useState(null);
   // ── send reminder state ──
   const [remindFor, setRemindFor] = useState(null);
   const [remindPhone, setRemindPhone] = useState('');
@@ -24838,28 +24860,45 @@ function AdminDeals({ th, user, dealAuth }) {
 
   // ── move stage ──
   const doMoveStage = (deal, newStage) => {
+    setActionErr(null);
     setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, stage: newStage } : d));
     if (detailDeal?.id === deal.id) setDetailDeal(prev => ({ ...prev, stage: newStage }));
-    dealApi(token, { action: 'moveStage', id: deal.id, stage: newStage }).catch(() => {
+    dealApi(token, { action: 'moveStage', id: deal.id, stage: newStage }).catch(e => {
       setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, stage: deal.stage } : d));
+      setActionErr(`Could not move "${deal.name}": ${e.message}`);
     });
   };
 
   const doHandoff = (deal) => {
     if (!window.confirm(`Hand off "${deal.name}" to construction?`)) return;
+    setActionErr(null);
     dealApi(token, { action: 'handoff', id: deal.id })
-      .then(() => setDeals(prev => prev.filter(d => d.id !== deal.id)))
-      .catch(e => alert('Handoff failed: ' + e.message));
-    if (detailDeal?.id === deal.id) closeDetail();
+      .then(() => { setDeals(prev => prev.filter(d => d.id !== deal.id)); if (detailDeal?.id === deal.id) closeDetail(); })
+      .catch(e => setActionErr(`Handoff failed: ${e.message}`));
   };
 
   const doMarkDead = (deal) => {
-    const reason = window.prompt(`Reason for marking "${deal.name}" as dead?`);
-    if (!reason) return;
+    if (!canEdit) return;
+    setDeadFor(deal);
+    setDeadReason(DEAD_REASONS[0]);
+    setDeadNote('');
+    setDeadErr(null);
+  };
+
+  const confirmMarkDead = () => {
+    if (!canEdit || !deadFor) return;
+    const note = deadNote.trim();
+    const reason = note ? `${deadReason} — ${note}` : deadReason;
+    const deal = deadFor;
+    setDeadBusy(true); setDeadErr(null);
     dealApi(token, { action: 'markDead', id: deal.id, reason })
-      .then(() => setDeals(prev => prev.filter(d => d.id !== deal.id)))
-      .catch(e => alert('Failed: ' + e.message));
-    if (detailDeal?.id === deal.id) closeDetail();
+      .then(() => {
+        setDeals(prev => prev.filter(d => d.id !== deal.id));
+        setDeadFor(null);
+        if (detailDeal?.id === deal.id) closeDetail();
+      })
+      .catch(e => setDeadErr(e.message))
+      .finally(() => setDeadBusy(false));
   };
 
   const doSave = () => {
@@ -24879,10 +24918,10 @@ function AdminDeals({ th, user, dealAuth }) {
 
   const doAddNote = () => {
     if (!newNote.trim()) return;
-    setAddingNote(true);
+    setAddingNote(true); setNoteErr(null);
     dealApi(token, { action: 'addNote', id: detailDeal.id, note: newNote.trim() })
       .then(r => { setDetailNotes(r.notes || []); setNewNote(''); })
-      .catch(e => alert('Failed: ' + e.message))
+      .catch(e => setNoteErr(e.message))
       .finally(() => setAddingNote(false));
   };
 
@@ -24925,13 +24964,13 @@ function AdminDeals({ th, user, dealAuth }) {
   const KanbanView = () => {
     const stageOrder = STAGES.map(s => s.id);
     return (
-      <div style={{ display: 'flex', gap: '0.75rem', overflowX: 'auto', paddingBottom: '1rem', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: '0.75rem', overflowX: 'auto', paddingBottom: '1rem', alignItems: 'flex-start', WebkitOverflowScrolling: 'touch', scrollSnapType: 'x proximity' }}>
         {stageOrder.map((stageId, si) => {
           const stageDeals = filtered.filter(d => d.stage === stageId);
           const color = STAGE_COLORS[stageId] || '#64748b';
           const isLast = si === stageOrder.length - 1;
           return (
-            <div key={stageId} style={{ minWidth: 220, maxWidth: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div key={stageId} style={{ minWidth: 220, maxWidth: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', scrollSnapAlign: 'start' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.5rem', borderRadius: '0.5rem', background: `${color}18`, borderBottom: `2px solid ${color}` }}>
                 <span style={{ fontSize: '0.72rem', fontWeight: 800, color, letterSpacing: 0.5, textTransform: 'uppercase' }}>{STAGE_MAP[stageId]}</span>
                 <span style={{ marginLeft: 'auto', fontSize: '0.68rem', background: `${color}33`, color, borderRadius: 999, padding: '1px 7px', fontWeight: 700 }}>{stageDeals.length}</span>
@@ -25216,20 +25255,24 @@ function AdminDeals({ th, user, dealAuth }) {
             </div>
           )}
 
-          {/* Notes */}
+          {/* Activity Log (notes + system events) */}
           <div>
-            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.6rem' }}>Notes</div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.6rem' }}>Activity Log</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
-              {detailNotes.length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted }}>No notes yet.</div>}
-              {detailNotes.map((n, i) => (
-                <div key={i} style={{ ...card(th), padding: '0.6rem 0.75rem' }}>
-                  <div style={{ fontSize: '0.68rem', color: th.muted, marginBottom: '0.2rem' }}>
+              {detailNotes.length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted }}>No activity yet.</div>}
+              {detailNotes.map((n, i) => {
+                const isSys = n.kind === 'system';
+                return (
+                <div key={i} style={{ ...card(th), padding: '0.6rem 0.75rem',
+                  ...(isSys ? { borderLeft: `3px solid ${O}`, background: th.bg, opacity: 0.95 } : {}) }}>
+                  <div style={{ fontSize: '0.68rem', color: th.muted, marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    {isSys && <span style={{ fontSize: '0.58rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, color: O, background: O + '22', padding: '0.05rem 0.35rem', borderRadius: 4 }}>System</span>}
                     <strong style={{ color: th.text }}>{n.author || 'Unknown'}</strong>
-                    {n.created_at ? ' · ' + new Date(n.created_at).toLocaleDateString() : ''}
+                    {n.created_at ? <span> · {relTime(n.created_at)}</span> : ''}
                   </div>
-                  <div style={{ fontSize: '0.82rem', color: th.text }}>{n.body || n.note}</div>
+                  <div style={{ fontSize: '0.82rem', color: th.text, fontStyle: isSys ? 'italic' : 'normal' }}>{n.body || n.note}</div>
                 </div>
-              ))}
+              ); })}
             </div>
             {canEdit && (
               <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -25243,6 +25286,7 @@ function AdminDeals({ th, user, dealAuth }) {
                 </button>
               </div>
             )}
+            {noteErr && <div style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '0.4rem' }}>Error: {noteErr}</div>}
           </div>
 
           {/* Documents */}
@@ -25272,11 +25316,11 @@ function AdminDeals({ th, user, dealAuth }) {
               if (!newDateDue) { setDateErr('Due date is required'); return; }
               const parsedTiers = newDateTiers.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
               setDateAdding(true); setDateErr(null);
-              dealApi(token, { action: 'addDate', deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, notes: newDateNotes })
+              dealApi(token, { action: 'addDate', deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, recurring: newDateRecurring || null, notes: newDateNotes })
                 .then(() => dealApi(token, { action: 'get', id: d.id }))
                 .then(r => {
                   setDetailDates(r.dates || []);
-                  setNewDateDue(''); setNewDateNotes('');
+                  setNewDateDue(''); setNewDateNotes(''); setNewDateRecurring('');
                   const dt = DATE_TYPES.find(t => t.id === newDateType);
                   setNewDateTiers(dt?.defaultTiers?.join(',') || '');
                 })
@@ -25355,6 +25399,9 @@ function AdminDeals({ th, user, dealAuth }) {
                                 <span style={{ fontSize: '0.75rem', color: th.muted }}>{fmtDealDate(dt.due_date)}</span>
                                 <span style={{ fontSize: '0.75rem', color: th.muted }}>·</span>
                                 <span style={{ fontSize: '0.72rem', fontWeight: 700, color: statusColor }}>{statusText}</span>
+                                {dt.recurring && (
+                                  <span title={`Recurring (${dt.recurring})`} style={{ fontSize: '0.72rem', color: th.muted, fontWeight: 700 }}>🔁 {dt.recurring}</span>
+                                )}
                                 {tiers.length > 0 && (
                                   <span style={{ display: 'inline-flex', gap: '0.2rem' }}>
                                     {tiers.map((t, i) => (
@@ -25451,6 +25498,13 @@ function AdminDeals({ th, user, dealAuth }) {
                       <input value={newDateTiers} onChange={e => setNewDateTiers(e.target.value)}
                         placeholder="Warning tiers (e.g. 30,14,7)"
                         style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} />
+                      <select value={newDateRecurring} onChange={e => setNewDateRecurring(e.target.value)}
+                        style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}>
+                        <option value="">Does not recur</option>
+                        <option value="monthly">🔁 Recurring — Monthly</option>
+                        <option value="quarterly">🔁 Recurring — Quarterly</option>
+                        <option value="annual">🔁 Recurring — Annual</option>
+                      </select>
                       <input value={newDateNotes} onChange={e => setNewDateNotes(e.target.value)}
                         placeholder="Notes (optional)"
                         style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} />
@@ -25535,7 +25589,7 @@ function AdminDeals({ th, user, dealAuth }) {
                           {canEdit && (
                             <label style={{ cursor: docBusy ? 'not-allowed' : 'pointer' }}>
                               <span style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', opacity: docBusy ? 0.5 : 1 }}>↑ New version</span>
-                              <input type="file" style={{ display: 'none' }} disabled={docBusy} onChange={e => doUploadVersion(doc, e)} />
+                              <input type="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv" style={{ display: 'none' }} disabled={docBusy} onChange={e => doUploadVersion(doc, e)} />
                             </label>
                           )}
                         </div>
@@ -25576,7 +25630,7 @@ function AdminDeals({ th, user, dealAuth }) {
                       <span style={{ ...btn(th), padding: '0.35rem 0.8rem', fontSize: '0.8rem', opacity: docBusy ? 0.5 : 1, display: 'inline-block' }}>
                         {docBusy ? 'Uploading…' : 'Upload Document'}
                       </span>
-                      <input type="file" style={{ display: 'none' }} disabled={docBusy} onChange={doUploadNew} />
+                      <input type="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv" style={{ display: 'none' }} disabled={docBusy} onChange={doUploadNew} />
                     </label>
                   </div>
                 )}
@@ -25708,12 +25762,56 @@ function AdminDeals({ th, user, dealAuth }) {
         )}
       </div>
 
+      {/* Inline error banner for board-level actions (stage move / handoff) */}
+      {actionErr && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#ef444418', border: '1px solid #ef444455', color: '#ef4444', borderRadius: '0.5rem', padding: '0.5rem 0.75rem', marginBottom: '0.75rem', fontSize: '0.8rem', fontWeight: 600 }}>
+          <span style={{ flex: 1 }}>{actionErr}</span>
+          <button onClick={() => setActionErr(null)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 800, fontSize: '0.9rem', lineHeight: 1 }}>×</button>
+        </div>
+      )}
+
       {/* Main view */}
       {view === 'kanban' ? <KanbanView /> : <TableView />}
 
       {/* Modals */}
       {DetailModal()}
       {CreateModal()}
+
+      {/* Mark Dead modal */}
+      {canEdit && deadFor && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+          onClick={e => { if (e.target === e.currentTarget && !deadBusy) setDeadFor(null); }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)' }} onClick={() => { if (!deadBusy) setDeadFor(null); }} />
+          <div style={{ position: 'relative', background: th.bg, borderRadius: '0.75rem', padding: '1.5rem', width: '100%', maxWidth: 440, boxShadow: '0 8px 40px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <h3 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 }}>Mark Deal Dead</h3>
+            <div style={{ fontSize: '0.82rem', color: th.muted }}>
+              "{deadFor.name}" will be marked dead and removed from the active pipeline.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.68rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Reason</label>
+              <select value={deadReason} onChange={e => setDeadReason(e.target.value)}
+                style={{ ...selLabel, padding: '0.45rem 0.6rem', fontSize: '0.85rem' }}>
+                {DEAD_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.68rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Note (optional)</label>
+              <textarea value={deadNote} onChange={e => setDeadNote(e.target.value)} rows={3}
+                placeholder="Additional detail…"
+                style={{ ...inp(th), fontSize: '0.82rem', padding: '0.4rem 0.6rem', resize: 'vertical' }} />
+            </div>
+            {deadErr && <div style={{ fontSize: '0.78rem', color: '#ef4444' }}>Error: {deadErr}</div>}
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeadFor(null)} disabled={deadBusy}
+                style={{ ...btn(th), padding: '0.45rem 1rem', fontSize: '0.82rem' }}>Cancel</button>
+              <button onClick={confirmMarkDead} disabled={deadBusy}
+                style={{ ...btn(th), padding: '0.45rem 1.1rem', fontSize: '0.82rem', fontWeight: 700, background: '#ef4444', color: '#fff', border: 'none' }}>
+                {deadBusy ? 'Marking…' : 'Mark Dead'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Access Management Modal */}
       {showAccess && (
@@ -33233,7 +33331,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.43
+            v14.47
             <SyncStatus dark={dark} />
           </div>
         )}

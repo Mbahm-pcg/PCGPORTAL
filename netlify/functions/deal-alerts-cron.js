@@ -1,13 +1,17 @@
 // PCG Deal Pipeline — daily critical-date reminder cron.
 // Scans unacknowledged dates on active deals, finds the ones inside their warning window
-// (or overdue), and emails a digest to the deal team (deal_access members). Runs daily, so
-// it's a once-a-day digest — no per-tier de-dup needed. Push is a future add-on.
+// (or overdue), and notifies the deal team (deal_access members) via email + web push.
+//
+// De-dup: each (date, tier) only fires ONCE — the fired tier key (e.g. '30' or 'overdue')
+// is appended to deal_dates.alerted_tiers and checked before sending, so crossing a tier
+// boundary alerts a single time rather than every day.
 //
 // Warning logic mirrors src/deal-dates.mjs (the canonical, unit-tested version); kept inline
 // here because that module is ESM and this function is CommonJS.
 const https = require('https');
 const { getStore } = require('@netlify/blobs');
 const { sql } = require('./db');
+const webpush = require('web-push');
 
 const DATE_LABELS = {
   loi_expiration: 'LOI Response / Expiration', dd_expiration: 'Due Diligence Expiration',
@@ -34,10 +38,13 @@ function daysUntil(due, nowMs) {
 function warnLevel(dueStr, tiers, nowMs) {
   const daysOut = daysUntil(dueStr, nowMs);
   const ts = (Array.isArray(tiers) ? tiers : []).map(Number).filter((n) => n > 0);
-  if (daysOut < 0) return { daysOut, level: 'overdue', tier: null };
+  if (daysOut < 0) return { daysOut, level: 'overdue', tier: null, tierKey: 'overdue' };
   const max = ts.length ? Math.max(...ts) : 30;
   const tier = ts.filter((t) => daysOut <= t).sort((a, b) => a - b)[0] ?? null;
-  return { daysOut, level: daysOut <= max ? 'warning' : 'none', tier };
+  const level = daysOut <= max ? 'warning' : 'none';
+  // De-dup key: the specific tier crossed (or the default-30 window when no tiers are set).
+  const tierKey = level === 'none' ? null : (tier != null ? String(tier) : 'default');
+  return { daysOut, level, tier, tierKey };
 }
 
 function sendEmail(to, subject, html) {
@@ -54,7 +61,8 @@ function sendEmail(to, subject, html) {
   });
 }
 
-async function recipientEmails(db) {
+// Resolve deal_access members to both email addresses and push user-ids (from pcg_users_v1).
+async function recipients(db) {
   const access = await db`SELECT user_key FROM deal_access`;
   let users = [];
   try {
@@ -63,13 +71,52 @@ async function recipientEmails(db) {
     const d = w?.data || w; users = Array.isArray(d) ? d : (d?.users || []);
   } catch {}
   const emails = new Set();
+  const pushIds = new Set();
   for (const a of access) {
     const k = lc(a.user_key);
-    if (k.includes('@')) { emails.add(k); continue; }
-    const u = users.find((x) => lc(x.username) === k);
-    if (u && u.email) emails.add(lc(u.email));
+    // Match a portal user by email or username so we can also push to their devices.
+    const u = users.find((x) => lc(x.email) === k || lc(x.username) === k);
+    if (k.includes('@')) emails.add(k);
+    else if (u && u.email) emails.add(lc(u.email));
+    if (u && u.id != null) pushIds.add(String(u.id));
   }
-  return [...emails];
+  return { emails: [...emails], pushIds: [...pushIds] };
+}
+
+// Best-effort web push to the given user-ids. Never throws; prunes expired subscriptions.
+async function sendPush(pushIds, title, body, tag) {
+  if (!pushIds.length) return { sent: 0, expired: 0 };
+  const vpub = process.env.VAPID_PUBLIC_KEY, vpriv = process.env.VAPID_PRIVATE_KEY;
+  if (!vpub || !vpriv) return { sent: 0, expired: 0 };
+  let store, subs = {};
+  try {
+    store = getStore({ name: 'pcg-portal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
+    const w = await store.get('pcg_push_subscriptions_v1', { type: 'json' });
+    subs = (w && w.data) ? w.data : {};
+  } catch { return { sent: 0, expired: 0 }; }
+  try {
+    webpush.setVapidDetails(process.env.VAPID_SUBJECT || `mailto:${process.env.VAPID_EMAIL || 'noreply@pcgops.com'}`, vpub, vpriv);
+  } catch { return { sent: 0, expired: 0 }; }
+  const payload = JSON.stringify({ title, body: body || '', icon: '/apple-touch-icon.png', url: '/', tag: tag || undefined });
+  let sent = 0; const expired = [];
+  for (const uid of pushIds) {
+    for (const sub of (subs[String(uid)] || [])) {
+      try { await webpush.sendNotification(sub, payload); sent++; }
+      catch (err) {
+        if (err && (err.statusCode === 410 || err.statusCode === 404)) expired.push({ uid: String(uid), endpoint: sub.endpoint });
+      }
+    }
+  }
+  // Prune expired subscriptions so they don't accumulate.
+  if (expired.length && store) {
+    try {
+      for (const { uid, endpoint } of expired) {
+        if (subs[uid]) { subs[uid] = subs[uid].filter((s) => s.endpoint !== endpoint); if (!subs[uid].length) delete subs[uid]; }
+      }
+      await store.setJSON('pcg_push_subscriptions_v1', { savedAt: new Date().toISOString(), data: subs });
+    } catch {}
+  }
+  return { sent, expired: expired.length };
 }
 
 exports.handler = async (event) => {
@@ -82,14 +129,21 @@ exports.handler = async (event) => {
       FROM deal_dates dd JOIN deals d ON d.id = dd.deal_id
       WHERE d.status = 'active' AND dd.acknowledged_at IS NULL`;
 
-    const atRisk = rows
+    const inWindow = rows
       .map((r) => ({ ...r, w: warnLevel(r.due_date, r.warning_tiers, now) }))
       .filter((r) => r.w.level !== 'none')
       .sort((a, b) => a.w.daysOut - b.w.daysOut);
 
+    // Per-(date,tier) de-dup: only fire for dates whose current tier hasn't been alerted yet.
+    const alreadyFired = (r) => {
+      const arr = Array.isArray(r.alerted_tiers) ? r.alerted_tiers.map(String) : [];
+      return r.w.tierKey != null && arr.includes(String(r.w.tierKey));
+    };
+    const atRisk = inWindow.filter((r) => !alreadyFired(r));
+
     if (atRisk.length === 0) {
-      console.log('[deal-alerts] no dates in warning window');
-      return isManual ? { statusCode: 200, body: JSON.stringify({ ok: true, atRisk: 0 }) } : undefined;
+      console.log(`[deal-alerts] ${inWindow.length} in window, 0 new tier(s) to alert`);
+      return isManual ? { statusCode: 200, body: JSON.stringify({ ok: true, atRisk: 0, inWindow: inWindow.length }) } : undefined;
     }
 
     const fmtRow = (r) => {
@@ -108,7 +162,7 @@ exports.handler = async (event) => {
       </table>
       <p style="font-family:Arial;color:#888;font-size:12px">Acknowledge a date in the Deal Pipeline to stop reminders for it.</p>`;
 
-    const to = await recipientEmails(db);
+    const { emails: to, pushIds } = await recipients(db);
     // Lead the subject with the most-urgent deal + date (list is sorted soonest-first),
     // then "+N more". Name + date type only — no $ amounts in the subject (preview-safe).
     const top = atRisk[0];
@@ -117,9 +171,29 @@ exports.handler = async (event) => {
     const safeName = String(top.deal_name || 'Deal').replace(/[\r\n]+/g, ' ').trim().slice(0, 80);
     const more = atRisk.length - 1;
     const subject = `⚠ ${safeName} — ${topLabel} (${topPhrase})${more > 0 ? ` +${more} more` : ''}`;
-    const sent = await sendEmail(to, subject, html);
-    console.log(`[deal-alerts] ${atRisk.length} at-risk, emailed ${to.length} recipient(s): ${sent}`);
-    return isManual ? { statusCode: 200, body: JSON.stringify({ ok: true, atRisk: atRisk.length, recipients: to.length, sent }) } : undefined;
+
+    // Email + push are best-effort and isolated — neither failure crashes the cron.
+    let sent = false, push = { sent: 0, expired: 0 };
+    try { sent = await sendEmail(to, subject, html); } catch (e) { console.warn('[deal-alerts] email failed:', e.message); }
+    try {
+      const pushBody = `${topLabel} ${topPhrase}${more > 0 ? ` (+${more} more)` : ''}`;
+      push = await sendPush(pushIds, '⚠ Deal Pipeline — Critical Date', `${safeName}: ${pushBody}`, 'deal_alerts');
+    } catch (e) { console.warn('[deal-alerts] push failed:', e.message); }
+
+    // Record the fired tier on each date so it won't re-alert tomorrow (per-(date,tier) de-dup).
+    for (const r of atRisk) {
+      if (r.w.tierKey == null) continue;
+      try {
+        await db`UPDATE deal_dates
+          SET alerted_tiers = (
+            SELECT to_jsonb(array(SELECT DISTINCT jsonb_array_elements_text(COALESCE(alerted_tiers,'[]'::jsonb) || ${JSON.stringify([String(r.w.tierKey)])}::jsonb)))
+          )
+          WHERE id = ${r.id}`;
+      } catch (e) { console.warn('[deal-alerts] de-dup write failed for date', r.id, e.message); }
+    }
+
+    console.log(`[deal-alerts] ${atRisk.length} new tier(s); emailed ${to.length} (${sent}); pushed ${push.sent} (expired ${push.expired})`);
+    return isManual ? { statusCode: 200, body: JSON.stringify({ ok: true, atRisk: atRisk.length, recipients: to.length, sent, push }) } : undefined;
   } catch (e) {
     console.error('[deal-alerts] error:', e.message);
     return isManual ? { statusCode: 500, body: JSON.stringify({ error: e.message }) } : undefined;
