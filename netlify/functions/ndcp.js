@@ -7,6 +7,8 @@
 //   list    → latest version of each distinct order (+ version count + original total)
 //   detail  → every version of one order_number (full line items), oldest → newest
 const { sql } = require('./db');
+const { enrich } = require('./ndcp-lib/store-map');
+const { summarize } = require('./ndcp-lib/summary');
 
 // Restrict CORS to the portal's own origins (not '*'). Requests are same-origin
 // in normal use; this just blocks cross-origin browser reads of order data.
@@ -28,13 +30,15 @@ exports.handler = async (event) => {
 
   try {
     if (action === 'list') {
-      // Latest version per order_number, joined to a per-order version count and
-      // the original ("new") total so the UI can show the revision delta.
+      const from = body.from ? new Date(body.from) : null; // ISO 'YYYY-MM-DD'
+      const to   = body.to   ? new Date(body.to)   : null;
       const rows = await db`
         WITH latest AS (
           SELECT DISTINCT ON (order_number) *
           FROM ndcp_orders
           WHERE order_number IS NOT NULL
+            AND (${from ? from.toISOString() : null}::timestamptz IS NULL OR email_date >= ${from ? from.toISOString() : null}::timestamptz)
+            AND (${to ? to.toISOString() : null}::timestamptz IS NULL OR email_date <  (${to ? to.toISOString() : null}::timestamptz + interval '1 day'))
           ORDER BY order_number, email_date DESC NULLS LAST
         ),
         counts AS (
@@ -42,17 +46,29 @@ exports.handler = async (event) => {
                  count(*)::int AS versions,
                  count(*) FILTER (WHERE email_type = 'revision')::int AS revisions,
                  (array_agg(total_order ORDER BY email_date ASC NULLS LAST))[1] AS orig_total
-          FROM ndcp_orders
-          WHERE order_number IS NOT NULL
-          GROUP BY order_number
+          FROM ndcp_orders WHERE order_number IS NOT NULL GROUP BY order_number
         )
         SELECT l.order_number, l.store_name, l.account, l.email_type, l.email_date,
                l.date_ordered, l.date_shipped, l.warehouse, l.terms,
                l.total_order, l.item_subtotal, l.tax, l.item_count, l.subject,
+               l.category_subtotals,
                c.versions, c.revisions, c.orig_total
         FROM latest l JOIN counts c USING (order_number)
         ORDER BY l.email_date DESC NULLS LAST`;
-      return reply(200, { orders: rows });
+      return reply(200, { orders: rows.map(enrich) });
+    }
+
+    if (action === 'summary') {
+      const from = body.from ? new Date(body.from) : null;
+      const to   = body.to   ? new Date(body.to)   : null;
+      const rows = await db`
+        SELECT DISTINCT ON (order_number) account, total_order, date_ordered, email_date
+        FROM ndcp_orders
+        WHERE order_number IS NOT NULL
+          AND (${from ? from.toISOString() : null}::timestamptz IS NULL OR email_date >= ${from ? from.toISOString() : null}::timestamptz)
+          AND (${to ? to.toISOString() : null}::timestamptz IS NULL OR email_date < (${to ? to.toISOString() : null}::timestamptz + interval '1 day'))
+        ORDER BY order_number, email_date DESC NULLS LAST`;
+      return reply(200, summarize(rows));
     }
 
     if (action === 'detail') {

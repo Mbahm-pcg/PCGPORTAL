@@ -13,6 +13,8 @@ const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
 const { logAudit } = require('./analyst-lib/analyst-audit');
 const { sendDMBriefs, sendExecReport, loadReportSettings } = require('./analyst-lib/analyst-reports');
 const { saveReport } = require('./analyst-lib/analyst-reports-gen');
+const { sql } = require('./db');
+const { dcpPct } = require('./ndcp-lib/store-map');
 
 async function generateLeaderboardShoutout(today) {
   const laborData = await cacheLoad('pcg_labor_v1');
@@ -114,6 +116,25 @@ async function computeAndSaveDMScores(today) {
     const nowMs = Date.now();
     const scores = {};
 
+    // Per-store NDCP spend for the current scorecard week (account == pc).
+    const wkStart = new Date(mondayOf(today) + 'T00:00:00');
+    const wkEndIso = new Date(wkStart.getTime() + 7*86400000).toISOString();
+    const ndcpByPc = {};
+    try {
+      const db = sql();
+      const rows = await db`
+        SELECT DISTINCT ON (order_number) account, total_order
+        FROM ndcp_orders
+        WHERE order_number IS NOT NULL
+          AND email_date >= ${wkStart.toISOString()}::timestamptz
+          AND email_date <  ${wkEndIso}::timestamptz
+        ORDER BY order_number, email_date DESC NULLS LAST`;
+      for (const r of rows) {
+        const pc = String(r.account || '').trim();
+        ndcpByPc[pc] = (ndcpByPc[pc] || 0) + (Number(r.total_order) || 0);
+      }
+    } catch (e) { console.warn('[analyst-cron] NDCP weekly spend load failed:', e.message); }
+
     for (const [district, stores] of Object.entries(byDistrict)) {
       // 1. Labor score (lower is better; target ≤23%, red ≥35%)
       const laborPcts = stores.map(s => s.wtd?.laborPct).filter(x => x != null && x > 5 && x < 150);
@@ -152,12 +173,23 @@ async function computeAndSaveDMScores(today) {
         : 0;
       const ticketScore = Math.max(0, Math.min(100, (7 - avgAge) / 6 * 100));
 
+      // 5. DCP cost score (lower is better; Good ≤20%, Yellow 20–22%, Red >22%)
+      let distNdcp = 0, distSales = 0;
+      for (const s of stores) {
+        distNdcp  += ndcpByPc[String(s.pc)] || 0;
+        distSales += Number(s.wtd?.sales) || 0;
+      }
+      const avgDcpPct = dcpPct(distNdcp, distSales); // null if no sales
+      const dcpScore = avgDcpPct == null ? null
+        : avgDcpPct <= 20 ? 100 : avgDcpPct <= 22 ? 50 : 0;
+
       // Weighted composite (skip null dimensions)
       const dims = [
-        { score: laborScore,   w: 0.30 },
-        { score: salesScore,   w: 0.30 },
-        { score: responseScore,w: 0.20 },
-        { score: ticketScore,  w: 0.20 },
+        { score: laborScore,    w: 0.25 },
+        { score: salesScore,    w: 0.25 },
+        { score: dcpScore,      w: 0.20 },
+        { score: responseScore, w: 0.15 },
+        { score: ticketScore,   w: 0.15 },
       ].filter(d => d.score != null);
       const wTotal = dims.reduce((a,d)=>a+d.w,0);
       const composite = wTotal > 0 ? dims.reduce((a,d)=>a+d.score*d.w,0)/wTotal : null;
@@ -173,6 +205,8 @@ async function computeAndSaveDMScores(today) {
         salesScore:   salesScore   != null ? Math.round(salesScore)   : null,
         responseScore:responseScore!= null ? Math.round(responseScore): null,
         ticketScore:  Math.round(ticketScore),
+        avgDcpPct:    avgDcpPct != null ? avgDcpPct : null,
+        dcpScore:     dcpScore  != null ? dcpScore  : null,
         composite:    composite    != null ? Math.round(composite)     : null,
       };
     }

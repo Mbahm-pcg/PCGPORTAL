@@ -3,6 +3,7 @@ import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
+import { portalLogin, portalLoginGoogle, authHeader, clearSessionToken } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
@@ -711,7 +712,28 @@ function Login({ onLogin, dark, toggleDark, users }) {
       await verifyTwoFactorAndLogin();
       return;
     }
-    const found = users.find(u => u.username === form.u && u.password === form.p && u.active !== false);
+    // Phase B: verify the credential server-side and obtain a portal token. The
+    // local `users` record still provides the rich identity (id, 2FA, district…).
+    const uname = (form.u || "").trim();
+    const localAcct = users.find(u => (u.username || "").trim().toLowerCase() === uname.toLowerCase() && u.active !== false);
+    setLoading(true);
+    const res = await portalLogin(uname, form.p);
+    let found = null;
+    if (res.ok) {
+      // Server verified + issued a token (stored in portal-auth.mjs). Prefer the
+      // local identity; synthesize a minimal one if this account is server-only.
+      found = localAcct || (res.user ? {
+        username: res.user.username, name: res.user.name, userType: res.user.userType,
+        district: res.user.district, email: res.user.email, active: true,
+      } : null);
+    } else if (res.unreachable) {
+      // GRACE (Phase B): endpoint unreachable → fall back to the legacy client
+      // compare so no one is locked out. Removed in Phase D.
+      console.warn("[portal-auth] login endpoint unreachable — using legacy client compare (grace)");
+      found = users.find(u => u.username === form.u && u.password === form.p && u.active !== false) || null;
+    }
+    // res.ok === false && !res.unreachable → server actively rejected: invalid creds.
+
     if (found) {
       if (await shouldPromptTwoFactor(found)) {
         beginTwoFactor(found);
@@ -719,6 +741,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
         finishLogin(found);
       }
     } else {
+      setLoading(false);
       setErr("Invalid credentials. Try again.");
       setShake(true);
       setTimeout(() => setShake(false), 520);
@@ -19231,7 +19254,7 @@ function DmScorecardTab({ th, users, districts }) {
               📊 DM Scorecard
             </div>
             <div style={{ fontSize:'0.78rem', color:th.muted, marginTop:'0.2rem' }}>
-              Weekly composite ranking · labor efficiency · sales growth · alert response · ticket health
+              Weekly composite ranking · labor efficiency · sales growth · DCP cost · alert response · ticket health
             </div>
             {current && <div style={{ fontSize:'0.7rem', color:th.muted, marginTop:'0.15rem' }}>Week of {current.weekOf}{previous ? ` · vs week of ${previous.weekOf}` : ''}</div>}
           </div>
@@ -19281,6 +19304,7 @@ function DmScorecardTab({ th, users, districts }) {
                       { label:'Sales', value: score.avgGrowthPct != null ? `${score.avgGrowthPct > 0 ? '+' : ''}${score.avgGrowthPct}%` : '—', score: score.salesScore, prev: previous?.scores?.[district]?.avgGrowthPct, higherIsBetter: true },
                       { label:'Response', value: score.avgRespMin != null ? score.avgRespMin < 60 ? `${score.avgRespMin}m` : `${(score.avgRespMin/60).toFixed(1)}h` : '—', score: score.responseScore, prev: previous?.scores?.[district]?.avgRespMin, higherIsBetter: false },
                       { label:'Tickets', value: `${score.openTickets} open`, score: score.ticketScore, prev: previous?.scores?.[district]?.openTickets, higherIsBetter: false },
+                      { label:'DCP', value: score.avgDcpPct != null ? `${score.avgDcpPct}%` : '—', score: score.dcpScore, prev: previous?.scores?.[district]?.avgDcpPct, higherIsBetter: false },
                     ].map(m => (
                       <div key={m.label} style={{ textAlign:'center', padding:'0.35rem 0.75rem', borderRadius:'0.5rem', background:th.card2, minWidth:72 }}>
                         <div style={{ fontSize:'0.85rem', fontWeight:700, color: m.score != null ? scoreColor(m.score) : th.muted }}>{m.value}</div>
@@ -19305,7 +19329,7 @@ function DmScorecardTab({ th, users, districts }) {
             <span style={{ fontSize:'0.72rem', color:th.muted }}>{range} — {label}</span>
           </div>
         ))}
-        <span style={{ fontSize:'0.68rem', color:th.muted, marginLeft:'auto' }}>Labor 30% · Sales 30% · Response 20% · Tickets 20%</span>
+        <span style={{ fontSize:'0.68rem', color:th.muted, marginLeft:'auto' }}>Labor 25% · Sales 25% · DCP 20% · Response 15% · Tickets 15%</span>
       </div>
     </div>
   );
@@ -24021,15 +24045,42 @@ function AdminNdcp({ th, user }) {
   const [detail, setDetail] = useState(null);    // { versions: [...] }
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // ── reporting state (date range, view tabs, summary aggregation, sales for DCP%) ──
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const ago = (days) => new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const [from, setFrom] = useState(ago(13 * 7));   // default last 13 weeks
+  const [to, setTo] = useState(todayISO);
+  const [view, setView] = useState('weekly');      // 'orders' | 'weekly' | 'districts' | 'analysis'
+  const [summary, setSummary] = useState(null);
+  const [labor, setLabor] = useState(null);        // pcg_labor_v1 → { stores:{pc:{name,district,wtd:{sales}}} }
+  const [expandWeek, setExpandWeek] = useState(null);
+  const [expandDist, setExpandDist] = useState(null);
+
+  // Frontend DCP% helper — identical math to server's store-map.js dcpPct.
+  const dcpPct = (spend, sales) => {
+    if (spend == null || sales == null) return null;
+    const sp = +spend, sl = +sales;
+    if (!isFinite(sp) || !isFinite(sl) || sl <= 0) return null;
+    return Math.round(sp / sl * 1000) / 10;
+  };
+
   const api = (payload) => fetch('/.netlify/functions/ndcp', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
   }).then(r => r.json());
 
   useEffect(() => {
-    api({ action: 'list' })
-      .then(r => { if (r.error) { setErr(r.error); setOrders([]); } else setOrders(r.orders || []); })
+    setOrders(null); setErr(null);
+    const f = (action, extra = {}) => api({ action, from, to, ...extra });
+    Promise.all([f('list'), f('summary')])
+      .then(([l, s]) => {
+        if (l && l.error) { setErr(l.error); setOrders([]); } else setOrders((l && l.orders) || []);
+        setSummary(s && !s.error ? s : null);
+      })
       .catch(() => { setErr('Failed to load NDCP orders'); setOrders([]); });
-  }, []);
+  }, [from, to]);
+
+  // Load network sales once for DCP% (latest week wtd.sales).
+  useEffect(() => { cloudLoad('pcg_labor_v1').then(setLabor).catch(() => {}); }, []);
 
   // NDCP dates are already MM/DD/YYYY strings; fall back to the email date (ISO → MM/DD/YYYY).
   const fmtDate = (o) => {
@@ -24047,13 +24098,14 @@ function AdminNdcp({ th, user }) {
   };
 
   const list = orders || [];
-  const stores = [...new Set(list.map(o => o.store_name).filter(Boolean))].sort();
+  const storeName = (o) => o.name || o.store_name || '—';   // enriched real store name, fallback to billing name
+  const stores = [...new Set(list.map(o => storeName(o)).filter(s => s && s !== '—'))].sort();
   const ql = q.trim().toLowerCase();
   const filtered = list.filter(o => {
-    if (storeFilter && o.store_name !== storeFilter) return false;
+    if (storeFilter && storeName(o) !== storeFilter) return false;
     if (!ql) return true;
     return String(o.order_number || '').toLowerCase().includes(ql)
-        || String(o.store_name || '').toLowerCase().includes(ql)
+        || String(storeName(o) || '').toLowerCase().includes(ql)
         || String(o.account || '').toLowerCase().includes(ql);
   });
 
@@ -24083,6 +24135,26 @@ function AdminNdcp({ th, user }) {
         Supply orders auto-imported from the orders mailbox. Each row is the latest version of an order — open one to see its revision history and line items.
       </p>
 
+      {/* Date range + view toolbar */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: '0.75rem', color: th.muted }}>From</span>
+          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)}
+                 style={{ ...inp(th), width: 'auto', padding: '0.4rem 0.6rem', fontSize: '0.85rem' }} />
+          <span style={{ fontSize: '0.75rem', color: th.muted }}>to</span>
+          <input type="date" value={to} min={from} max={todayISO} onChange={e => setTo(e.target.value)}
+                 style={{ ...inp(th), width: 'auto', padding: '0.4rem 0.6rem', fontSize: '0.85rem' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
+          {[['weekly', 'Weekly'], ['districts', 'Districts'], ['analysis', 'Analysis'], ['orders', 'Orders']].map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)}
+                    style={{ ...btn(th), padding: '0.45rem 0.9rem', fontSize: '0.85rem', background: view === id ? O : 'transparent', color: view === id ? '#fff' : th.text, border: `1px solid ${view === id ? O : (th.sidebarBorder || '#3a3a3a')}` }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {orders === null ? (
         <div style={{ color: th.muted, padding: '2rem 0' }}>Loading orders…</div>
       ) : err ? (
@@ -24090,12 +24162,111 @@ function AdminNdcp({ th, user }) {
       ) : (
         <>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-            <StatCard label="Orders" value={filtered.length} sub={`${list.length} total`} />
-            <StatCard label="Latest-version spend" value={fmtDollars(totalSpend)} sub="sum of current totals" />
+            <StatCard label="Orders" value={(summary?.totals?.orders ?? list.length)} sub={`${list.length} in range`} />
+            <StatCard label="Total spend" value={fmtDollars(summary?.totals?.spend ?? totalSpend)} sub="sum of current totals" />
             <StatCard label="Revised orders" value={revisedCount} sub="have ≥1 update" />
-            <StatCard label="Date range" value={dateRange} />
+            <StatCard label="Weeks" value={summary ? Object.keys(summary.byWeek || {}).length : '—'} sub="with orders" />
           </div>
 
+          {/* ── WEEKLY VIEW ── */}
+          {view === 'weekly' && (
+            <div style={{ ...cardBox, padding: 0, overflow: 'hidden' }}>
+              {!summary || !Object.keys(summary.byWeek || {}).length ? (
+                <div style={{ padding: '1.5rem', textAlign: 'center', color: th.muted }}>No weekly data in range.</div>
+              ) : Object.entries(summary.byWeek).sort((a, b) => b[0].localeCompare(a[0])).map(([wk, w]) => {
+                const open = expandWeek === wk;
+                const wkOrders = list.filter(o => o.weekKey === wk);
+                return (
+                  <div key={wk} style={{ borderTop: `1px solid ${th.sidebarBorder || '#3a3a3a'}` }}>
+                    <div onClick={() => setExpandWeek(open ? null : wk)}
+                         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.7rem 1rem', cursor: 'pointer' }}
+                         onMouseEnter={e => e.currentTarget.style.background = th.card3 || th.bg}
+                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <span style={{ color: th.text, fontWeight: 700 }}>
+                        <span style={{ color: th.muted, marginRight: 6, display: 'inline-block', width: 12 }}>{open ? '▾' : '▸'}</span>
+                        Week of {wk}
+                      </span>
+                      <span style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+                        <span style={{ color: th.muted, fontSize: '0.82rem' }}>{w.orders} orders</span>
+                        <span style={{ color: th.text, fontWeight: 800, minWidth: 90, textAlign: 'right' }}>{fmtDollars(w.spend)}</span>
+                      </span>
+                    </div>
+                    {open && (
+                      <div style={{ padding: '0 1rem 0.8rem 2rem' }}>
+                        {wkOrders.length === 0 && <div style={{ color: th.muted, fontSize: '0.82rem', padding: '0.4rem 0' }}>No order detail.</div>}
+                        {wkOrders.map(o => (
+                          <div key={o.order_number} onClick={() => openDetail(o.order_number)}
+                               style={{ display: 'flex', justifyContent: 'space-between', padding: '0.35rem 0', borderTop: `1px solid ${th.sidebarBorder || '#3a3a3a'}`, cursor: 'pointer', fontSize: '0.83rem' }}>
+                            <span style={{ color: th.text }}>{storeName(o)} <span style={{ color: th.muted, fontSize: '0.72rem' }}>#{o.order_number}</span></span>
+                            <span style={{ color: th.text, fontWeight: 600 }}>{fmtDollars(num(o.total_order))}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── DISTRICTS VIEW ── */}
+          {view === 'districts' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {!summary || !Object.keys(summary.byDistrict || {}).length ? (
+                <div style={{ ...cardBox, textAlign: 'center', color: th.muted }}>No district data in range.</div>
+              ) : Object.entries(summary.byDistrict).sort((a, b) => Number(a[0]) - Number(b[0])).map(([d, dist]) => {
+                const open = expandDist === d;
+                const distStores = Object.entries(summary.byStore || {})
+                  .filter(([, s]) => String(s.district) === d)
+                  .sort((a, b) => b[1].spend - a[1].spend);
+                return (
+                  <div key={d} style={{ ...cardBox, padding: 0, overflow: 'hidden' }}>
+                    <div onClick={() => setExpandDist(open ? null : d)}
+                         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.1rem', cursor: 'pointer' }}>
+                      <span style={{ color: th.text, fontWeight: 700 }}>
+                        <span style={{ color: th.muted, marginRight: 6 }}>{open ? '▾' : '▸'}</span>
+                        D{d} · {dist.dmName || `District ${d}`}
+                      </span>
+                      <span style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+                        <span style={{ color: th.muted, fontSize: '0.82rem' }}>{dist.orders} orders</span>
+                        <span style={{ color: th.text, fontWeight: 800, minWidth: 90, textAlign: 'right' }}>{fmtDollars(dist.spend)}</span>
+                      </span>
+                    </div>
+                    {open && (
+                      <div style={{ borderTop: `1px solid ${th.sidebarBorder || '#3a3a3a'}` }}>
+                        {distStores.map(([pc, s]) => (
+                          <div key={pc} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.45rem 1.1rem 0.45rem 2rem', borderTop: `1px solid ${th.sidebarBorder || '#3a3a3a'}`, fontSize: '0.84rem' }}>
+                            <span style={{ color: th.text }}>{s.name} <span style={{ color: th.muted, fontSize: '0.72rem' }}>#{pc}</span></span>
+                            <span style={{ display: 'flex', gap: 16 }}>
+                              <span style={{ color: th.muted }}>{s.orders} orders</span>
+                              <span style={{ color: th.text, fontWeight: 600, minWidth: 80, textAlign: 'right' }}>{fmtDollars(s.spend)}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {summary && summary.unmapped && summary.unmapped.orders > 0 && (
+                <div style={{ ...cardBox, border: '1px solid #f59e0b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#f59e0b', fontWeight: 700 }}>⚠ Unmapped orders <span style={{ color: th.muted, fontWeight: 400, fontSize: '0.8rem' }}>(account not matched to a store)</span></span>
+                  <span style={{ display: 'flex', gap: 18 }}>
+                    <span style={{ color: th.muted, fontSize: '0.82rem' }}>{summary.unmapped.orders} orders</span>
+                    <span style={{ color: th.text, fontWeight: 800 }}>{fmtDollars(summary.unmapped.spend)}</span>
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── ANALYSIS VIEW ── */}
+          {view === 'analysis' && (
+            <NdcpAnalysis th={th} summary={summary} orders={list} labor={labor} dcpPct={dcpPct} storeName={storeName} num={num} O={O} cardBox={cardBox} />
+          )}
+
+          {/* ── ORDERS VIEW (flat table) ── */}
+          {view === 'orders' && (<>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
             <input
               value={q} onChange={e => setQ(e.target.value)}
@@ -24135,7 +24306,7 @@ function AdminNdcp({ th, user }) {
                           onMouseEnter={e => e.currentTarget.style.background = th.card3 || th.bg}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                         <td style={{ padding: '0.55rem 0.8rem', color: th.text }}>
-                          {o.store_name || '—'}
+                          {storeName(o)}
                           {o.account && <span style={{ color: th.muted, fontSize: '0.72rem', marginLeft: 6 }}>#{o.account}</span>}
                         </td>
                         <td style={{ padding: '0.55rem 0.8rem', color: th.text, fontWeight: 600 }}>{o.order_number}</td>
@@ -24159,6 +24330,7 @@ function AdminNdcp({ th, user }) {
               </table>
             </div>
           </div>
+          </>)}
         </>
       )}
 
@@ -24245,6 +24417,129 @@ function AdminNdcp({ th, user }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Analysis subview for NDCP: weekly spend trend (Chart.js), category breakdown, and
+// latest-week DCP% (NDCP spend ÷ Pulse wtd sales) per store.
+function NdcpAnalysis({ th, summary, orders, labor, dcpPct, storeName, num, O, cardBox }) {
+  const canvasRef = React.useRef(null);
+  const chartRef = React.useRef(null);
+
+  // Weekly spend trend — ascending week keys.
+  const weeks = React.useMemo(() => Object.entries((summary && summary.byWeek) || {})
+    .sort((a, b) => a[0].localeCompare(b[0])), [summary]);
+
+  useEffect(() => {
+    if (!canvasRef.current || typeof Chart === 'undefined' || !weeks.length) return;
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+    chartRef.current = new Chart(canvasRef.current, {
+      type: 'line',
+      data: {
+        labels: weeks.map(([wk]) => wk),
+        datasets: [{ label: 'Spend', data: weeks.map(([, w]) => w.spend), borderColor: O, backgroundColor: `${O}22`, borderWidth: 2, tension: 0.3, fill: true, pointRadius: 2 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: th.muted, maxTicksLimit: 10 } },
+          y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) } },
+        },
+      },
+    });
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [weeks, th]);
+
+  // Category breakdown — sum category_subtotals across loaded orders by label.
+  const categories = React.useMemo(() => {
+    const m = {};
+    for (const o of orders || []) {
+      const cs = Array.isArray(o.category_subtotals) ? o.category_subtotals : [];
+      for (const c of cs) {
+        const label = c.label || c.code || 'Other';
+        m[label] = (m[label] || 0) + (Number(c.amount) || 0);
+      }
+    }
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+  }, [orders]);
+  const catMax = categories.length ? categories[0][1] : 0;
+
+  // Latest-week DCP% per store: latest week's NDCP spend vs store wtd.sales.
+  const latestWeek = weeks.length ? weeks[weeks.length - 1][0] : null;
+  const dcpRows = React.useMemo(() => {
+    if (!summary || !latestWeek) return [];
+    // Sum latest-week spend per pc from the loaded orders (carry weekKey + pc).
+    const spendByPc = {};
+    for (const o of orders || []) {
+      if (o.weekKey !== latestWeek || !o.pc) continue;
+      spendByPc[o.pc] = (spendByPc[o.pc] || 0) + num(o.total_order);
+    }
+    const laborStores = (labor && labor.stores) || {};
+    return Object.entries(spendByPc).map(([pc, spend]) => {
+      const ls = laborStores[pc] || {};
+      const sales = ls.wtd && ls.wtd.sales != null ? ls.wtd.sales : null;
+      const name = (summary.byStore && summary.byStore[pc] && summary.byStore[pc].name) || ls.name || `#${pc}`;
+      return { pc, name, spend: Math.round(spend), sales, pct: dcpPct(spend, sales) };
+    }).sort((a, b) => (b.pct == null ? -1 : a.pct == null ? 1 : b.pct - a.pct));
+  }, [summary, orders, labor, latestWeek]);
+
+  const dcpColor = (p) => p == null ? th.muted : p <= 20 ? '#22c55e' : p <= 22 ? '#f59e0b' : '#ef4444';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ ...cardBox }}>
+        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Weekly spend trend</div>
+        {weeks.length ? (
+          <div style={{ height: 240 }}><canvas ref={canvasRef} /></div>
+        ) : (
+          <div style={{ color: th.muted, fontSize: '0.85rem' }}>No weekly data in range.</div>
+        )}
+      </div>
+
+      <div style={{ ...cardBox }}>
+        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Category breakdown <span style={{ fontWeight: 400, textTransform: 'none' }}>(orders in range)</span></div>
+        {categories.length ? categories.map(([label, amt]) => (
+          <div key={label} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', marginBottom: 3 }}>
+              <span style={{ color: th.text }}>{label}</span>
+              <span style={{ color: th.text, fontWeight: 700 }}>{fmtDollars(amt)}</span>
+            </div>
+            <div style={{ height: 6, background: th.card3 || th.bg, borderRadius: 999 }}>
+              <div style={{ height: 6, width: `${catMax > 0 ? (amt / catMax) * 100 : 0}%`, background: O, borderRadius: 999 }} />
+            </div>
+          </div>
+        )) : (
+          <div style={{ color: th.muted, fontSize: '0.85rem' }}>No category data on the loaded orders.</div>
+        )}
+      </div>
+
+      <div style={{ ...cardBox }}>
+        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>DCP% by store {latestWeek ? `· week of ${latestWeek}` : ''}</div>
+        <div style={{ fontSize: '0.74rem', color: th.muted, marginBottom: 10 }}>NDCP spend ÷ Pulse net sales (latest week). Green ≤20% · Amber 20–22% · Red &gt;22%. “—” = sales unavailable.</div>
+        {dcpRows.length ? (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+            <thead>
+              <tr style={{ color: th.muted, textAlign: 'left' }}>
+                {['Store', 'NDCP spend', 'Net sales', 'DCP%'].map(h => <th key={h} style={{ padding: '0.4rem 0.5rem', fontWeight: 700 }}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {dcpRows.map(r => (
+                <tr key={r.pc} style={{ borderTop: `1px solid ${th.sidebarBorder || '#3a3a3a'}` }}>
+                  <td style={{ padding: '0.4rem 0.5rem', color: th.text }}>{r.name} <span style={{ color: th.muted, fontSize: '0.72rem' }}>#{r.pc}</span></td>
+                  <td style={{ padding: '0.4rem 0.5rem', color: th.text }}>{fmtDollars(r.spend)}</td>
+                  <td style={{ padding: '0.4rem 0.5rem', color: th.muted }}>{r.sales != null ? fmtDollars(r.sales) : '—'}</td>
+                  <td style={{ padding: '0.4rem 0.5rem', fontWeight: 800, color: dcpColor(r.pct) }}>{r.pct != null ? `${r.pct}%` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div style={{ color: th.muted, fontSize: '0.85rem' }}>No store spend for the latest week in range.</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -30885,6 +31180,7 @@ function PCGPortal() {
   const handleLogout = () => {
     try { window.google?.accounts?.id?.disableAutoSelect(); } catch {}
     logClientEvent(user?.id, user?.userType, 'logout', { name: user?.name });
+    clearSessionToken(); // drop the portal token (Phase B) so it can't be reused
     setManagerMode(null);
     try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
     setPreferFullPortal(false);
@@ -32831,7 +33127,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.39
+            v14.42
           </div>
         )}
         {/* Collapse toggle — desktop only */}
