@@ -19254,7 +19254,7 @@ function DmScorecardTab({ th, users, districts }) {
               📊 DM Scorecard
             </div>
             <div style={{ fontSize:'0.78rem', color:th.muted, marginTop:'0.2rem' }}>
-              Weekly composite ranking · labor efficiency · sales growth · alert response · ticket health
+              Weekly composite ranking · labor efficiency · sales growth · DCP cost · alert response · ticket health
             </div>
             {current && <div style={{ fontSize:'0.7rem', color:th.muted, marginTop:'0.15rem' }}>Week of {current.weekOf}{previous ? ` · vs week of ${previous.weekOf}` : ''}</div>}
           </div>
@@ -19304,6 +19304,7 @@ function DmScorecardTab({ th, users, districts }) {
                       { label:'Sales', value: score.avgGrowthPct != null ? `${score.avgGrowthPct > 0 ? '+' : ''}${score.avgGrowthPct}%` : '—', score: score.salesScore, prev: previous?.scores?.[district]?.avgGrowthPct, higherIsBetter: true },
                       { label:'Response', value: score.avgRespMin != null ? score.avgRespMin < 60 ? `${score.avgRespMin}m` : `${(score.avgRespMin/60).toFixed(1)}h` : '—', score: score.responseScore, prev: previous?.scores?.[district]?.avgRespMin, higherIsBetter: false },
                       { label:'Tickets', value: `${score.openTickets} open`, score: score.ticketScore, prev: previous?.scores?.[district]?.openTickets, higherIsBetter: false },
+                      { label:'DCP', value: score.avgDcpPct != null ? `${score.avgDcpPct}%` : '—', score: score.dcpScore, prev: previous?.scores?.[district]?.avgDcpPct, higherIsBetter: false },
                     ].map(m => (
                       <div key={m.label} style={{ textAlign:'center', padding:'0.35rem 0.75rem', borderRadius:'0.5rem', background:th.card2, minWidth:72 }}>
                         <div style={{ fontSize:'0.85rem', fontWeight:700, color: m.score != null ? scoreColor(m.score) : th.muted }}>{m.value}</div>
@@ -19328,7 +19329,7 @@ function DmScorecardTab({ th, users, districts }) {
             <span style={{ fontSize:'0.72rem', color:th.muted }}>{range} — {label}</span>
           </div>
         ))}
-        <span style={{ fontSize:'0.68rem', color:th.muted, marginLeft:'auto' }}>Labor 30% · Sales 30% · Response 20% · Tickets 20%</span>
+        <span style={{ fontSize:'0.68rem', color:th.muted, marginLeft:'auto' }}>Labor 25% · Sales 25% · DCP 20% · Response 15% · Tickets 15%</span>
       </div>
     </div>
   );
@@ -33126,7 +33127,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.41
+            v14.42
           </div>
         )}
         {/* Collapse toggle — desktop only */}
