@@ -8,10 +8,18 @@
 //   detail  → every version of one order_number (full line items), oldest → newest
 const { sql } = require('./db');
 
-const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Content-Type': 'application/json' };
-const reply = (code, obj) => ({ statusCode: code, headers: cors, body: JSON.stringify(obj) });
+// Restrict CORS to the portal's own origins (not '*'). Requests are same-origin
+// in normal use; this just blocks cross-origin browser reads of order data.
+const ALLOWED_ORIGINS = ['https://uop.peoplecapitalgroup.com', 'https://pcg-ops.netlify.app'];
+function corsFor(event) {
+  const origin = event.headers?.origin || event.headers?.Origin || '';
+  const allow = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return { 'Access-Control-Allow-Origin': allow, 'Access-Control-Allow-Headers': 'Content-Type', 'Content-Type': 'application/json' };
+}
 
 exports.handler = async (event) => {
+  const cors = corsFor(event);
+  const reply = (code, obj) => ({ statusCode: code, headers: cors, body: JSON.stringify(obj) });
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
   let body = {};
   try { body = JSON.parse(event.body || '{}'); } catch { return reply(400, { error: 'bad json' }); }

@@ -33246,7 +33246,7 @@ function PCGPortal() {
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
-          {tab === "ndcp" && <AdminNdcp th={th} user={user} />}
+          {tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && <AdminNdcp th={th} user={user} />}
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
