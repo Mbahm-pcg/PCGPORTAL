@@ -23558,6 +23558,34 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       });
     }, [salesWeeks]);
     useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        let legacy = null;
+        try {
+          legacy = localStorage.getItem("pcg_portal_data_v8");
+        } catch {
+        }
+        if (!legacy) return;
+        let cloud;
+        try {
+          cloud = await cloudLoadOrThrow("pcg_portal_data_v8");
+        } catch {
+          return;
+        }
+        if (cancelled) return;
+        const cloudEmpty = cloud == null || Array.isArray(cloud) && cloud.length === 0 || typeof cloud === "object" && !Array.isArray(cloud) && Object.keys(cloud).length === 0;
+        if (cloudEmpty) {
+          try {
+            cloudSave("pcg_portal_data_v8", JSON.parse(legacy));
+          } catch {
+          }
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []);
+    useEffect(() => {
       Promise.all([
         cloudLoad("pcg_cash_deposits_v1"),
         cloudLoad("pcg_cash_uploads_v1"),

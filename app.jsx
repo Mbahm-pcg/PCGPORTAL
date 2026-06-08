@@ -31731,6 +31731,34 @@ function PCGPortal() {
     });
   }, [salesWeeks]);
 
+  // ── Legacy pcg_portal_data_v8 → cloud migrate-once ──
+  // loadFromStorage() (sync) still reads the legacy localStorage v8 blob as a
+  // migration fallback. This effect promotes that legacy blob to the cloud once:
+  // if the cloud copy is empty/absent but the legacy localStorage v8 copy
+  // exists, cloudSave it a single time so cloud becomes authoritative going
+  // forward. A thrown load failure is ignored (never clobber cloud on error).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let legacy = null;
+      try { legacy = localStorage.getItem('pcg_portal_data_v8'); } catch {}
+      if (!legacy) return; // nothing legacy to migrate
+      let cloud;
+      try {
+        cloud = await cloudLoadOrThrow('pcg_portal_data_v8');
+      } catch {
+        return; // load failed — do not clobber cloud with the local cache
+      }
+      if (cancelled) return;
+      const cloudEmpty = cloud == null || (Array.isArray(cloud) && cloud.length === 0)
+        || (typeof cloud === 'object' && !Array.isArray(cloud) && Object.keys(cloud).length === 0);
+      if (cloudEmpty) {
+        try { cloudSave('pcg_portal_data_v8', JSON.parse(legacy)); } catch {}
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // ── Cash Management cloud sync ──
   useEffect(() => {
     Promise.all([
