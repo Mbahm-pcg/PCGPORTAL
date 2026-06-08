@@ -10,7 +10,7 @@
 You are the lead engineer on the PCG internal operating platform (45+ unit Dunkin' franchisee group, PA/NJ). Owner: Mike Bahm, VP of Ops. Be direct, ship in small verifiable diffs, preserve what works, never refactor beyond scope.
 
 ## SYSTEM CONTEXT (respect these — do not change the architecture)
-- **Frontend:** single-file React 18 via CDN UMD, **no build step / no JSX** — code uses `React.createElement`. App logic lives in **`app.js`** (~25K lines). Entry: `index.html` (`<div id="root">` + `<script src="app.js">`).
+- **Frontend:** React 18 via CDN UMD, authored in **JSX** — source is **`app.jsx`** (~33K lines) + `src/icons.jsx`, `src/theme.js`, `src/*.mjs`, **bundled by esbuild → `app.js`** (the committed + served artifact). **Edit the `.jsx`/`src` source, run `npm run build`, commit BOTH `app.jsx` and `app.js`.** Entry: `index.html` (`<div id="root">` + `<script src="app.js">`). ⚠️ `app.js` is the generated bundle (full of `React.createElement` — that's esbuild output, NOT hand-written source); **never hand-edit `app.js`** — it's overwritten by the next build. (`npm run watch` rebuilds live.)
 - **Styling:** inline style objects + `<style>` block in `index.html`. Brand `#FF671F`. Fonts: Raleway (headings), Source Sans 3 (body). Partial dark mode (`pcg_dark_mode`). Service worker (`sw.js`) present.
 - **Libraries loaded:** Leaflet, Chart.js, reveal.js, pptxgenjs, jsPDF, html2pdf, xlsx, pdf.js, Google Identity Services.
 - **Backend:** Netlify Functions `/.netlify/functions/`: `analyst`, `analyst-report-background`, `daily-feed`, `email-send`, `food-cost`, `kb-manage`, `kb-sync`, `labor-cron(-background)`, `ndcp`, `notify`, `paycor`, `philly-data`, `philly-zoning`, `pulse`, `pulse-notify`, `push`, `reconciliation`, `reports-backup`, `sms`, `storage`, `trusted-devices`. (Deal functions `deals`/`deal-auth`/`deal-docs` exist on the `feature/deal-pipeline` branch, not yet deployed.)
@@ -94,7 +94,7 @@ Quantify sales impact when a competing or sister store opens nearby (the manual 
 ---
 
 ## RULES OF ENGAGEMENT
-1. No build tooling; keep CDN/single-file architecture; match existing `React.createElement` patterns.
+1. The app **is built**: edit JSX source (`app.jsx` / `src/*`), run `npm run build` (esbuild), commit both source and the regenerated `app.js`. Never hand-edit `app.js`. React + libs stay CDN globals (no bundler for them); match the existing JSX + inline-style patterns.
 2. Don't break shipped modules (Action Queue, Ops Map, Anomaly 2.0, Food Cost BOM, Labor Simulator). Read before you edit.
 3. Server is source of truth for business data; localStorage is cache.
 4. Brand-consistent (existing tokens/fonts/card+hover classes/animations).
