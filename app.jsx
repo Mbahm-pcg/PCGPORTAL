@@ -3,6 +3,7 @@ import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
+import { portalLogin, portalLoginGoogle, authHeader, clearSessionToken } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
@@ -711,7 +712,28 @@ function Login({ onLogin, dark, toggleDark, users }) {
       await verifyTwoFactorAndLogin();
       return;
     }
-    const found = users.find(u => u.username === form.u && u.password === form.p && u.active !== false);
+    // Phase B: verify the credential server-side and obtain a portal token. The
+    // local `users` record still provides the rich identity (id, 2FA, district…).
+    const uname = (form.u || "").trim();
+    const localAcct = users.find(u => (u.username || "").trim().toLowerCase() === uname.toLowerCase() && u.active !== false);
+    setLoading(true);
+    const res = await portalLogin(uname, form.p);
+    let found = null;
+    if (res.ok) {
+      // Server verified + issued a token (stored in portal-auth.mjs). Prefer the
+      // local identity; synthesize a minimal one if this account is server-only.
+      found = localAcct || (res.user ? {
+        username: res.user.username, name: res.user.name, userType: res.user.userType,
+        district: res.user.district, email: res.user.email, active: true,
+      } : null);
+    } else if (res.unreachable) {
+      // GRACE (Phase B): endpoint unreachable → fall back to the legacy client
+      // compare so no one is locked out. Removed in Phase D.
+      console.warn("[portal-auth] login endpoint unreachable — using legacy client compare (grace)");
+      found = users.find(u => u.username === form.u && u.password === form.p && u.active !== false) || null;
+    }
+    // res.ok === false && !res.unreachable → server actively rejected: invalid creds.
+
     if (found) {
       if (await shouldPromptTwoFactor(found)) {
         beginTwoFactor(found);
@@ -719,6 +741,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
         finishLogin(found);
       }
     } else {
+      setLoading(false);
       setErr("Invalid credentials. Try again.");
       setShake(true);
       setTimeout(() => setShake(false), 520);
@@ -30885,6 +30908,7 @@ function PCGPortal() {
   const handleLogout = () => {
     try { window.google?.accounts?.id?.disableAutoSelect(); } catch {}
     logClientEvent(user?.id, user?.userType, 'logout', { name: user?.name });
+    clearSessionToken(); // drop the portal token (Phase B) so it can't be reused
     setManagerMode(null);
     try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
     setPreferFullPortal(false);
@@ -32831,7 +32855,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.39
+            v14.40
           </div>
         )}
         {/* Collapse toggle — desktop only */}

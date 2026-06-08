@@ -224,6 +224,54 @@
     return r;
   }
 
+  // src/portal-auth.mjs
+  var FN2 = "/.netlify/functions";
+  var TOKEN_KEY = "pcg_portal_token";
+  var _token = null;
+  try {
+    if (typeof sessionStorage !== "undefined") _token = sessionStorage.getItem(TOKEN_KEY) || null;
+  } catch {
+  }
+  function setSessionToken(token) {
+    _token = token || null;
+    try {
+      if (typeof sessionStorage === "undefined") return;
+      if (_token) sessionStorage.setItem(TOKEN_KEY, _token);
+      else sessionStorage.removeItem(TOKEN_KEY);
+    } catch {
+    }
+  }
+  function clearSessionToken() {
+    setSessionToken(null);
+  }
+  function authHeader() {
+    return _token ? { Authorization: `Bearer ${_token}` } : {};
+  }
+  async function post(body) {
+    let res;
+    try {
+      res = await fetch(`${FN2}/portal-auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify(body)
+      });
+    } catch {
+      return { ok: false, unreachable: true };
+    }
+    if (res.status >= 500) return { ok: false, unreachable: true, status: res.status };
+    let j = {};
+    try {
+      j = await res.json();
+    } catch {
+    }
+    if (!res.ok) return { ok: false, unreachable: false, status: res.status, error: j.error || `login ${res.status}` };
+    setSessionToken(j.token || null);
+    return { ok: true, token: j.token || null, user: j.user || null, mustChange: !!j.mustChange, expiresIn: j.expiresIn };
+  }
+  async function portalLogin(username, password) {
+    return post({ action: "login", username, password });
+  }
+
   // src/deal-dates.mjs
   var DATE_TYPES = [
     { id: "loi_expiration", label: "LOI Response / Expiration", defaultTiers: [14, 7, 3, 1] },
@@ -1500,7 +1548,24 @@
         await verifyTwoFactorAndLogin();
         return;
       }
-      const found = users.find((u) => u.username === form.u && u.password === form.p && u.active !== false);
+      const uname = (form.u || "").trim();
+      const localAcct = users.find((u) => (u.username || "").trim().toLowerCase() === uname.toLowerCase() && u.active !== false);
+      setLoading(true);
+      const res = await portalLogin(uname, form.p);
+      let found = null;
+      if (res.ok) {
+        found = localAcct || (res.user ? {
+          username: res.user.username,
+          name: res.user.name,
+          userType: res.user.userType,
+          district: res.user.district,
+          email: res.user.email,
+          active: true
+        } : null);
+      } else if (res.unreachable) {
+        console.warn("[portal-auth] login endpoint unreachable \u2014 using legacy client compare (grace)");
+        found = users.find((u) => u.username === form.u && u.password === form.p && u.active !== false) || null;
+      }
       if (found) {
         if (await shouldPromptTwoFactor(found)) {
           beginTwoFactor(found);
@@ -1508,6 +1573,7 @@
           finishLogin(found);
         }
       } else {
+        setLoading(false);
         setErr("Invalid credentials. Try again.");
         setShake(true);
         setTimeout(() => setShake(false), 520);
@@ -22746,6 +22812,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       } catch {
       }
       logClientEvent(user?.id, user?.userType, "logout", { name: user?.name });
+      clearSessionToken();
       setManagerMode(null);
       try {
         localStorage.removeItem("pcg_prefer_full_portal");
@@ -24766,7 +24833,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.39"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.40"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

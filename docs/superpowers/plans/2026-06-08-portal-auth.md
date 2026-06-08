@@ -43,6 +43,13 @@
 - Endpoint enforcement (C-require) flips only after logs confirm ~all traffic carries a token.
 - Phase D password reset happens last, after server login is the only path.
 
+## Rollout status
+- **Phase A — DONE** (`auth-lib/passwords.js`, `auth-lib/require-user.js`, `portal-auth.js`, unit tests 8/8 green).
+- **Phase B — DONE & DEPLOYED v14.40** (2026-06-08): `src/portal-auth.mjs` (memory+sessionStorage token, `authHeader()`, reachable-vs-unreachable distinction); `Login.submit()` verifies server-side with grace fallback on unreachable; `handleLogout` clears the token. Prod smoke test: bogus creds → HTTP 401 (happy path confirmed: function reachable, secret set, Neon/table OK).
+  - **Open before Phase C "require": Google login still uses the OAuth2 access-token flow** → can't mint a portal token (`portal-auth.js` `verifyGoogle` needs a GSI **ID token**). Migrate the Google button to the ID-token credential flow and call `portalLoginGoogle(credential)`, OR Google users will be rejected once endpoints enforce tokens. Until then Google logins ride grace.
+- **Phase C — NEXT**: gate read endpoints (accept-but-log-missing → require); attach `authHeader()` in `cloudLoad`/`cloudSave` and direct function fetches.
+- **Phase D — pending**: strip passwords from `app.jsx` USERS_SEED + `pcg_users_v1`; remove client compare + grace; reset all users to temp passwords (`must_change`), deliver list to Mike.
+
 ## Self-review notes
 - Reuses existing token lib + secret → no new env var (4KB Lambda ceiling respected).
 - scrypt via Node `crypto` → no new dependency.
