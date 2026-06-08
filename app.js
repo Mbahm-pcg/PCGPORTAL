@@ -18559,6 +18559,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     };
     const BRAND_COLORS = { dunkin: "#FF671F", papajohns: "#ef4444", bww_go: "#f59e0b", dual: "#6366f1" };
     const BRAND_LABELS = { dunkin: "Dunkin'", papajohns: "Papa Johns", bww_go: "BWW Go", dual: "Dual" };
+    const DEAD_REASONS = ["Lost to competitor", "Failed due diligence", "Zoning denied", "Franchisor rejected", "Economics", "Financing fell through", "Other"];
     const [deals, setDeals] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -18605,6 +18606,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [accessErr, setAccessErr] = useState(null);
     const [dealLeads, setDealLeads] = useState([]);
     const [newLeadName, setNewLeadName] = useState("");
+    const [deadFor, setDeadFor] = useState(null);
+    const [deadReason, setDeadReason] = useState(DEAD_REASONS[0]);
+    const [deadNote, setDeadNote] = useState("");
+    const [deadBusy, setDeadBusy] = useState(false);
+    const [deadErr, setDeadErr] = useState(null);
     const [remindFor, setRemindFor] = useState(null);
     const [remindPhone, setRemindPhone] = useState("");
     const [remindMsg, setRemindMsg] = useState("");
@@ -18751,10 +18757,24 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       if (detailDeal?.id === deal.id) closeDetail();
     };
     const doMarkDead = (deal) => {
-      const reason = window.prompt(`Reason for marking "${deal.name}" as dead?`);
-      if (!reason) return;
-      dealApi(token, { action: "markDead", id: deal.id, reason }).then(() => setDeals((prev) => prev.filter((d) => d.id !== deal.id))).catch((e) => alert("Failed: " + e.message));
-      if (detailDeal?.id === deal.id) closeDetail();
+      if (!canEdit) return;
+      setDeadFor(deal);
+      setDeadReason(DEAD_REASONS[0]);
+      setDeadNote("");
+      setDeadErr(null);
+    };
+    const confirmMarkDead = () => {
+      if (!canEdit || !deadFor) return;
+      const note = deadNote.trim();
+      const reason = note ? `${deadReason} \u2014 ${note}` : deadReason;
+      const deal = deadFor;
+      setDeadBusy(true);
+      setDeadErr(null);
+      dealApi(token, { action: "markDead", id: deal.id, reason }).then(() => {
+        setDeals((prev) => prev.filter((d) => d.id !== deal.id));
+        setDeadFor(null);
+        if (detailDeal?.id === deal.id) closeDetail();
+      }).catch((e) => setDeadErr(e.message)).finally(() => setDeadBusy(false));
     };
     const doSave = () => {
       if (!Object.keys(editFields).length) return;
@@ -19258,7 +19278,52 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         style: { ...btn(th), padding: "0.35rem 0.7rem", fontSize: "0.78rem", color: "#ef4444" }
       },
       "Clear"
-    )), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), DetailModal(), CreateModal(), showAccess && /* @__PURE__ */ React.createElement(
+    )), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), DetailModal(), CreateModal(), canEdit && deadFor && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: { position: "fixed", inset: 0, zIndex: 1e4, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
+        onClick: (e) => {
+          if (e.target === e.currentTarget && !deadBusy) setDeadFor(null);
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)" }, onClick: () => {
+        if (!deadBusy) setDeadFor(null);
+      } }),
+      /* @__PURE__ */ React.createElement("div", { style: { position: "relative", background: th.bg, borderRadius: "0.75rem", padding: "1.5rem", width: "100%", maxWidth: 440, boxShadow: "0 8px 40px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "Mark Deal Dead"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, '"', deadFor.name, '" will be marked dead and removed from the active pipeline.'), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Reason"), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: deadReason,
+          onChange: (e) => setDeadReason(e.target.value),
+          style: { ...selLabel, padding: "0.45rem 0.6rem", fontSize: "0.85rem" }
+        },
+        DEAD_REASONS.map((r) => /* @__PURE__ */ React.createElement("option", { key: r, value: r }, r))
+      )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Note (optional)"), /* @__PURE__ */ React.createElement(
+        "textarea",
+        {
+          value: deadNote,
+          onChange: (e) => setDeadNote(e.target.value),
+          rows: 3,
+          placeholder: "Additional detail\u2026",
+          style: { ...inp(th), fontSize: "0.82rem", padding: "0.4rem 0.6rem", resize: "vertical" }
+        }
+      )), deadErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444" } }, "Error: ", deadErr), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setDeadFor(null),
+          disabled: deadBusy,
+          style: { ...btn(th), padding: "0.45rem 1rem", fontSize: "0.82rem" }
+        },
+        "Cancel"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: confirmMarkDead,
+          disabled: deadBusy,
+          style: { ...btn(th), padding: "0.45rem 1.1rem", fontSize: "0.82rem", fontWeight: 700, background: "#ef4444", color: "#fff", border: "none" }
+        },
+        deadBusy ? "Marking\u2026" : "Mark Dead"
+      )))
+    ), showAccess && /* @__PURE__ */ React.createElement(
       "div",
       {
         style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1e3, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
@@ -25090,7 +25155,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.43", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.44", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

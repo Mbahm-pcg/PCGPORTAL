@@ -24643,6 +24643,7 @@ function AdminDeals({ th, user, dealAuth }) {
   };
   const BRAND_COLORS = { dunkin: '#FF671F', papajohns: '#ef4444', bww_go: '#f59e0b', dual: '#6366f1' };
   const BRAND_LABELS = { dunkin: 'Dunkin\'', papajohns: 'Papa Johns', bww_go: 'BWW Go', dual: 'Dual' };
+  const DEAD_REASONS = ['Lost to competitor', 'Failed due diligence', 'Zoning denied', 'Franchisor rejected', 'Economics', 'Financing fell through', 'Other'];
 
   // ── state ──
   const [deals, setDeals] = useState([]);
@@ -24693,6 +24694,12 @@ function AdminDeals({ th, user, dealAuth }) {
   // ── deal leads state ──
   const [dealLeads, setDealLeads] = useState([]);
   const [newLeadName, setNewLeadName] = useState('');
+  // ── mark-dead modal state ──
+  const [deadFor, setDeadFor] = useState(null);
+  const [deadReason, setDeadReason] = useState(DEAD_REASONS[0]);
+  const [deadNote, setDeadNote] = useState('');
+  const [deadBusy, setDeadBusy] = useState(false);
+  const [deadErr, setDeadErr] = useState(null);
   // ── send reminder state ──
   const [remindFor, setRemindFor] = useState(null);
   const [remindPhone, setRemindPhone] = useState('');
@@ -24854,12 +24861,27 @@ function AdminDeals({ th, user, dealAuth }) {
   };
 
   const doMarkDead = (deal) => {
-    const reason = window.prompt(`Reason for marking "${deal.name}" as dead?`);
-    if (!reason) return;
+    if (!canEdit) return;
+    setDeadFor(deal);
+    setDeadReason(DEAD_REASONS[0]);
+    setDeadNote('');
+    setDeadErr(null);
+  };
+
+  const confirmMarkDead = () => {
+    if (!canEdit || !deadFor) return;
+    const note = deadNote.trim();
+    const reason = note ? `${deadReason} — ${note}` : deadReason;
+    const deal = deadFor;
+    setDeadBusy(true); setDeadErr(null);
     dealApi(token, { action: 'markDead', id: deal.id, reason })
-      .then(() => setDeals(prev => prev.filter(d => d.id !== deal.id)))
-      .catch(e => alert('Failed: ' + e.message));
-    if (detailDeal?.id === deal.id) closeDetail();
+      .then(() => {
+        setDeals(prev => prev.filter(d => d.id !== deal.id));
+        setDeadFor(null);
+        if (detailDeal?.id === deal.id) closeDetail();
+      })
+      .catch(e => setDeadErr(e.message))
+      .finally(() => setDeadBusy(false));
   };
 
   const doSave = () => {
@@ -25714,6 +25736,42 @@ function AdminDeals({ th, user, dealAuth }) {
       {/* Modals */}
       {DetailModal()}
       {CreateModal()}
+
+      {/* Mark Dead modal */}
+      {canEdit && deadFor && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+          onClick={e => { if (e.target === e.currentTarget && !deadBusy) setDeadFor(null); }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)' }} onClick={() => { if (!deadBusy) setDeadFor(null); }} />
+          <div style={{ position: 'relative', background: th.bg, borderRadius: '0.75rem', padding: '1.5rem', width: '100%', maxWidth: 440, boxShadow: '0 8px 40px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <h3 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 }}>Mark Deal Dead</h3>
+            <div style={{ fontSize: '0.82rem', color: th.muted }}>
+              "{deadFor.name}" will be marked dead and removed from the active pipeline.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.68rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Reason</label>
+              <select value={deadReason} onChange={e => setDeadReason(e.target.value)}
+                style={{ ...selLabel, padding: '0.45rem 0.6rem', fontSize: '0.85rem' }}>
+                {DEAD_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.68rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Note (optional)</label>
+              <textarea value={deadNote} onChange={e => setDeadNote(e.target.value)} rows={3}
+                placeholder="Additional detail…"
+                style={{ ...inp(th), fontSize: '0.82rem', padding: '0.4rem 0.6rem', resize: 'vertical' }} />
+            </div>
+            {deadErr && <div style={{ fontSize: '0.78rem', color: '#ef4444' }}>Error: {deadErr}</div>}
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeadFor(null)} disabled={deadBusy}
+                style={{ ...btn(th), padding: '0.45rem 1rem', fontSize: '0.82rem' }}>Cancel</button>
+              <button onClick={confirmMarkDead} disabled={deadBusy}
+                style={{ ...btn(th), padding: '0.45rem 1.1rem', fontSize: '0.82rem', fontWeight: 700, background: '#ef4444', color: '#fff', border: 'none' }}>
+                {deadBusy ? 'Marking…' : 'Mark Dead'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Access Management Modal */}
       {showAccess && (
@@ -33233,7 +33291,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.43
+            v14.44
             <SyncStatus dark={dark} />
           </div>
         )}
