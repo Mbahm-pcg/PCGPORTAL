@@ -5356,15 +5356,24 @@
       setDeptDropOpen(false);
     } }, "Cancel")))));
   }
+  function emitSync(state, key) {
+    try {
+      window.dispatchEvent(new CustomEvent("pcg:sync", { detail: { state, key } }));
+    } catch {
+    }
+  }
   async function cloudSave(key, data) {
+    emitSync("saving", key);
     try {
       const res = await fetch("/.netlify/functions/storage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "save", key, data })
       });
+      emitSync(res.ok ? "synced" : "error", key);
       return res.ok;
     } catch {
+      emitSync("error", key);
       return false;
     }
   }
@@ -5399,6 +5408,24 @@
       return null;
     }
   }
+  async function cloudLoadOrThrow(key) {
+    const res = await fetch("/.netlify/functions/storage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "load", key })
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const j2 = await res.json();
+        msg = j2.error || msg;
+      } catch {
+      }
+      throw new Error(`${key}: ${msg}`);
+    }
+    const j = await res.json();
+    return j.data;
+  }
   async function cloudDelete(key) {
     try {
       await fetch("/.netlify/functions/storage", {
@@ -5408,6 +5435,62 @@
       });
     } catch {
     }
+  }
+  function SyncStatus({ dark }) {
+    const [state, setState] = React.useState("idle");
+    const [lastSynced, setLastSynced] = React.useState(null);
+    const timer = React.useRef(null);
+    React.useEffect(() => {
+      const onSync = (e) => {
+        const s = e?.detail?.state;
+        if (s === "saving") {
+          setState("saving");
+        } else if (s === "synced") {
+          setState("synced");
+          setLastSynced(/* @__PURE__ */ new Date());
+        } else if (s === "error") {
+          setState("error");
+        }
+        if (s === "synced" || s === "error") {
+          if (timer.current) clearTimeout(timer.current);
+          timer.current = setTimeout(() => setState("idle"), 2500);
+        }
+      };
+      window.addEventListener("pcg:sync", onSync);
+      return () => {
+        window.removeEventListener("pcg:sync", onSync);
+        if (timer.current) clearTimeout(timer.current);
+      };
+    }, []);
+    if (state === "idle" && !lastSynced) return null;
+    const muted = dark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.4)";
+    let label, color;
+    if (state === "saving") {
+      label = "Saving\u2026";
+      color = "#FF671F";
+    } else if (state === "error") {
+      label = "Save failed";
+      color = "#ef4444";
+    } else if (state === "synced") {
+      label = "Synced \u2713";
+      color = "#22c55e";
+    } else {
+      const t = lastSynced;
+      label = t ? `Synced ${t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "";
+      color = muted;
+    }
+    return /* @__PURE__ */ React.createElement("div", { title: lastSynced ? `Last synced ${lastSynced.toLocaleString()}` : "", style: {
+      fontSize: "0.52rem",
+      fontWeight: 700,
+      letterSpacing: 0.4,
+      color,
+      opacity: state === "idle" ? 0.55 : 0.9,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "0.25rem",
+      transition: "color .2s, opacity .2s",
+      whiteSpace: "nowrap"
+    } }, state === "saving" && /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#FF671F", animation: "pulse 1.2s ease-in-out infinite" } }), label);
   }
   var FILE_CHUNK_SIZE = 4 * 1024 * 1024;
   async function cloudSaveFile(key, file, uploaderName) {
@@ -11871,8 +11954,8 @@ ${t2.slice(0, 300)}`);
     });
     React.useEffect(() => {
       if (!open) return;
-      cloudLoad("pcg_tickets_v1").then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
+      cloudLoadOrThrow("pcg_tickets_v1").then((data) => {
+        if (Array.isArray(data)) {
           setAllTickets(data);
           try {
             localStorage.setItem("pcg_tickets_v1", JSON.stringify(data));
@@ -12458,17 +12541,16 @@ ${t2.slice(0, 300)}`);
     });
     const cloudTicketsLoaded = React.useRef(false);
     React.useEffect(() => {
-      cloudLoad("pcg_tickets_v1").then((data) => {
-        cloudTicketsLoaded.current = true;
-        if (Array.isArray(data) && data.length > 0) {
+      cloudLoadOrThrow("pcg_tickets_v1").then((data) => {
+        if (Array.isArray(data)) {
           setTickets(data);
           try {
             localStorage.setItem("pcg_tickets_v1", JSON.stringify(data));
           } catch {
           }
         }
-      }).catch(() => {
         cloudTicketsLoaded.current = true;
+      }).catch(() => {
       });
     }, []);
     React.useEffect(() => {
@@ -21746,6 +21828,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           localStorage.setItem("pcg_tickets_v1", JSON.stringify(updated));
         } catch {
         }
+        cloudSave("pcg_tickets_v1", updated).catch((e) => console.warn("[status] tickets cloudSave failed", e.message));
         return updated;
       });
       if (selectedTicket?.id === ticketId) setSelectedTicket((prev) => ({ ...prev, status: newStatus }));
@@ -23444,16 +23527,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, [links, notes, todos, users, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails]);
     useEffect(() => {
       setCloudStatus("loading");
-      cloudLoad("pcg_sales_v1").then((data) => {
-        if (data && Array.isArray(data) && data.length > 0) {
+      cloudLoadOrThrow("pcg_sales_v1").then((data) => {
+        if (Array.isArray(data)) {
           setSalesWeeks(data);
-        } else {
           try {
-            const local = JSON.parse(localStorage.getItem("pcg_sales_v1") || "[]");
-            if (local.length > 0) {
-              setSalesWeeks(local);
-              cloudSave("pcg_sales_v1", local);
-            }
+            localStorage.setItem("pcg_sales_v1", JSON.stringify(data));
           } catch {
           }
         }
@@ -23479,6 +23557,34 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTimeout(() => setCloudStatus("idle"), 2500);
       });
     }, [salesWeeks]);
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        let legacy = null;
+        try {
+          legacy = localStorage.getItem("pcg_portal_data_v8");
+        } catch {
+        }
+        if (!legacy) return;
+        let cloud;
+        try {
+          cloud = await cloudLoadOrThrow("pcg_portal_data_v8");
+        } catch {
+          return;
+        }
+        if (cancelled) return;
+        const cloudEmpty = cloud == null || Array.isArray(cloud) && cloud.length === 0 || typeof cloud === "object" && !Array.isArray(cloud) && Object.keys(cloud).length === 0;
+        if (cloudEmpty) {
+          try {
+            cloudSave("pcg_portal_data_v8", JSON.parse(legacy));
+          } catch {
+          }
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []);
     useEffect(() => {
       Promise.all([
         cloudLoad("pcg_cash_deposits_v1"),
@@ -24984,7 +25090,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.42"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.43", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

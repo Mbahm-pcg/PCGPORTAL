@@ -5837,15 +5837,20 @@ function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, cur
 
 // ─── API Config ──────────────────────────────────────────────────────────────
 // ── Cloud Storage ────────────────────────────────────────────────────────────
+function emitSync(state, key) {
+  try { window.dispatchEvent(new CustomEvent('pcg:sync', { detail: { state, key } })); } catch {}
+}
 async function cloudSave(key, data) {
+  emitSync('saving', key);
   try {
     const res = await fetch('/.netlify/functions/storage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'save', key, data }),
     });
+    emitSync(res.ok ? 'synced' : 'error', key);
     return res.ok;
-  } catch { return false; }
+  } catch { emitSync('error', key); return false; }
 }
 async function cloudSaveOrThrow(key, data) {
   const res = await fetch('/.netlify/functions/storage', {
@@ -5872,6 +5877,23 @@ async function cloudLoad(key) {
     return j.data || null;
   } catch { return null; }
 }
+// Like cloudLoad but THROWS on HTTP error / network failure, so init code can
+// distinguish "load failed" (fall back to cache, don't clobber cloud) from
+// "genuinely empty" (j.data may be null/[] — cloud is authoritative and empty).
+async function cloudLoadOrThrow(key) {
+  const res = await fetch('/.netlify/functions/storage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'load', key }),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { const j = await res.json(); msg = j.error || msg; } catch {}
+    throw new Error(`${key}: ${msg}`);
+  }
+  const j = await res.json();
+  return j.data;
+}
 async function cloudDelete(key) {
   try {
     await fetch('/.netlify/functions/storage', {
@@ -5880,6 +5902,53 @@ async function cloudDelete(key) {
       body: JSON.stringify({ action: 'delete', key }),
     });
   } catch {}
+}
+
+// ─── SyncStatus indicator ─────────────────────────────────────────
+// Listens for the 'pcg:sync' events dispatched by cloudSave and shows a
+// subtle "Saving… / Synced ✓ / Save failed" badge. Because every cloudSave
+// caller emits these events, this reflects all cloud writes with zero
+// per-writer changes. Brand color #FF671F, theme-aware.
+function SyncStatus({ dark }) {
+  const [state, setState] = React.useState('idle'); // idle | saving | synced | error
+  const [lastSynced, setLastSynced] = React.useState(null);
+  const timer = React.useRef(null);
+  React.useEffect(() => {
+    const onSync = (e) => {
+      const s = e?.detail?.state;
+      if (s === 'saving') { setState('saving'); }
+      else if (s === 'synced') { setState('synced'); setLastSynced(new Date()); }
+      else if (s === 'error') { setState('error'); }
+      if (s === 'synced' || s === 'error') {
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setState('idle'), 2500);
+      }
+    };
+    window.addEventListener('pcg:sync', onSync);
+    return () => { window.removeEventListener('pcg:sync', onSync); if (timer.current) clearTimeout(timer.current); };
+  }, []);
+  if (state === 'idle' && !lastSynced) return null;
+  const muted = dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.4)';
+  let label, color;
+  if (state === 'saving') { label = 'Saving…'; color = '#FF671F'; }
+  else if (state === 'error') { label = 'Save failed'; color = '#ef4444'; }
+  else if (state === 'synced') { label = 'Synced ✓'; color = '#22c55e'; }
+  else {
+    const t = lastSynced;
+    label = t ? `Synced ${t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : '';
+    color = muted;
+  }
+  return (
+    <div title={lastSynced ? `Last synced ${lastSynced.toLocaleString()}` : ''} style={{
+      fontSize: '0.52rem', fontWeight: 700, letterSpacing: 0.4,
+      color, opacity: state === 'idle' ? 0.55 : 0.9,
+      display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+      transition: 'color .2s, opacity .2s', whiteSpace: 'nowrap',
+    }}>
+      {state === 'saving' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#FF671F', animation: 'pulse 1.2s ease-in-out infinite' }} />}
+      {label}
+    </div>
+  );
 }
 
 // ─── Chunked file upload/download ─────────────────────────────────
@@ -14565,7 +14634,8 @@ function ExpenseLogSection({ th, user }) {
   const [allTickets, setAllTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); } catch { return []; } });
   React.useEffect(() => {
     if (!open) return;
-    cloudLoad('pcg_tickets_v1').then(data => { if (Array.isArray(data) && data.length > 0) { setAllTickets(data); try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(data)); } catch {} } }).catch(() => {});
+    // Cloud-first; on a thrown load failure keep the localStorage cache seed.
+    cloudLoadOrThrow('pcg_tickets_v1').then(data => { if (Array.isArray(data)) { setAllTickets(data); try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(data)); } catch {} } }).catch(() => { /* keep cache */ });
   }, [open]);
 
   const rows = React.useMemo(() => {
@@ -15406,16 +15476,23 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const localDateISO = (d) => { const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${day}`; };
   const todayISO = localDateISO(new Date());
 
+  // TODO(track0): consolidate ticket state to a single owner — several
+  // components keep their own pcg_tickets_v1 copy; this pass only guarantees
+  // write-through + cloud-first init, not a single source of truth.
   const [tickets, setTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]"); } catch { return []; } });
   const cloudTicketsLoaded = React.useRef(false);
   React.useEffect(() => {
-    cloudLoad('pcg_tickets_v1').then(data => {
-      cloudTicketsLoaded.current = true;
-      if (Array.isArray(data) && data.length > 0) {
+    // Cloud-first: cloud is authoritative (use it even when empty). On a thrown
+    // load failure keep the localStorage cache seed and gate write-through so a
+    // failed load can't clobber cloud. cloudTicketsLoaded only flips true on a
+    // successful load, so the change-effect won't cloudSave the cache on error.
+    cloudLoadOrThrow('pcg_tickets_v1').then(data => {
+      if (Array.isArray(data)) {
         setTickets(data);
         try { localStorage.setItem("pcg_tickets_v1", JSON.stringify(data)); } catch {}
       }
-    }).catch(() => { cloudTicketsLoaded.current = true; });
+      cloudTicketsLoaded.current = true;
+    }).catch(() => { /* load failed: keep cache, do NOT enable cloud write-through */ });
   }, []);
   React.useEffect(() => {
     try { localStorage.setItem("pcg_tickets_v1", JSON.stringify(tickets)); } catch {}
@@ -28839,6 +28916,7 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
         return { ...t, status: newStatus, updatedAt: now, ...extra, comments: [...(t.comments || []), actEntry] };
       });
       try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(updated)); } catch {}
+      cloudSave('pcg_tickets_v1', updated).catch(e => console.warn('[status] tickets cloudSave failed', e.message)); // write-through (was localStorage-only — drift bug)
       return updated;
     });
     if (selectedTicket?.id === ticketId) setSelectedTicket(prev => ({ ...prev, status: newStatus }));
@@ -31626,14 +31704,14 @@ function PCGPortal() {
   // Load from cloud on mount, fallback to localStorage
   useEffect(() => {
     setCloudStatus('loading');
-    cloudLoad('pcg_sales_v1').then(data => {
-      if (data && Array.isArray(data) && data.length > 0) {
+    // Cloud is authoritative. On a successful load we use cloud even if it's
+    // empty (do not clobber it with stale local cache). Only on a *thrown*
+    // load failure do we fall back to localStorage — and we do NOT cloudSave
+    // that fallback (which would overwrite cloud with the offline cache).
+    cloudLoadOrThrow('pcg_sales_v1').then(data => {
+      if (Array.isArray(data)) {
         setSalesWeeks(data);
-      } else {
-        try {
-          const local = JSON.parse(localStorage.getItem('pcg_sales_v1') || '[]');
-          if (local.length > 0) { setSalesWeeks(local); cloudSave('pcg_sales_v1', local); }
-        } catch {}
+        try { localStorage.setItem('pcg_sales_v1', JSON.stringify(data)); } catch {}
       }
       setCloudStatus('idle');
     }).catch(() => {
@@ -31652,6 +31730,34 @@ function PCGPortal() {
       setTimeout(() => setCloudStatus('idle'), 2500);
     });
   }, [salesWeeks]);
+
+  // ── Legacy pcg_portal_data_v8 → cloud migrate-once ──
+  // loadFromStorage() (sync) still reads the legacy localStorage v8 blob as a
+  // migration fallback. This effect promotes that legacy blob to the cloud once:
+  // if the cloud copy is empty/absent but the legacy localStorage v8 copy
+  // exists, cloudSave it a single time so cloud becomes authoritative going
+  // forward. A thrown load failure is ignored (never clobber cloud on error).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let legacy = null;
+      try { legacy = localStorage.getItem('pcg_portal_data_v8'); } catch {}
+      if (!legacy) return; // nothing legacy to migrate
+      let cloud;
+      try {
+        cloud = await cloudLoadOrThrow('pcg_portal_data_v8');
+      } catch {
+        return; // load failed — do not clobber cloud with the local cache
+      }
+      if (cancelled) return;
+      const cloudEmpty = cloud == null || (Array.isArray(cloud) && cloud.length === 0)
+        || (typeof cloud === 'object' && !Array.isArray(cloud) && Object.keys(cloud).length === 0);
+      if (cloudEmpty) {
+        try { cloudSave('pcg_portal_data_v8', JSON.parse(legacy)); } catch {}
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Cash Management cloud sync ──
   useEffect(() => {
@@ -33127,7 +33233,8 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.42
+            v14.43
+            <SyncStatus dark={dark} />
           </div>
         )}
         {/* Collapse toggle — desktop only */}
