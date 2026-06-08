@@ -14634,7 +14634,8 @@ function ExpenseLogSection({ th, user }) {
   const [allTickets, setAllTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); } catch { return []; } });
   React.useEffect(() => {
     if (!open) return;
-    cloudLoad('pcg_tickets_v1').then(data => { if (Array.isArray(data) && data.length > 0) { setAllTickets(data); try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(data)); } catch {} } }).catch(() => {});
+    // Cloud-first; on a thrown load failure keep the localStorage cache seed.
+    cloudLoadOrThrow('pcg_tickets_v1').then(data => { if (Array.isArray(data)) { setAllTickets(data); try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(data)); } catch {} } }).catch(() => { /* keep cache */ });
   }, [open]);
 
   const rows = React.useMemo(() => {
@@ -15475,16 +15476,23 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const localDateISO = (d) => { const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${day}`; };
   const todayISO = localDateISO(new Date());
 
+  // TODO(track0): consolidate ticket state to a single owner — several
+  // components keep their own pcg_tickets_v1 copy; this pass only guarantees
+  // write-through + cloud-first init, not a single source of truth.
   const [tickets, setTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]"); } catch { return []; } });
   const cloudTicketsLoaded = React.useRef(false);
   React.useEffect(() => {
-    cloudLoad('pcg_tickets_v1').then(data => {
-      cloudTicketsLoaded.current = true;
-      if (Array.isArray(data) && data.length > 0) {
+    // Cloud-first: cloud is authoritative (use it even when empty). On a thrown
+    // load failure keep the localStorage cache seed and gate write-through so a
+    // failed load can't clobber cloud. cloudTicketsLoaded only flips true on a
+    // successful load, so the change-effect won't cloudSave the cache on error.
+    cloudLoadOrThrow('pcg_tickets_v1').then(data => {
+      if (Array.isArray(data)) {
         setTickets(data);
         try { localStorage.setItem("pcg_tickets_v1", JSON.stringify(data)); } catch {}
       }
-    }).catch(() => { cloudTicketsLoaded.current = true; });
+      cloudTicketsLoaded.current = true;
+    }).catch(() => { /* load failed: keep cache, do NOT enable cloud write-through */ });
   }, []);
   React.useEffect(() => {
     try { localStorage.setItem("pcg_tickets_v1", JSON.stringify(tickets)); } catch {}
@@ -28908,6 +28916,7 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
         return { ...t, status: newStatus, updatedAt: now, ...extra, comments: [...(t.comments || []), actEntry] };
       });
       try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(updated)); } catch {}
+      cloudSave('pcg_tickets_v1', updated).catch(e => console.warn('[status] tickets cloudSave failed', e.message)); // write-through (was localStorage-only — drift bug)
       return updated;
     });
     if (selectedTicket?.id === ticketId) setSelectedTicket(prev => ({ ...prev, status: newStatus }));

@@ -11954,8 +11954,8 @@ ${t2.slice(0, 300)}`);
     });
     React.useEffect(() => {
       if (!open) return;
-      cloudLoad("pcg_tickets_v1").then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
+      cloudLoadOrThrow("pcg_tickets_v1").then((data) => {
+        if (Array.isArray(data)) {
           setAllTickets(data);
           try {
             localStorage.setItem("pcg_tickets_v1", JSON.stringify(data));
@@ -12541,17 +12541,16 @@ ${t2.slice(0, 300)}`);
     });
     const cloudTicketsLoaded = React.useRef(false);
     React.useEffect(() => {
-      cloudLoad("pcg_tickets_v1").then((data) => {
-        cloudTicketsLoaded.current = true;
-        if (Array.isArray(data) && data.length > 0) {
+      cloudLoadOrThrow("pcg_tickets_v1").then((data) => {
+        if (Array.isArray(data)) {
           setTickets(data);
           try {
             localStorage.setItem("pcg_tickets_v1", JSON.stringify(data));
           } catch {
           }
         }
-      }).catch(() => {
         cloudTicketsLoaded.current = true;
+      }).catch(() => {
       });
     }, []);
     React.useEffect(() => {
@@ -21829,6 +21828,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           localStorage.setItem("pcg_tickets_v1", JSON.stringify(updated));
         } catch {
         }
+        cloudSave("pcg_tickets_v1", updated).catch((e) => console.warn("[status] tickets cloudSave failed", e.message));
         return updated;
       });
       if (selectedTicket?.id === ticketId) setSelectedTicket((prev) => ({ ...prev, status: newStatus }));
