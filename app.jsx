@@ -31695,14 +31695,14 @@ function PCGPortal() {
   // Load from cloud on mount, fallback to localStorage
   useEffect(() => {
     setCloudStatus('loading');
-    cloudLoad('pcg_sales_v1').then(data => {
-      if (data && Array.isArray(data) && data.length > 0) {
+    // Cloud is authoritative. On a successful load we use cloud even if it's
+    // empty (do not clobber it with stale local cache). Only on a *thrown*
+    // load failure do we fall back to localStorage — and we do NOT cloudSave
+    // that fallback (which would overwrite cloud with the offline cache).
+    cloudLoadOrThrow('pcg_sales_v1').then(data => {
+      if (Array.isArray(data)) {
         setSalesWeeks(data);
-      } else {
-        try {
-          const local = JSON.parse(localStorage.getItem('pcg_sales_v1') || '[]');
-          if (local.length > 0) { setSalesWeeks(local); cloudSave('pcg_sales_v1', local); }
-        } catch {}
+        try { localStorage.setItem('pcg_sales_v1', JSON.stringify(data)); } catch {}
       }
       setCloudStatus('idle');
     }).catch(() => {

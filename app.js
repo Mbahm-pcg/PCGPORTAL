@@ -5408,6 +5408,24 @@
       return null;
     }
   }
+  async function cloudLoadOrThrow(key) {
+    const res = await fetch("/.netlify/functions/storage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "load", key })
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const j2 = await res.json();
+        msg = j2.error || msg;
+      } catch {
+      }
+      throw new Error(`${key}: ${msg}`);
+    }
+    const j = await res.json();
+    return j.data;
+  }
   async function cloudDelete(key) {
     try {
       await fetch("/.netlify/functions/storage", {
@@ -23509,16 +23527,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, [links, notes, todos, users, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails]);
     useEffect(() => {
       setCloudStatus("loading");
-      cloudLoad("pcg_sales_v1").then((data) => {
-        if (data && Array.isArray(data) && data.length > 0) {
+      cloudLoadOrThrow("pcg_sales_v1").then((data) => {
+        if (Array.isArray(data)) {
           setSalesWeeks(data);
-        } else {
           try {
-            const local = JSON.parse(localStorage.getItem("pcg_sales_v1") || "[]");
-            if (local.length > 0) {
-              setSalesWeeks(local);
-              cloudSave("pcg_sales_v1", local);
-            }
+            localStorage.setItem("pcg_sales_v1", JSON.stringify(data));
           } catch {
           }
         }
