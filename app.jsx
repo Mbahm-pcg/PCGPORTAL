@@ -25015,7 +25015,7 @@ function AdminDeals({ th, user, dealAuth }) {
                           <button onClick={() => doMoveStage(deal, nextStage)} style={{ ...btn(th), padding: '2px 7px', fontSize: '0.68rem', lineHeight: 1 }}>▶</button>
                         )}
                         {isLast && (
-                          <button onClick={() => doHandoff(deal)} style={{ ...btn(th), padding: '2px 7px', fontSize: '0.68rem', lineHeight: 1, color: '#a855f7' }}>Hand off →</button>
+                          <button onClick={() => doHandoff(deal)} style={{ ...btn(th), background: '#a855f71f', border: '1px solid #a855f755', padding: '2px 7px', fontSize: '0.68rem', lineHeight: 1, color: '#a855f7' }}>Hand off →</button>
                         )}
                       </div>
                     )}
@@ -25154,8 +25154,8 @@ function AdminDeals({ th, user, dealAuth }) {
                 style={{ ...selLabel, padding: '0.35rem 0.6rem', fontSize: '0.8rem' }}>
                 {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
-              <button onClick={() => doHandoff(d)} style={{ ...btn(th), padding: '0.35rem 0.8rem', fontSize: '0.8rem', color: '#a855f7' }}>Hand off →</button>
-              <button onClick={() => doMarkDead(d)} style={{ ...btn(th), padding: '0.35rem 0.8rem', fontSize: '0.8rem', color: '#ef4444' }}>Mark Dead</button>
+              <button onClick={() => doHandoff(d)} style={{ ...btn(th), background: '#a855f71f', border: '1px solid #a855f755', padding: '0.35rem 0.8rem', fontSize: '0.8rem', color: '#a855f7' }}>Hand off →</button>
+              <button onClick={() => doMarkDead(d)} style={{ ...btn(th), background: '#ef44441f', border: '1px solid #ef444455', padding: '0.35rem 0.8rem', fontSize: '0.8rem', color: '#ef4444' }}>Mark Dead</button>
             </div>
           )}
 
@@ -25339,6 +25339,17 @@ function AdminDeals({ th, user, dealAuth }) {
               document.body.removeChild(a); URL.revokeObjectURL(url);
             };
 
+            const gcalUrl = (dt) => {
+              const ymd = String(dt.due_date || '').slice(0,10).replace(/-/g,'');
+              if (ymd.length !== 8) return '#';
+              const start = ymd;
+              const dd = new Date(+ymd.slice(0,4), +ymd.slice(4,6)-1, +ymd.slice(6,8)+1);
+              const end = `${dd.getFullYear()}${String(dd.getMonth()+1).padStart(2,'0')}${String(dd.getDate()).padStart(2,'0')}`;
+              const title = `${detailDeal.name ? detailDeal.name + ' — ' : ''}${dateLabel(dt.date_type)}`;
+              const details = dt.notes || '';
+              return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${start}/${end}&details=${encodeURIComponent(details)}`;
+            };
+
             return (
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
@@ -25416,18 +25427,19 @@ function AdminDeals({ th, user, dealAuth }) {
                               {dt.notes ? <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.1rem' }}>{dt.notes}</div> : null}
                             </div>
                             <div style={{ display: 'flex', gap: '0.3rem', flexShrink: 0, flexWrap: 'wrap' }}>
+                              <a href={gcalUrl(dt)} target="_blank" rel="noopener noreferrer" style={{ ...btn(th), background: '#4285f41f', border: '1px solid #4285f455', color: '#4285f4', padding: '2px 8px', fontSize: '0.68rem', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>📅 Google</a>
                               {canEdit && (
                                 <button onClick={() => isRemindOpen ? setRemindFor(null) : openReminder(dt)}
-                                  style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#a855f7' }}>📱 Remind</button>
+                                  style={{ ...btn(th), background: '#a855f71f', border: '1px solid #a855f755', padding: '2px 8px', fontSize: '0.68rem', color: '#a855f7' }}>📱 Remind</button>
                               )}
                               {canEdit && !dt.acknowledged_at && (
                                 <>
-                                  <button onClick={() => doAck(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#22c55e' }}>Acknowledge</button>
-                                  <button onClick={() => doDelDate(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#ef4444' }}>Delete</button>
+                                  <button onClick={() => doAck(dt.id)} style={{ ...btn(th), background: '#22c55e1f', border: '1px solid #22c55e55', padding: '2px 8px', fontSize: '0.68rem', color: '#22c55e' }}>Acknowledge</button>
+                                  <button onClick={() => doDelDate(dt.id)} style={{ ...btn(th), background: '#ef44441f', border: '1px solid #ef444455', padding: '2px 8px', fontSize: '0.68rem', color: '#ef4444' }}>Delete</button>
                                 </>
                               )}
                               {canEdit && dt.acknowledged_at && (
-                                <button onClick={() => doDelDate(dt.id)} style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', color: '#ef4444' }}>Delete</button>
+                                <button onClick={() => doDelDate(dt.id)} style={{ ...btn(th), background: '#ef44441f', border: '1px solid #ef444455', padding: '2px 8px', fontSize: '0.68rem', color: '#ef4444' }}>Delete</button>
                               )}
                             </div>
                           </div>
@@ -25756,7 +25768,7 @@ function AdminDeals({ th, user, dealAuth }) {
         ))}
         {(filterBrand !== 'all' || filterType !== 'all' || filterState !== 'all' || filterStage !== 'all' || filterLead !== 'all') && (
           <button onClick={() => { setFilterBrand('all'); setFilterType('all'); setFilterState('all'); setFilterStage('all'); setFilterLead('all'); }}
-            style={{ ...btn(th), padding: '0.35rem 0.7rem', fontSize: '0.78rem', color: '#ef4444' }}>
+            style={{ ...btn(th), background: '#ef44441f', border: '1px solid #ef444455', padding: '0.35rem 0.7rem', fontSize: '0.78rem', color: '#ef4444' }}>
             Clear
           </button>
         )}
@@ -33331,7 +33343,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.47
+            v14.48
             <SyncStatus dark={dark} />
           </div>
         )}
