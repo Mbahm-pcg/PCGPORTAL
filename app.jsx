@@ -24682,6 +24682,7 @@ function AdminDeals({ th, user, dealAuth }) {
   const [newDateDue, setNewDateDue] = useState('');
   const [newDateTiers, setNewDateTiers] = useState(DATE_TYPES[0]?.defaultTiers?.join(',') || '');
   const [newDateNotes, setNewDateNotes] = useState('');
+  const [newDateRecurring, setNewDateRecurring] = useState('');
   const [dateAdding, setDateAdding] = useState(false);
   const [dateErr, setDateErr] = useState(null);
   // ── access panel state ──
@@ -25294,11 +25295,11 @@ function AdminDeals({ th, user, dealAuth }) {
               if (!newDateDue) { setDateErr('Due date is required'); return; }
               const parsedTiers = newDateTiers.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
               setDateAdding(true); setDateErr(null);
-              dealApi(token, { action: 'addDate', deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, notes: newDateNotes })
+              dealApi(token, { action: 'addDate', deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, recurring: newDateRecurring || null, notes: newDateNotes })
                 .then(() => dealApi(token, { action: 'get', id: d.id }))
                 .then(r => {
                   setDetailDates(r.dates || []);
-                  setNewDateDue(''); setNewDateNotes('');
+                  setNewDateDue(''); setNewDateNotes(''); setNewDateRecurring('');
                   const dt = DATE_TYPES.find(t => t.id === newDateType);
                   setNewDateTiers(dt?.defaultTiers?.join(',') || '');
                 })
@@ -25377,6 +25378,9 @@ function AdminDeals({ th, user, dealAuth }) {
                                 <span style={{ fontSize: '0.75rem', color: th.muted }}>{fmtDealDate(dt.due_date)}</span>
                                 <span style={{ fontSize: '0.75rem', color: th.muted }}>·</span>
                                 <span style={{ fontSize: '0.72rem', fontWeight: 700, color: statusColor }}>{statusText}</span>
+                                {dt.recurring && (
+                                  <span title={`Recurring (${dt.recurring})`} style={{ fontSize: '0.72rem', color: th.muted, fontWeight: 700 }}>🔁 {dt.recurring}</span>
+                                )}
                                 {tiers.length > 0 && (
                                   <span style={{ display: 'inline-flex', gap: '0.2rem' }}>
                                     {tiers.map((t, i) => (
@@ -25473,6 +25477,13 @@ function AdminDeals({ th, user, dealAuth }) {
                       <input value={newDateTiers} onChange={e => setNewDateTiers(e.target.value)}
                         placeholder="Warning tiers (e.g. 30,14,7)"
                         style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} />
+                      <select value={newDateRecurring} onChange={e => setNewDateRecurring(e.target.value)}
+                        style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}>
+                        <option value="">Does not recur</option>
+                        <option value="monthly">🔁 Recurring — Monthly</option>
+                        <option value="quarterly">🔁 Recurring — Quarterly</option>
+                        <option value="annual">🔁 Recurring — Annual</option>
+                      </select>
                       <input value={newDateNotes} onChange={e => setNewDateNotes(e.target.value)}
                         placeholder="Notes (optional)"
                         style={{ ...selLabel, padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} />
@@ -33291,7 +33302,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.44
+            v14.45
             <SyncStatus dark={dark} />
           </div>
         )}

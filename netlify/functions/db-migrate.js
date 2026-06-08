@@ -128,6 +128,10 @@ exports.handler = async (event) => {
     )
   `;
 
+  // Idempotent column adds for deal_dates (in case the table predates these columns).
+  await db`ALTER TABLE deal_dates ADD COLUMN IF NOT EXISTS recurring TEXT`;
+  await db`ALTER TABLE deal_dates ADD COLUMN IF NOT EXISTS warning_tiers JSONB DEFAULT '[]'::jsonb`;
+
   await db`CREATE INDEX IF NOT EXISTS idx_deals_status_stage ON deals(status, stage)`;
   await db`CREATE INDEX IF NOT EXISTS idx_deal_dates_due ON deal_dates(due_date)`;
 

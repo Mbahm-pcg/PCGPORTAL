@@ -18596,6 +18596,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [newDateDue, setNewDateDue] = useState("");
     const [newDateTiers, setNewDateTiers] = useState(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
     const [newDateNotes, setNewDateNotes] = useState("");
+    const [newDateRecurring, setNewDateRecurring] = useState("");
     const [dateAdding, setDateAdding] = useState(false);
     const [dateErr, setDateErr] = useState(null);
     const [showAccess, setShowAccess] = useState(false);
@@ -18982,10 +18983,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           const parsedTiers = newDateTiers.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n) && n > 0);
           setDateAdding(true);
           setDateErr(null);
-          dealApi(token, { action: "addDate", deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, notes: newDateNotes }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
+          dealApi(token, { action: "addDate", deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, recurring: newDateRecurring || null, notes: newDateNotes }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
             setDetailDates(r.dates || []);
             setNewDateDue("");
             setNewDateNotes("");
+            setNewDateRecurring("");
             const dt = DATE_TYPES.find((t) => t.id === newDateType);
             setNewDateTiers(dt?.defaultTiers?.join(",") || "");
           }).then(() => loadList()).catch((e) => setDateErr(e.message)).finally(() => setDateAdding(false));
@@ -19041,7 +19043,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
               setRemindBusy(false);
             }
           };
-          return /* @__PURE__ */ React.createElement("div", { key: dt.id }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, dateLabel(dt.date_type)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, fmtDealDate(dt.due_date)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: statusColor } }, statusText), tiers.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.2rem" } }, tiers.map((t, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", padding: "1px 5px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.6rem", fontWeight: 700 } }, t)))), dt.acknowledged_at ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#22c55e" } }, "\u2713 ack'd by ", dt.acknowledged_by || "unknown") : null, dt.notes ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem" } }, dt.notes) : null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap" } }, canEdit && /* @__PURE__ */ React.createElement(
+          return /* @__PURE__ */ React.createElement("div", { key: dt.id }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, dateLabel(dt.date_type)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, fmtDealDate(dt.due_date)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: statusColor } }, statusText), dt.recurring && /* @__PURE__ */ React.createElement("span", { title: `Recurring (${dt.recurring})`, style: { fontSize: "0.72rem", color: th.muted, fontWeight: 700 } }, "\u{1F501} ", dt.recurring), tiers.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.2rem" } }, tiers.map((t, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", padding: "1px 5px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.6rem", fontWeight: 700 } }, t)))), dt.acknowledged_at ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#22c55e" } }, "\u2713 ack'd by ", dt.acknowledged_by || "unknown") : null, dt.notes ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem" } }, dt.notes) : null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap" } }, canEdit && /* @__PURE__ */ React.createElement(
             "button",
             {
               onClick: () => isRemindOpen ? setRemindFor(null) : openReminder(dt),
@@ -19112,6 +19114,17 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             placeholder: "Warning tiers (e.g. 30,14,7)",
             style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
           }
+        ), /* @__PURE__ */ React.createElement(
+          "select",
+          {
+            value: newDateRecurring,
+            onChange: (e) => setNewDateRecurring(e.target.value),
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          },
+          /* @__PURE__ */ React.createElement("option", { value: "" }, "Does not recur"),
+          /* @__PURE__ */ React.createElement("option", { value: "monthly" }, "\u{1F501} Recurring \u2014 Monthly"),
+          /* @__PURE__ */ React.createElement("option", { value: "quarterly" }, "\u{1F501} Recurring \u2014 Quarterly"),
+          /* @__PURE__ */ React.createElement("option", { value: "annual" }, "\u{1F501} Recurring \u2014 Annual")
         ), /* @__PURE__ */ React.createElement(
           "input",
           {
@@ -25155,7 +25168,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.44", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.45", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

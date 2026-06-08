@@ -94,16 +94,18 @@ exports.handler = async (event) => {
       return reply(200, { notes });
     }
     if (action === 'addDate') {
+      const recurring = ['monthly', 'quarterly', 'annual'].includes(body.recurring) ? body.recurring : null;
       const [row] = await db`
-        INSERT INTO deal_dates (deal_id, date_type, due_date, warning_tiers, notes)
-        VALUES (${body.deal_id}, ${body.date_type}, ${body.due_date}, ${JSON.stringify(body.warning_tiers || [])}::jsonb, ${body.notes || null})
+        INSERT INTO deal_dates (deal_id, date_type, due_date, warning_tiers, recurring, notes)
+        VALUES (${body.deal_id}, ${body.date_type}, ${body.due_date}, ${JSON.stringify(body.warning_tiers || [])}::jsonb, ${recurring}, ${body.notes || null})
         RETURNING *`;
       return reply(200, { date: row });
     }
     if (action === 'updateDate') {
+      const recurring = ['monthly', 'quarterly', 'annual'].includes(body.recurring) ? body.recurring : null;
       const [row] = await db`
         UPDATE deal_dates SET date_type = ${body.date_type}, due_date = ${body.due_date},
-          warning_tiers = ${JSON.stringify(body.warning_tiers || [])}::jsonb, notes = ${body.notes || null}
+          warning_tiers = ${JSON.stringify(body.warning_tiers || [])}::jsonb, recurring = ${recurring}, notes = ${body.notes || null}
         WHERE id = ${body.id} RETURNING *`;
       return reply(200, { date: row });
     }
