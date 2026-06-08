@@ -18601,6 +18601,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [saveMsg, setSaveMsg] = useState(null);
     const [newNote, setNewNote] = useState("");
     const [addingNote, setAddingNote] = useState(false);
+    const [noteErr, setNoteErr] = useState(null);
+    const [actionErr, setActionErr] = useState(null);
     const [showCreate, setShowCreate] = useState(false);
     const [createForm, setCreateForm] = useState({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
     const [creating, setCreating] = useState(false);
@@ -18765,16 +18767,21 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const TypeChip = ({ type }) => /* @__PURE__ */ React.createElement(Chip, { label: type === "lease" ? "Lease" : "Purchase", color: type === "lease" ? "#22c55e" : "#f59e0b", small: true });
     const StageChip = ({ stage }) => /* @__PURE__ */ React.createElement(Chip, { label: STAGE_MAP[stage] || stage, color: STAGE_COLORS[stage] || "#64748b", small: true });
     const doMoveStage = (deal, newStage) => {
+      setActionErr(null);
       setDeals((prev) => prev.map((d) => d.id === deal.id ? { ...d, stage: newStage } : d));
       if (detailDeal?.id === deal.id) setDetailDeal((prev) => ({ ...prev, stage: newStage }));
-      dealApi(token, { action: "moveStage", id: deal.id, stage: newStage }).catch(() => {
+      dealApi(token, { action: "moveStage", id: deal.id, stage: newStage }).catch((e) => {
         setDeals((prev) => prev.map((d) => d.id === deal.id ? { ...d, stage: deal.stage } : d));
+        setActionErr(`Could not move "${deal.name}": ${e.message}`);
       });
     };
     const doHandoff = (deal) => {
       if (!window.confirm(`Hand off "${deal.name}" to construction?`)) return;
-      dealApi(token, { action: "handoff", id: deal.id }).then(() => setDeals((prev) => prev.filter((d) => d.id !== deal.id))).catch((e) => alert("Handoff failed: " + e.message));
-      if (detailDeal?.id === deal.id) closeDetail();
+      setActionErr(null);
+      dealApi(token, { action: "handoff", id: deal.id }).then(() => {
+        setDeals((prev) => prev.filter((d) => d.id !== deal.id));
+        if (detailDeal?.id === deal.id) closeDetail();
+      }).catch((e) => setActionErr(`Handoff failed: ${e.message}`));
     };
     const doMarkDead = (deal) => {
       if (!canEdit) return;
@@ -18811,10 +18818,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const doAddNote = () => {
       if (!newNote.trim()) return;
       setAddingNote(true);
+      setNoteErr(null);
       dealApi(token, { action: "addNote", id: detailDeal.id, note: newNote.trim() }).then((r) => {
         setDetailNotes(r.notes || []);
         setNewNote("");
-      }).catch((e) => alert("Failed: " + e.message)).finally(() => setAddingNote(false));
+      }).catch((e) => setNoteErr(e.message)).finally(() => setAddingNote(false));
     };
     const doCreate = () => {
       if (!createForm.name.trim()) {
@@ -18848,11 +18856,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const selLabel = inp(th);
     const KanbanView = () => {
       const stageOrder = STAGES.map((s) => s.id);
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", overflowX: "auto", paddingBottom: "1rem", alignItems: "flex-start" } }, stageOrder.map((stageId, si) => {
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", overflowX: "auto", paddingBottom: "1rem", alignItems: "flex-start", WebkitOverflowScrolling: "touch", scrollSnapType: "x proximity" } }, stageOrder.map((stageId, si) => {
         const stageDeals = filtered.filter((d) => d.stage === stageId);
         const color = STAGE_COLORS[stageId] || "#64748b";
         const isLast = si === stageOrder.length - 1;
-        return /* @__PURE__ */ React.createElement("div", { key: stageId, style: { minWidth: 220, maxWidth: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.5rem", borderRadius: "0.5rem", background: `${color}18`, borderBottom: `2px solid ${color}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 800, color, letterSpacing: 0.5, textTransform: "uppercase" } }, STAGE_MAP[stageId]), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.68rem", background: `${color}33`, color, borderRadius: 999, padding: "1px 7px", fontWeight: 700 } }, stageDeals.length)), stageDeals.map((deal) => {
+        return /* @__PURE__ */ React.createElement("div", { key: stageId, style: { minWidth: 220, maxWidth: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: "0.5rem", scrollSnapAlign: "start" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.5rem", borderRadius: "0.5rem", background: `${color}18`, borderBottom: `2px solid ${color}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 800, color, letterSpacing: 0.5, textTransform: "uppercase" } }, STAGE_MAP[stageId]), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.68rem", background: `${color}33`, color, borderRadius: 999, padding: "1px 7px", fontWeight: 700 } }, stageDeals.length)), stageDeals.map((deal) => {
           const prevStage = stageOrder[si - 1];
           const nextStage = stageOrder[si + 1];
           const flag = dealDeadlineFlag(datesByDeal[deal.id], Date.now());
@@ -18985,7 +18993,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           style: { ...btn(th), padding: "0.4rem 0.8rem", fontSize: "0.8rem" }
         },
         addingNote ? "\u2026" : "Add"
-      ))), (() => {
+      )), noteErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#ef4444", marginTop: "0.4rem" } }, "Error: ", noteErr)), (() => {
         const nowMsD = Date.now();
         const sortedDates = [...detailDates].sort((a, b) => (a.due_date || "").localeCompare(b.due_date || ""));
         const doAck = (dateId) => {
@@ -19212,7 +19220,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         const sortedDocs = [...docs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Documents"), docErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.5rem" } }, "Error: ", docErr), sortedDocs.length === 0 && !docBusy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" } }, "No documents yet."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "0.75rem" } }, sortedDocs.map((doc) => {
           const versions = [...docVersions.filter((v) => v.document_id === doc.id)].sort((a, b) => b.version_no - a.version_no);
-          return /* @__PURE__ */ React.createElement("div", { key: doc.id, style: { ...card(th), padding: "0.65rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem", flexWrap: "wrap", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 7px", borderRadius: 999, background: "#3b82f622", color: "#3b82f6", fontSize: "0.62rem", fontWeight: 700, letterSpacing: 0.3 } }, DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, doc.title || "\u2014")), canEdit && /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", opacity: docBusy ? 0.5 : 1 } }, "\u2191 New version"), /* @__PURE__ */ React.createElement("input", { type: "file", style: { display: "none" }, disabled: docBusy, onChange: (e) => doUploadVersion(doc, e) }))), versions.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No versions uploaded."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, versions.map((v) => /* @__PURE__ */ React.createElement("div", { key: v.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 6px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.62rem", fontWeight: 700 } }, "v", v.version_no), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 500 } }, v.filename), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtBytes(v.size)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, v.uploaded_by), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtDate(v.uploaded_at)), /* @__PURE__ */ React.createElement(
+          return /* @__PURE__ */ React.createElement("div", { key: doc.id, style: { ...card(th), padding: "0.65rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem", flexWrap: "wrap", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 7px", borderRadius: 999, background: "#3b82f622", color: "#3b82f6", fontSize: "0.62rem", fontWeight: 700, letterSpacing: 0.3 } }, DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, doc.title || "\u2014")), canEdit && /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", opacity: docBusy ? 0.5 : 1 } }, "\u2191 New version"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv", style: { display: "none" }, disabled: docBusy, onChange: (e) => doUploadVersion(doc, e) }))), versions.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No versions uploaded."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, versions.map((v) => /* @__PURE__ */ React.createElement("div", { key: v.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 6px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.62rem", fontWeight: 700 } }, "v", v.version_no), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 500 } }, v.filename), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtBytes(v.size)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, v.uploaded_by), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtDate(v.uploaded_at)), /* @__PURE__ */ React.createElement(
             "button",
             {
               onClick: () => dealDownloadVersion(token, v.id),
@@ -19228,7 +19236,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem", minWidth: 130 }
           },
           DOC_TYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))
-        ), /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", opacity: docBusy ? 0.5 : 1, display: "inline-block" } }, docBusy ? "Uploading\u2026" : "Upload Document"), /* @__PURE__ */ React.createElement("input", { type: "file", style: { display: "none" }, disabled: docBusy, onChange: doUploadNew }))));
+        ), /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", opacity: docBusy ? 0.5 : 1, display: "inline-block" } }, docBusy ? "Uploading\u2026" : "Upload Document"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv", style: { display: "none" }, disabled: docBusy, onChange: doUploadNew }))));
       })()));
     };
     const CreateModal = () => {
@@ -19317,7 +19325,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         style: { ...btn(th), padding: "0.35rem 0.7rem", fontSize: "0.78rem", color: "#ef4444" }
       },
       "Clear"
-    )), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), DetailModal(), CreateModal(), canEdit && deadFor && /* @__PURE__ */ React.createElement(
+    )), actionErr && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", background: "#ef444418", border: "1px solid #ef444455", color: "#ef4444", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", marginBottom: "0.75rem", fontSize: "0.8rem", fontWeight: 600 } }, /* @__PURE__ */ React.createElement("span", { style: { flex: 1 } }, actionErr), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionErr(null), style: { background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "0.9rem", lineHeight: 1 } }, "\xD7")), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), DetailModal(), CreateModal(), canEdit && deadFor && /* @__PURE__ */ React.createElement(
       "div",
       {
         style: { position: "fixed", inset: 0, zIndex: 1e4, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
@@ -25194,7 +25202,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.46", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.47", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

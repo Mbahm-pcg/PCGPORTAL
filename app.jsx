@@ -24680,6 +24680,8 @@ function AdminDeals({ th, user, dealAuth }) {
   const [saveMsg, setSaveMsg] = useState(null);
   const [newNote, setNewNote] = useState('');
   const [addingNote, setAddingNote] = useState(false);
+  const [noteErr, setNoteErr] = useState(null);
+  const [actionErr, setActionErr] = useState(null); // inline surfacing for stage-move / handoff failures
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', deal_type: 'lease', brand: 'dunkin', state: 'PA', address: '', deal_lead: '' });
   const [creating, setCreating] = useState(false);
@@ -24858,19 +24860,21 @@ function AdminDeals({ th, user, dealAuth }) {
 
   // ── move stage ──
   const doMoveStage = (deal, newStage) => {
+    setActionErr(null);
     setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, stage: newStage } : d));
     if (detailDeal?.id === deal.id) setDetailDeal(prev => ({ ...prev, stage: newStage }));
-    dealApi(token, { action: 'moveStage', id: deal.id, stage: newStage }).catch(() => {
+    dealApi(token, { action: 'moveStage', id: deal.id, stage: newStage }).catch(e => {
       setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, stage: deal.stage } : d));
+      setActionErr(`Could not move "${deal.name}": ${e.message}`);
     });
   };
 
   const doHandoff = (deal) => {
     if (!window.confirm(`Hand off "${deal.name}" to construction?`)) return;
+    setActionErr(null);
     dealApi(token, { action: 'handoff', id: deal.id })
-      .then(() => setDeals(prev => prev.filter(d => d.id !== deal.id)))
-      .catch(e => alert('Handoff failed: ' + e.message));
-    if (detailDeal?.id === deal.id) closeDetail();
+      .then(() => { setDeals(prev => prev.filter(d => d.id !== deal.id)); if (detailDeal?.id === deal.id) closeDetail(); })
+      .catch(e => setActionErr(`Handoff failed: ${e.message}`));
   };
 
   const doMarkDead = (deal) => {
@@ -24914,10 +24918,10 @@ function AdminDeals({ th, user, dealAuth }) {
 
   const doAddNote = () => {
     if (!newNote.trim()) return;
-    setAddingNote(true);
+    setAddingNote(true); setNoteErr(null);
     dealApi(token, { action: 'addNote', id: detailDeal.id, note: newNote.trim() })
       .then(r => { setDetailNotes(r.notes || []); setNewNote(''); })
-      .catch(e => alert('Failed: ' + e.message))
+      .catch(e => setNoteErr(e.message))
       .finally(() => setAddingNote(false));
   };
 
@@ -24960,13 +24964,13 @@ function AdminDeals({ th, user, dealAuth }) {
   const KanbanView = () => {
     const stageOrder = STAGES.map(s => s.id);
     return (
-      <div style={{ display: 'flex', gap: '0.75rem', overflowX: 'auto', paddingBottom: '1rem', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: '0.75rem', overflowX: 'auto', paddingBottom: '1rem', alignItems: 'flex-start', WebkitOverflowScrolling: 'touch', scrollSnapType: 'x proximity' }}>
         {stageOrder.map((stageId, si) => {
           const stageDeals = filtered.filter(d => d.stage === stageId);
           const color = STAGE_COLORS[stageId] || '#64748b';
           const isLast = si === stageOrder.length - 1;
           return (
-            <div key={stageId} style={{ minWidth: 220, maxWidth: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div key={stageId} style={{ minWidth: 220, maxWidth: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', scrollSnapAlign: 'start' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.5rem', borderRadius: '0.5rem', background: `${color}18`, borderBottom: `2px solid ${color}` }}>
                 <span style={{ fontSize: '0.72rem', fontWeight: 800, color, letterSpacing: 0.5, textTransform: 'uppercase' }}>{STAGE_MAP[stageId]}</span>
                 <span style={{ marginLeft: 'auto', fontSize: '0.68rem', background: `${color}33`, color, borderRadius: 999, padding: '1px 7px', fontWeight: 700 }}>{stageDeals.length}</span>
@@ -25282,6 +25286,7 @@ function AdminDeals({ th, user, dealAuth }) {
                 </button>
               </div>
             )}
+            {noteErr && <div style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '0.4rem' }}>Error: {noteErr}</div>}
           </div>
 
           {/* Documents */}
@@ -25584,7 +25589,7 @@ function AdminDeals({ th, user, dealAuth }) {
                           {canEdit && (
                             <label style={{ cursor: docBusy ? 'not-allowed' : 'pointer' }}>
                               <span style={{ ...btn(th), padding: '2px 8px', fontSize: '0.68rem', opacity: docBusy ? 0.5 : 1 }}>↑ New version</span>
-                              <input type="file" style={{ display: 'none' }} disabled={docBusy} onChange={e => doUploadVersion(doc, e)} />
+                              <input type="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv" style={{ display: 'none' }} disabled={docBusy} onChange={e => doUploadVersion(doc, e)} />
                             </label>
                           )}
                         </div>
@@ -25625,7 +25630,7 @@ function AdminDeals({ th, user, dealAuth }) {
                       <span style={{ ...btn(th), padding: '0.35rem 0.8rem', fontSize: '0.8rem', opacity: docBusy ? 0.5 : 1, display: 'inline-block' }}>
                         {docBusy ? 'Uploading…' : 'Upload Document'}
                       </span>
-                      <input type="file" style={{ display: 'none' }} disabled={docBusy} onChange={doUploadNew} />
+                      <input type="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv" style={{ display: 'none' }} disabled={docBusy} onChange={doUploadNew} />
                     </label>
                   </div>
                 )}
@@ -25756,6 +25761,14 @@ function AdminDeals({ th, user, dealAuth }) {
           </button>
         )}
       </div>
+
+      {/* Inline error banner for board-level actions (stage move / handoff) */}
+      {actionErr && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#ef444418', border: '1px solid #ef444455', color: '#ef4444', borderRadius: '0.5rem', padding: '0.5rem 0.75rem', marginBottom: '0.75rem', fontSize: '0.8rem', fontWeight: 600 }}>
+          <span style={{ flex: 1 }}>{actionErr}</span>
+          <button onClick={() => setActionErr(null)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 800, fontSize: '0.9rem', lineHeight: 1 }}>×</button>
+        </div>
+      )}
 
       {/* Main view */}
       {view === 'kanban' ? <KanbanView /> : <TableView />}
@@ -33318,7 +33331,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.46
+            v14.47
             <SyncStatus dark={dark} />
           </div>
         )}
