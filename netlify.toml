@@ -51,6 +51,11 @@
 # [functions.email-sync-cron]
 #   schedule = "0 * * * *"
 
+# NDCP supply-order email sync — every 6 hours. Pulls new/updated National DCP
+# order emails (from:natdcp.com) into the ndcp_orders table. Incremental + idempotent.
+[functions.ndcp-sync-cron]
+  schedule = "0 */6 * * *"
+
 # Google Reviews + sentiment — Sunday 1 AM ET (05:00 UTC)
 [functions.reviews-cron]
   schedule = "0 5 * * 0"

@@ -1,0 +1,70 @@
+// ndcp.js — read API for the NDCP Orders portal tab.
+// Reads the ndcp_orders table (populated by ndcp-backfill / ndcp-sync-cron).
+// Consistent with the portal's other read endpoints (pulse, storage), this is
+// unauthenticated; tab visibility is gated client-side by role. No writes here.
+//
+// Actions:
+//   list    → latest version of each distinct order (+ version count + original total)
+//   detail  → every version of one order_number (full line items), oldest → newest
+const { sql } = require('./db');
+
+const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Content-Type': 'application/json' };
+const reply = (code, obj) => ({ statusCode: code, headers: cors, body: JSON.stringify(obj) });
+
+exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
+  let body = {};
+  try { body = JSON.parse(event.body || '{}'); } catch { return reply(400, { error: 'bad json' }); }
+  const action = body.action || 'list';
+  const db = sql();
+
+  try {
+    if (action === 'list') {
+      // Latest version per order_number, joined to a per-order version count and
+      // the original ("new") total so the UI can show the revision delta.
+      const rows = await db`
+        WITH latest AS (
+          SELECT DISTINCT ON (order_number) *
+          FROM ndcp_orders
+          WHERE order_number IS NOT NULL
+          ORDER BY order_number, email_date DESC NULLS LAST
+        ),
+        counts AS (
+          SELECT order_number,
+                 count(*)::int AS versions,
+                 count(*) FILTER (WHERE email_type = 'revision')::int AS revisions,
+                 (array_agg(total_order ORDER BY email_date ASC NULLS LAST))[1] AS orig_total
+          FROM ndcp_orders
+          WHERE order_number IS NOT NULL
+          GROUP BY order_number
+        )
+        SELECT l.order_number, l.store_name, l.account, l.email_type, l.email_date,
+               l.date_ordered, l.date_shipped, l.warehouse, l.terms,
+               l.total_order, l.item_subtotal, l.tax, l.item_count, l.subject,
+               c.versions, c.revisions, c.orig_total
+        FROM latest l JOIN counts c USING (order_number)
+        ORDER BY l.email_date DESC NULLS LAST`;
+      return reply(200, { orders: rows });
+    }
+
+    if (action === 'detail') {
+      const orderNumber = String(body.order_number || '');
+      if (!orderNumber) return reply(400, { error: 'order_number required' });
+      const versions = await db`
+        SELECT message_id, email_type, subject, email_from, email_date,
+               date_created, date_ordered, date_shipped, created_by, warehouse, terms,
+               account, store_name, ship_to,
+               item_subtotal, tax, freight, discount, total_order, balance_due,
+               category_subtotals, line_items, item_count
+        FROM ndcp_orders
+        WHERE order_number = ${orderNumber}
+        ORDER BY email_date ASC NULLS LAST`;
+      if (!versions.length) return reply(404, { error: 'not found' });
+      return reply(200, { order_number: orderNumber, versions });
+    }
+
+    return reply(400, { error: 'unknown action' });
+  } catch (e) {
+    return reply(500, { error: 'server error' });
+  }
+};

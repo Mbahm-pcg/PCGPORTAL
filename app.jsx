@@ -16438,6 +16438,7 @@ const getTabs = (user) => {
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
     { id: "labor",     label: "Labor",          icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "P&L",            icon: (c) => ICONS.dollar(c) },
+    { id: "ndcp",      label: "NDCP Orders",    icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
@@ -16458,6 +16459,7 @@ const getTabs = (user) => {
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
     { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "P&L",          icon: (c) => ICONS.dollar(c) },
+    { id: "ndcp",      label: "NDCP Orders",  icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
@@ -24006,6 +24008,247 @@ function PnLStoreDetail({ store, th, onClose }) {
 }
 
 // ─── AdminDeals ──────────────────────────────────────────────────────────────
+// ─── NDCP Orders ────────────────────────────────────────────────────────────
+// Browse National DCP supply orders ingested from the reports@ mailbox. Shows the
+// latest version of each order with a revision badge + dollar delta; click through
+// for the full version history and line items. Read-only (data from ndcp.js).
+function AdminNdcp({ th, user }) {
+  const [orders, setOrders] = useState(null);   // null = loading
+  const [err, setErr] = useState(null);
+  const [q, setQ] = useState('');
+  const [storeFilter, setStoreFilter] = useState('');
+  const [sel, setSel] = useState(null);          // selected order_number
+  const [detail, setDetail] = useState(null);    // { versions: [...] }
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const api = (payload) => fetch('/.netlify/functions/ndcp', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  }).then(r => r.json());
+
+  useEffect(() => {
+    api({ action: 'list' })
+      .then(r => { if (r.error) { setErr(r.error); setOrders([]); } else setOrders(r.orders || []); })
+      .catch(() => { setErr('Failed to load NDCP orders'); setOrders([]); });
+  }, []);
+
+  // NDCP dates are already MM/DD/YYYY strings; fall back to the email date (ISO → MM/DD/YYYY).
+  const fmtDate = (o) => {
+    if (o && o.date_ordered) return String(o.date_ordered).trim();
+    const ymd = String(o?.email_date || '').slice(0, 10).split('-');
+    return ymd.length === 3 ? `${ymd[1]}/${ymd[2]}/${ymd[0]}` : '—';
+  };
+  const num = (v) => (v == null ? 0 : Number(v));
+
+  const openDetail = (orderNumber) => {
+    setSel(orderNumber); setDetail(null); setDetailLoading(true);
+    api({ action: 'detail', order_number: orderNumber })
+      .then(r => { setDetail(r); setDetailLoading(false); })
+      .catch(() => { setDetail({ error: 'Failed to load' }); setDetailLoading(false); });
+  };
+
+  const list = orders || [];
+  const stores = [...new Set(list.map(o => o.store_name).filter(Boolean))].sort();
+  const ql = q.trim().toLowerCase();
+  const filtered = list.filter(o => {
+    if (storeFilter && o.store_name !== storeFilter) return false;
+    if (!ql) return true;
+    return String(o.order_number || '').toLowerCase().includes(ql)
+        || String(o.store_name || '').toLowerCase().includes(ql)
+        || String(o.account || '').toLowerCase().includes(ql);
+  });
+
+  const totalSpend = filtered.reduce((s, o) => s + num(o.total_order), 0);
+  const revisedCount = filtered.filter(o => num(o.revisions) > 0).length;
+  const dates = list.map(o => String(o.email_date || '').slice(0, 10)).filter(Boolean).sort();
+  const dateRange = dates.length ? `${dates[0]} → ${dates[dates.length - 1]}` : '—';
+
+  const O = '#FF671F';
+  const cardBox = { background: th.card, border: `1px solid ${th.sidebarBorder || '#3a3a3a'}`, borderRadius: 12, padding: '1rem 1.25rem' };
+
+  const StatCard = ({ label, value, sub }) => (
+    <div style={{ ...cardBox, flex: 1, minWidth: 150 }}>
+      <div style={{ fontSize: '0.75rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontSize: '1.5rem', fontWeight: 800, fontFamily: "'Raleway'", color: th.text, marginTop: 4 }}>{value}</div>
+      {sub && <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ padding: '1.25rem', maxWidth: 1300, margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+        <h1 style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.6rem', color: th.text, margin: 0 }}>NDCP Orders</h1>
+        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: O, background: `${O}1a`, padding: '3px 9px', borderRadius: 999 }}>National DCP</span>
+      </div>
+      <p style={{ color: th.muted, fontSize: '0.85rem', margin: '0 0 1rem' }}>
+        Supply orders auto-imported from the orders mailbox. Each row is the latest version of an order — open one to see its revision history and line items.
+      </p>
+
+      {orders === null ? (
+        <div style={{ color: th.muted, padding: '2rem 0' }}>Loading orders…</div>
+      ) : err ? (
+        <div style={{ ...cardBox, color: '#ef4444' }}>Couldn’t load orders: {err}</div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <StatCard label="Orders" value={filtered.length} sub={`${list.length} total`} />
+            <StatCard label="Latest-version spend" value={fmtDollars(totalSpend)} sub="sum of current totals" />
+            <StatCard label="Revised orders" value={revisedCount} sub="have ≥1 update" />
+            <StatCard label="Date range" value={dateRange} />
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+            <input
+              value={q} onChange={e => setQ(e.target.value)}
+              placeholder="Search order #, store, or account…"
+              style={{ flex: 1, minWidth: 220, padding: '0.55rem 0.8rem', borderRadius: 8, border: `1px solid ${th.sidebarBorder || '#3a3a3a'}`, background: th.bg, color: th.text, fontSize: '0.9rem' }}
+            />
+            <select
+              value={storeFilter} onChange={e => setStoreFilter(e.target.value)}
+              style={{ padding: '0.55rem 0.8rem', borderRadius: 8, border: `1px solid ${th.sidebarBorder || '#3a3a3a'}`, background: th.bg, color: th.text, fontSize: '0.9rem', minWidth: 200 }}
+            >
+              <option value="">All stores ({stores.length})</option>
+              {stores.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          <div style={{ ...cardBox, padding: 0, overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: th.card3 || th.bg, color: th.muted, textAlign: 'left' }}>
+                    {['Store', 'Order #', 'Ordered', 'Shipped', 'Items', 'Total', 'Versions'].map(h => (
+                      <th key={h} style={{ padding: '0.6rem 0.8rem', fontWeight: 700, whiteSpace: 'nowrap', position: 'sticky', top: 0 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.length === 0 && (
+                    <tr><td colSpan={7} style={{ padding: '1.5rem', textAlign: 'center', color: th.muted }}>No orders match.</td></tr>
+                  )}
+                  {filtered.map(o => {
+                    const delta = num(o.total_order) - num(o.orig_total);
+                    const revised = num(o.revisions) > 0;
+                    return (
+                      <tr key={o.order_number}
+                          onClick={() => openDetail(o.order_number)}
+                          style={{ borderTop: `1px solid ${th.sidebarBorder || '#3a3a3a'}`, cursor: 'pointer' }}
+                          onMouseEnter={e => e.currentTarget.style.background = th.card3 || th.bg}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <td style={{ padding: '0.55rem 0.8rem', color: th.text }}>
+                          {o.store_name || '—'}
+                          {o.account && <span style={{ color: th.muted, fontSize: '0.72rem', marginLeft: 6 }}>#{o.account}</span>}
+                        </td>
+                        <td style={{ padding: '0.55rem 0.8rem', color: th.text, fontWeight: 600 }}>{o.order_number}</td>
+                        <td style={{ padding: '0.55rem 0.8rem', color: th.muted, whiteSpace: 'nowrap' }}>{fmtDate(o)}</td>
+                        <td style={{ padding: '0.55rem 0.8rem', color: th.muted, whiteSpace: 'nowrap' }}>{(o.date_shipped || '—')}</td>
+                        <td style={{ padding: '0.55rem 0.8rem', color: th.muted }}>{o.item_count ?? '—'}</td>
+                        <td style={{ padding: '0.55rem 0.8rem', color: th.text, fontWeight: 700, whiteSpace: 'nowrap' }}>{fmtDollars(num(o.total_order))}</td>
+                        <td style={{ padding: '0.55rem 0.8rem', whiteSpace: 'nowrap' }}>
+                          {revised ? (
+                            <span title={`${o.revisions} revision(s)`} style={{ fontSize: '0.72rem', fontWeight: 700, color: '#f59e0b', background: '#f59e0b1a', padding: '2px 8px', borderRadius: 999 }}>
+                              {o.versions}× {delta !== 0 ? `(${delta > 0 ? '+' : ''}${fmtDollars(delta)})` : ''}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.72rem', color: th.muted }}>original</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {sel && (
+        <div onClick={() => setSel(null)}
+             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '3vh 1rem', overflowY: 'auto' }}>
+          <div onClick={e => e.stopPropagation()}
+               style={{ background: th.card, borderRadius: 14, maxWidth: 820, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', borderBottom: `1px solid ${th.sidebarBorder || '#3a3a3a'}` }}>
+              <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.15rem', color: th.text, margin: 0 }}>Order #{sel}</h2>
+              <button onClick={() => setSel(null)} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: '1.25rem', maxHeight: '80vh', overflowY: 'auto' }}>
+              {detailLoading || !detail ? (
+                <div style={{ color: th.muted }}>Loading…</div>
+              ) : detail.error ? (
+                <div style={{ color: '#ef4444' }}>{detail.error}</div>
+              ) : (() => {
+                const versions = detail.versions || [];
+                const latest = versions[versions.length - 1] || {};
+                const items = Array.isArray(latest.line_items) ? latest.line_items : [];
+                // Group line items by category for display.
+                const groups = {};
+                items.forEach(it => { (groups[it.category || 'Other'] ||= []).push(it); });
+                return (
+                  <>
+                    <div style={{ color: th.muted, fontSize: '0.82rem', marginBottom: 12 }}>
+                      {latest.store_name}{latest.account ? ` · acct #${latest.account}` : ''} · shipped {latest.date_shipped || '—'} · terms {latest.terms || '—'}
+                    </div>
+
+                    {/* Version timeline */}
+                    {versions.length > 1 && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', marginBottom: 6 }}>Revision history</div>
+                        {versions.map((v, i) => {
+                          const prev = versions[i - 1];
+                          const d = prev ? num(v.total_order) - num(prev.total_order) : 0;
+                          return (
+                            <div key={v.message_id || i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0.6rem', borderRadius: 8, background: i === versions.length - 1 ? `${O}14` : 'transparent', fontSize: '0.83rem' }}>
+                              <span style={{ color: th.text }}>
+                                <span style={{ fontWeight: 700, color: v.email_type === 'revision' ? '#f59e0b' : '#22c55e' }}>{v.email_type === 'revision' ? 'Updated' : 'New'}</span>
+                                <span style={{ color: th.muted, marginLeft: 8 }}>{v.date_ordered || String(v.email_date || '').slice(0, 10)} · {v.item_count} items</span>
+                              </span>
+                              <span style={{ color: th.text, fontWeight: 700 }}>
+                                {fmtDollars(num(v.total_order))}
+                                {prev && d !== 0 && <span style={{ color: d > 0 ? '#ef4444' : '#22c55e', fontSize: '0.75rem', marginLeft: 6 }}>{d > 0 ? '+' : ''}{fmtDollars(d)}</span>}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Totals */}
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14, fontSize: '0.85rem' }}>
+                      <span style={{ color: th.muted }}>Subtotal <b style={{ color: th.text }}>{fmtDollars(num(latest.item_subtotal))}</b></span>
+                      <span style={{ color: th.muted }}>Tax <b style={{ color: th.text }}>{fmtDollars(num(latest.tax))}</b></span>
+                      <span style={{ color: th.muted }}>Total <b style={{ color: O }}>{fmtDollars(num(latest.total_order))}</b></span>
+                    </div>
+
+                    {/* Line items by category */}
+                    {Object.keys(groups).map(cat => (
+                      <div key={cat} style={{ marginBottom: 12 }}>
+                        <div style={{ fontWeight: 700, color: O, fontSize: '0.82rem', marginBottom: 4 }}>{cat}</div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                          <tbody>
+                            {groups[cat].map((it, j) => (
+                              <tr key={j} style={{ borderTop: `1px solid ${th.sidebarBorder || '#3a3a3a'}` }}>
+                                <td style={{ padding: '0.3rem 0.5rem', color: th.muted, width: 40 }}>{it.qtyOrdered}</td>
+                                <td style={{ padding: '0.3rem 0.5rem', color: th.muted, width: 70 }}>{it.itemNumber}</td>
+                                <td style={{ padding: '0.3rem 0.5rem', color: th.text }}>{it.desc}</td>
+                                <td style={{ padding: '0.3rem 0.5rem', color: th.muted, textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtDollars(num(it.price))}</td>
+                                <td style={{ padding: '0.3rem 0.5rem', color: th.text, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtDollars(num(it.ext))}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminDeals({ th, user, dealAuth }) {
   const { token, role } = dealAuth;
   const canEdit = role === 'edit' || role === 'admin';
@@ -32129,7 +32372,7 @@ function PCGPortal() {
 
   // ─── Admin groups config ──────────────────────────────────────────────────
   const ADMIN_GROUPS = [
-    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'pnl', 'analytics', 'anomalies', 'scorecard'] },
+    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'pnl', 'ndcp', 'analytics', 'anomalies', 'scorecard'] },
     { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['cash', 'recon'] },
     { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'projects', 'deals', 'users'] },
     { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'settings'] },
@@ -32588,7 +32831,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.38
+            v14.39
           </div>
         )}
         {/* Collapse toggle — desktop only */}
@@ -33003,6 +33246,7 @@ function PCGPortal() {
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "ndcp" && <AdminNdcp th={th} user={user} />}
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
