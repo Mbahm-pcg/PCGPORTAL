@@ -24625,6 +24625,18 @@ function AdminDeals({ th, user, dealAuth }) {
   const { token, role } = dealAuth;
   const canEdit = role === 'edit' || role === 'admin';
 
+  // Relative time for the activity log (e.g. "just now", "3h ago", "2d ago"); falls back to date.
+  const relTime = (ts) => {
+    const t = new Date(ts).getTime();
+    if (Number.isNaN(t)) return '';
+    const s = Math.floor((Date.now() - t) / 1000);
+    if (s < 45) return 'just now';
+    if (s < 5400) { const m = Math.round(s / 60); return `${m}m ago`; }
+    if (s < 86400) { const h = Math.round(s / 3600); return `${h}h ago`; }
+    if (s < 7 * 86400) { const d = Math.round(s / 86400); return `${d}d ago`; }
+    return new Date(ts).toLocaleDateString();
+  };
+
   const STAGES = [
     { id: 'sourcing',               label: 'Sourcing' },
     { id: 'loi_out',                label: 'LOI Out' },
@@ -25239,20 +25251,24 @@ function AdminDeals({ th, user, dealAuth }) {
             </div>
           )}
 
-          {/* Notes */}
+          {/* Activity Log (notes + system events) */}
           <div>
-            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.6rem' }}>Notes</div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.6rem' }}>Activity Log</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
-              {detailNotes.length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted }}>No notes yet.</div>}
-              {detailNotes.map((n, i) => (
-                <div key={i} style={{ ...card(th), padding: '0.6rem 0.75rem' }}>
-                  <div style={{ fontSize: '0.68rem', color: th.muted, marginBottom: '0.2rem' }}>
+              {detailNotes.length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted }}>No activity yet.</div>}
+              {detailNotes.map((n, i) => {
+                const isSys = n.kind === 'system';
+                return (
+                <div key={i} style={{ ...card(th), padding: '0.6rem 0.75rem',
+                  ...(isSys ? { borderLeft: `3px solid ${O}`, background: th.bg, opacity: 0.95 } : {}) }}>
+                  <div style={{ fontSize: '0.68rem', color: th.muted, marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    {isSys && <span style={{ fontSize: '0.58rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, color: O, background: O + '22', padding: '0.05rem 0.35rem', borderRadius: 4 }}>System</span>}
                     <strong style={{ color: th.text }}>{n.author || 'Unknown'}</strong>
-                    {n.created_at ? ' · ' + new Date(n.created_at).toLocaleDateString() : ''}
+                    {n.created_at ? <span> · {relTime(n.created_at)}</span> : ''}
                   </div>
-                  <div style={{ fontSize: '0.82rem', color: th.text }}>{n.body || n.note}</div>
+                  <div style={{ fontSize: '0.82rem', color: th.text, fontStyle: isSys ? 'italic' : 'normal' }}>{n.body || n.note}</div>
                 </div>
-              ))}
+              ); })}
             </div>
             {canEdit && (
               <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -33302,7 +33318,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.45
+            v14.46
             <SyncStatus dark={dark} />
           </div>
         )}

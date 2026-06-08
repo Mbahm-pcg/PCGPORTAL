@@ -29,6 +29,11 @@ exports.handler = async (event) => {
   let body; try { body = JSON.parse(event.body || '{}'); } catch { return reply(400, { error: 'bad json' }); }
   const action = body.action;
   const db = sql();
+  // Lightweight system-event log into deal_notes (kind='system'). Best-effort: never throw.
+  const logSystem = async (dealId, text) => {
+    try { await db`INSERT INTO deal_notes (deal_id, author, body, kind) VALUES (${dealId}, ${user.username}, ${text}, 'system')`; } catch {}
+  };
+  const STAGE_LABELS = { sourcing:'Sourcing', loi_out:'LOI Out', loi_executed:'LOI Executed', due_diligence:'Due Diligence', negotiating:'Negotiating', executed:'Executed', closing:'Closing', ready_for_construction:'Ready for Construction' };
   const needWrite = ['create','update','moveStage','handoff','markDead','addNote','addDate','updateDate','deleteDate','ackDate','sendReminder'].includes(action);
   if (needWrite && !roleSatisfies(user.role, 'edit')) return reply(403, { error: 'read-only access' });
 
@@ -77,19 +82,26 @@ exports.handler = async (event) => {
     }
     if (action === 'moveStage') {
       if (!STAGES.includes(body.stage)) return reply(400, { error: 'invalid stage' });
+      const [prev] = await db`SELECT stage FROM deals WHERE id = ${body.id}`;
       const [row] = await db`UPDATE deals SET stage = ${body.stage}, updated_at = now() WHERE id = ${body.id} RETURNING *`;
+      if (row) {
+        const fromLbl = prev ? (STAGE_LABELS[prev.stage] || prev.stage) : '?';
+        await logSystem(body.id, `Stage moved: ${fromLbl} → ${STAGE_LABELS[body.stage] || body.stage}`);
+      }
       return reply(200, { deal: row });
     }
     if (action === 'handoff') {
       const [row] = await db`UPDATE deals SET status = 'handed_off', stage = 'ready_for_construction', updated_at = now() WHERE id = ${body.id} RETURNING *`;
+      if (row) await logSystem(body.id, 'Handed off to Construction (Ready for Construction)');
       return reply(200, { deal: row });
     }
     if (action === 'markDead') {
       const [row] = await db`UPDATE deals SET status = 'dead', dead_reason = ${body.reason || null}, updated_at = now() WHERE id = ${body.id} RETURNING *`;
+      if (row) await logSystem(body.id, `Marked dead${body.reason ? ': ' + String(body.reason).slice(0, 280) : ''}`);
       return reply(200, { deal: row });
     }
     if (action === 'addNote') {
-      await db`INSERT INTO deal_notes (deal_id, author, body) VALUES (${body.id}, ${user.username}, ${body.note})`;
+      await db`INSERT INTO deal_notes (deal_id, author, body, kind) VALUES (${body.id}, ${user.username}, ${body.note}, 'user')`;
       const notes = await db`SELECT * FROM deal_notes WHERE deal_id = ${body.id} ORDER BY created_at DESC`;
       return reply(200, { notes });
     }
@@ -103,9 +115,11 @@ exports.handler = async (event) => {
     }
     if (action === 'updateDate') {
       const recurring = ['monthly', 'quarterly', 'annual'].includes(body.recurring) ? body.recurring : null;
+      // Reset de-dup state on edit (due_date/tiers may change → the date should be free to re-alert).
       const [row] = await db`
         UPDATE deal_dates SET date_type = ${body.date_type}, due_date = ${body.due_date},
-          warning_tiers = ${JSON.stringify(body.warning_tiers || [])}::jsonb, recurring = ${recurring}, notes = ${body.notes || null}
+          warning_tiers = ${JSON.stringify(body.warning_tiers || [])}::jsonb, recurring = ${recurring}, notes = ${body.notes || null},
+          alerted_tiers = '[]'::jsonb
         WHERE id = ${body.id} RETURNING *`;
       return reply(200, { date: row });
     }
