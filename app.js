@@ -18184,20 +18184,43 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [sel, setSel] = useState(null);
     const [detail, setDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
+    const todayISO = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const ago = (days) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+    const [from, setFrom] = useState(ago(13 * 7));
+    const [to, setTo] = useState(todayISO);
+    const [view, setView] = useState("weekly");
+    const [summary, setSummary] = useState(null);
+    const [labor, setLabor] = useState(null);
+    const [expandWeek, setExpandWeek] = useState(null);
+    const [expandDist, setExpandDist] = useState(null);
+    const dcpPct = (spend, sales) => {
+      if (spend == null || sales == null) return null;
+      const sp = +spend, sl = +sales;
+      if (!isFinite(sp) || !isFinite(sl) || sl <= 0) return null;
+      return Math.round(sp / sl * 1e3) / 10;
+    };
     const api = (payload) => fetch("/.netlify/functions/ndcp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     }).then((r) => r.json());
     useEffect(() => {
-      api({ action: "list" }).then((r) => {
-        if (r.error) {
-          setErr(r.error);
+      setOrders(null);
+      setErr(null);
+      const f = (action, extra = {}) => api({ action, from, to, ...extra });
+      Promise.all([f("list"), f("summary")]).then(([l, s]) => {
+        if (l && l.error) {
+          setErr(l.error);
           setOrders([]);
-        } else setOrders(r.orders || []);
+        } else setOrders(l && l.orders || []);
+        setSummary(s && !s.error ? s : null);
       }).catch(() => {
         setErr("Failed to load NDCP orders");
         setOrders([]);
+      });
+    }, [from, to]);
+    useEffect(() => {
+      cloudLoad("pcg_labor_v1").then(setLabor).catch(() => {
       });
     }, []);
     const fmtDate = (o) => {
@@ -18219,12 +18242,13 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       });
     };
     const list = orders || [];
-    const stores = [...new Set(list.map((o) => o.store_name).filter(Boolean))].sort();
+    const storeName = (o) => o.name || o.store_name || "\u2014";
+    const stores = [...new Set(list.map((o) => storeName(o)).filter((s) => s && s !== "\u2014"))].sort();
     const ql = q.trim().toLowerCase();
     const filtered = list.filter((o) => {
-      if (storeFilter && o.store_name !== storeFilter) return false;
+      if (storeFilter && storeName(o) !== storeFilter) return false;
       if (!ql) return true;
-      return String(o.order_number || "").toLowerCase().includes(ql) || String(o.store_name || "").toLowerCase().includes(ql) || String(o.account || "").toLowerCase().includes(ql);
+      return String(o.order_number || "").toLowerCase().includes(ql) || String(storeName(o) || "").toLowerCase().includes(ql) || String(o.account || "").toLowerCase().includes(ql);
     });
     const totalSpend = filtered.reduce((s, o) => s + num(o.total_order), 0);
     const revisedCount = filtered.filter((o) => num(o.revisions) > 0).length;
@@ -18233,7 +18257,69 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const O2 = "#FF671F";
     const cardBox = { background: th.card, border: `1px solid ${th.sidebarBorder || "#3a3a3a"}`, borderRadius: 12, padding: "1rem 1.25rem" };
     const StatCard = ({ label, value, sub }) => /* @__PURE__ */ React.createElement("div", { style: { ...cardBox, flex: 1, minWidth: 150 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 800, fontFamily: "'Raleway'", color: th.text, marginTop: 4 } }, value), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: 2 } }, sub));
-    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1.25rem", maxWidth: 1300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 4 } }, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.6rem", color: th.text, margin: 0 } }, "NDCP Orders"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, color: O2, background: `${O2}1a`, padding: "3px 9px", borderRadius: 999 } }, "National DCP")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.85rem", margin: "0 0 1rem" } }, "Supply orders auto-imported from the orders mailbox. Each row is the latest version of an order \u2014 open one to see its revision history and line items."), orders === null ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, padding: "2rem 0" } }, "Loading orders\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { ...cardBox, color: "#ef4444" } }, "Couldn\u2019t load orders: ", err) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 } }, /* @__PURE__ */ React.createElement(StatCard, { label: "Orders", value: filtered.length, sub: `${list.length} total` }), /* @__PURE__ */ React.createElement(StatCard, { label: "Latest-version spend", value: fmtDollars(totalSpend), sub: "sum of current totals" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Revised orders", value: revisedCount, sub: "have \u22651 update" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Date range", value: dateRange })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 } }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1.25rem", maxWidth: 1300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 4 } }, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.6rem", color: th.text, margin: 0 } }, "NDCP Orders"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, color: O2, background: `${O2}1a`, padding: "3px 9px", borderRadius: 999 } }, "National DCP")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.85rem", margin: "0 0 1rem" } }, "Supply orders auto-imported from the orders mailbox. Each row is the latest version of an order \u2014 open one to see its revision history and line items."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "From"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "date",
+        value: from,
+        max: to,
+        onChange: (e) => setFrom(e.target.value),
+        style: { ...inp(th), width: "auto", padding: "0.4rem 0.6rem", fontSize: "0.85rem" }
+      }
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "to"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "date",
+        value: to,
+        min: from,
+        max: todayISO,
+        onChange: (e) => setTo(e.target.value),
+        style: { ...inp(th), width: "auto", padding: "0.4rem 0.6rem", fontSize: "0.85rem" }
+      }
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" } }, [["weekly", "Weekly"], ["districts", "Districts"], ["analysis", "Analysis"], ["orders", "Orders"]].map(([id, label]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: id,
+        onClick: () => setView(id),
+        style: { ...btn(th), padding: "0.45rem 0.9rem", fontSize: "0.85rem", background: view === id ? O2 : "transparent", color: view === id ? "#fff" : th.text, border: `1px solid ${view === id ? O2 : th.sidebarBorder || "#3a3a3a"}` }
+      },
+      label
+    )))), orders === null ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, padding: "2rem 0" } }, "Loading orders\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { ...cardBox, color: "#ef4444" } }, "Couldn\u2019t load orders: ", err) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 } }, /* @__PURE__ */ React.createElement(StatCard, { label: "Orders", value: summary?.totals?.orders ?? list.length, sub: `${list.length} in range` }), /* @__PURE__ */ React.createElement(StatCard, { label: "Total spend", value: fmtDollars(summary?.totals?.spend ?? totalSpend), sub: "sum of current totals" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Revised orders", value: revisedCount, sub: "have \u22651 update" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Weeks", value: summary ? Object.keys(summary.byWeek || {}).length : "\u2014", sub: "with orders" })), view === "weekly" && /* @__PURE__ */ React.createElement("div", { style: { ...cardBox, padding: 0, overflow: "hidden" } }, !summary || !Object.keys(summary.byWeek || {}).length ? /* @__PURE__ */ React.createElement("div", { style: { padding: "1.5rem", textAlign: "center", color: th.muted } }, "No weekly data in range.") : Object.entries(summary.byWeek).sort((a, b) => b[0].localeCompare(a[0])).map(([wk, w]) => {
+      const open = expandWeek === wk;
+      const wkOrders = list.filter((o) => o.weekKey === wk);
+      return /* @__PURE__ */ React.createElement("div", { key: wk, style: { borderTop: `1px solid ${th.sidebarBorder || "#3a3a3a"}` } }, /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          onClick: () => setExpandWeek(open ? null : wk),
+          style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.7rem 1rem", cursor: "pointer" },
+          onMouseEnter: (e) => e.currentTarget.style.background = th.card3 || th.bg,
+          onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
+        },
+        /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, marginRight: 6, display: "inline-block", width: 12 } }, open ? "\u25BE" : "\u25B8"), "Week of ", wk),
+        /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: 18, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, w.orders, " orders"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 800, minWidth: 90, textAlign: "right" } }, fmtDollars(w.spend)))
+      ), open && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 1rem 0.8rem 2rem" } }, wkOrders.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem", padding: "0.4rem 0" } }, "No order detail."), wkOrders.map((o) => /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: o.order_number,
+          onClick: () => openDetail(o.order_number),
+          style: { display: "flex", justifyContent: "space-between", padding: "0.35rem 0", borderTop: `1px solid ${th.sidebarBorder || "#3a3a3a"}`, cursor: "pointer", fontSize: "0.83rem" }
+        },
+        /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, storeName(o), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem" } }, "#", o.order_number)),
+        /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, fmtDollars(num(o.total_order)))
+      ))));
+    })), view === "districts" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } }, !summary || !Object.keys(summary.byDistrict || {}).length ? /* @__PURE__ */ React.createElement("div", { style: { ...cardBox, textAlign: "center", color: th.muted } }, "No district data in range.") : Object.entries(summary.byDistrict).sort((a, b) => Number(a[0]) - Number(b[0])).map(([d, dist]) => {
+      const open = expandDist === d;
+      const distStores = Object.entries(summary.byStore || {}).filter(([, s]) => String(s.district) === d).sort((a, b) => b[1].spend - a[1].spend);
+      return /* @__PURE__ */ React.createElement("div", { key: d, style: { ...cardBox, padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          onClick: () => setExpandDist(open ? null : d),
+          style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.85rem 1.1rem", cursor: "pointer" }
+        },
+        /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, marginRight: 6 } }, open ? "\u25BE" : "\u25B8"), "D", d, " \xB7 ", dist.dmName || `District ${d}`),
+        /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: 18, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, dist.orders, " orders"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 800, minWidth: 90, textAlign: "right" } }, fmtDollars(dist.spend)))
+      ), open && /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.sidebarBorder || "#3a3a3a"}` } }, distStores.map(([pc, s]) => /* @__PURE__ */ React.createElement("div", { key: pc, style: { display: "flex", justifyContent: "space-between", padding: "0.45rem 1.1rem 0.45rem 2rem", borderTop: `1px solid ${th.sidebarBorder || "#3a3a3a"}`, fontSize: "0.84rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, s.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem" } }, "#", pc)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: 16 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, s.orders, " orders"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600, minWidth: 80, textAlign: "right" } }, fmtDollars(s.spend)))))));
+    }), summary && summary.unmapped && summary.unmapped.orders > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...cardBox, border: "1px solid #f59e0b", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#f59e0b", fontWeight: 700 } }, "\u26A0 Unmapped orders ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.8rem" } }, "(account not matched to a store)")), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: 18 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, summary.unmapped.orders, " orders"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 800 } }, fmtDollars(summary.unmapped.spend))))), view === "analysis" && /* @__PURE__ */ React.createElement(NdcpAnalysis, { th, summary, orders: list, labor, dcpPct, storeName, num, O: O2, cardBox }), view === "orders" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         value: q,
@@ -18262,7 +18348,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           onMouseEnter: (e) => e.currentTarget.style.background = th.card3 || th.bg,
           onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
         },
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", color: th.text } }, o.store_name || "\u2014", o.account && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem", marginLeft: 6 } }, "#", o.account)),
+        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", color: th.text } }, storeName(o), o.account && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem", marginLeft: 6 } }, "#", o.account)),
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", color: th.text, fontWeight: 600 } }, o.order_number),
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", color: th.muted, whiteSpace: "nowrap" } }, fmtDate(o)),
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", color: th.muted, whiteSpace: "nowrap" } }, o.date_shipped || "\u2014"),
@@ -18270,7 +18356,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", color: th.text, fontWeight: 700, whiteSpace: "nowrap" } }, fmtDollars(num(o.total_order))),
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", whiteSpace: "nowrap" } }, revised ? /* @__PURE__ */ React.createElement("span", { title: `${o.revisions} revision(s)`, style: { fontSize: "0.72rem", fontWeight: 700, color: "#f59e0b", background: "#f59e0b1a", padding: "2px 8px", borderRadius: 999 } }, o.versions, "\xD7 ", delta !== 0 ? `(${delta > 0 ? "+" : ""}${fmtDollars(delta)})` : "") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "original"))
       );
-    })))))), sel && /* @__PURE__ */ React.createElement(
+    }))))))), sel && /* @__PURE__ */ React.createElement(
       "div",
       {
         onClick: () => setSel(null),
@@ -18299,6 +18385,70 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         })())
       )
     ));
+  }
+  function NdcpAnalysis({ th, summary, orders, labor, dcpPct, storeName, num, O: O2, cardBox }) {
+    const canvasRef = React.useRef(null);
+    const chartRef = React.useRef(null);
+    const weeks = React.useMemo(() => Object.entries(summary && summary.byWeek || {}).sort((a, b) => a[0].localeCompare(b[0])), [summary]);
+    useEffect(() => {
+      if (!canvasRef.current || typeof Chart === "undefined" || !weeks.length) return;
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+      chartRef.current = new Chart(canvasRef.current, {
+        type: "line",
+        data: {
+          labels: weeks.map(([wk]) => wk),
+          datasets: [{ label: "Spend", data: weeks.map(([, w]) => w.spend), borderColor: O2, backgroundColor: `${O2}22`, borderWidth: 2, tension: 0.3, fill: true, pointRadius: 2 }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: th.muted, maxTicksLimit: 10 } },
+            y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) } }
+          }
+        }
+      });
+      return () => {
+        if (chartRef.current) {
+          chartRef.current.destroy();
+          chartRef.current = null;
+        }
+      };
+    }, [weeks, th]);
+    const categories = React.useMemo(() => {
+      const m = {};
+      for (const o of orders || []) {
+        const cs = Array.isArray(o.category_subtotals) ? o.category_subtotals : [];
+        for (const c of cs) {
+          const label = c.label || c.code || "Other";
+          m[label] = (m[label] || 0) + (Number(c.amount) || 0);
+        }
+      }
+      return Object.entries(m).sort((a, b) => b[1] - a[1]);
+    }, [orders]);
+    const catMax = categories.length ? categories[0][1] : 0;
+    const latestWeek = weeks.length ? weeks[weeks.length - 1][0] : null;
+    const dcpRows = React.useMemo(() => {
+      if (!summary || !latestWeek) return [];
+      const spendByPc = {};
+      for (const o of orders || []) {
+        if (o.weekKey !== latestWeek || !o.pc) continue;
+        spendByPc[o.pc] = (spendByPc[o.pc] || 0) + num(o.total_order);
+      }
+      const laborStores = labor && labor.stores || {};
+      return Object.entries(spendByPc).map(([pc, spend]) => {
+        const ls = laborStores[pc] || {};
+        const sales = ls.wtd && ls.wtd.sales != null ? ls.wtd.sales : null;
+        const name = summary.byStore && summary.byStore[pc] && summary.byStore[pc].name || ls.name || `#${pc}`;
+        return { pc, name, spend: Math.round(spend), sales, pct: dcpPct(spend, sales) };
+      }).sort((a, b) => b.pct == null ? -1 : a.pct == null ? 1 : b.pct - a.pct);
+    }, [summary, orders, labor, latestWeek]);
+    const dcpColor = (p) => p == null ? th.muted : p <= 20 ? "#22c55e" : p <= 22 ? "#f59e0b" : "#ef4444";
+    return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { ...cardBox } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 } }, "Weekly spend trend"), weeks.length ? /* @__PURE__ */ React.createElement("div", { style: { height: 240 } }, /* @__PURE__ */ React.createElement("canvas", { ref: canvasRef })) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No weekly data in range.")), /* @__PURE__ */ React.createElement("div", { style: { ...cardBox } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 } }, "Category breakdown ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, textTransform: "none" } }, "(orders in range)")), categories.length ? categories.map(([label, amt]) => /* @__PURE__ */ React.createElement("div", { key: label, style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.84rem", marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, label), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 700 } }, fmtDollars(amt))), /* @__PURE__ */ React.createElement("div", { style: { height: 6, background: th.card3 || th.bg, borderRadius: 999 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 6, width: `${catMax > 0 ? amt / catMax * 100 : 0}%`, background: O2, borderRadius: 999 } })))) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No category data on the loaded orders.")), /* @__PURE__ */ React.createElement("div", { style: { ...cardBox } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 } }, "DCP% by store ", latestWeek ? `\xB7 week of ${latestWeek}` : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginBottom: 10 } }, "NDCP spend \xF7 Pulse net sales (latest week). Green \u226420% \xB7 Amber 20\u201322% \xB7 Red >22%. \u201C\u2014\u201D = sales unavailable."), dcpRows.length ? /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { color: th.muted, textAlign: "left" } }, ["Store", "NDCP spend", "Net sales", "DCP%"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "0.4rem 0.5rem", fontWeight: 700 } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, dcpRows.map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.pc, style: { borderTop: `1px solid ${th.sidebarBorder || "#3a3a3a"}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.text } }, r.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem" } }, "#", r.pc)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.text } }, fmtDollars(r.spend)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.muted } }, r.sales != null ? fmtDollars(r.sales) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", fontWeight: 800, color: dcpColor(r.pct) } }, r.pct != null ? `${r.pct}%` : "\u2014"))))) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No store spend for the latest week in range.")));
   }
   function AdminDeals({ th, user, dealAuth }) {
     const { token, role } = dealAuth;
@@ -24833,7 +24983,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.40"), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.41"), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
