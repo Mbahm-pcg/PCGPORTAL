@@ -5837,15 +5837,20 @@ function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, cur
 
 // ─── API Config ──────────────────────────────────────────────────────────────
 // ── Cloud Storage ────────────────────────────────────────────────────────────
+function emitSync(state, key) {
+  try { window.dispatchEvent(new CustomEvent('pcg:sync', { detail: { state, key } })); } catch {}
+}
 async function cloudSave(key, data) {
+  emitSync('saving', key);
   try {
     const res = await fetch('/.netlify/functions/storage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'save', key, data }),
     });
+    emitSync(res.ok ? 'synced' : 'error', key);
     return res.ok;
-  } catch { return false; }
+  } catch { emitSync('error', key); return false; }
 }
 async function cloudSaveOrThrow(key, data) {
   const res = await fetch('/.netlify/functions/storage', {
@@ -5872,6 +5877,23 @@ async function cloudLoad(key) {
     return j.data || null;
   } catch { return null; }
 }
+// Like cloudLoad but THROWS on HTTP error / network failure, so init code can
+// distinguish "load failed" (fall back to cache, don't clobber cloud) from
+// "genuinely empty" (j.data may be null/[] — cloud is authoritative and empty).
+async function cloudLoadOrThrow(key) {
+  const res = await fetch('/.netlify/functions/storage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'load', key }),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { const j = await res.json(); msg = j.error || msg; } catch {}
+    throw new Error(`${key}: ${msg}`);
+  }
+  const j = await res.json();
+  return j.data;
+}
 async function cloudDelete(key) {
   try {
     await fetch('/.netlify/functions/storage', {
@@ -5880,6 +5902,53 @@ async function cloudDelete(key) {
       body: JSON.stringify({ action: 'delete', key }),
     });
   } catch {}
+}
+
+// ─── SyncStatus indicator ─────────────────────────────────────────
+// Listens for the 'pcg:sync' events dispatched by cloudSave and shows a
+// subtle "Saving… / Synced ✓ / Save failed" badge. Because every cloudSave
+// caller emits these events, this reflects all cloud writes with zero
+// per-writer changes. Brand color #FF671F, theme-aware.
+function SyncStatus({ dark }) {
+  const [state, setState] = React.useState('idle'); // idle | saving | synced | error
+  const [lastSynced, setLastSynced] = React.useState(null);
+  const timer = React.useRef(null);
+  React.useEffect(() => {
+    const onSync = (e) => {
+      const s = e?.detail?.state;
+      if (s === 'saving') { setState('saving'); }
+      else if (s === 'synced') { setState('synced'); setLastSynced(new Date()); }
+      else if (s === 'error') { setState('error'); }
+      if (s === 'synced' || s === 'error') {
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setState('idle'), 2500);
+      }
+    };
+    window.addEventListener('pcg:sync', onSync);
+    return () => { window.removeEventListener('pcg:sync', onSync); if (timer.current) clearTimeout(timer.current); };
+  }, []);
+  if (state === 'idle' && !lastSynced) return null;
+  const muted = dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.4)';
+  let label, color;
+  if (state === 'saving') { label = 'Saving…'; color = '#FF671F'; }
+  else if (state === 'error') { label = 'Save failed'; color = '#ef4444'; }
+  else if (state === 'synced') { label = 'Synced ✓'; color = '#22c55e'; }
+  else {
+    const t = lastSynced;
+    label = t ? `Synced ${t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : '';
+    color = muted;
+  }
+  return (
+    <div title={lastSynced ? `Last synced ${lastSynced.toLocaleString()}` : ''} style={{
+      fontSize: '0.52rem', fontWeight: 700, letterSpacing: 0.4,
+      color, opacity: state === 'idle' ? 0.55 : 0.9,
+      display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+      transition: 'color .2s, opacity .2s', whiteSpace: 'nowrap',
+    }}>
+      {state === 'saving' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#FF671F', animation: 'pulse 1.2s ease-in-out infinite' }} />}
+      {label}
+    </div>
+  );
 }
 
 // ─── Chunked file upload/download ─────────────────────────────────
@@ -33127,7 +33196,8 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.42
+            v14.43
+            <SyncStatus dark={dark} />
           </div>
         )}
         {/* Collapse toggle — desktop only */}
