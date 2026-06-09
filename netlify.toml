@@ -19,6 +19,11 @@
 [functions.labor-cron-warmup]
   schedule = "45 3 * * 0"
 
+# Weekly 2FA reset — Saturday 11:59 PM ET (Sunday 03:59 UTC)
+# Wipes all trusted devices so every user re-verifies on Sunday's first login
+[functions.trusted-devices-reset]
+  schedule = "59 3 * * 0"
+
 # Scheduled Analyst — 7am, 10am, 12:15pm, 5:15pm ET (11, 14, 16:15, 21:15 UTC)
 # 11 UTC (7am ET) = DM briefs + anomalies daily
 # 14 UTC (10am ET) = exec reports on Sun/Tue, anomalies other days
