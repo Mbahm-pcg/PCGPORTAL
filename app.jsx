@@ -638,6 +638,19 @@ function Login({ onLogin, dark, toggleDark, users }) {
     return () => clearTimeout(t);
   }, []);
 
+  // Pre-warm both serverless functions while the user is typing their credentials,
+  // so cold starts are already resolved by the time they hit Sign In.
+  useEffect(() => {
+    fetch('/.netlify/functions/portal-auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'ping' }),
+    }).catch(() => {});
+    fetch('/.netlify/functions/trusted-devices', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'ping' }),
+    }).catch(() => {});
+  }, []);
+
   const handleToggle = useCallback(() => {
     const newDark = !dark;
     setLogoAnim(true);
@@ -718,7 +731,14 @@ function Login({ onLogin, dark, toggleDark, users }) {
     const uname = (form.u || "").trim();
     const localAcct = users.find(u => (u.username || "").trim().toLowerCase() === uname.toLowerCase() && u.active !== false);
     setLoading(true);
-    const res = await portalLogin(uname, form.p);
+    // Fire trusted-device check in parallel with the auth call — both are cold-start
+    // serverless functions so running them together cuts wait time roughly in half.
+    const [res, deviceTrusted] = await Promise.all([
+      portalLogin(uname, form.p),
+      localAcct && isTwoFactorRequired(localAcct)
+        ? isTwoFactorDeviceTrusted(localAcct).catch(() => false)
+        : Promise.resolve(false),
+    ]);
     let found = null;
     if (res.ok) {
       // Server verified + issued a token (stored in portal-auth.mjs). Prefer the
@@ -736,7 +756,10 @@ function Login({ onLogin, dark, toggleDark, users }) {
     // res.ok === false && !res.unreachable → server actively rejected: invalid creds.
 
     if (found) {
-      if (await shouldPromptTwoFactor(found)) {
+      // Use the pre-fetched device trust result to avoid a second sequential await.
+      // For server-only accounts (not in local users list), fall back to a fresh check.
+      const trusted = localAcct ? deviceTrusted : await isTwoFactorDeviceTrusted(found).catch(() => false);
+      if (isTwoFactorRequired(found) && !trusted) {
         beginTwoFactor(found);
       } else {
         finishLogin(found);
@@ -6452,6 +6475,14 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [txnFilters, setTxnFilters] = React.useState({ otCat: 'all', voids: false, refunds: false, discounts: false, timeStart: '', timeEnd: '' });
   const [txnDate, setTxnDate] = React.useState(localDate);
   const [txnMenuMap, setTxnMenuMap] = React.useState(null);
+  const [dtSchedule, setDtSchedule] = React.useState(null);
+  const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
+
+  React.useEffect(() => {
+    if (storeTab !== 'driveThru') return;
+    const id = setInterval(() => { loadTxnList(txnDate); }, 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [storeTab, txnDate]);
 
   React.useEffect(() => {
     (async () => {
@@ -6741,9 +6772,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
         })}
         {hovered ? (
           <>
-            <text x={cx} y={cy - 18} textAnchor="middle" fill={th.muted} fontSize="10" fontWeight="600" style={{ textTransform:'uppercase', letterSpacing: 1 }}>{hovered.name}</text>
+            <text x={cx} y={cy - 20} textAnchor="middle" fill={th.muted} fontSize={hovered.name.length > 12 ? '8' : '9'} fontWeight="600">{hovered.name.toUpperCase()}</text>
             <text x={cx} y={cy + 4} textAnchor="middle" fill={hovered.color} fontSize="20" fontWeight="900" fontFamily="'Raleway'">{fmtUSD(hovered.value)}</text>
-            <text x={cx} y={cy + 22} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">{hoveredPct.toFixed(1) + '%'}</text>
+            <text x={cx} y={cy + 21} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">{hoveredPct.toFixed(1) + '%'}</text>
           </>
         ) : (
           <>
@@ -6895,10 +6926,12 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
 
       {/* ── Tab Navigation ── */}
       <div style={{ display:'flex', marginBottom:'1.25rem', background:th.card, borderRadius:'0.75rem', border:`1px solid ${th.cardBorder}`, overflow:'hidden' }}>
-        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},{id:'reviews',label:'⭐ Reviews'}].map((t,i,arr) => (
+        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t,i,arr) => (
           <button key={t.id} onClick={() => {
               setStoreTab(t.id);
               if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
+              if(t.id==='driveThru' && !txnList && !txnListLoading){ loadTxnList(); }
+              if(t.id==='driveThru' && !dtSchedule){ cloudLoad(`pcg_schedule_${pc}`).then(d => setDtSchedule(d?.shifts || [])).catch(() => setDtSchedule([])); }
               if(t.id==='foodcost' && !foodCostT && !foodCostLoading){ setFoodCostLoading(true); fetch('/.netlify/functions/food-cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'store',pc,date:localDate})}).then(r=>r.ok?r.json():null).then(j=>{if(j)setFoodCostT(j);}).catch(()=>{}).finally(()=>setFoodCostLoading(false)); }
             }}
             style={{ flex:1, padding:'0.7rem 0.5rem', border:'none', borderRight:i<arr.length-1?`1px solid ${th.cardBorder}`:'none', background:storeTab===t.id?O+'18':'transparent', color:storeTab===t.id?O:th.muted, fontWeight:storeTab===t.id?700:400, fontSize:'0.78rem', cursor:'pointer', transition:'all .15s', borderBottom:storeTab===t.id?`2px solid ${O}`:'2px solid transparent', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
@@ -7072,14 +7105,14 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
               <div style={{ animation:'pulseRing 1.5s ease-in-out infinite', display:'inline-block' }}>Loading...</div>
             </div>
           ) : tenderData ? (
-            <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:'1.5rem', alignItems:'center' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'210px 1fr', gap:'1.25rem', alignItems:'center' }}>
               <div style={{ display:'flex', justifyContent:'center' }}>
                 <DonutChart
                   data={tenderData.map((t,i) => ({ value: t.ttl, color: CHART_COLORS[i % CHART_COLORS.length], name: t.name }))}
                   hoveredIdx={hoveredTender}
                   onHover={setHoveredTender} />
               </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.2rem', minWidth:0 }}>
                 {tenderData.slice(0, 8).map((t, i) => {
                   const total = tenderData.reduce((a,x) => a + x.ttl, 0);
                   const pct = total > 0 ? (t.ttl / total * 100) : 0;
@@ -7090,16 +7123,16 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
                     <div key={i}
                       onMouseEnter={() => setHoveredTender(i)}
                       onMouseLeave={() => setHoveredTender(null)}
-                      style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.72rem',
-                        padding:'0.3rem 0.5rem', borderRadius:'0.375rem', cursor:'pointer',
+                      style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.72rem',
+                        padding:'0.28rem 0.5rem', borderRadius:'0.375rem', cursor:'pointer', minWidth:0,
                         background: isHovered ? color + '22' : 'transparent',
                         opacity: isDimmed ? 0.4 : 1,
                         transform: isHovered ? 'translateX(2px)' : 'translateX(0)',
                         transition: 'all .15s ease' }}>
-                      <div style={{ width: isHovered ? 11 : 9, height: isHovered ? 11 : 9, borderRadius:'50%', background:color, flexShrink:0, transition:'all .15s', boxShadow: isHovered ? `0 0 6px ${color}` : 'none' }} />
-                      <span style={{ flex:1, color:th.text, fontWeight: isHovered ? 700 : 400 }}>{t.name}</span>
-                      <span style={{ color:th.muted }}>{fmtUSD(t.ttl)}</span>
-                      <span style={{ color, fontWeight:700, minWidth:36, textAlign:'right' }}>{pct.toFixed(1)}%</span>
+                      <div style={{ width: isHovered ? 10 : 8, height: isHovered ? 10 : 8, borderRadius:'50%', background:color, flexShrink:0, transition:'all .15s', boxShadow: isHovered ? `0 0 6px ${color}` : 'none' }} />
+                      <span style={{ flex:1, color:th.text, fontWeight: isHovered ? 700 : 400, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>{t.name}</span>
+                      <span style={{ color:th.muted, flexShrink:0 }}>{fmtUSD(t.ttl)}</span>
+                      <span style={{ color, fontWeight:700, minWidth:42, textAlign:'right', flexShrink:0 }}>{pct.toFixed(1)}%</span>
                     </div>
                   );
                 })}
@@ -7544,6 +7577,163 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
       {/* ════ END REVIEWS TAB ════ */}
       </>}
 
+      {/* ════ DRIVE-THRU TAB ════ */}
+      {storeTab === 'driveThru' && (() => {
+        const svcSec = chk => chk.opnUTC && chk.clsdUTC
+          ? Math.round((new Date(chk.clsdUTC.endsWith('Z') ? chk.clsdUTC : chk.clsdUTC + 'Z') - new Date(chk.opnUTC.endsWith('Z') ? chk.opnUTC : chk.opnUTC + 'Z')) / 1000)
+          : null;
+        const isDT = chk => {
+          const n = (txnOTMap[chk.otNum] || '').toLowerCase();
+          return n.includes('drive') || n.includes('dt') || n.includes('d/t') || n.includes('mobile dt') || n.includes('thru');
+        };
+        const dtChecks = (txnList || []).filter(chk => isDT(chk) && svcSec(chk) !== null && svcSec(chk) > 0 && svcSec(chk) < 1800);
+        const totalChecks = (txnList || []).length;
+        const byHour = {};
+        for (const chk of dtChecks) {
+          try {
+            const hr = parseInt(new Date(chk.opnUTC.endsWith('Z') ? chk.opnUTC : chk.opnUTC + 'Z').toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/New_York' })) % 24;
+            if (!byHour[hr]) byHour[hr] = { count: 0, totalSecs: 0, sales: 0 };
+            byHour[hr].count++;
+            byHour[hr].totalSecs += svcSec(chk);
+            byHour[hr].sales += (chk.chkTtl || 0);
+          } catch {}
+        }
+        const hours = Object.entries(byHour).map(([h, d]) => ({ hr: +h, count: d.count, avg: Math.round(d.totalSecs / d.count), sales: d.sales })).sort((a, b) => a.hr - b.hr);
+        const avgSecs = dtChecks.length > 0 ? Math.round(dtChecks.reduce((s, c) => s + svcSec(c), 0) / dtChecks.length) : 0;
+        const dtPct = totalChecks > 0 ? (dtChecks.length / totalChecks * 100) : 0;
+        const dtRevenue = dtChecks.reduce((s, c) => s + (c.chkTtl || 0), 0);
+        const dtAvgCheck = dtChecks.length > 0 ? dtRevenue / dtChecks.length : 0;
+        const slowestHour = hours.length > 0 ? hours.reduce((a, b) => b.avg > a.avg ? b : a) : null;
+        const fastestHour = hours.length > 0 ? hours.reduce((a, b) => b.avg < a.avg ? b : a) : null;
+        const fmtSecs = s => s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+        const fmtHr = h => h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
+        const svcColor = s => s <= 120 ? '#22c55e' : s <= 180 ? '#74c0fc' : s <= 240 ? '#ff922b' : '#ef4444';
+        const svcLabel = s => s <= 120 ? 'Excellent' : s <= 180 ? 'Good' : s <= 240 ? 'Watch' : 'Slow';
+        const buckets = [
+          { label: '< 2 min', min: 0, max: 120, color: '#22c55e' },
+          { label: '2 – 3 min', min: 120, max: 180, color: '#74c0fc' },
+          { label: '3 – 4 min', min: 180, max: 240, color: '#ffd43b' },
+          { label: '4 – 5 min', min: 240, max: 300, color: '#ff922b' },
+          { label: '5 min+', min: 300, max: Infinity, color: '#ef4444' },
+        ].map(b => ({ ...b, count: dtChecks.filter(c => { const s = svcSec(c); return s >= b.min && s < b.max; }).length }));
+        const maxBucket = Math.max(...buckets.map(b => b.count), 1);
+        return (
+          <div>
+            {/* Date Picker */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.85rem', color: th.text }}>Drive-Thru Service Times</div>
+              <input type="date" value={txnDate} max={localDate}
+                onChange={e => { setTxnDate(e.target.value); setTxnList(null); loadTxnList(e.target.value); }}
+                style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: 'auto' }} />
+            </div>
+            {txnListLoading && <div style={{ textAlign: 'center', padding: '3rem', color: th.muted, fontSize: '0.85rem' }}>Loading drive-thru data…</div>}
+            {!txnListLoading && txnList && dtChecks.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '3rem', color: th.muted, fontSize: '0.85rem' }}>
+                No drive-thru transactions found for this date.
+                {totalChecks > 0 && <div style={{ marginTop: '0.5rem', fontSize: '0.72rem' }}>({totalChecks} total checks — order type may not be set to drive-thru)</div>}
+              </div>
+            )}
+            {!txnListLoading && dtChecks.length > 0 && <>
+              {/* KPI strip */}
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+                {[
+                  { label: 'Avg Service', value: fmtSecs(avgSecs), color: svcColor(avgSecs), sub: svcLabel(avgSecs) },
+                  { label: 'DT Cars', value: fmtNum(dtChecks.length), color: '#74c0fc' },
+                  { label: 'DT % of Traffic', value: dtPct.toFixed(1) + '%', color: '#a78bfa' },
+                  { label: 'DT Revenue', value: fmtUSD(dtRevenue), color: '#34d399' },
+                  { label: 'Avg Check', value: fmtAvg(dtAvgCheck), color: '#fbbf24' },
+                  slowestHour ? { label: 'Slowest Hour', value: fmtHr(slowestHour.hr), color: '#f87171', sub: fmtSecs(slowestHour.avg) } : null,
+                ].filter(Boolean).map(k => (
+                  <div key={k.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: k.color + '12', border: `1px solid ${k.color}30`, borderRadius: '999px', padding: '0.28rem 0.75rem', minWidth: 64 }}>
+                    <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.82rem', color: k.color, lineHeight: 1.1, whiteSpace: 'nowrap' }}>{k.value}</span>
+                    {k.sub && <span style={{ fontSize: '0.5rem', color: k.color + '99', whiteSpace: 'nowrap' }}>{k.sub}</span>}
+                    <span style={{ fontSize: '0.5rem', color: k.color + '77', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700, whiteSpace: 'nowrap', marginTop: 1 }}>{k.label}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Legend */}
+              <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                {[['#22c55e','≤ 2 min — Excellent'],['#74c0fc','2–3 min — Good'],['#ff922b','3–4 min — Watch'],['#ef4444','4 min+ — Slow']].map(([c,l]) => (
+                  <div key={l} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.65rem', color: th.muted }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />{l}
+                  </div>
+                ))}
+              </div>
+              {/* Hourly chart */}
+              {hours.length > 0 && (() => {
+                // Headcount per hour from schedule for the selected date
+                const schedForDate = (dtSchedule || []).filter(s => (s.date || (s.startDateTime || '').slice(0, 10)) === txnDate);
+                const headcountByHr = {};
+                for (let h = 0; h < 24; h++) {
+                  headcountByHr[h] = schedForDate.filter(s => {
+                    if (!s.startDateTime || !s.endDateTime) return false;
+                    const st = new Date(s.startDateTime), en = new Date(s.endDateTime);
+                    const hrMs = new Date(txnDate + 'T' + String(h).padStart(2,'0') + ':00:00').getTime();
+                    return st.getTime() <= hrMs + 3599000 && en.getTime() > hrMs;
+                  }).map(s => s.employeeName || 'Staff');
+                }
+                return (
+                  <div style={{ ...card(th), padding: '1rem', marginBottom: '1.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.85rem', color: th.text }}>Avg Service Time by Hour</div>
+                      {fastestHour && <span style={{ fontSize: '0.68rem', color: '#22c55e' }}>Best: {fmtHr(fastestHour.hr)} ({fmtSecs(fastestHour.avg)})</span>}
+                    </div>
+                    {hours.map(h => {
+                      const pct = Math.min(h.avg / 360, 1);
+                      const col = svcColor(h.avg);
+                      const staff = headcountByHr[h.hr] || [];
+                      const isHovered = dtHoveredHr === h.hr;
+                      return (
+                        <div key={h.hr} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}
+                          onMouseEnter={() => setDtHoveredHr(h.hr)} onMouseLeave={() => setDtHoveredHr(null)}>
+                          <div style={{ width: 46, fontSize: '0.62rem', color: th.muted, flexShrink: 0, textAlign: 'right' }}>{fmtHr(h.hr)}</div>
+                          <div style={{ flex: 1, height: 22, background: th.card2, borderRadius: 4, overflow: 'hidden', position: 'relative', cursor: 'default' }}>
+                            <div style={{ height: '100%', width: (pct * 100) + '%', background: col + 'cc', borderRadius: 4, transition: 'width .4s', minWidth: pct > 0 ? 4 : 0 }} />
+                            <span style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', fontSize: '0.65rem', fontWeight: 700, color: th.text }}>{fmtSecs(h.avg)}</span>
+                          </div>
+                          <div style={{ fontSize: '0.6rem', color: th.muted, flexShrink: 0, minWidth: 40 }}>{h.count} cars</div>
+                          {/* Hover tooltip */}
+                          {isHovered && (
+                            <div style={{ position: 'absolute', left: 52, bottom: 28, zIndex: 20, background: th.sidebar, border: `1px solid ${col}55`, borderRadius: 8, padding: '0.5rem 0.75rem', minWidth: 170, boxShadow: '0 6px 20px #0008', pointerEvents: 'none' }}>
+                              <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.78rem', color: col, marginBottom: 2 }}>{fmtHr(h.hr)} — {fmtSecs(h.avg)}</div>
+                              <div style={{ fontSize: '0.65rem', color: th.muted, marginBottom: 4 }}>{h.count} cars · {svcLabel(h.avg)}</div>
+                              <div style={{ fontSize: '0.65rem', borderTop: `1px solid ${th.cardBorder}`, paddingTop: 4, color: staff.length > 0 ? th.text : th.muted }}>
+                                {staff.length > 0 ? <><span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.9rem' }}>{staff.length}</span> staff on schedule</> : 'No schedule data for this hour'}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+              {/* Distribution */}
+              <div style={{ ...card(th), padding: '1rem' }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.85rem', color: th.text, marginBottom: '0.75rem' }}>Service Time Distribution</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                  {buckets.map(b => (
+                    <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: 64, fontSize: '0.65rem', color: th.muted, flexShrink: 0 }}>{b.label}</div>
+                      <div style={{ flex: 1, height: 18, background: th.card2, borderRadius: 4, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: (b.count / maxBucket * 100) + '%', background: b.color + 'bb', borderRadius: 4, transition: 'width .4s' }} />
+                      </div>
+                      <div style={{ fontSize: '0.65rem', color: th.muted, flexShrink: 0, minWidth: 68, textAlign: 'right' }}>
+                        {b.count} <span style={{ color: b.color, fontWeight: 700 }}>({dtChecks.length > 0 ? (b.count / dtChecks.length * 100).toFixed(0) : 0}%)</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: '0.75rem', fontSize: '0.62rem', color: th.muted, borderTop: `1px solid ${th.cardBorder}`, paddingTop: '0.5rem' }}>
+                  Service time = order entry → payment close. Does not include pre-order queue time.
+                </div>
+              </div>
+            </>}
+          </div>
+        );
+      })()}
+      {/* ════ END DRIVE-THRU TAB ════ */}
+
       {/* ════ TRANSACTIONS TAB ════ */}
       {storeTab === 'transactions' && <>
 
@@ -7758,22 +7948,23 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
         const journalTxt = (txnModal?.journalTxt || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
         const receiptText = journalTxt || rLines.join('\n');
 
+        const isMobileModal = window.innerWidth < 700;
         return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 99999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '1.5rem 1rem', overflowY: 'auto' }}
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 99999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: isMobileModal ? '0' : '1.5rem 1rem', overflowY: 'auto' }}
             onClick={e => { if (e.target === e.currentTarget) setTxnModal(null); }}>
-            <div style={{ background: th.bg, borderRadius: 12, width: '100%', maxWidth: 920, boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+            <div style={{ background: th.bg, borderRadius: isMobileModal ? 0 : 12, width: '100%', maxWidth: isMobileModal ? '100%' : 920, minHeight: isMobileModal ? '100dvh' : 'unset', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', borderBottom: `1px solid ${th.cardBorder}` }}>
                 <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1rem', color: th.text }}>Transaction Detail {!txnModalLoading && <span style={{ color: O }}>#{chk.chkNum}</span>}</div>
                 <button onClick={() => { setTxnModal(null); setTxnModalLoading(false); }} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}>×</button>
               </div>
               {txnModalLoading ? (
                 <div style={{ padding: '4rem', textAlign: 'center', color: th.muted }}>Loading transaction detail…</div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', padding: '1.5rem' }}>
-                  <div style={{ background: '#fff', borderRadius: 8, padding: '1.5rem 1.25rem', fontFamily: "'Courier New', monospace", fontSize: '0.73rem', color: '#1a1a1a', lineHeight: 1.65, whiteSpace: 'pre-wrap', boxShadow: '0 2px 16px rgba(0,0,0,0.14)', maxHeight: 520, overflowY: 'auto', wordBreak: 'break-word' }}>
+                <div style={{ display: 'flex', flexDirection: isMobileModal ? 'column' : 'row', gap: '1.25rem', padding: isMobileModal ? '1rem' : '1.5rem' }}>
+                  <div style={{ background: '#fff', borderRadius: 8, padding: isMobileModal ? '1.25rem' : '1.5rem 1.25rem', fontFamily: "'Courier New', monospace", fontSize: isMobileModal ? '0.85rem' : '0.73rem', color: '#1a1a1a', lineHeight: 1.7, whiteSpace: 'pre-wrap', boxShadow: '0 2px 16px rgba(0,0,0,0.14)', maxHeight: isMobileModal ? 'none' : 520, overflowY: isMobileModal ? 'visible' : 'auto', wordBreak: 'break-word', flexShrink: 0, width: isMobileModal ? '100%' : '50%', boxSizing: 'border-box' }}>
                     {receiptText}
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, minWidth: 0 }}>
                     <div style={{ ...card(th), padding: '1rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
                         <span style={{ fontSize: '0.8rem' }}>📊</span>
@@ -8241,9 +8432,9 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         })}
         {hovered ? (
           <>
-            <text x={cx} y={cy - 18} textAnchor="middle" fill={th.muted} fontSize="10" fontWeight="600" style={{ textTransform:'uppercase', letterSpacing: 1 }}>{hovered.name}</text>
+            <text x={cx} y={cy - 20} textAnchor="middle" fill={th.muted} fontSize={hovered.name.length > 12 ? '8' : '9'} fontWeight="600">{hovered.name.toUpperCase()}</text>
             <text x={cx} y={cy + 4} textAnchor="middle" fill={hovered.color} fontSize="20" fontWeight="900" fontFamily="'Raleway'">{fmtUSD(hovered.value)}</text>
-            <text x={cx} y={cy + 22} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">{hoveredPct.toFixed(1) + '%'}</text>
+            <text x={cx} y={cy + 21} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">{hoveredPct.toFixed(1) + '%'}</text>
           </>
         ) : (
           <>
@@ -8670,14 +8861,14 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
               <div style={{ animation:'pulseRing 1.5s ease-in-out infinite', display:'inline-block' }}>Loading...</div>
             </div>
           ) : tenderData ? (
-            <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:'1.5rem', alignItems:'center' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'210px 1fr', gap:'1.25rem', alignItems:'center' }}>
               <div style={{ display:'flex', justifyContent:'center' }}>
                 <DonutChart
                   data={tenderData.map((t,i) => ({ value: t.ttl, color: CHART_COLORS[i % CHART_COLORS.length], name: t.name }))}
                   hoveredIdx={hoveredTender}
                   onHover={setHoveredTender} />
               </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.2rem', minWidth:0 }}>
                 {tenderData.slice(0, 8).map((t, i) => {
                   const total = tenderData.reduce((a,x) => a + x.ttl, 0);
                   const pct = total > 0 ? (t.ttl / total * 100) : 0;
@@ -8688,16 +8879,16 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                     <div key={i}
                       onMouseEnter={() => setHoveredTender(i)}
                       onMouseLeave={() => setHoveredTender(null)}
-                      style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.72rem',
-                        padding:'0.3rem 0.5rem', borderRadius:'0.375rem', cursor:'pointer',
+                      style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.72rem',
+                        padding:'0.28rem 0.5rem', borderRadius:'0.375rem', cursor:'pointer', minWidth:0,
                         background: isHovered ? color + '22' : 'transparent',
                         opacity: isDimmed ? 0.4 : 1,
                         transform: isHovered ? 'translateX(2px)' : 'translateX(0)',
                         transition: 'all .15s ease' }}>
-                      <div style={{ width: isHovered ? 11 : 9, height: isHovered ? 11 : 9, borderRadius:'50%', background:color, flexShrink:0, transition:'all .15s', boxShadow: isHovered ? `0 0 6px ${color}` : 'none' }} />
-                      <span style={{ flex:1, color:th.text, fontWeight: isHovered ? 700 : 400 }}>{t.name}</span>
-                      <span style={{ color:th.muted }}>{fmtUSD(t.ttl)}</span>
-                      <span style={{ color, fontWeight:700, minWidth:36, textAlign:'right' }}>{pct.toFixed(1)}%</span>
+                      <div style={{ width: isHovered ? 10 : 8, height: isHovered ? 10 : 8, borderRadius:'50%', background:color, flexShrink:0, transition:'all .15s', boxShadow: isHovered ? `0 0 6px ${color}` : 'none' }} />
+                      <span style={{ flex:1, color:th.text, fontWeight: isHovered ? 700 : 400, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>{t.name}</span>
+                      <span style={{ color:th.muted, flexShrink:0 }}>{fmtUSD(t.ttl)}</span>
+                      <span style={{ color, fontWeight:700, minWidth:42, textAlign:'right', flexShrink:0 }}>{pct.toFixed(1)}%</span>
                     </div>
                   );
                 })}
@@ -16720,6 +16911,11 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [liveHistCache, setLiveHistCache] = useState({});
   const [histLoading, setHistLoading] = useState(false);
   const toggleBtnRef = useRef(null);
+  // Voice (Orion GM Mode)
+  const [voiceState, setVoiceState] = useState('idle'); // idle | listening | thinking | speaking | error
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceReply, setVoiceReply] = useState('');
+  const recogRef = useRef(null);
 
   const handleToggle = useCallback(() => {
     const btn = toggleBtnRef.current;
@@ -16733,6 +16929,46 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       toggleDark();
     }
   }, [dark, toggleDark]);
+
+  const startVoice = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setVoiceState('error'); setVoiceReply("Voice isn't supported in this browser. Try Chrome or Safari."); return; }
+    if (voiceState === 'listening') { recogRef.current?.stop(); return; }
+    if (voiceState === 'speaking') { window.speechSynthesis?.cancel(); setVoiceState('idle'); return; }
+    if (voiceState === 'thinking') return;
+    setVoiceTranscript(''); setVoiceReply('');
+    const recog = new SR();
+    recog.lang = 'en-US'; recog.interimResults = false; recog.maxAlternatives = 1;
+    recogRef.current = recog;
+    recog.onstart = () => setVoiceState('listening');
+    recog.onerror = (e) => { if (e.error !== 'no-speech') { setVoiceReply('Mic error — tap to try again.'); setVoiceState('error'); } else setVoiceState('idle'); };
+    recog.onend = () => setVoiceState(s => s === 'listening' ? 'idle' : s);
+    recog.onresult = async (event) => {
+      const transcript = event.results[0][0].transcript;
+      setVoiceTranscript(transcript);
+      setVoiceState('thinking');
+      try {
+        const res = await fetch('/.netlify/functions/analyst', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'ask', question: transcript, userId: user?.id, userRole: 'manager', storePC: pc, storeName: store.name, context: 'voice_gm' }),
+        });
+        const data = await res.json();
+        const reply = data.answer || data.text || "I couldn't get a response right now.";
+        // Trim to 2 sentences for voice brevity
+        const spoken = reply.replace(/\*\*/g, '').split(/(?<=[.!?])\s+/).slice(0, 3).join(' ');
+        setVoiceReply(reply);
+        setVoiceState('speaking');
+        const utter = new SpeechSynthesisUtterance(spoken);
+        utter.rate = 1.05; utter.pitch = 1;
+        utter.onend = () => setVoiceState('idle');
+        window.speechSynthesis.speak(utter);
+      } catch {
+        setVoiceReply("Sorry, I couldn't reach Orion right now."); setVoiceState('error');
+      }
+    };
+    recog.start();
+  };
 
   const fetchAll = useCallback(async (withLaborRefresh = false) => {
     if (!pc) { setLoading(false); return; }
@@ -17285,10 +17521,33 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         {lastRefresh && <div style={{ textAlign: "center", fontSize: "0.58rem", color: th.subtle, opacity: 0.7 }}>Updated {lastRefresh.toLocaleTimeString()}</div>}
       </div>
 
-      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
+      {/* Voice reply card — floats above nav when active */}
+      {(voiceState !== 'idle' || voiceReply) && (
+        <div style={{ position: "fixed", left: "50%", bottom: 82, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 13, background: dark ? "rgba(16,18,27,0.97)" : "rgba(255,255,255,0.98)", border: `1px solid ${voiceState === 'error' ? '#ef444455' : O + '44'}`, borderRadius: 14, padding: "0.75rem 1rem", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", backdropFilter: "blur(16px)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: voiceTranscript || voiceReply ? "0.4rem" : 0 }}>
+            <span style={{ fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.8, color: voiceState === 'error' ? '#ef4444' : O }}>
+              {voiceState === 'listening' ? '🎙 Listening…' : voiceState === 'thinking' ? '⏳ Orion is thinking…' : voiceState === 'speaking' ? '🔊 Orion' : voiceState === 'error' ? '⚠ Error' : '🔊 Orion'}
+            </span>
+            <button onClick={() => { window.speechSynthesis?.cancel(); recogRef.current?.stop(); setVoiceState('idle'); setVoiceTranscript(''); setVoiceReply(''); }} style={{ background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.95rem", lineHeight: 1, padding: "0 0 0 8px" }}>×</button>
+          </div>
+          {voiceTranscript && <div style={{ fontSize: "0.72rem", color: th.muted, fontStyle: "italic", marginBottom: "0.35rem" }}>"{voiceTranscript}"</div>}
+          {voiceReply && <div style={{ fontSize: "0.82rem", color: th.text, lineHeight: 1.55 }}>{voiceReply}</div>}
+        </div>
+      )}
+
+      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
         <button onClick={() => fetchAll(true)} disabled={refreshing} title="Refresh" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text }}>
           <span style={{ fontSize: "1.15rem", lineHeight: 1 }}>{refreshing ? "·" : "↻"}</span>
           <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Refresh</span>
+        </button>
+        {/* Orion Voice — center mic button */}
+        <button onClick={startVoice} title="Ask Orion" style={{ background: voiceState === 'listening' ? O : voiceState === 'thinking' ? '#f59e0b' : voiceState === 'speaking' ? '#22c55e' : voiceState === 'error' ? '#ef4444' : O + '18', border: `2px solid ${voiceState === 'idle' ? O + '55' : 'transparent'}`, borderRadius: "50%", width: 48, height: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: voiceState === 'thinking' ? "default" : "pointer", alignSelf: "center", flexShrink: 0, boxShadow: voiceState === 'listening' ? `0 0 0 6px ${O}33, 0 0 0 12px ${O}18` : voiceState === 'speaking' ? '0 0 0 6px #22c55e33' : 'none', transition: "all 0.2s" }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={voiceState === 'idle' ? O : '#fff'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="2" width="6" height="12" rx="3"/>
+            <path d="M5 10a7 7 0 0 0 14 0"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+            <line x1="8" y1="22" x2="16" y2="22"/>
+          </svg>
         </button>
         <button onClick={onFullPortal} title="Full Portal" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O }}>
           <span style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>{ICONS.dashboard(O)}</span>
@@ -19336,9 +19595,12 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
 }
 
 // ── 7.5 DM Scorecard ─────────────────────────────────────────────────────────
-function DmScorecardTab({ th, users, districts }) {
-  const [history,  setHistory]  = React.useState(null);
-  const [loading,  setLoading]  = React.useState(true);
+function DmScorecardTab({ th, users, districts, stores, salesWeeks }) {
+  const [history,      setHistory]      = React.useState(null);
+  const [loading,      setLoading]      = React.useState(true);
+  const [laborData,    setLaborData]    = React.useState(null);
+  const [laborLoading, setLaborLoading] = React.useState(false);
+  const [expandedRows, setExpandedRows] = React.useState({});
   const O = '#FF671F';
 
   React.useEffect(() => {
@@ -19347,6 +19609,47 @@ function DmScorecardTab({ th, users, districts }) {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
+
+  const loadLaborData = React.useCallback(() => {
+    if (laborData || laborLoading) return;
+    setLaborLoading(true);
+    cloudLoad('pcg_labor_v1').then(d => {
+      setLaborData(d);
+      setLaborLoading(false);
+    }).catch(() => setLaborLoading(false));
+  }, [laborData, laborLoading]);
+
+  const toggleRow = (district) => {
+    setExpandedRows(prev => {
+      const next = { ...prev, [district]: !prev[district] };
+      if (next[district]) loadLaborData();
+      return next;
+    });
+  };
+
+  // Sum sales from labor blob for a given district (current WTD)
+  const getDistrictTW = React.useCallback((district) => {
+    if (!laborData?.stores) return null;
+    const total = Object.values(laborData.stores)
+      .filter(s => String(s.district) === String(district) && !s.error)
+      .reduce((sum, s) => sum + (Number(s.wtd?.sales) || 0), 0);
+    return total > 0 ? total : null;
+  }, [laborData]);
+
+  // Sum lwSale or swly from uploaded scorecard by district
+  const getDistrictScorecard = React.useCallback((district, field) => {
+    if (!salesWeeks || salesWeeks.length === 0) return null;
+    const week = salesWeeks[0];
+    if (!week?.stores || !stores) return null;
+    let total = 0;
+    for (const row of week.stores) {
+      const meta = stores.find(s => String(s.pc) === String(row.pc));
+      if (meta && String(meta.district) === String(district)) {
+        total += Number(row[field]) || 0;
+      }
+    }
+    return total > 0 ? total : null;
+  }, [salesWeeks, stores]);
 
   const current = history?.[0];
   const previous = history?.[1];
@@ -19422,9 +19725,38 @@ function DmScorecardTab({ th, users, districts }) {
             const dmName = getDMName(district);
             const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx+1}`;
 
+            const isExpanded = !!expandedRows[district];
+            const twSales = getDistrictTW(district);
+            const lwSales = getDistrictScorecard(district, 'lwSale');
+            const lySales = getDistrictScorecard(district, 'swly');
+            const maxSales = Math.max(twSales || 0, lwSales || 0, lySales || 0) || 1;
+            const pctDiff = (a, b) => (a != null && b != null && b > 0) ? ((a - b) / b * 100) : null;
+            const twVsLw = pctDiff(twSales, lwSales);
+            const twVsLy = pctDiff(twSales, lySales);
+
+            const SalesBar = ({ label, value, color, cmp }) => {
+              const pct = Math.round((value / maxSales) * 100);
+              return (
+                <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', marginBottom:'0.45rem' }}>
+                  <div style={{ width:70, fontSize:'0.62rem', color:th.muted, fontWeight:600, textAlign:'right', flexShrink:0 }}>{label}</div>
+                  <div style={{ flex:1, background:th.card2, borderRadius:4, height:10, overflow:'hidden' }}>
+                    <div style={{ width:`${pct}%`, height:'100%', background:color, borderRadius:4, transition:'width 0.5s ease' }} />
+                  </div>
+                  <div style={{ width:80, fontSize:'0.72rem', color:th.text, fontWeight:700, flexShrink:0 }}>{fmtDollars(value)}</div>
+                  {cmp != null && (
+                    <div style={{ width:56, fontSize:'0.65rem', fontWeight:700, color: cmp >= 0 ? '#22c55e' : '#ef4444', flexShrink:0, textAlign:'right' }}>
+                      {cmp >= 0 ? '▲' : '▼'}{Math.abs(cmp).toFixed(1)}%
+                    </div>
+                  )}
+                  {cmp == null && <div style={{ width:56, flexShrink:0 }} />}
+                </div>
+              );
+            };
+
             return (
-              <div key={district} style={{ ...card(th), padding:'1rem 1.25rem', borderLeft:`3px solid ${scoreColor(score.composite)}` }}>
-                <div style={{ display:'flex', alignItems:'center', gap:'1rem', flexWrap:'wrap' }}>
+              <div key={district} style={{ ...card(th), padding:'0', borderLeft:`3px solid ${scoreColor(score.composite)}`, overflow:'hidden' }}>
+                {/* Main row — clickable to expand */}
+                <div onClick={() => toggleRow(district)} style={{ padding:'1rem 1.25rem', cursor:'pointer', display:'flex', alignItems:'center', gap:'1rem', flexWrap:'wrap' }}>
                   {/* Rank + name */}
                   <div style={{ minWidth:160 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.15rem' }}>
@@ -19456,7 +19788,39 @@ function DmScorecardTab({ th, users, districts }) {
                       </div>
                     ))}
                   </div>
+
+                  {/* Expand chevron */}
+                  <div style={{ color:th.muted, fontSize:'0.75rem', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition:'transform 0.25s', flexShrink:0, userSelect:'none' }}>▼</div>
                 </div>
+
+                {/* Collapsible sales chart */}
+                {isExpanded && (
+                  <div style={{ padding:'0.75rem 1.25rem 1rem', borderTop:`1px solid ${th.border || (th.card2)}` }}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.75rem' }}>
+                      <span style={{ fontSize:'0.65rem', fontWeight:700, color:th.muted, textTransform:'uppercase', letterSpacing:1 }}>Weekly Net Sales</span>
+                      <div style={{ display:'flex', gap:'0.75rem', alignItems:'center' }}>
+                        <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.6rem', color:th.muted }}><span style={{ width:8, height:8, borderRadius:2, background:O, display:'inline-block' }} />This Week (WTD)</span>
+                        <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.6rem', color:th.muted }}><span style={{ width:8, height:8, borderRadius:2, background:'#94a3b8', display:'inline-block' }} />Last Week</span>
+                        <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.6rem', color:th.muted }}><span style={{ width:8, height:8, borderRadius:2, background:'#38bdf8', display:'inline-block' }} />Last Year</span>
+                      </div>
+                    </div>
+                    {laborLoading && !laborData ? (
+                      <div style={{ fontSize:'0.72rem', color:th.muted, padding:'0.5rem 0' }}>⏳ Loading sales data…</div>
+                    ) : (
+                      <div>
+                        {twSales != null
+                          ? <SalesBar label="This Week" value={twSales} color={O} cmp={null} />
+                          : <div style={{ fontSize:'0.68rem', color:th.muted, marginBottom:'0.45rem' }}>This Week: no labor data</div>}
+                        {lwSales != null
+                          ? <SalesBar label="Last Week" value={lwSales} color="#94a3b8" cmp={twVsLw} />
+                          : <div style={{ fontSize:'0.68rem', color:th.muted, marginBottom:'0.45rem' }}>Last Week: upload scorecard for LW data</div>}
+                        {lySales != null
+                          ? <SalesBar label="Last Year" value={lySales} color="#38bdf8" cmp={twVsLy} />
+                          : <div style={{ fontSize:'0.68rem', color:th.muted, marginBottom:'0.45rem' }}>Last Year: upload scorecard for LY data</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -28759,7 +29123,7 @@ function EmailTab({ th, user }) {
 
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
-function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull }) {
+function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull, todos, projects, users }) {
   const O = '#FF671F';
   const [activeTab, setActiveTab] = React.useState('brief');
   const [brief, setBrief] = React.useState(null);
@@ -28780,6 +29144,9 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
   const [pulseLoading, setPulseLoading] = React.useState(false);
   const [pulseProgress, setPulseProgress] = React.useState(0);
   const [pulseDate, setPulseDate] = React.useState(new Date().toISOString().slice(0,10));
+  const [pulseViewMode, setPulseViewMode] = React.useState('day');
+  const [pulseWtdData, setPulseWtdData] = React.useState({});
+  const [pulseWtdLoading, setPulseWtdLoading] = React.useState(false);
   const chatEndRef = React.useRef(null);
   const askInputRef = React.useRef(null);
 
@@ -28945,6 +29312,39 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
     setPulseApiData(results); setPulseLoading(false); setPulseProgress(100);
   };
 
+  const fetchPulseWtd = async (date) => {
+    const districtStores = (stores||[]).filter(s => (isExec || Number(s.district) === district) && s.status === 'Open');
+    if (!districtStores.length) return;
+    setPulseWtdLoading(true); setPulseWtdData({});
+    const d = new Date(date + 'T12:00:00');
+    const sun = new Date(d); sun.setDate(d.getDate() - d.getDay());
+    const weekDates = [];
+    for (let i = 0; i < 7; i++) {
+      const dd = new Date(sun); dd.setDate(sun.getDate() + i);
+      const ds = `${dd.getFullYear()}-${String(dd.getMonth()+1).padStart(2,'0')}-${String(dd.getDate()).padStart(2,'0')}`;
+      if (ds <= today) weekDates.push(ds);
+    }
+    const sums = {};
+    districtStores.forEach(s => { sums[s.pc] = { netSales:0, guests:0, forecast:0, voids:0, voidCnt:0, errCor:0, discounts:0, tax:0 }; });
+    for (const dayDate of weekDates) {
+      const batchSize = 4;
+      for (let i = 0; i < districtStores.length; i += batchSize) {
+        await Promise.all(districtStores.slice(i, i + batchSize).map(async s => {
+          try {
+            const json = await fetchOpsTotals(String(s.pc), dayDate);
+            const r = sumRVC(json.revenueCenters || []);
+            const sm = sums[s.pc];
+            sm.netSales += r.netSales; sm.guests += r.guests; sm.forecast += r.forecast;
+            sm.voids += r.voids; sm.voidCnt += r.voidCnt; sm.errCor += r.errCor;
+            sm.discounts += r.discounts; sm.tax += r.tax;
+          } catch {}
+        }));
+      }
+    }
+    Object.values(sums).forEach(s => { s.avgCheck = s.guests > 0 ? s.netSales / s.guests : 0; });
+    setPulseWtdData(sums); setPulseWtdLoading(false);
+  };
+
   const severityColor = s => s === 'high' ? '#f44336' : s === 'medium' ? '#ff9800' : '#4caf50';
   const laborColor = p => !p ? th.muted : p < 23 ? '#4caf50' : p < 26 ? '#ff9800' : '#f44336';
   const fmtDollars = n => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
@@ -28953,7 +29353,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
     { id: 'brief', label: 'Brief', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8M8 8h5M8 16h6"/></svg> },
     { id: 'pulse', label: 'Pulse', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
     { id: 'cases', label: 'Cases', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12l2 2 4-4"/></svg> },
-    { id: 'chat', label: 'Chat', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
+    { id: 'calendar', label: 'Calendar', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
     { id: 'ask', label: 'Ask', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> },
   ];
 
@@ -28981,159 +29381,132 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
       </div>
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 14px 12px', WebkitOverflowScrolling: 'touch' }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 14px 100px', WebkitOverflowScrolling: 'touch' }}>
 
         {/* ── PULSE TAB ── */}
         {activeTab === 'pulse' && (() => {
           const G = '#00d084';
-          const apiVals = Object.values(pulseApiData);
-          const totalTodaySales = apiVals.length > 0
-            ? apiVals.reduce((s,d)=>s+(d?.netSales||0),0)
-            : storeRows.reduce((s,r)=>s+r.todaySales,0);
-          const totalGuests = apiVals.reduce((s,d)=>s+(d?.netGuests||d?.guests||0),0);
-          const totalDiscounts = apiVals.reduce((s,d)=>s+(d?.discountAmount||d?.discounts||0),0);
-          const totalVoids = apiVals.reduce((s,d)=>s+(d?.voidAmount||d?.voids||0),0);
-          const avgCheck = totalGuests>0 ? totalTodaySales/totalGuests : 0;
-          const voidRate = totalTodaySales>0 ? (totalVoids/totalTodaySales*100) : 0;
-          const validLabor = storeRows.filter(r=>r.todayLaborPct>0);
-          const avgLabor = validLabor.length>0 ? validLabor.reduce((s,r)=>s+r.todayLaborPct,0)/validLabor.length : 0;
-          const totalWtd = storeRows.reduce((s,r)=>s+r.wtdSales,0);
-          const validWtdLabor = storeRows.filter(r=>r.wtdLaborPct>0);
-          const avgWtdLabor = validWtdLabor.length>0 ? validWtdLabor.reduce((s,r)=>s+r.wtdLaborPct,0)/validWtdLabor.length : 0;
+          const isWeek = pulseViewMode === 'week';
+          const activeData = isWeek ? pulseWtdData : pulseApiData;
+          const activeVals = Object.values(activeData);
+          const agg = activeVals.reduce((a,d) => ({
+            netSales:  a.netSales  + (d?.netSales  || 0),
+            guests:    a.guests    + (d?.guests     || 0),
+            discounts: a.discounts + (d?.discounts  || 0),
+            voids:     a.voids     + (d?.voids      || 0),
+            tax:       a.tax       + (d?.tax        || 0),
+            errCor:    a.errCor    + (d?.errCor     || 0),
+            forecast:  a.forecast  + (d?.forecast   || 0),
+          }), { netSales:0, guests:0, discounts:0, voids:0, tax:0, errCor:0, forecast:0 });
+          const avgCheck = agg.guests > 0 ? agg.netSales / agg.guests : 0;
+          const voidRate = agg.netSales > 0 ? (agg.voids / agg.netSales * 100) : 0;
+          const wtdFromLabor = storeRows.reduce((s,r) => s + r.wtdSales, 0);
+          const fmtUSD = n => n === 0 ? '—' : (Math.abs(n) >= 1000 ? `$${(n/1000).toFixed(1)}k` : `$${Math.round(n)}`);
+          const fmtNum = n => n > 0 ? n.toLocaleString() : '—';
+          const isActive = pulseLoading || pulseWtdLoading;
           return (
             <div>
-              {/* ── Exact same Pulse header as full portal ── */}
-              <div style={{background:'linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)',
-                border:`1px solid ${G}33`,borderRadius:16,padding:'16px 18px',margin:'14px 0 12px',
-                position:'relative',overflow:'hidden'}}>
+              <div style={{background:'linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)',border:`1px solid ${G}33`,borderRadius:16,padding:'14px 16px',margin:'14px 0 10px',position:'relative',overflow:'hidden'}}>
                 <div style={{position:'absolute',top:-60,right:-60,width:200,height:200,borderRadius:'50%',background:`${G}15`,pointerEvents:'none'}}/>
-                {/* Icon + title */}
-                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:4}}>
-                  <div style={{position:'relative',display:'flex',alignItems:'center',justifyContent:'center',
-                    width:42,height:42,borderRadius:'50%',background:`${G}22`,border:`2px solid ${G}`,boxShadow:`0 0 16px ${G}66`}}>
-                    <span style={{fontSize:'1.3rem',filter:`drop-shadow(0 0 6px ${G})`}}>💚</span>
-                    <div style={{position:'absolute',top:0,left:0,right:0,bottom:0,borderRadius:'50%',
-                      border:`2px solid ${G}`,animation:'pulseRing 2s ease-out infinite'}}/>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+                  <div style={{position:'relative',display:'flex',alignItems:'center',justifyContent:'center',width:38,height:38,borderRadius:'50%',background:`${G}22`,border:`2px solid ${G}`,boxShadow:`0 0 14px ${G}66`,flexShrink:0}}>
+                    <span style={{fontSize:'1.1rem',filter:`drop-shadow(0 0 6px ${G})`}}>💚</span>
+                    <div style={{position:'absolute',top:0,left:0,right:0,bottom:0,borderRadius:'50%',border:`2px solid ${G}`,animation:'pulseRing 2s ease-out infinite'}}/>
                   </div>
                   <div style={{flex:1}}>
-                    <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:'1.4rem',color:G,
-                      textShadow:`0 0 20px ${G}99`,letterSpacing:1,lineHeight:1}}>PULSE</div>
-                    <div style={{fontSize:'0.7rem',color:`${G}99`,fontWeight:600,letterSpacing:2}}>LIVE {isExec?'NETWORK':'DISTRICT'} MONITOR</div>
+                    <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:'1.3rem',color:G,textShadow:`0 0 20px ${G}99`,letterSpacing:1,lineHeight:1}}>PULSE</div>
+                    <div style={{fontSize:'0.65rem',color:`${G}99`,fontWeight:600,letterSpacing:2}}>LIVE {isExec?'NETWORK':'DISTRICT'} MONITOR</div>
                   </div>
                   <div style={{textAlign:'right'}}>
-                    {pulseLoading
-                      ? <div style={{color:`${G}88`,fontSize:11,fontWeight:700}}>⏳ {pulseProgress}%</div>
-                      : <div style={{color:`${G}88`,fontSize:11}}>● API connected</div>
-                    }
+                    {isActive ? <div style={{color:`${G}88`,fontSize:11,fontWeight:700}}>⏳ {pulseProgress}%</div> : <div style={{color:`${G}88`,fontSize:11}}>● API connected</div>}
                   </div>
                 </div>
-                {/* Heartbeat line — exact same as full portal */}
                 <HeartbeatLine />
-                {/* Date picker + Refresh */}
                 <div style={{display:'flex',alignItems:'center',gap:8,marginTop:8}}>
-                  <div style={{display:'inline-flex',alignItems:'center',gap:4,background:'#001a0d',border:`1px solid ${G}44`,borderRadius:10,padding:'3px 6px',flex:1}}>
-                    <button onClick={()=>{const d=new Date(pulseDate+'T12:00:00');d.setDate(d.getDate()-1);setPulseDate(d.toISOString().slice(0,10));}}
-                      style={{background:'none',border:'none',color:G,cursor:'pointer',fontWeight:800,fontSize:16,padding:'0 4px',lineHeight:1}}>‹</button>
-                    <input type="date" value={pulseDate} max={today} onChange={e=>setPulseDate(e.target.value)}
-                      style={{background:'transparent',border:'none',color:G,fontSize:12,fontWeight:700,fontFamily:"'Raleway'",outline:'none',flex:1,textAlign:'center'}}/>
-                    <button onClick={()=>{const d=new Date(pulseDate+'T12:00:00');d.setDate(d.getDate()+1);if(d.toISOString().slice(0,10)<=today)setPulseDate(d.toISOString().slice(0,10));}}
-                      style={{background:'none',border:'none',color:pulseDate>=today?`${G}33`:G,cursor:'pointer',fontWeight:800,fontSize:16,padding:'0 4px',lineHeight:1}}>›</button>
+                  <div style={{display:'inline-flex',background:'#001a0d',border:`1px solid ${G}44`,borderRadius:8,padding:'2px'}}>
+                    {['day','week'].map(m => (
+                      <button key={m} onClick={() => { setPulseViewMode(m); if (m === 'week' && Object.keys(pulseWtdData).length === 0 && !pulseWtdLoading) fetchPulseWtd(pulseDate); }} style={{background:pulseViewMode===m?G:'transparent',color:pulseViewMode===m?'#0a2e0a':`${G}88`,border:'none',borderRadius:6,padding:'4px 12px',fontSize:'0.68rem',fontWeight:800,cursor:'pointer',textTransform:'uppercase',letterSpacing:1,fontFamily:"'Source Sans 3'",transition:'all .15s'}}>{m}</button>
+                    ))}
                   </div>
-                  <button onClick={()=>fetchPulseData(pulseDate)} disabled={pulseLoading}
-                    style={{background:`${G}22`,border:`1px solid ${G}55`,color:G,borderRadius:10,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0}}>
-                    {pulseLoading?'⏳':'⚡'} {pulseLoading?'Loading…':'Refresh'}
-                  </button>
+                  <div style={{display:'inline-flex',alignItems:'center',gap:4,background:'#001a0d',border:`1px solid ${G}44`,borderRadius:8,padding:'3px 6px',flex:1}}>
+                    <button onClick={()=>{const d=new Date(pulseDate+'T12:00:00');d.setDate(d.getDate()-1);setPulseDate(d.toISOString().slice(0,10));}} style={{background:'none',border:'none',color:G,cursor:'pointer',fontWeight:800,fontSize:16,padding:'0 4px',lineHeight:1}}>‹</button>
+                    <input type="date" value={pulseDate} max={today} onChange={e=>setPulseDate(e.target.value)} style={{background:'transparent',border:'none',color:G,fontSize:12,fontWeight:700,fontFamily:"'Raleway'",outline:'none',flex:1,textAlign:'center'}}/>
+                    <button onClick={()=>{const d=new Date(pulseDate+'T12:00:00');d.setDate(d.getDate()+1);if(d.toISOString().slice(0,10)<=today)setPulseDate(d.toISOString().slice(0,10));}} style={{background:'none',border:'none',color:pulseDate>=today?`${G}33`:G,cursor:'pointer',fontWeight:800,fontSize:16,padding:'0 4px',lineHeight:1}}>›</button>
+                  </div>
+                  <button onClick={()=>{ fetchPulseData(pulseDate); if(isWeek) fetchPulseWtd(pulseDate); }} disabled={isActive} style={{background:`${G}22`,border:`1px solid ${G}55`,color:G,borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0}}>{isActive?'⏳':'⚡'} {isActive?'…':'Refresh'}</button>
                 </div>
+                {(agg.netSales > 0 || agg.guests > 0) && (
+                  <div style={{display:'flex',flexWrap:'wrap',gap:'0.35rem',marginTop:'0.75rem',paddingTop:'0.65rem',borderTop:'1px solid rgba(34,197,94,0.15)'}}>
+                    {[
+                      {label:'Net Sales',  value: fmtUSD(agg.netSales),    color: G},
+                      {label:'Checks',     value: fmtNum(agg.guests),      color: '#74c0fc'},
+                      {label:'Avg Check',  value: avgCheck>0?`$${avgCheck.toFixed(2)}`:'—', color: '#ffd43b'},
+                      {label:'Discounts',  value: agg.discounts!==0?`$${Math.round(Math.abs(agg.discounts)).toLocaleString()}`:'—', color: '#f06595'},
+                      {label:'Void Rate',  value: agg.netSales>0?`${voidRate.toFixed(2)}%`:'—', color: voidRate>1?'#ff6b6b':'#69db7c'},
+                      {label:'Tax',        value: fmtUSD(agg.tax),         color: '#20c997'},
+                      {label:'Err Cor',    value: fmtUSD(agg.errCor),      color: '#868e96'},
+                      {label: isWeek?'Wk Total':'WTD', value: wtdFromLabor>0?fmtUSD(wtdFromLabor):'—', color: '#4dabf7'},
+                      {label:'Forecast',   value: agg.forecast>0?fmtUSD(agg.forecast):'—', color: '#cc5de8'},
+                    ].map(k=>(
+                      <div key={k.label} style={{display:'flex',flexDirection:'column',alignItems:'center',background:`${k.color}12`,border:`1px solid ${k.color}30`,borderRadius:999,padding:'0.25rem 0.7rem',minWidth:56}}>
+                        <span style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:'0.78rem',color:k.color,lineHeight:1.1,whiteSpace:'nowrap'}}>{k.value}</span>
+                        <span style={{fontSize:'0.48rem',color:`${k.color}77`,textTransform:'uppercase',letterSpacing:0.8,fontWeight:700,whiteSpace:'nowrap'}}>{k.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-
-              {/* ── KPI cards (same style as full portal) ── */}
-              {(totalTodaySales > 0 || totalGuests > 0) && (
-                <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:4,marginBottom:12,WebkitOverflowScrolling:'touch'}}>
-                  {[
-                    {label:`Net Sales — ${pulseDate}`,value:`$${Math.round(totalTodaySales).toLocaleString()}`,color:G,border:G},
-                    {label:'Guests / Checks',value:totalGuests>0?totalGuests.toLocaleString():'—',color:'#74c0fc',border:'#74c0fc'},
-                    {label:'Avg Check',value:avgCheck>0?`$${avgCheck.toFixed(2)}`:'—',color:'#ffd43b',border:'#ffd43b'},
-                    {label:'Discounts',value:totalDiscounts>0?`$${Math.round(Math.abs(totalDiscounts)).toLocaleString()}`:'—',color:'#f06595',border:'#f06595'},
-                    {label:'Void Rate',value:totalTodaySales>0?`${voidRate.toFixed(2)}%`:'—',color:voidRate>1?'#ff6b6b':'#69db7c',border:voidRate>1?'#ff6b6b':'#69db7c'},
-                  ].map(k=>(
-                    <div key={k.label} style={{background:th.card,border:`1px solid ${k.border}44`,borderRadius:12,padding:'12px 14px',minWidth:120,flexShrink:0}}>
-                      <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:18,color:k.color}}>{k.value}</div>
-                      <div style={{fontSize:9,color:th.muted,textTransform:'uppercase',letterSpacing:0.7,fontWeight:600,marginTop:4}}>{k.label}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ── WTD summary ── */}
-              <div style={{background:th.card,border:`1px solid ${th.cardBorder}`,borderRadius:12,padding:'12px 14px',marginBottom:12,borderLeft:`3px solid ${G}`}}>
-                <div style={{fontSize:12,fontWeight:700,color:th.text,marginBottom:8}}>Week to Date</div>
-                <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
-                  {[
-                    {label:'Net Sales',value:`$${Math.round(totalWtd).toLocaleString()}`,color:G},
-                    {label:'Avg Labor',value:avgWtdLabor>0?`${avgWtdLabor.toFixed(1)}%`:'—',color:laborColor(avgWtdLabor)},
-                    {label:'Stores',value:storeRows.length,color:'#74c0fc'},
-                  ].map(k=>(
-                    <div key={k.label}>
-                      <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:16,color:k.color}}>{k.value}</div>
-                      <div style={{fontSize:10,color:th.muted,fontWeight:600,marginTop:2}}>{k.label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── Store cards ── */}
               <div style={{fontSize:11,color:th.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:1.2,marginBottom:8}}>Store Breakdown</div>
               {storeRows.length===0 && loading && <div style={{textAlign:'center',color:th.muted,padding:20,fontSize:13}}>Loading stores...</div>}
+              {(pulseWtdLoading && isWeek) && <div style={{textAlign:'center',color:G,padding:12,fontSize:12,fontWeight:600}}>⏳ Loading week data…</div>}
               {storeRows.map(s=>{
                 const isOpen = expandedStore === s.pc;
-                const api = pulseApiData[s.pc];
-                const todaySales = api?.netSales || s.todaySales;
-                const guests = api?.netGuests||api?.guests||0;
-                const avgChk = guests>0?(todaySales/guests):0;
-                const discounts = api?.discountAmount||api?.discounts||0;
-                const voids = api?.voidAmount||api?.voids||0;
-                const voidR = todaySales>0?(voids/todaySales*100):0;
-                const lColor = laborColor(s.todayLaborPct);
-                const lBg = s.todayLaborPct>=26?'#f4433618':s.todayLaborPct>=23?'#ff980018':s.todayLaborPct>0?'#4caf5018':'transparent';
+                const api = isWeek ? pulseWtdData[s.pc] : pulseApiData[s.pc];
+                const sales = api?.netSales || (isWeek ? s.wtdSales : s.todaySales);
+                const guests = api?.guests || 0;
+                const avgChk = guests>0?(sales/guests):0;
+                const discounts = api?.discounts || 0;
+                const voids = api?.voids || 0;
+                const tax = api?.tax || 0;
+                const errCor = api?.errCor || 0;
+                const voidR = sales>0?(voids/sales*100):0;
+                const laborPct = isWeek ? s.wtdLaborPct : s.todayLaborPct;
+                const lColor = laborColor(laborPct);
+                const lBg = laborPct>=26?'#f4433618':laborPct>=23?'#ff980018':laborPct>0?'#4caf5018':'transparent';
                 return (
-                  <div key={s.pc} onClick={()=>setExpandedStore(isOpen?null:s.pc)}
-                    style={{background:th.card,border:`1px solid ${isOpen?G:th.cardBorder}`,borderRadius:14,marginBottom:8,overflow:'hidden',cursor:'pointer',transition:'border-color .2s',boxShadow:isOpen?`0 0 0 1px ${G}44`:'none'}}>
-                    {/* Row header */}
+                  <div key={s.pc} onClick={()=>setExpandedStore(isOpen?null:s.pc)} style={{background:th.card,border:`1px solid ${isOpen?G:th.cardBorder}`,borderRadius:14,marginBottom:8,overflow:'hidden',cursor:'pointer',transition:'border-color .2s',boxShadow:isOpen?`0 0 0 1px ${G}44`:'none'}}>
                     <div style={{display:'flex',alignItems:'center',padding:'12px 14px',gap:10}}>
                       <div style={{width:8,height:8,borderRadius:'50%',background:lColor,flexShrink:0,boxShadow:`0 0 5px ${lColor}`}}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:14,fontWeight:700,color:th.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s.name}</div>
-                        <div style={{fontSize:11,color:th.muted,marginTop:2}}>WTD {fmtDollars(s.wtdSales)} {guests>0?`· ${guests.toLocaleString()} guests`:''}</div>
+                        <div style={{fontSize:11,color:th.muted,marginTop:2}}>{isWeek?'WTD':'Today'} {guests>0?`· ${guests.toLocaleString()} checks`:''}</div>
                       </div>
                       <div style={{textAlign:'right',flexShrink:0,marginRight:6}}>
-                        <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:16,color:todaySales>0?G:th.muted}}>{todaySales>0?`$${Math.round(todaySales).toLocaleString()}`:'—'}</div>
-                        {s.todayLaborPct>0&&<div style={{fontSize:11,fontWeight:700,color:lColor,background:lBg,borderRadius:5,padding:'1px 5px',display:'inline-block',marginTop:2}}>{s.todayLaborPct.toFixed(1)}%</div>}
+                        <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:16,color:sales>0?G:th.muted}}>{sales>0?`$${Math.round(sales).toLocaleString()}`:'—'}</div>
+                        {laborPct>0&&<div style={{fontSize:11,fontWeight:700,color:lColor,background:lBg,borderRadius:5,padding:'1px 5px',display:'inline-block',marginTop:2}}>{laborPct.toFixed(1)}%</div>}
                       </div>
                       <span style={{color:th.muted,fontSize:18,transform:isOpen?'rotate(90deg)':'none',transition:'transform .2s',flexShrink:0}}>›</span>
                     </div>
-                    {/* Expanded */}
                     {isOpen && (
-                      <div style={{borderTop:`1px solid ${th.cardBorder}`,padding:'12px 14px',background:th.bg}}>
-                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
+                      <div style={{borderTop:`1px solid ${th.cardBorder}`,padding:'10px 14px',background:th.bg}}>
+                        <div style={{display:'flex',flexWrap:'wrap',gap:'0.3rem',marginBottom:8}}>
                           {[
-                            {label:'Today Net Sales',value:todaySales>0?`$${Math.round(todaySales).toLocaleString()}`:'—',color:G},
-                            {label:'Guests',value:guests>0?guests.toLocaleString():'—',color:'#74c0fc'},
-                            {label:'Avg Check',value:avgChk>0?`$${avgChk.toFixed(2)}`:'—',color:'#ffd43b'},
-                            {label:'Discounts',value:discounts!==0?`$${Math.round(Math.abs(discounts)).toLocaleString()}`:'—',color:'#f06595'},
-                            {label:'Void Rate',value:todaySales>0?`${voidR.toFixed(2)}%`:'—',color:voidR>1?'#ff6b6b':'#69db7c'},
-                            {label:'Today Labor',value:s.todayLaborPct>0?`${s.todayLaborPct.toFixed(1)}%`:'—',color:lColor},
+                            {label:'Net Sales',  value:sales>0?`$${Math.round(sales).toLocaleString()}`:'—',color:G},
+                            {label:'Checks',     value:guests>0?guests.toLocaleString():'—',color:'#74c0fc'},
+                            {label:'Avg Check',  value:avgChk>0?`$${avgChk.toFixed(2)}`:'—',color:'#ffd43b'},
+                            {label:'Discounts',  value:discounts!==0?`$${Math.round(Math.abs(discounts)).toLocaleString()}`:'—',color:'#f06595'},
+                            {label:'Void Rate',  value:sales>0?`${voidR.toFixed(2)}%`:'—',color:voidR>1?'#ff6b6b':'#69db7c'},
+                            {label:'Tax',        value:tax>0?`$${Math.round(tax).toLocaleString()}`:'—',color:'#20c997'},
+                            {label:'Err Cor',    value:errCor!==0?`$${Math.round(Math.abs(errCor)).toLocaleString()}`:'—',color:'#868e96'},
+                            {label:'Labor',      value:laborPct>0?`${laborPct.toFixed(1)}%`:'—',color:lColor},
                           ].map(k=>(
-                            <div key={k.label} style={{background:th.card,borderRadius:10,padding:'8px 10px',border:`1px solid ${k.color}33`}}>
-                              <div style={{fontSize:9,color:th.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:0.7,marginBottom:4}}>{k.label}</div>
-                              <div style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:14,color:k.color}}>{k.value}</div>
+                            <div key={k.label} style={{display:'flex',flexDirection:'column',alignItems:'center',background:`${k.color}12`,border:`1px solid ${k.color}30`,borderRadius:999,padding:'0.22rem 0.6rem',minWidth:50}}>
+                              <span style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:'0.75rem',color:k.color,lineHeight:1.1,whiteSpace:'nowrap'}}>{k.value}</span>
+                              <span style={{fontSize:'0.45rem',color:`${k.color}77`,textTransform:'uppercase',letterSpacing:0.7,fontWeight:700,whiteSpace:'nowrap'}}>{k.label}</span>
                             </div>
                           ))}
                         </div>
-                        <div style={{display:'flex',justifyContent:'space-between',padding:'8px 10px',background:th.card,borderRadius:8,fontSize:11}}>
-                          <span style={{color:th.muted}}>WTD Sales: <span style={{color:G,fontWeight:700}}>{fmtDollars(s.wtdSales)}</span></span>
-                          <span style={{color:th.muted}}>WTD Labor: <span style={{color:laborColor(s.wtdLaborPct),fontWeight:700}}>{s.wtdLaborPct>0?`${s.wtdLaborPct.toFixed(1)}%`:'—'}</span></span>
-                          <span style={{color:th.muted,fontSize:10}}>PC# {s.pc}</span>
-                        </div>
+                        <div style={{fontSize:10,color:th.muted,textAlign:'right'}}>PC# {s.pc}</div>
                       </div>
                     )}
                   </div>
@@ -29196,6 +29569,21 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
                   <div style={{ fontSize: 13, color: th.text, lineHeight: 1.65 }}>{leaderboard.message}</div>
                   <div style={{ marginTop: 10, fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— {leaderboard.createdBy} · {leaderboard.createdAt ? new Date(leaderboard.createdAt).toLocaleDateString() : ''}</div>
                 </div>
+              </div>
+            )}
+
+            {/* Action Queue — DM only, shown below the brief */}
+            {user?.userType === 'dm' && (
+              <div>
+                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '16px 0 8px' }}>Action Queue</div>
+                <ActionQueue
+                  stores={stores}
+                  th={th}
+                  user={user}
+                  users={users || []}
+                  setTab={() => onSwitchToFull()}
+                  showAlert={() => {}}
+                />
               </div>
             )}
           </div>
@@ -29328,6 +29716,13 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
             )}
           </div>
         )}
+
+        {/* ── CALENDAR TAB ── */}
+        {activeTab === 'calendar' && (
+          <div style={{ padding: '14px 0 0' }}>
+            <PortalCalendar th={th} user={user} stores={stores} todos={todos || []} projects={projects || []} />
+          </div>
+        )}
       </div>
 
       {/* Chat input bar (only on chat tab) */}
@@ -29344,14 +29739,14 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
         </div>
       )}
 
-      {/* Bottom nav */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '6px 8px 20px', background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0 }}>
+      {/* Bottom nav — floating glass pill */}
+      <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 420, background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', border: `1px solid ${dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.55)'}`, borderRadius: 999, padding: '6px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 200, boxShadow: `0 8px 40px rgba(0,0,0,0.15), inset 0 1px 0 ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.7)'}` }}>
         {NAV_ITEMS.map(item => {
           const active = activeTab === item.id;
           return (
-            <button key={item.id} onClick={() => setActiveTab(item.id)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 18px', borderRadius: 12, border: 'none', background: active ? O + '18' : 'none', cursor: 'pointer', color: active ? O : th.muted }}>
-              <span style={{ display: 'flex', color: active ? O : th.muted }}>{item.icon}</span>
-              <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: active ? O : th.muted }}>{item.label}</span>
+            <button key={item.id} onClick={() => setActiveTab(item.id)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 14px', borderRadius: 999, border: 'none', background: active ? `linear-gradient(135deg, ${O}55, ${O}33)` : 'transparent', cursor: 'pointer', transition: 'background 0.2s', boxShadow: active ? `0 2px 12px ${O}44` : 'none' }}>
+              <span style={{ display: 'flex', color: active ? O : dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>{item.icon}</span>
+              <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: active ? O : dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>{item.label}</span>
             </button>
           );
         })}
@@ -30090,37 +30485,30 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
         </div>
       )}
 
-      {/* Bottom nav — curved floating-circle design */}
+      {/* Bottom nav — floating glass pill */}
       {(() => {
-        const NAV_BG = '#111111';
         const activeIdx = NAV.findIndex(n => n.id === activeTab);
         const safeIdx = activeIdx >= 0 ? activeIdx : 0;
         const circleLeft = `calc(${(safeIdx + 0.5) * 25}% - 28px)`;
-        const notchLeft  = `calc(${(safeIdx + 0.5) * 25}% - 36px)`;
         const spring = '0.38s cubic-bezier(0.34, 1.4, 0.64, 1)';
         return (
-          <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, zIndex: 100 }}>
-            {/* Notch — background-color circle that "cuts into" the bar */}
-            <div style={{ position: 'absolute', width: 72, height: 72, borderRadius: '50%', background: th.bg, top: -38, left: notchLeft, transition: `left ${spring}`, zIndex: 1, pointerEvents: 'none' }} />
+          <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 420, zIndex: 100 }}>
             {/* Floating active icon circle */}
-            <div style={{ position: 'absolute', width: 56, height: 56, borderRadius: '50%', background: `linear-gradient(135deg, ${PURPLE}, #ff9a5c)`, top: -40, left: circleLeft, transition: `left ${spring}`, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 6px 24px ${PURPLE}88`, color: '#fff', pointerEvents: 'none' }}>
+            <div style={{ position: 'absolute', width: 54, height: 54, borderRadius: '50%', background: `linear-gradient(135deg, ${PURPLE}, #ff9a5c)`, top: -36, left: circleLeft, transition: `left ${spring}`, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 6px 24px ${PURPLE}88`, color: '#fff', pointerEvents: 'none' }}>
               {NAV[safeIdx]?.icon()}
               {NAV[safeIdx]?.badge > 0 && (
                 <div style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444', color: '#fff', borderRadius: 999, fontSize: '0.5rem', fontWeight: 800, minWidth: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{NAV[safeIdx].badge}</div>
               )}
             </div>
-            {/* Bar */}
-            <div style={{ background: NAV_BG, borderRadius: '1.375rem 1.375rem 0 0', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', paddingBottom: 'env(safe-area-inset-bottom, 0px)', height: 64, position: 'relative', zIndex: 0, boxShadow: '0 -6px 30px rgba(0,0,0,0.22)' }}>
+            {/* Glass pill bar */}
+            <div style={{ background: 'rgba(255,255,255,0.10)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 999, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', height: 62, position: 'relative', zIndex: 0, boxShadow: '0 8px 40px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.12)' }}>
               {NAV.map((item, i) => {
                 const isActive = item.id === activeTab;
                 return (
                   <button key={item.id} onClick={() => item.id === 'portal' ? onFullPortal() : setActiveTab(item.id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '0 4px 10px', gap: 2, color: isActive ? '#fff' : 'rgba(255,255,255,0.38)', fontFamily: "'Source Sans 3'", position: 'relative', WebkitTapHighlightColor: 'transparent' }}>
-                    {/* Inactive icon */}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '0 4px 10px', gap: 2, color: isActive ? '#fff' : 'rgba(255,255,255,0.4)', fontFamily: "'Source Sans 3'", position: 'relative', WebkitTapHighlightColor: 'transparent' }}>
                     {!isActive && <div style={{ transition: 'opacity 0.2s' }}>{item.icon()}</div>}
-                    {/* Space holder when active (floating circle fills this visually) */}
                     {isActive && <div style={{ height: 22 }} />}
-                    {/* Badge on inactive tickets */}
                     {!isActive && item.badge > 0 && (
                       <div style={{ position: 'absolute', top: 8, right: '18%', background: '#ef4444', color: '#fff', borderRadius: 999, fontSize: '0.5rem', fontWeight: 800, minWidth: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{item.badge}</div>
                     )}
@@ -31216,11 +31604,18 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     return enrichedCalProjects;
   }, [enrichedCalProjects, isManager, isDM, user]);
 
+  const [isMobile, setIsMobile] = React.useState(() => window.innerWidth < 700);
+  React.useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 700);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, []);
+
   const year  = viewDate.getFullYear();
   const month = viewDate.getMonth();
   const firstDay    = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month+1, 0).getDate();
-  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const DAYS        = isMobile ? ['S','M','T','W','T','F','S'] : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   // Filter maintenance schedules by role
@@ -31307,7 +31702,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
       <div style={{ fontSize:'0.78rem', color:th.muted, marginBottom:'1.25rem' }}>
         {isManager ? 'Your store' : isDM ? `District ${user?.district}` : 'Network'} · tickets · equipment · projects · tasks
       </div>
-      <div style={{ display:'flex', gap:'1rem', height:'calc(100vh - 175px)', minHeight:480 }}>
+      <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', gap:'1rem', height: isMobile ? 'auto' : 'calc(100vh - 175px)', minHeight: isMobile ? 0 : 480 }}>
         {/* Grid */}
         <div style={{ flex:3, display:'flex', flexDirection:'column', ...card(th), overflow:'hidden', minWidth:0 }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.875rem 1.25rem', borderBottom:`1px solid ${th.cardBorder}`, flexShrink:0 }}>
@@ -31319,7 +31714,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
             </div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', background:th.card2, flexShrink:0 }}>
-            {DAYS.map(d=><div key={d} style={{ padding:'0.6rem 0', textAlign:'center', fontSize:'0.72rem', fontWeight:700, color:th.muted, textTransform:'uppercase', letterSpacing:1 }}>{d}</div>)}
+            {DAYS.map(d=><div key={d} style={{ padding: isMobile ? '0.5rem 0' : '0.6rem 0', textAlign:'center', fontSize: isMobile ? '0.65rem' : '0.72rem', fontWeight:700, color:th.muted, textTransform:'uppercase', letterSpacing: isMobile ? 0 : 1 }}>{d}</div>)}
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gridAutoRows:'1fr', gap:1, background:th.cardBorder, flex:1 }}>
             {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`} style={{ background:th.card, opacity:0.5 }}/>)}
@@ -31330,14 +31725,26 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
               const isSel=selectedDay===dateStr;
               const evts=eventMap[dateStr]||[];
               return (
-                <div key={day} onClick={()=>setSelectedDay(isSel?null:dateStr)} style={{ background:isSel?`${O}12`:th.card, padding:'0.4rem 0.45rem', cursor:'pointer', borderTop:isSel?`2px solid ${O}`:'2px solid transparent', transition:'background 0.12s', overflow:'hidden' }}>
-                  <div style={{ fontFamily:"'Raleway'", fontWeight:isToday?900:600, fontSize:'0.85rem', color:isToday?'#fff':th.text, background:isToday?O:'transparent', width:24, height:24, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:3 }}>{day}</div>
-                  {evts.slice(0,3).map((e,ei)=>(
-                    <div key={ei} style={{ fontSize:'0.62rem', fontWeight:600, padding:'2px 5px', borderRadius:4, marginBottom:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', background:`${eventColor(e)}20`, color:eventColor(e), borderLeft:`2px solid ${eventColor(e)}` }}>
-                      {eventIcon(e)} {e.title}
-                    </div>
-                  ))}
-                  {evts.length>3 && <div style={{ fontSize:'0.58rem', color:th.muted, marginTop:1 }}>+{evts.length-3} more</div>}
+                <div key={day} onClick={()=>setSelectedDay(isSel?null:dateStr)} style={{ background:isSel?`${O}12`:th.card, padding: isMobile ? '0.35rem 0.2rem' : '0.4rem 0.45rem', cursor:'pointer', borderTop:isSel?`2px solid ${O}`:'2px solid transparent', transition:'background 0.12s', overflow:'hidden', minHeight: isMobile ? 44 : 'unset' }}>
+                  <div style={{ fontFamily:"'Raleway'", fontWeight:isToday?900:600, fontSize: isMobile ? '0.8rem' : '0.85rem', color:isToday?'#fff':th.text, background:isToday?O:'transparent', width: isMobile ? 26 : 24, height: isMobile ? 26 : 24, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:3, margin: isMobile ? '0 auto 3px' : undefined }}>{day}</div>
+                  {isMobile
+                    ? evts.length > 0 && (
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:2, justifyContent:'center' }}>
+                        {evts.slice(0,3).map((e,ei)=>(
+                          <div key={ei} style={{ width:7, height:7, borderRadius:'50%', background:eventColor(e), flexShrink:0 }} />
+                        ))}
+                        {evts.length>3 && <div style={{ width:7, height:7, borderRadius:'50%', background:th.muted, flexShrink:0 }} />}
+                      </div>
+                    )
+                    : <>
+                      {evts.slice(0,3).map((e,ei)=>(
+                        <div key={ei} style={{ fontSize:'0.62rem', fontWeight:600, padding:'2px 5px', borderRadius:4, marginBottom:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', background:`${eventColor(e)}20`, color:eventColor(e), borderLeft:`2px solid ${eventColor(e)}` }}>
+                          {eventIcon(e)} {e.title}
+                        </div>
+                      ))}
+                      {evts.length>3 && <div style={{ fontSize:'0.58rem', color:th.muted, marginTop:1 }}>+{evts.length-3} more</div>}
+                    </>
+                  }
                 </div>
               );
             })}
@@ -31345,7 +31752,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
         </div>
 
         {/* Side panel */}
-        <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'0.75rem', minWidth:220, maxWidth:300 }}>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'0.75rem', minWidth: isMobile ? 0 : 220, maxWidth: isMobile ? 'none' : 300 }}>
           <div style={{ ...card(th), flex:1, overflowY:'auto', minHeight:0, padding:'1rem' }}>
             {selectedDay ? (
               <>
@@ -31392,12 +31799,14 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
           </div>
           <div style={{ ...card(th), padding:'0.75rem 1rem' }}>
             <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.78rem', color:th.text, marginBottom:'0.5rem' }}>Legend</div>
-            {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],['#a855f7','🔧 Equipment check'],['#14b8a6','🏗️ Project'],[O,'📝 Task/Todo']].map(([c,l])=>(
-              <div key={l} style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom:'0.3rem' }}>
-                <div style={{ width:10, height:10, borderRadius:'50%', background:c, flexShrink:0 }} />
-                <span style={{ fontSize:'0.7rem', color:th.muted }}>{l}</span>
-              </div>
-            ))}
+            <div style={{ display:'flex', flexWrap:'wrap', gap: isMobile ? '0.4rem 0.75rem' : 0 }}>
+              {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],['#a855f7','🔧 Equipment check'],['#14b8a6','🏗️ Project'],[O,'📝 Task/Todo']].map(([c,l])=>(
+                <div key={l} style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom: isMobile ? 0 : '0.3rem' }}>
+                  <div style={{ width:10, height:10, borderRadius:'50%', background:c, flexShrink:0 }} />
+                  <span style={{ fontSize:'0.7rem', color:th.muted }}>{l}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* + Maintenance Schedule button — exec/IT/construction only */}
@@ -31776,9 +32185,14 @@ function PCGPortal() {
   const [managerMode, setManagerMode] = useState(null);
   const [preferFullPortal, setPreferFullPortal] = useState(() => { try { return localStorage.getItem('pcg_prefer_full_portal') === 'true'; } catch { return false; } });
   const togglePortalMode = (full) => {
-    // Construction users: session-only (don't persist — phone always shows mobile on fresh load)
-    if (user?.userType !== 'construction') {
+    // Mobile DM/exec/IT users: never persist — next login on mobile should always start in the mobile shell.
+    // Construction users: same (session-only). Desktop users: persist normally.
+    const onMobile = window.innerWidth <= 768;
+    const mobileShellUser = user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it';
+    if (user?.userType !== 'construction' && !(onMobile && mobileShellUser)) {
       try { localStorage.setItem('pcg_prefer_full_portal', full ? 'true' : 'false'); } catch {}
+    } else {
+      try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
     }
     setPreferFullPortal(full);
   };
@@ -33083,7 +33497,7 @@ function PCGPortal() {
     }
   }, [dark]);
 
-  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.userType === "vendor") setTab("projects"); if (u.userType === "construction") { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); } logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType }); }} dark={dark} users={users} toggleDark={() => {
+  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.userType === "vendor") setTab("projects"); if (u.userType === "construction") { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); } if (window.innerWidth <= 768 && (u.userType === 'dm' || u.userType === 'executive' || u.userType === 'it')) { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); } logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType }); }} dark={dark} users={users} toggleDark={() => {
     const newDark = !dark;
     setDark(newDark);
   }} />;
@@ -33303,9 +33717,9 @@ function PCGPortal() {
 
   // ─── Admin groups config ──────────────────────────────────────────────────
   const ADMIN_GROUPS = [
-    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'pnl', 'ndcp', 'impact', 'analytics', 'anomalies', 'scorecard'] },
-    { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['cash', 'recon'] },
-    { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'projects', 'deals', 'users'] },
+    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics', 'anomalies', 'scorecard'] },
+    { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon'] },
+    { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'impact', 'projects', 'deals', 'users'] },
     { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'settings'] },
   ];
 
@@ -33762,7 +34176,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.55
+            v14.76
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -33790,7 +34204,7 @@ function PCGPortal() {
   );
 
   if (user && isMobile && !preferFullPortal && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
-    return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} />;
+    return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} todos={todos} projects={projects} users={users} />;
   }
 
   return (
@@ -34194,7 +34608,7 @@ function PCGPortal() {
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
           {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district)} th={th} setTab={setTab} />}
           {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? stores : stores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
-          {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} />}
+          {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={stores} salesWeeks={salesWeeks} />}
           {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
