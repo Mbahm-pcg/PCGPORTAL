@@ -31720,6 +31720,8 @@ function PCGPortal() {
   };
   const [tab, setTab]           = useState("dashboard");
   const [pendingOrionQuestion, setPendingOrionQuestion] = useState(null); // KPI click → ask Orion
+  const [orionIntent, setOrionIntent] = useState(false); // FAB click → open Orion analyst channel (no auto-send)
+  useEffect(() => { if (tab !== 'chat' && orionIntent) setOrionIntent(false); }, [tab, orionIntent]);
   const [drillInStore, setDrillInStore] = useState(null); // Orion drill-in link → navigate to store in Pulse/Labor
   const handleDrillIn = (storePC, targetTab) => {
     setDrillInStore(storePC);
@@ -33687,7 +33689,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.50
+            v14.51
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -34087,6 +34089,27 @@ function PCGPortal() {
           </div>
         )}
 
+        {/* Floating Orion launcher — opens the Orion analyst chat */}
+        {user && !isMobile && tab !== "chat" && ["executive","it","office_staff","dm"].includes(user.userType) && (
+          <button
+            onClick={() => { setOrionIntent(true); setTab("chat"); }}
+            title="Ask Orion"
+            aria-label="Open Orion analyst"
+            style={{
+              position: "fixed", bottom: 24, right: 24, zIndex: 9990,
+              width: 56, height: 56, borderRadius: "50%", border: "none", cursor: "pointer",
+              background: "#fff", padding: 0,
+              boxShadow: "0 8px 24px rgba(109,40,217,0.4)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "transform .15s ease, box-shadow .15s ease",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 10px 30px rgba(109,40,217,0.55)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(109,40,217,0.4)"; }}
+          >
+            <OrionIcon size={40} />
+          </button>
+        )}
+
         <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" }}>
           {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} />}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
@@ -34111,7 +34134,7 @@ function PCGPortal() {
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
-          {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} />}
+          {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
           {tab === "email"    && (isFullAdmin(user) || isOfficeStaff) && <EmailTab th={th} user={user} />}
