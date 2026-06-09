@@ -103,7 +103,7 @@ function summarizeTickets(raw, district, now, stores) {
       const store = byPc.get(String(t.storePC));
       return {
         number: t.number || String(t.id),
-        title: t.title || null,
+        title: t.title ? String(t.title).slice(0, 120) : null, // truncate like project notes
         storePC: t.storePC != null ? String(t.storePC) : null,
         store: t.storeName || (store && store.name) || String(t.storePC),
         district: store ? store.district : null,
@@ -145,6 +145,7 @@ function summarizeTickets(raw, district, now, stores) {
 
 const CASH_WINDOW_DAYS = 14;  // gap-scan window
 const CASH_BUFFER_DAYS = 2;   // most recent N days exempt (upload lag)
+const RENDER_DEPOSITS_CAP = 10; // deposit detail lines in the rendered prompt block
 
 // UTC-relative day string — pair only with `nowMs` derived from an ISO timestamp
 // (Netlify runs UTC); a local-midnight Date on a non-UTC dev machine can shift edges by a day.
@@ -163,7 +164,7 @@ function summarizeCash(raw, district, now, stores) {
       pc: String(d.pc),
       depositDate: d.depositDate || null,
       amount: typeof d.amount === 'number' ? d.amount : Number(d.amount) || 0,
-      llcName: d.llcName || null,
+      llcName: d.llcName ? String(d.llcName).slice(0, 60) : null,
       businessDates: Array.isArray(d.businessDates) ? d.businessDates : [],
     };
   });
@@ -280,7 +281,8 @@ function renderOpsContext({ projects, tickets, cash, foodCost } = {}) {
   if (!cash || !cash.available) L.push('  No cash deposit data yet.');
   else {
     L.push(`  Last 7 days: $${cash.last7Total.toLocaleString('en-US')} deposited. Last 30 days: $${cash.last30Total.toLocaleString('en-US')}.`);
-    for (const d of cash.deposits.slice(0, 10)) {
+    // Render-layer trim below the summarizer's 25-cap: totals carry the signal; detail is examples.
+    for (const d of cash.deposits.slice(0, RENDER_DEPOSITS_CAP)) {
       L.push(`  ${d.depositDate} | ${d.store} (D${d.district ?? '?'}) | $${d.amount.toLocaleString('en-US')} | ${d.llcName || ''} | covers ${d.businessDates.join(', ')}`);
     }
     if (cash.missingCount > 0) {
