@@ -638,6 +638,19 @@ function Login({ onLogin, dark, toggleDark, users }) {
     return () => clearTimeout(t);
   }, []);
 
+  // Pre-warm both serverless functions while the user is typing their credentials,
+  // so cold starts are already resolved by the time they hit Sign In.
+  useEffect(() => {
+    fetch('/.netlify/functions/portal-auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'ping' }),
+    }).catch(() => {});
+    fetch('/.netlify/functions/trusted-devices', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'ping' }),
+    }).catch(() => {});
+  }, []);
+
   const handleToggle = useCallback(() => {
     const newDark = !dark;
     setLogoAnim(true);
@@ -718,7 +731,14 @@ function Login({ onLogin, dark, toggleDark, users }) {
     const uname = (form.u || "").trim();
     const localAcct = users.find(u => (u.username || "").trim().toLowerCase() === uname.toLowerCase() && u.active !== false);
     setLoading(true);
-    const res = await portalLogin(uname, form.p);
+    // Fire trusted-device check in parallel with the auth call — both are cold-start
+    // serverless functions so running them together cuts wait time roughly in half.
+    const [res, deviceTrusted] = await Promise.all([
+      portalLogin(uname, form.p),
+      localAcct && isTwoFactorRequired(localAcct)
+        ? isTwoFactorDeviceTrusted(localAcct).catch(() => false)
+        : Promise.resolve(false),
+    ]);
     let found = null;
     if (res.ok) {
       // Server verified + issued a token (stored in portal-auth.mjs). Prefer the
@@ -736,7 +756,10 @@ function Login({ onLogin, dark, toggleDark, users }) {
     // res.ok === false && !res.unreachable → server actively rejected: invalid creds.
 
     if (found) {
-      if (await shouldPromptTwoFactor(found)) {
+      // Use the pre-fetched device trust result to avoid a second sequential await.
+      // For server-only accounts (not in local users list), fall back to a fresh check.
+      const trusted = localAcct ? deviceTrusted : await isTwoFactorDeviceTrusted(found).catch(() => false);
+      if (isTwoFactorRequired(found) && !trusted) {
         beginTwoFactor(found);
       } else {
         finishLogin(found);
@@ -16721,6 +16744,11 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [liveHistCache, setLiveHistCache] = useState({});
   const [histLoading, setHistLoading] = useState(false);
   const toggleBtnRef = useRef(null);
+  // Voice (Orion GM Mode)
+  const [voiceState, setVoiceState] = useState('idle'); // idle | listening | thinking | speaking | error
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceReply, setVoiceReply] = useState('');
+  const recogRef = useRef(null);
 
   const handleToggle = useCallback(() => {
     const btn = toggleBtnRef.current;
@@ -16734,6 +16762,46 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       toggleDark();
     }
   }, [dark, toggleDark]);
+
+  const startVoice = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setVoiceState('error'); setVoiceReply("Voice isn't supported in this browser. Try Chrome or Safari."); return; }
+    if (voiceState === 'listening') { recogRef.current?.stop(); return; }
+    if (voiceState === 'speaking') { window.speechSynthesis?.cancel(); setVoiceState('idle'); return; }
+    if (voiceState === 'thinking') return;
+    setVoiceTranscript(''); setVoiceReply('');
+    const recog = new SR();
+    recog.lang = 'en-US'; recog.interimResults = false; recog.maxAlternatives = 1;
+    recogRef.current = recog;
+    recog.onstart = () => setVoiceState('listening');
+    recog.onerror = (e) => { if (e.error !== 'no-speech') { setVoiceReply('Mic error — tap to try again.'); setVoiceState('error'); } else setVoiceState('idle'); };
+    recog.onend = () => setVoiceState(s => s === 'listening' ? 'idle' : s);
+    recog.onresult = async (event) => {
+      const transcript = event.results[0][0].transcript;
+      setVoiceTranscript(transcript);
+      setVoiceState('thinking');
+      try {
+        const res = await fetch('/.netlify/functions/analyst', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'ask', question: transcript, userId: user?.id, userRole: 'manager', storePC: pc, storeName: store.name, context: 'voice_gm' }),
+        });
+        const data = await res.json();
+        const reply = data.answer || data.text || "I couldn't get a response right now.";
+        // Trim to 2 sentences for voice brevity
+        const spoken = reply.replace(/\*\*/g, '').split(/(?<=[.!?])\s+/).slice(0, 3).join(' ');
+        setVoiceReply(reply);
+        setVoiceState('speaking');
+        const utter = new SpeechSynthesisUtterance(spoken);
+        utter.rate = 1.05; utter.pitch = 1;
+        utter.onend = () => setVoiceState('idle');
+        window.speechSynthesis.speak(utter);
+      } catch {
+        setVoiceReply("Sorry, I couldn't reach Orion right now."); setVoiceState('error');
+      }
+    };
+    recog.start();
+  };
 
   const fetchAll = useCallback(async (withLaborRefresh = false) => {
     if (!pc) { setLoading(false); return; }
@@ -17286,10 +17354,33 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         {lastRefresh && <div style={{ textAlign: "center", fontSize: "0.58rem", color: th.subtle, opacity: 0.7 }}>Updated {lastRefresh.toLocaleTimeString()}</div>}
       </div>
 
-      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
+      {/* Voice reply card — floats above nav when active */}
+      {(voiceState !== 'idle' || voiceReply) && (
+        <div style={{ position: "fixed", left: "50%", bottom: 82, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 13, background: dark ? "rgba(16,18,27,0.97)" : "rgba(255,255,255,0.98)", border: `1px solid ${voiceState === 'error' ? '#ef444455' : O + '44'}`, borderRadius: 14, padding: "0.75rem 1rem", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", backdropFilter: "blur(16px)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: voiceTranscript || voiceReply ? "0.4rem" : 0 }}>
+            <span style={{ fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.8, color: voiceState === 'error' ? '#ef4444' : O }}>
+              {voiceState === 'listening' ? '🎙 Listening…' : voiceState === 'thinking' ? '⏳ Orion is thinking…' : voiceState === 'speaking' ? '🔊 Orion' : voiceState === 'error' ? '⚠ Error' : '🔊 Orion'}
+            </span>
+            <button onClick={() => { window.speechSynthesis?.cancel(); recogRef.current?.stop(); setVoiceState('idle'); setVoiceTranscript(''); setVoiceReply(''); }} style={{ background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.95rem", lineHeight: 1, padding: "0 0 0 8px" }}>×</button>
+          </div>
+          {voiceTranscript && <div style={{ fontSize: "0.72rem", color: th.muted, fontStyle: "italic", marginBottom: "0.35rem" }}>"{voiceTranscript}"</div>}
+          {voiceReply && <div style={{ fontSize: "0.82rem", color: th.text, lineHeight: 1.55 }}>{voiceReply}</div>}
+        </div>
+      )}
+
+      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
         <button onClick={() => fetchAll(true)} disabled={refreshing} title="Refresh" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text }}>
           <span style={{ fontSize: "1.15rem", lineHeight: 1 }}>{refreshing ? "·" : "↻"}</span>
           <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Refresh</span>
+        </button>
+        {/* Orion Voice — center mic button */}
+        <button onClick={startVoice} title="Ask Orion" style={{ background: voiceState === 'listening' ? O : voiceState === 'thinking' ? '#f59e0b' : voiceState === 'speaking' ? '#22c55e' : voiceState === 'error' ? '#ef4444' : O + '18', border: `2px solid ${voiceState === 'idle' ? O + '55' : 'transparent'}`, borderRadius: "50%", width: 48, height: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: voiceState === 'thinking' ? "default" : "pointer", alignSelf: "center", flexShrink: 0, boxShadow: voiceState === 'listening' ? `0 0 0 6px ${O}33, 0 0 0 12px ${O}18` : voiceState === 'speaking' ? '0 0 0 6px #22c55e33' : 'none', transition: "all 0.2s" }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={voiceState === 'idle' ? O : '#fff'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="2" width="6" height="12" rx="3"/>
+            <path d="M5 10a7 7 0 0 0 14 0"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+            <line x1="8" y1="22" x2="16" y2="22"/>
+          </svg>
         </button>
         <button onClick={onFullPortal} title="Full Portal" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O }}>
           <span style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>{ICONS.dashboard(O)}</span>
@@ -19337,9 +19428,12 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
 }
 
 // ── 7.5 DM Scorecard ─────────────────────────────────────────────────────────
-function DmScorecardTab({ th, users, districts }) {
-  const [history,  setHistory]  = React.useState(null);
-  const [loading,  setLoading]  = React.useState(true);
+function DmScorecardTab({ th, users, districts, stores, salesWeeks }) {
+  const [history,      setHistory]      = React.useState(null);
+  const [loading,      setLoading]      = React.useState(true);
+  const [laborData,    setLaborData]    = React.useState(null);
+  const [laborLoading, setLaborLoading] = React.useState(false);
+  const [expandedRows, setExpandedRows] = React.useState({});
   const O = '#FF671F';
 
   React.useEffect(() => {
@@ -19348,6 +19442,47 @@ function DmScorecardTab({ th, users, districts }) {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
+
+  const loadLaborData = React.useCallback(() => {
+    if (laborData || laborLoading) return;
+    setLaborLoading(true);
+    cloudLoad('pcg_labor_v1').then(d => {
+      setLaborData(d);
+      setLaborLoading(false);
+    }).catch(() => setLaborLoading(false));
+  }, [laborData, laborLoading]);
+
+  const toggleRow = (district) => {
+    setExpandedRows(prev => {
+      const next = { ...prev, [district]: !prev[district] };
+      if (next[district]) loadLaborData();
+      return next;
+    });
+  };
+
+  // Sum sales from labor blob for a given district (current WTD)
+  const getDistrictTW = React.useCallback((district) => {
+    if (!laborData?.stores) return null;
+    const total = Object.values(laborData.stores)
+      .filter(s => String(s.district) === String(district) && !s.error)
+      .reduce((sum, s) => sum + (Number(s.wtd?.sales) || 0), 0);
+    return total > 0 ? total : null;
+  }, [laborData]);
+
+  // Sum lwSale or swly from uploaded scorecard by district
+  const getDistrictScorecard = React.useCallback((district, field) => {
+    if (!salesWeeks || salesWeeks.length === 0) return null;
+    const week = salesWeeks[0];
+    if (!week?.stores || !stores) return null;
+    let total = 0;
+    for (const row of week.stores) {
+      const meta = stores.find(s => String(s.pc) === String(row.pc));
+      if (meta && String(meta.district) === String(district)) {
+        total += Number(row[field]) || 0;
+      }
+    }
+    return total > 0 ? total : null;
+  }, [salesWeeks, stores]);
 
   const current = history?.[0];
   const previous = history?.[1];
@@ -19423,9 +19558,38 @@ function DmScorecardTab({ th, users, districts }) {
             const dmName = getDMName(district);
             const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx+1}`;
 
+            const isExpanded = !!expandedRows[district];
+            const twSales = getDistrictTW(district);
+            const lwSales = getDistrictScorecard(district, 'lwSale');
+            const lySales = getDistrictScorecard(district, 'swly');
+            const maxSales = Math.max(twSales || 0, lwSales || 0, lySales || 0) || 1;
+            const pctDiff = (a, b) => (a != null && b != null && b > 0) ? ((a - b) / b * 100) : null;
+            const twVsLw = pctDiff(twSales, lwSales);
+            const twVsLy = pctDiff(twSales, lySales);
+
+            const SalesBar = ({ label, value, color, cmp }) => {
+              const pct = Math.round((value / maxSales) * 100);
+              return (
+                <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', marginBottom:'0.45rem' }}>
+                  <div style={{ width:70, fontSize:'0.62rem', color:th.muted, fontWeight:600, textAlign:'right', flexShrink:0 }}>{label}</div>
+                  <div style={{ flex:1, background:th.card2, borderRadius:4, height:10, overflow:'hidden' }}>
+                    <div style={{ width:`${pct}%`, height:'100%', background:color, borderRadius:4, transition:'width 0.5s ease' }} />
+                  </div>
+                  <div style={{ width:80, fontSize:'0.72rem', color:th.text, fontWeight:700, flexShrink:0 }}>{fmtDollars(value)}</div>
+                  {cmp != null && (
+                    <div style={{ width:56, fontSize:'0.65rem', fontWeight:700, color: cmp >= 0 ? '#22c55e' : '#ef4444', flexShrink:0, textAlign:'right' }}>
+                      {cmp >= 0 ? '▲' : '▼'}{Math.abs(cmp).toFixed(1)}%
+                    </div>
+                  )}
+                  {cmp == null && <div style={{ width:56, flexShrink:0 }} />}
+                </div>
+              );
+            };
+
             return (
-              <div key={district} style={{ ...card(th), padding:'1rem 1.25rem', borderLeft:`3px solid ${scoreColor(score.composite)}` }}>
-                <div style={{ display:'flex', alignItems:'center', gap:'1rem', flexWrap:'wrap' }}>
+              <div key={district} style={{ ...card(th), padding:'0', borderLeft:`3px solid ${scoreColor(score.composite)}`, overflow:'hidden' }}>
+                {/* Main row — clickable to expand */}
+                <div onClick={() => toggleRow(district)} style={{ padding:'1rem 1.25rem', cursor:'pointer', display:'flex', alignItems:'center', gap:'1rem', flexWrap:'wrap' }}>
                   {/* Rank + name */}
                   <div style={{ minWidth:160 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.15rem' }}>
@@ -19457,7 +19621,39 @@ function DmScorecardTab({ th, users, districts }) {
                       </div>
                     ))}
                   </div>
+
+                  {/* Expand chevron */}
+                  <div style={{ color:th.muted, fontSize:'0.75rem', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition:'transform 0.25s', flexShrink:0, userSelect:'none' }}>▼</div>
                 </div>
+
+                {/* Collapsible sales chart */}
+                {isExpanded && (
+                  <div style={{ padding:'0.75rem 1.25rem 1rem', borderTop:`1px solid ${th.border || (th.card2)}` }}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.75rem' }}>
+                      <span style={{ fontSize:'0.65rem', fontWeight:700, color:th.muted, textTransform:'uppercase', letterSpacing:1 }}>Weekly Net Sales</span>
+                      <div style={{ display:'flex', gap:'0.75rem', alignItems:'center' }}>
+                        <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.6rem', color:th.muted }}><span style={{ width:8, height:8, borderRadius:2, background:O, display:'inline-block' }} />This Week (WTD)</span>
+                        <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.6rem', color:th.muted }}><span style={{ width:8, height:8, borderRadius:2, background:'#94a3b8', display:'inline-block' }} />Last Week</span>
+                        <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.6rem', color:th.muted }}><span style={{ width:8, height:8, borderRadius:2, background:'#38bdf8', display:'inline-block' }} />Last Year</span>
+                      </div>
+                    </div>
+                    {laborLoading && !laborData ? (
+                      <div style={{ fontSize:'0.72rem', color:th.muted, padding:'0.5rem 0' }}>⏳ Loading sales data…</div>
+                    ) : (
+                      <div>
+                        {twSales != null
+                          ? <SalesBar label="This Week" value={twSales} color={O} cmp={null} />
+                          : <div style={{ fontSize:'0.68rem', color:th.muted, marginBottom:'0.45rem' }}>This Week: no labor data</div>}
+                        {lwSales != null
+                          ? <SalesBar label="Last Week" value={lwSales} color="#94a3b8" cmp={twVsLw} />
+                          : <div style={{ fontSize:'0.68rem', color:th.muted, marginBottom:'0.45rem' }}>Last Week: upload scorecard for LW data</div>}
+                        {lySales != null
+                          ? <SalesBar label="Last Year" value={lySales} color="#38bdf8" cmp={twVsLy} />
+                          : <div style={{ fontSize:'0.68rem', color:th.muted, marginBottom:'0.45rem' }}>Last Year: upload scorecard for LY data</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -28760,7 +28956,7 @@ function EmailTab({ th, user }) {
 
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
-function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull, todos, projects }) {
+function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull, todos, projects, users }) {
   const O = '#FF671F';
   const [activeTab, setActiveTab] = React.useState('brief');
   const [brief, setBrief] = React.useState(null);
@@ -29206,6 +29402,21 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
                   <div style={{ fontSize: 13, color: th.text, lineHeight: 1.65 }}>{leaderboard.message}</div>
                   <div style={{ marginTop: 10, fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— {leaderboard.createdBy} · {leaderboard.createdAt ? new Date(leaderboard.createdAt).toLocaleDateString() : ''}</div>
                 </div>
+              </div>
+            )}
+
+            {/* Action Queue — DM only, shown below the brief */}
+            {user?.userType === 'dm' && (
+              <div>
+                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '16px 0 8px' }}>Action Queue</div>
+                <ActionQueue
+                  stores={stores}
+                  th={th}
+                  user={user}
+                  users={users || []}
+                  setTab={() => onSwitchToFull()}
+                  showAlert={() => {}}
+                />
               </div>
             )}
           </div>
@@ -31807,9 +32018,14 @@ function PCGPortal() {
   const [managerMode, setManagerMode] = useState(null);
   const [preferFullPortal, setPreferFullPortal] = useState(() => { try { return localStorage.getItem('pcg_prefer_full_portal') === 'true'; } catch { return false; } });
   const togglePortalMode = (full) => {
-    // Construction users: session-only (don't persist — phone always shows mobile on fresh load)
-    if (user?.userType !== 'construction') {
+    // Mobile DM/exec/IT users: never persist — next login on mobile should always start in the mobile shell.
+    // Construction users: same (session-only). Desktop users: persist normally.
+    const onMobile = window.innerWidth <= 768;
+    const mobileShellUser = user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it';
+    if (user?.userType !== 'construction' && !(onMobile && mobileShellUser)) {
       try { localStorage.setItem('pcg_prefer_full_portal', full ? 'true' : 'false'); } catch {}
+    } else {
+      try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
     }
     setPreferFullPortal(full);
   };
@@ -33114,7 +33330,7 @@ function PCGPortal() {
     }
   }, [dark]);
 
-  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.userType === "vendor") setTab("projects"); if (u.userType === "construction") { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); } logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType }); }} dark={dark} users={users} toggleDark={() => {
+  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.userType === "vendor") setTab("projects"); if (u.userType === "construction") { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); } if (window.innerWidth <= 768 && (u.userType === 'dm' || u.userType === 'executive' || u.userType === 'it')) { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); } logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType }); }} dark={dark} users={users} toggleDark={() => {
     const newDark = !dark;
     setDark(newDark);
   }} />;
@@ -33793,7 +34009,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.60
+            v14.67
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -33821,7 +34037,7 @@ function PCGPortal() {
   );
 
   if (user && isMobile && !preferFullPortal && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
-    return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} todos={todos} projects={projects} />;
+    return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} todos={todos} projects={projects} users={users} />;
   }
 
   return (
@@ -34225,7 +34441,7 @@ function PCGPortal() {
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
           {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district)} th={th} setTab={setTab} />}
           {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? stores : stores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
-          {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} />}
+          {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={stores} salesWeeks={salesWeeks} />}
           {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}

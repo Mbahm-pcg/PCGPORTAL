@@ -3,6 +3,7 @@
 // TODO (Phase 2): Swap blob reads for Postgres/Supabase queries.
 
 const { cacheLoad, cacheSave } = require('./analyst-cache');
+const { sql } = require('../db');
 
 // ── Store config (mirrors index.html STORES_SEED) ───────────────────────────
 const STORES = [
@@ -235,7 +236,7 @@ async function buildStoreContext({ storePC }) {
     const daily = storeHistory.daily?.slice(0, 7) || [];
     const weekly = storeHistory.weekly?.slice(0, 4) || [];
     if (daily.length) {
-      sections.push(`\nRecent daily labor:`);
+      sections.push(`\nRecent daily labor (last 7 days):`);
       daily.forEach(d => {
         sections.push(`  ${d.date}: Labor $${(d.laborCost || 0).toFixed(0)}, Sales $${(d.sales || 0).toFixed(0)}, Labor% ${(d.laborPct || 0).toFixed(1)}%`);
       });
@@ -245,6 +246,77 @@ async function buildStoreContext({ storePC }) {
       weekly.forEach(w => {
         sections.push(`  Week of ${w.weekStart}: Labor $${(w.laborCost || 0).toFixed(0)}, Sales $${(w.sales || 0).toFixed(0)}, Labor% ${(w.laborPct || 0).toFixed(1)}%`);
       });
+    }
+  }
+
+  // Load open tickets for this store
+  const ticketsRaw = await cacheLoad('pcg_tickets_v1').catch(() => null);
+  const openTickets = Array.isArray(ticketsRaw)
+    ? ticketsRaw.filter(t => t.status !== 'Closed' && String(t.storePC) === String(storePC))
+    : [];
+  if (openTickets.length > 0) {
+    sections.push(`\nOpen tickets (${openTickets.length}):`);
+    openTickets.slice(0, 10).forEach(t => {
+      const days = Math.floor((Date.now() - new Date(t.createdAt || 0).getTime()) / 86400000);
+      sections.push(`  [${t.priority || 'Normal'}] ${t.title} — ${t.category || 'General'} — open ${days}d${t.description ? ' — ' + t.description.slice(0, 80) : ''}`);
+    });
+  } else {
+    sections.push(`\nOpen tickets: none`);
+  }
+
+  // Load this week's NDCP/DCP spend from Postgres
+  try {
+    const db = sql();
+    const wkStart = new Date();
+    wkStart.setDate(wkStart.getDate() - wkStart.getDay()); // Sunday
+    wkStart.setHours(0, 0, 0, 0);
+    const rows = await db`
+      SELECT DISTINCT ON (order_number) total_order, email_date
+      FROM ndcp_orders
+      WHERE account = ${String(storePC)}
+        AND order_number IS NOT NULL
+        AND email_date >= ${wkStart.toISOString()}::timestamptz
+      ORDER BY order_number, email_date DESC NULLS LAST`;
+    const wtdNdcp = rows.reduce((sum, r) => sum + (Number(r.total_order) || 0), 0);
+    sections.push(`\nDCP spend this week: $${wtdNdcp.toFixed(2)}`);
+    if (labor?.stores?.[storePC]?.wtd?.sales > 0) {
+      const dcpPct = (wtdNdcp / labor.stores[storePC].wtd.sales) * 100;
+      sections.push(`  DCP % of WTD sales: ${dcpPct.toFixed(1)}% (target ≤20%)`);
+    }
+  } catch {
+    // Non-fatal — NDCP DB unavailable
+  }
+
+  // Load today's schedule from the schedule blob
+  const schedule = await cacheLoad(`pcg_schedule_${storePC}`).catch(() => null);
+  if (schedule?.shifts) {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayShifts = schedule.shifts.filter(s => (s.date || s.startDateTime?.slice(0, 10)) === todayStr);
+    if (todayShifts.length > 0) {
+      sections.push(`\nToday's schedule (${todayShifts.length} shifts):`);
+      todayShifts
+        .sort((a, b) => (a.startDateTime || '').localeCompare(b.startDateTime || ''))
+        .forEach(s => {
+          const start = s.startDateTime ? new Date(s.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '?';
+          const end   = s.endDateTime   ? new Date(s.endDateTime).toLocaleTimeString('en-US',   { hour: 'numeric', minute: '2-digit', hour12: true }) : '?';
+          sections.push(`  ${s.employeeName || 'Unknown'}: ${start} – ${end}${s.position ? ' (' + s.position + ')' : ''}`);
+        });
+    } else {
+      sections.push(`\nToday's schedule: no shifts posted yet`);
+    }
+    // Also include tomorrow's shifts if available
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+    const tomorrowShifts = schedule.shifts.filter(s => (s.date || s.startDateTime?.slice(0, 10)) === tomorrowStr);
+    if (tomorrowShifts.length > 0) {
+      sections.push(`\nTomorrow's schedule (${tomorrowShifts.length} shifts):`);
+      tomorrowShifts
+        .sort((a, b) => (a.startDateTime || '').localeCompare(b.startDateTime || ''))
+        .forEach(s => {
+          const start = s.startDateTime ? new Date(s.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '?';
+          const end   = s.endDateTime   ? new Date(s.endDateTime).toLocaleTimeString('en-US',   { hour: 'numeric', minute: '2-digit', hour12: true }) : '?';
+          sections.push(`  ${s.employeeName || 'Unknown'}: ${start} – ${end}`);
+        });
     }
   }
 

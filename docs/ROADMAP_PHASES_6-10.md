@@ -136,10 +136,11 @@
 ## Phase 10 — Platform & Moonshots
 *"From franchise dashboard to franchise operating system."*
 
-### 10.1 Voice-First GM Mode
-- "Hey Orion, how did we do last night?" → 30-second spoken summary
-- Web Speech API (STT) → Orion backend → speech synthesis (TTS)
-- Hands-free during morning walkthrough
+### ~~10.1 Voice-First GM Mode~~ ✅ shipped v14.65–14.67
+- ~~"Hey Orion, how did we do last night?" → 30-second spoken summary~~
+- ~~Web Speech API (STT) → Orion backend → speech synthesis (TTS)~~
+- ~~Hands-free during morning walkthrough~~
+- ~~Mic button center of manager mobile nav; Orion context includes sales, labor, tickets, DCP, schedule (store-scoped)~~
 
 ### 10.2 Drive-Thru Performance Analytics
 - Integrate with HME/timer systems: avg service time, cars/hour, peak wait times
