@@ -75,3 +75,33 @@ export function beforeAfter(weekly, eventDate, weeksBefore, weeksAfter) {
     series,
   };
 }
+
+/**
+ * Choose representative near/mid/far control stores from a distance-ranked list,
+ * excluding the impacted store. Picks an even spread across the available range:
+ * always the nearest and farthest, then evenly-indexed picks in between.
+ *
+ * @param {{pc:string, distance:number}[]} rankedStores  sorted ascending by distance
+ * @param {string} impactedPc  the impacted store's pc (excluded)
+ * @param {number} [n=3]  number of controls to return
+ * @returns {{pc:string, distance:number}[]}
+ */
+export function pickControls(rankedStores, impactedPc, n = 3) {
+  const pool = (rankedStores || [])
+    .filter((s) => s && s.pc !== impactedPc)
+    .slice()
+    .sort((a, b) => a.distance - b.distance);
+
+  if (pool.length <= n) return pool;
+  if (n <= 1) return pool.slice(0, Math.max(0, n));
+
+  // Even spread across [0 .. pool.length-1], inclusive of both ends.
+  const picks = [];
+  for (let i = 0; i < n; i++) {
+    const idx = Math.round((i * (pool.length - 1)) / (n - 1));
+    picks.push(pool[idx]);
+  }
+  // De-dupe in case rounding collides on small pools.
+  const seen = new Set();
+  return picks.filter((s) => (seen.has(s.pc) ? false : seen.add(s.pc)));
+}

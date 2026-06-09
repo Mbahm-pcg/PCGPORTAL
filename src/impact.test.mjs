@@ -113,3 +113,35 @@ describe('beforeAfter — windowing & guardrails', () => {
     assert.strictEqual(r.deltaPct, 0);
   });
 });
+
+import { pickControls } from './impact.mjs';
+
+describe('pickControls', () => {
+  // ranked = stores sorted ascending by distance from the event (impacted is nearest)
+  const ranked = [
+    { pc: 'A', distance: 0.4 }, // impacted
+    { pc: 'B', distance: 0.8 },
+    { pc: 'C', distance: 1.6 },
+    { pc: 'D', distance: 2.9 },
+    { pc: 'E', distance: 4.2 },
+    { pc: 'F', distance: 7.1 },
+  ];
+
+  test('excludes the impacted store and returns a near/mid/far trio', () => {
+    const controls = pickControls(ranked, 'A', 3);
+    assert.strictEqual(controls.length, 3);
+    assert.ok(!controls.some((s) => s.pc === 'A'), 'impacted excluded');
+    assert.strictEqual(controls[0].pc, 'B'); // near = closest non-impacted
+    assert.strictEqual(controls[2].pc, 'F'); // far = farthest
+    assert.ok(controls[1].distance > controls[0].distance && controls[1].distance < controls[2].distance, 'mid is between');
+  });
+
+  test('returns all available when fewer than n controls exist', () => {
+    const controls = pickControls([{ pc: 'A', distance: 0 }, { pc: 'B', distance: 1 }], 'A', 3);
+    assert.deepStrictEqual(controls.map((s) => s.pc), ['B']);
+  });
+
+  test('n=1 returns the nearest control', () => {
+    assert.deepStrictEqual(pickControls(ranked, 'A', 1).map((s) => s.pc), ['B']);
+  });
+});
