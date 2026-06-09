@@ -25630,7 +25630,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.53", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.54", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
@@ -25883,43 +25883,46 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       display: "flex",
       alignItems: "center",
       gap: "0.5rem"
-    } }, dataAlert.type === "success" ? ICONS.checkCircle("#111") : ICONS.xCircle("#111"), " ", dataAlert.msg), user && !isMobile && tab !== "chat" && ["executive", "it", "office_staff", "dm"].includes(user.userType) && /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => {
-          setOrionIntent(true);
-          setTab("chat");
+    } }, dataAlert.type === "success" ? ICONS.checkCircle("#111") : ICONS.xCircle("#111"), " ", dataAlert.msg), user && !isMobile && tab !== "chat" && ["executive", "it", "office_staff", "dm"].includes(user.userType) && ReactDOM.createPortal(
+      /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            setOrionIntent(true);
+            setTab("chat");
+          },
+          title: "Ask Orion",
+          "aria-label": "Open Orion analyst",
+          style: {
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            zIndex: 9990,
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            border: "none",
+            cursor: "pointer",
+            background: "#fff",
+            padding: 0,
+            boxShadow: "0 8px 24px rgba(109,40,217,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "transform .15s ease, box-shadow .15s ease"
+          },
+          onMouseEnter: (e) => {
+            e.currentTarget.style.transform = "scale(1.08)";
+            e.currentTarget.style.boxShadow = "0 10px 30px rgba(109,40,217,0.55)";
+          },
+          onMouseLeave: (e) => {
+            e.currentTarget.style.transform = "scale(1)";
+            e.currentTarget.style.boxShadow = "0 8px 24px rgba(109,40,217,0.4)";
+          }
         },
-        title: "Ask Orion",
-        "aria-label": "Open Orion analyst",
-        style: {
-          position: "fixed",
-          bottom: 24,
-          right: 24,
-          zIndex: 9990,
-          width: 56,
-          height: 56,
-          borderRadius: "50%",
-          border: "none",
-          cursor: "pointer",
-          background: "#fff",
-          padding: 0,
-          boxShadow: "0 8px 24px rgba(109,40,217,0.4)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          transition: "transform .15s ease, box-shadow .15s ease"
-        },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.transform = "scale(1.08)";
-          e.currentTarget.style.boxShadow = "0 10px 30px rgba(109,40,217,0.55)";
-        },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.transform = "scale(1)";
-          e.currentTarget.style.boxShadow = "0 8px 24px rgba(109,40,217,0.4)";
-        }
-      },
-      /* @__PURE__ */ React.createElement(OrionIcon, { size: 40 })
+        /* @__PURE__ */ React.createElement(OrionIcon, { size: 40 })
+      ),
+      document.body
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" } }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
