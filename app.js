@@ -18352,6 +18352,97 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       setStatus("");
       setBusy(false);
     }
+    function generatePdf() {
+      if (!results) return;
+      const Ctor = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
+      if (!Ctor) {
+        setStatus("jsPDF not available");
+        return;
+      }
+      const doc = new Ctor({ unit: "in", format: "letter", orientation: "portrait" });
+      const margin = 0.6, contentW = 8.5 - margin * 2;
+      const hx = BRAND_CONFIG.primary.replace("#", "");
+      const orange = [parseInt(hx.slice(0, 2), 16), parseInt(hx.slice(2, 4), 16), parseInt(hx.slice(4, 6), 16)];
+      let y = margin;
+      doc.setFillColor(orange[0], orange[1], orange[2]);
+      doc.rect(margin, y, contentW, 0.7, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text("Impact / Cannibalization Analysis", margin + 0.2, y + 0.3);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(`Event: ${eventAddr}  \xB7  Opening: ${eventDate}`, margin + 0.2, y + 0.52);
+      y += 0.95;
+      const imp = results.impacted;
+      doc.setTextColor(17, 17, 17);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text(`Documented Sales Impact \u2014 ${imp.name}`, margin, y);
+      y += 0.28;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      const impLines = [
+        `Avg weekly net sales BEFORE: ${fmtDollars(imp.avgBefore)}  (${imp.weeksBeforeUsed} weeks)`,
+        `Avg weekly net sales AFTER:  ${fmtDollars(imp.avgAfter)}  (${imp.weeksAfterUsed} weeks)`,
+        `Change: ${fmtPct(imp.deltaPct)}     Annualized revenue loss: ${fmtDollars(imp.annualizedLoss)}`
+      ];
+      impLines.forEach((t) => {
+        doc.text(t, margin, y);
+        y += 0.22;
+      });
+      y += 0.15;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text("Control Store Comparison", margin, y);
+      y += 0.26;
+      doc.setFontSize(9);
+      const cols = [margin, margin + 2.4, margin + 3.4, margin + 4.7, margin + 6];
+      doc.text("Store", cols[0], y);
+      doc.text("Dist", cols[1], y);
+      doc.text("Before/wk", cols[2], y);
+      doc.text("After/wk", cols[3], y);
+      doc.text("%\u0394", cols[4], y);
+      y += 0.06;
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, y, margin + contentW, y);
+      y += 0.18;
+      doc.setFont("helvetica", "normal");
+      [results.impacted, ...results.controls].forEach((r, i) => {
+        doc.setFont("helvetica", i === 0 ? "bold" : "normal");
+        doc.text(`${r.name}${i === 0 ? " (impacted)" : ""}`.slice(0, 28), cols[0], y);
+        doc.text(r.distance != null ? `${r.distance.toFixed(1)}mi` : "\u2014", cols[1], y);
+        doc.text(fmtDollars(r.avgBefore), cols[2], y);
+        doc.text(fmtDollars(r.avgAfter), cols[3], y);
+        doc.text(fmtPct(r.deltaPct), cols[4], y);
+        y += 0.2;
+      });
+      y += 0.2;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      if (y > 9.5) {
+        doc.addPage();
+        y = margin;
+      }
+      doc.text(`Weekly Net Sales Trend \u2014 ${imp.name}`, margin, y);
+      y += 0.26;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      imp.series.forEach((s) => {
+        if (y > 10.4) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(s.weekOf, margin, y);
+        doc.text(fmtDollars(s.sales), margin + 1.6, y);
+        doc.text(s.side, margin + 3.2, y);
+        y += 0.18;
+      });
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 120);
+      doc.text("Source: Dunkin\u2019 Pulse POS net sales. Distances are geocoded centroid estimates (US Census).", margin, 10.7);
+      doc.save(`impact-${imp.name.replace(/\s+/g, "-")}-${eventDate}.pdf`);
+    }
     useEffect(() => {
       (async () => {
         let c = await cloudLoad(COORDS_BLOB);
@@ -18497,7 +18588,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       }
       map.setView([eventLatLng.lat, eventLatLng.lng], 13);
     }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
-    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", color: th.text } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Raleway, sans-serif", fontWeight: 800 } }, "Impact / Cannibalization Radar"), status && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 8 } }, status), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { flex: "1 1 320px" } }, "Event address", /* @__PURE__ */ React.createElement("input", { value: eventAddr, onChange: (e) => setEventAddr(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Opening date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eventDate, onChange: (e) => setEventDate(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks before", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksBefore, onChange: (e) => setWeeksBefore(+e.target.value || 13), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks after (blank = now)", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksAfter, onChange: (e) => setWeeksAfter(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("button", { onClick: geocodeEvent, disabled: busy, style: btn(th) }, "Locate & rank"), /* @__PURE__ */ React.createElement("button", { onClick: compute, disabled: busy || !impactedPc, style: btn(th) }, "Compute impact")), ranked.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ranked.length), " stores ranked by distance. Impacted (nearest):", " ", /* @__PURE__ */ React.createElement("strong", null, ranked[0].name), " (", ranked[0].distance.toFixed(2), " mi). Controls:", " ", controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(", "), "."), eventLatLng && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: th.muted } }, "Trade-area radius (mi)", " ", /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.1", value: radiusMi, onChange: (e) => setRadiusMi(+e.target.value || 1), style: { ...inp(th), width: 80 } })), /* @__PURE__ */ React.createElement("div", { ref: mapDiv, style: { height: 360, marginTop: 8, borderRadius: 8, overflow: "hidden" } })), results && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 320, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("canvas", { ref: chartCanvas })), (() => {
+    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", color: th.text } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Raleway, sans-serif", fontWeight: 800 } }, "Impact / Cannibalization Radar"), status && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 8 } }, status), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { flex: "1 1 320px" } }, "Event address", /* @__PURE__ */ React.createElement("input", { value: eventAddr, onChange: (e) => setEventAddr(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Opening date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eventDate, onChange: (e) => setEventDate(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks before", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksBefore, onChange: (e) => setWeeksBefore(+e.target.value || 13), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks after (blank = now)", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksAfter, onChange: (e) => setWeeksAfter(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("button", { onClick: geocodeEvent, disabled: busy, style: btn(th) }, "Locate & rank"), /* @__PURE__ */ React.createElement("button", { onClick: compute, disabled: busy || !impactedPc, style: btn(th) }, "Compute impact")), ranked.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ranked.length), " stores ranked by distance. Impacted (nearest):", " ", /* @__PURE__ */ React.createElement("strong", null, ranked[0].name), " (", ranked[0].distance.toFixed(2), " mi). Controls:", " ", controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(", "), "."), eventLatLng && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: th.muted } }, "Trade-area radius (mi)", " ", /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.1", value: radiusMi, onChange: (e) => setRadiusMi(+e.target.value || 1), style: { ...inp(th), width: 80 } })), /* @__PURE__ */ React.createElement("div", { ref: mapDiv, style: { height: 360, marginTop: 8, borderRadius: 8, overflow: "hidden" } })), results && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement("button", { onClick: generatePdf, style: { ...btn(th), marginBottom: 12 } }, "\u{1F4C4} Generate PDF exhibit"), /* @__PURE__ */ React.createElement("div", { style: { height: 320, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("canvas", { ref: chartCanvas })), (() => {
       const imp = results.impacted;
       const nearestCtrl = results.controls[0];
       const ratio = nearestCtrl && nearestCtrl.deltaPct ? imp.deltaPct / nearestCtrl.deltaPct : null;

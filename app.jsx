@@ -24157,6 +24157,74 @@ function ImpactRadar({ th, user, dark }) {
     setBusy(false);
   }
 
+  function generatePdf() {
+    if (!results) return;
+    const Ctor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (!Ctor) { setStatus('jsPDF not available'); return; }
+    const doc = new Ctor({ unit: 'in', format: 'letter', orientation: 'portrait' });
+    const margin = 0.6, contentW = 8.5 - margin * 2;
+    const hx = BRAND_CONFIG.primary.replace('#', '');
+    const orange = [parseInt(hx.slice(0, 2), 16), parseInt(hx.slice(2, 4), 16), parseInt(hx.slice(4, 6), 16)];
+    let y = margin;
+
+    // Header band
+    doc.setFillColor(orange[0], orange[1], orange[2]); doc.rect(margin, y, contentW, 0.7, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+    doc.text('Impact / Cannibalization Analysis', margin + 0.2, y + 0.3);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    doc.text(`Event: ${eventAddr}  ·  Opening: ${eventDate}`, margin + 0.2, y + 0.52);
+    y += 0.95;
+
+    const imp = results.impacted;
+    doc.setTextColor(17, 17, 17); doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    doc.text(`Documented Sales Impact — ${imp.name}`, margin, y); y += 0.28;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    const impLines = [
+      `Avg weekly net sales BEFORE: ${fmtDollars(imp.avgBefore)}  (${imp.weeksBeforeUsed} weeks)`,
+      `Avg weekly net sales AFTER:  ${fmtDollars(imp.avgAfter)}  (${imp.weeksAfterUsed} weeks)`,
+      `Change: ${fmtPct(imp.deltaPct)}     Annualized revenue loss: ${fmtDollars(imp.annualizedLoss)}`,
+    ];
+    impLines.forEach((t) => { doc.text(t, margin, y); y += 0.22; });
+    y += 0.15;
+
+    // Control comparison table
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    doc.text('Control Store Comparison', margin, y); y += 0.26;
+    doc.setFontSize(9);
+    const cols = [margin, margin + 2.4, margin + 3.4, margin + 4.7, margin + 6.0];
+    doc.text('Store', cols[0], y); doc.text('Dist', cols[1], y);
+    doc.text('Before/wk', cols[2], y); doc.text('After/wk', cols[3], y); doc.text('%Δ', cols[4], y);
+    y += 0.06; doc.setDrawColor(200, 200, 200); doc.line(margin, y, margin + contentW, y); y += 0.18;
+    doc.setFont('helvetica', 'normal');
+    [results.impacted, ...results.controls].forEach((r, i) => {
+      doc.setFont('helvetica', i === 0 ? 'bold' : 'normal');
+      doc.text(`${r.name}${i === 0 ? ' (impacted)' : ''}`.slice(0, 28), cols[0], y);
+      doc.text(r.distance != null ? `${r.distance.toFixed(1)}mi` : '—', cols[1], y);
+      doc.text(fmtDollars(r.avgBefore), cols[2], y);
+      doc.text(fmtDollars(r.avgAfter), cols[3], y);
+      doc.text(fmtPct(r.deltaPct), cols[4], y);
+      y += 0.2;
+    });
+    y += 0.2;
+
+    // Weekly trend table (impacted only, paginated)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    if (y > 9.5) { doc.addPage(); y = margin; }
+    doc.text(`Weekly Net Sales Trend — ${imp.name}`, margin, y); y += 0.26;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    imp.series.forEach((s) => {
+      if (y > 10.4) { doc.addPage(); y = margin; }
+      doc.text(s.weekOf, margin, y);
+      doc.text(fmtDollars(s.sales), margin + 1.6, y);
+      doc.text(s.side, margin + 3.2, y);
+      y += 0.18;
+    });
+
+    doc.setFontSize(8); doc.setTextColor(120, 120, 120);
+    doc.text('Source: Dunkin’ Pulse POS net sales. Distances are geocoded centroid estimates (US Census).', margin, 10.7);
+    doc.save(`impact-${imp.name.replace(/\s+/g, '-')}-${eventDate}.pdf`);
+  }
+
   // Load (or first-time build) the 45-store coordinate cache.
   useEffect(() => {
     (async () => {
@@ -24332,6 +24400,7 @@ function ImpactRadar({ th, user, dark }) {
 
       {results && (
         <div style={{ marginTop: 16 }}>
+          <button onClick={generatePdf} style={{ ...btn(th), marginBottom: 12 }}>📄 Generate PDF exhibit</button>
           <div style={{ height: 320, marginBottom: 16 }}><canvas ref={chartCanvas} /></div>
           {(() => {
             const imp = results.impacted;
