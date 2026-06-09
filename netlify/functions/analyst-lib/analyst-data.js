@@ -376,13 +376,20 @@ async function buildFoodCostContext() {
 
 /** Render all four ops summaries as a text block for the prompt data section. */
 async function buildOpsContext({ district } = {}) {
-  const [projects, tickets, cash, foodCost] = await Promise.all([
-    buildProjectsContext({ district }),
-    buildTicketsContext({ district }),
-    buildCashContext({ district }),
-    buildFoodCostContext(),
-  ]);
-  return renderOpsContext({ projects, tickets, cash, foodCost });
+  try {
+    const [projects, tickets, cash, foodCost] = await Promise.all([
+      buildProjectsContext({ district }),
+      buildTicketsContext({ district }),
+      buildCashContext({ district }),
+      buildFoodCostContext(),
+    ]);
+    return renderOpsContext({ projects, tickets, cash, foodCost });
+  } catch (err) {
+    // One malformed blob record must never take down chat/briefs/reports —
+    // degrade to "no ops data" rather than throwing out of buildDataContext.
+    console.error('buildOpsContext failed:', err.message);
+    return '';
+  }
 }
 
 module.exports = {
