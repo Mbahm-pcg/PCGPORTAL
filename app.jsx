@@ -33762,7 +33762,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.53
+            v14.54
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -34162,8 +34162,10 @@ function PCGPortal() {
           </div>
         )}
 
-        {/* Floating Orion launcher — opens the Orion analyst chat */}
-        {user && !isMobile && tab !== "chat" && ["executive","it","office_staff","dm"].includes(user.userType) && (
+        {/* Floating Orion launcher — opens the Orion analyst chat.
+            Portaled to document.body so position:fixed escapes the transformed
+            layout ancestor (same pattern as the modals above). */}
+        {user && !isMobile && tab !== "chat" && ["executive","it","office_staff","dm"].includes(user.userType) && ReactDOM.createPortal(
           <button
             onClick={() => { setOrionIntent(true); setTab("chat"); }}
             title="Ask Orion"
@@ -34180,7 +34182,8 @@ function PCGPortal() {
             onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(109,40,217,0.4)"; }}
           >
             <OrionIcon size={40} />
-          </button>
+          </button>,
+          document.body
         )}
 
         <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" }}>
