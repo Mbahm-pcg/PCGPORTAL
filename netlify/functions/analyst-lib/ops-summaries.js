@@ -143,4 +143,66 @@ function summarizeTickets(raw, district, now, stores) {
   };
 }
 
-module.exports = { summarizeProjects, summarizeTickets, LIST_CAPS };
+const CASH_WINDOW_DAYS = 14;  // gap-scan window
+const CASH_BUFFER_DAYS = 2;   // most recent N days exempt (upload lag)
+
+function isoDay(ms) { return new Date(ms).toISOString().slice(0, 10); }
+
+function summarizeCash(raw, district, now, stores) {
+  if (!Array.isArray(raw) || raw.length === 0) return { available: false };
+  const byPc = storesByPc(stores);
+  const nowMs = toMs(now);
+
+  let deps = raw.map(d => {
+    const store = byPc.get(String(d.pc));
+    return {
+      store: store ? store.name : String(d.pc),
+      district: store ? store.district : null,
+      pc: String(d.pc),
+      depositDate: d.depositDate || null,
+      amount: typeof d.amount === 'number' ? d.amount : Number(d.amount) || 0,
+      llcName: d.llcName || null,
+      businessDates: Array.isArray(d.businessDates) ? d.businessDates : [],
+    };
+  });
+  if (district) deps = deps.filter(d => d.district === district);
+
+  const ageDays = d => d.depositDate ? daysBetween(nowMs, dateMs(d.depositDate)) : Infinity;
+  const round2 = n => Math.round(n * 100) / 100;
+  const last7Total = round2(deps.filter(d => ageDays(d) <= 7).reduce((s, d) => s + d.amount, 0));
+  const last30Total = round2(deps.filter(d => ageDays(d) <= 30).reduce((s, d) => s + d.amount, 0));
+
+  // Missing deposits: per participating store (≥1 deposit in scope), business dates in
+  // [now-CASH_WINDOW_DAYS, now-CASH_BUFFER_DAYS-1] not covered by any deposit's businessDates.
+  const coveredByPc = new Map();
+  for (const d of deps) {
+    if (!coveredByPc.has(d.pc)) coveredByPc.set(d.pc, new Set());
+    for (const bd of d.businessDates) coveredByPc.get(d.pc).add(bd);
+  }
+  const missingDeposits = [];
+  for (const [pc, covered] of coveredByPc) {
+    const store = byPc.get(pc);
+    for (let back = CASH_WINDOW_DAYS; back >= CASH_BUFFER_DAYS; back--) {
+      const date = isoDay(nowMs - back * DAY_MS);
+      if (!covered.has(date)) {
+        missingDeposits.push({ store: store ? store.name : pc, district: store ? store.district : null, date });
+      }
+    }
+  }
+  missingDeposits.sort((a, b) => a.store.localeCompare(b.store) || a.date.localeCompare(b.date));
+
+  const deposits = [...deps]
+    .sort((a, b) => String(b.depositDate || '').localeCompare(String(a.depositDate || '')))
+    .slice(0, LIST_CAPS.deposits)
+    .map(({ pc, ...rest }) => rest);
+  return {
+    available: true,
+    deposits,
+    last7Total,
+    last30Total,
+    missingDeposits: missingDeposits.slice(0, LIST_CAPS.missingDeposits),
+    missingCount: missingDeposits.length,
+  };
+}
+
+module.exports = { summarizeProjects, summarizeTickets, summarizeCash, LIST_CAPS };

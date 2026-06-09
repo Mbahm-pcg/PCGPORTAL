@@ -1,6 +1,6 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
-const { summarizeProjects, summarizeTickets } = require('./ops-summaries');
+const { summarizeProjects, summarizeTickets, summarizeCash } = require('./ops-summaries');
 
 // Small store fixture (mirrors STORES shape)
 const STORES_FIX = [
@@ -126,5 +126,44 @@ describe('summarizeTickets', () => {
     ], null, NOW, STORES_FIX);
     assert.strictEqual(r.openByStore.length, 2);
     assert.ok(r.openByStore.every(s => s.open === 1));
+  });
+});
+
+describe('summarizeCash', () => {
+  const dep = (over = {}) => ({
+    id: 'dep_1', depositDate: '2026-06-05', businessDates: ['2026-06-04'],
+    pc: '339616', llcName: 'Rao 7 Inc', amount: 356.18, ...over,
+  });
+
+  test('empty → available:false', () => {
+    assert.deepStrictEqual(summarizeCash(null, null, NOW, STORES_FIX), { available: false });
+  });
+
+  test('deposit detail with store name/district + totals', () => {
+    const r = summarizeCash([dep()], null, NOW, STORES_FIX);
+    assert.strictEqual(r.available, true);
+    assert.strictEqual(r.deposits[0].store, 'Wadsworth');
+    assert.strictEqual(r.deposits[0].district, 1);
+    assert.strictEqual(r.last7Total, 356.18);
+    assert.strictEqual(r.last30Total, 356.18);
+  });
+
+  test('missing deposits: uncovered business dates in window, 2-day buffer excluded', () => {
+    // Store covered 6/1-6/4 only. Window = 5/26..6/7 (14 days back, minus 6/8 & 6/9 buffer).
+    const deposits = ['2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04']
+      .map((d, i) => dep({ id: 'd' + i, businessDates: [d], depositDate: d }));
+    const r = summarizeCash(deposits, null, NOW, STORES_FIX);
+    const dates = r.missingDeposits.filter(m => m.store === 'Wadsworth').map(m => m.date);
+    assert.ok(dates.includes('2026-05-31'));   // in window, uncovered
+    assert.ok(dates.includes('2026-06-07'));   // in window, uncovered
+    assert.ok(!dates.includes('2026-06-08'));  // buffer
+    assert.ok(!dates.includes('2026-06-02'));  // covered
+    // Westchester never deposited → not a participating store → no gaps reported
+    assert.ok(!r.missingDeposits.some(m => m.store === 'Westchester'));
+  });
+
+  test('district filter', () => {
+    const r = summarizeCash([dep()], 6, NOW, STORES_FIX);
+    assert.deepStrictEqual(r.deposits, []);
   });
 });
