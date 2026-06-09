@@ -145,3 +145,54 @@ describe('pickControls', () => {
     assert.deepStrictEqual(pickControls(ranked, 'A', 1).map((s) => s.pc), ['B']);
   });
 });
+
+import { isoWeekStartFromEnd, weeklyFromScorecard } from './impact.mjs';
+
+describe('isoWeekStartFromEnd', () => {
+  test('week-end Saturday → Sunday week-of (−6 days)', () => {
+    assert.strictEqual(isoWeekStartFromEnd('01/03/2026'), '2025-12-28'); // matches claim event week
+    assert.strictEqual(isoWeekStartFromEnd('10/11/2025'), '2025-10-05'); // matches claim first week
+  });
+  test('2-digit year', () => {
+    assert.strictEqual(isoWeekStartFromEnd('01/03/26'), '2025-12-28');
+  });
+  test('unparseable → null', () => {
+    assert.strictEqual(isoWeekStartFromEnd('not-a-date'), null);
+    assert.strictEqual(isoWeekStartFromEnd(''), null);
+    assert.strictEqual(isoWeekStartFromEnd(null), null);
+  });
+});
+
+describe('weeklyFromScorecard', () => {
+  const salesWeeks = [
+    { weekEnd: '01/03/2026', stores: [{ pc: '304863', lwSale: 23507 }, { pc: '354561', lwSale: 23266 }] },
+    { weekEnd: '10/11/2025', stores: [{ pc: '304863', lwSale: 29308 }] },
+    { weekEnd: '12/27/2025', stores: [{ pc: '304863', lwSale: 27220 }, { pc: '354561', lwSale: 23748 }] },
+  ];
+
+  test('maps a store to ascending {weekOf, sales} using lwSale', () => {
+    const s = weeklyFromScorecard(salesWeeks, '304863');
+    assert.deepStrictEqual(s, [
+      { weekOf: '2025-10-05', sales: 29308 },
+      { weekOf: '2025-12-21', sales: 27220 },
+      { weekOf: '2025-12-28', sales: 23507 },
+    ]);
+  });
+
+  test('drops weeks where the store is missing or sales <= 0', () => {
+    const s = weeklyFromScorecard(salesWeeks, '354561');
+    assert.deepStrictEqual(s.map((x) => x.weekOf), ['2025-12-21', '2025-12-28']);
+  });
+
+  test('feeds beforeAfter end-to-end (event week → before)', () => {
+    const series = weeklyFromScorecard(salesWeeks, '304863');
+    const r = beforeAfter(series, '2025-12-28', 13, null);
+    assert.strictEqual(r.weeksBeforeUsed, 3);   // all 3 weeks are <= event date
+    assert.strictEqual(r.weeksAfterUsed, 0);
+  });
+
+  test('empty / missing input → []', () => {
+    assert.deepStrictEqual(weeklyFromScorecard(null, '304863'), []);
+    assert.deepStrictEqual(weeklyFromScorecard([], '304863'), []);
+  });
+});
