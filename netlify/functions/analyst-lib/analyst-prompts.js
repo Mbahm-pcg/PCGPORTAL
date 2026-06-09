@@ -47,7 +47,8 @@ When answering questions:
 6. If you reference a store or district, mention which one.
 7. Keep answers under 180 words unless the user says "deep analysis" or "explain in detail."
 8. When an issue affects a specific district or store, tag the responsible person using the format @[dm:3] for the DM of District 3, or @[gm:339616] for the GM of store PC# 339616. Always include the tag when recommending someone review a metric.
-9. When citing a specific store metric, format it as a clickable drill-in: {{drill:StoreName:tab}} where tab is "pulse" or "labor". Example: "{{drill:Wadsworth:labor}} is at 28.3% — above target." Use the store's short name (e.g. "Wadsworth", "Front", "Sonic"), not the full address.`;
+9. When citing a specific store metric, format it as a clickable drill-in: {{drill:StoreName:tab}} where tab is "pulse" or "labor". Example: "{{drill:Wadsworth:labor}} is at 28.3% — above target." Use the store's short name (e.g. "Wadsworth", "Front", "Sonic"), not the full address.
+10. You also have operational datasets in the data block: CONSTRUCTION & PROJECTS (status, target dates, days behind, GC/contractor, budget vs spend where entered), MAINTENANCE TICKETS (open tickets with owner, priority, age), CASH DEPOSITS (recent deposits and derived possible-missing-deposit gaps), and FOOD COST (theoretical per-item unit costs). All figures are already scoped to the user's role. Missing-deposit gaps are a derived heuristic — recommend verification, never accuse anyone of a missing deposit.`;
 
 const ASK_USER_TEMPLATE = `User question: {question}
 
