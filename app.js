@@ -6406,7 +6406,7 @@
       { label: "Err Cor", value: fmtUSD(d.errCor), color: "#868e96" },
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
       { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null }
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", marginBottom: "1.25rem", background: th.card, borderRadius: "0.75rem", border: `1px solid ${th.cardBorder}`, overflow: "hidden" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, { id: "driveThru", label: "\u{1F697} Drive-Thru" }, { id: "reviews", label: "\u2B50 Reviews" }].map((t, i, arr) => /* @__PURE__ */ React.createElement(
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", marginBottom: "1.25rem", background: th.card, borderRadius: "0.75rem", border: `1px solid ${th.cardBorder}`, overflow: "hidden" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t, i, arr) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -6420,7 +6420,7 @@
             loadTxnList();
           }
           if (t.id === "driveThru" && !dtSchedule) {
-            cloudLoad(`pcg_schedule_${pc}`).then((d2) => setDtSchedule(Array.isArray(d2) ? d2 : [])).catch(() => setDtSchedule([]));
+            cloudLoad(`pcg_schedule_${pc}`).then((d2) => setDtSchedule(d2?.shifts || [])).catch(() => setDtSchedule([]));
           }
           if (t.id === "foodcost" && !foodCostT && !foodCostLoading) {
             setFoodCostLoading(true);
@@ -6835,7 +6835,7 @@
         { label: "Avg Check", value: fmtAvg(dtAvgCheck), color: "#fbbf24" },
         slowestHour ? { label: "Slowest Hour", value: fmtHr(slowestHour.hr), color: "#f87171", sub: fmtSecs(slowestHour.avg) } : null
       ].filter(Boolean).map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.82rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), k.sub && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "99", whiteSpace: "nowrap" } }, k.sub), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap", marginTop: 1 } }, k.label)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", marginBottom: "1rem", flexWrap: "wrap" } }, [["#22c55e", "\u2264 2 min \u2014 Excellent"], ["#74c0fc", "2\u20133 min \u2014 Good"], ["#ff922b", "3\u20134 min \u2014 Watch"], ["#ef4444", "4 min+ \u2014 Slow"]].map(([c, l]) => /* @__PURE__ */ React.createElement("div", { key: l, style: { display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.65rem", color: th.muted } }, /* @__PURE__ */ React.createElement("div", { style: { width: 8, height: 8, borderRadius: 2, background: c } }), l))), hours.length > 0 && (() => {
-        const schedForDate = (dtSchedule || []).filter((s2) => (s2.startDateTime || "").slice(0, 10) === txnDate);
+        const schedForDate = (dtSchedule || []).filter((s2) => (s2.date || (s2.startDateTime || "").slice(0, 10)) === txnDate);
         const headcountByHr = {};
         for (let h = 0; h < 24; h++) {
           headcountByHr[h] = schedForDate.filter((s2) => {
@@ -25892,7 +25892,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.71", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.73", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

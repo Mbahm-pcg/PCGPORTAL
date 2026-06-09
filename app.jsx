@@ -6926,12 +6926,12 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
 
       {/* ── Tab Navigation ── */}
       <div style={{ display:'flex', marginBottom:'1.25rem', background:th.card, borderRadius:'0.75rem', border:`1px solid ${th.cardBorder}`, overflow:'hidden' }}>
-        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},{id:'driveThru',label:'🚗 Drive-Thru'},{id:'reviews',label:'⭐ Reviews'}].map((t,i,arr) => (
+        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t,i,arr) => (
           <button key={t.id} onClick={() => {
               setStoreTab(t.id);
               if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
               if(t.id==='driveThru' && !txnList && !txnListLoading){ loadTxnList(); }
-              if(t.id==='driveThru' && !dtSchedule){ cloudLoad(`pcg_schedule_${pc}`).then(d => setDtSchedule(Array.isArray(d) ? d : [])).catch(() => setDtSchedule([])); }
+              if(t.id==='driveThru' && !dtSchedule){ cloudLoad(`pcg_schedule_${pc}`).then(d => setDtSchedule(d?.shifts || [])).catch(() => setDtSchedule([])); }
               if(t.id==='foodcost' && !foodCostT && !foodCostLoading){ setFoodCostLoading(true); fetch('/.netlify/functions/food-cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'store',pc,date:localDate})}).then(r=>r.ok?r.json():null).then(j=>{if(j)setFoodCostT(j);}).catch(()=>{}).finally(()=>setFoodCostLoading(false)); }
             }}
             style={{ flex:1, padding:'0.7rem 0.5rem', border:'none', borderRight:i<arr.length-1?`1px solid ${th.cardBorder}`:'none', background:storeTab===t.id?O+'18':'transparent', color:storeTab===t.id?O:th.muted, fontWeight:storeTab===t.id?700:400, fontSize:'0.78rem', cursor:'pointer', transition:'all .15s', borderBottom:storeTab===t.id?`2px solid ${O}`:'2px solid transparent', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
@@ -7662,7 +7662,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
               {/* Hourly chart */}
               {hours.length > 0 && (() => {
                 // Headcount per hour from schedule for the selected date
-                const schedForDate = (dtSchedule || []).filter(s => (s.startDateTime || '').slice(0, 10) === txnDate);
+                const schedForDate = (dtSchedule || []).filter(s => (s.date || (s.startDateTime || '').slice(0, 10)) === txnDate);
                 const headcountByHr = {};
                 for (let h = 0; h < 24; h++) {
                   headcountByHr[h] = schedForDate.filter(s => {
@@ -34176,7 +34176,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.71
+            v14.73
             <SyncStatus dark={dark} />
           </div>
         )}
