@@ -3,6 +3,8 @@
 // TODO (Phase 2): Swap blob reads for Postgres/Supabase queries.
 
 const { cacheLoad, cacheSave } = require('./analyst-cache');
+const { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, renderOpsContext } = require('./ops-summaries');
+const { BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, INGREDIENT_COSTS } = require('./cost-lookup');
 
 // ── Store config (mirrors index.html STORES_SEED) ───────────────────────────
 const STORES = [
@@ -145,7 +147,8 @@ async function buildKPISnapshot({ district } = {}) {
  */
 async function buildDataContext({ district, includeStoreDetail } = {}) {
   const snapshot = await buildKPISnapshot({ district });
-  if (snapshot.error) return snapshot.error;
+  const opsContext = await buildOpsContext({ district: district || null });
+  if (snapshot.error) return snapshot.error + opsContext;
 
   let context = `Data as of: ${snapshot.asOf}\nBusiness date: ${snapshot.busDt}\nScope: ${snapshot.scope}\n\n`;
   context += `NETWORK SUMMARY:\n`;
@@ -188,7 +191,7 @@ async function buildDataContext({ district, includeStoreDetail } = {}) {
     }
   }
 
-  return context;
+  return context + opsContext;
 }
 
 /**
@@ -348,6 +351,40 @@ async function buildEmailContext() {
   return '\n\nEMAIL INBOX:\n' + lines.join('\n');
 }
 
+// ── Operational datasets (projects, tickets, cash, food cost) ───────────────
+
+async function buildProjectsContext({ district } = {}) {
+  return summarizeProjects(await cacheLoad('pcg_projects_v1'), district || null, new Date(), STORES);
+}
+
+async function buildTicketsContext({ district } = {}) {
+  return summarizeTickets(await cacheLoad('pcg_tickets_v1'), district || null, new Date(), STORES);
+}
+
+async function buildCashContext({ district } = {}) {
+  return summarizeCash(await cacheLoad('pcg_cash_deposits_v1'), district || null, new Date(), STORES);
+}
+
+async function buildFoodCostContext() {
+  const bev = await cacheLoad('pcg_food_cost_beverages_v1');
+  const overlay = compactComputed(bev);
+  return summarizeFoodCost(
+    { beverages: BEVERAGE_COSTS, food: FOOD_COSTS, iceCream: ICE_CREAM_COSTS, ingredients: INGREDIENT_COSTS },
+    overlay ? { beverages: overlay } : null
+  );
+}
+
+/** Render all four ops summaries as a text block for the prompt data section. */
+async function buildOpsContext({ district } = {}) {
+  const [projects, tickets, cash, foodCost] = await Promise.all([
+    buildProjectsContext({ district }),
+    buildTicketsContext({ district }),
+    buildCashContext({ district }),
+    buildFoodCostContext(),
+  ]);
+  return renderOpsContext({ projects, tickets, cash, foodCost });
+}
+
 module.exports = {
   STORES,
   getAllStores,
@@ -365,4 +402,9 @@ module.exports = {
   getNetworkReviews,
   buildSentimentContext,
   buildEmailContext,
+  buildProjectsContext,
+  buildTicketsContext,
+  buildCashContext,
+  buildFoodCostContext,
+  buildOpsContext,
 };
