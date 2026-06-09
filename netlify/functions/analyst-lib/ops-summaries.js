@@ -146,6 +146,8 @@ function summarizeTickets(raw, district, now, stores) {
 const CASH_WINDOW_DAYS = 14;  // gap-scan window
 const CASH_BUFFER_DAYS = 2;   // most recent N days exempt (upload lag)
 
+// UTC-relative day string — pair only with `nowMs` derived from an ISO timestamp
+// (Netlify runs UTC); a local-midnight Date on a non-UTC dev machine can shift edges by a day.
 function isoDay(ms) { return new Date(ms).toISOString().slice(0, 10); }
 
 function summarizeCash(raw, district, now, stores) {
@@ -173,7 +175,9 @@ function summarizeCash(raw, district, now, stores) {
   const last30Total = round2(deps.filter(d => ageDays(d) <= 30).reduce((s, d) => s + d.amount, 0));
 
   // Missing deposits: per participating store (≥1 deposit in scope), business dates in
-  // [now-CASH_WINDOW_DAYS, now-CASH_BUFFER_DAYS-1] not covered by any deposit's businessDates.
+  // [now-CASH_WINDOW_DAYS, now-CASH_BUFFER_DAYS] not covered by any deposit's businessDates.
+  // Heuristic: closed days (Sundays/holidays) show as false positives — the prompt layer
+  // instructs the LLM to recommend verification, never accuse.
   const coveredByPc = new Map();
   for (const d of deps) {
     if (!coveredByPc.has(d.pc)) coveredByPc.set(d.pc, new Set());
