@@ -8987,6 +8987,10 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const [dateCache,   setDateCache]  = useState({});   // date → { netSales, guests, voids }
   const [lyCache,     setLyCache]    = useState({});   // LY same-week date → { netSales }
   const [wtdLoading,  setWtdLoading] = useState(false);
+  const [viewMode,     setViewMode]     = useState('day');   // 'day' | 'week' (WTD Sun→today)
+  const [weekStoreData,setWeekStoreData]= useState({});      // pc → { netSales, guests, voids, discounts } (WTD sums)
+  const [weekLoading,  setWeekLoading]  = useState(false);
+  const [dayStoreCache,setDayStoreCache]= useState({});      // date → fetchDate() result (memoize per-day per-store)
   const [collapsed,   setCollapsed]  = useState(new Set());
   const [pulseView,   setPulseView]  = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
   const [weatherForecast, setWeatherForecast] = useState(null);
@@ -9069,6 +9073,31 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
       }
     }
     setWtdLoading(false);
+  }
+
+  // Build per-store WTD (Sun→today) by summing each day's fetchDate results.
+  async function loadWeekGrid() {
+    setWeekLoading(true);
+    const dates = getWeekDates(busDt);
+    const cache = { ...dayStoreCache, [busDt]: storeData }; // today's slice already loaded
+    for (const date of dates) {
+      if (!cache[date]) cache[date] = await fetchDate(date, 8);
+    }
+    setDayStoreCache(cache);
+    const sums = {};
+    for (const pc of activePCs) {
+      let netSales = 0, guests = 0, voids = 0, discounts = 0;
+      for (const date of dates) {
+        const r = cache[date] && cache[date][pc];
+        if (r && r.status === 'ok') {
+          netSales += r.data.netSales; guests += r.data.guests;
+          voids += r.data.voids; discounts += r.data.discounts;
+        }
+      }
+      sums[pc] = { netSales, guests, voids, discounts };
+    }
+    setWeekStoreData(sums);
+    setWeekLoading(false);
   }
 
   // Fetch last year's same-week data (364 days prior) for weekly forecast

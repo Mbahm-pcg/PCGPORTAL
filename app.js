@@ -7828,6 +7828,10 @@
     const [dateCache, setDateCache] = useState({});
     const [lyCache, setLyCache] = useState({});
     const [wtdLoading, setWtdLoading] = useState(false);
+    const [viewMode, setViewMode] = useState("day");
+    const [weekStoreData, setWeekStoreData] = useState({});
+    const [weekLoading, setWeekLoading] = useState(false);
+    const [dayStoreCache, setDayStoreCache] = useState({});
     const [collapsed, setCollapsed] = useState(/* @__PURE__ */ new Set());
     const [pulseView, setPulseView] = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
     const [weatherForecast, setWeatherForecast] = useState(null);
@@ -7903,6 +7907,31 @@
         }
       }
       setWtdLoading(false);
+    }
+    async function loadWeekGrid() {
+      setWeekLoading(true);
+      const dates = getWeekDates(busDt);
+      const cache = { ...dayStoreCache, [busDt]: storeData };
+      for (const date of dates) {
+        if (!cache[date]) cache[date] = await fetchDate(date, 8);
+      }
+      setDayStoreCache(cache);
+      const sums = {};
+      for (const pc of activePCs) {
+        let netSales = 0, guests = 0, voids = 0, discounts = 0;
+        for (const date of dates) {
+          const r = cache[date] && cache[date][pc];
+          if (r && r.status === "ok") {
+            netSales += r.data.netSales;
+            guests += r.data.guests;
+            voids += r.data.voids;
+            discounts += r.data.discounts;
+          }
+        }
+        sums[pc] = { netSales, guests, voids, discounts };
+      }
+      setWeekStoreData(sums);
+      setWeekLoading(false);
     }
     async function loadLYWeek() {
       const d = /* @__PURE__ */ new Date(busDt + "T12:00:00");
