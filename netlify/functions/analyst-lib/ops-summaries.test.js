@@ -1,6 +1,6 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
-const { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed } = require('./ops-summaries');
+const { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, renderOpsContext } = require('./ops-summaries');
 
 // Small store fixture (mirrors STORES shape)
 const STORES_FIX = [
@@ -200,6 +200,54 @@ describe('summarizeFoodCost', () => {
     const c = r.categories[0];
     assert.strictEqual(c.itemCount, 1);
     assert.strictEqual(c.avgUnitCost, 2);
+  });
+});
+
+describe('renderOpsContext', () => {
+  test('unavailable domains render "no data yet" lines', () => {
+    const txt = renderOpsContext({
+      projects: { available: false }, tickets: { available: false },
+      cash: { available: false }, foodCost: { available: false },
+    });
+    assert.ok(txt.includes('CONSTRUCTION & PROJECTS:'));
+    assert.ok(txt.includes('No project data yet'));
+    assert.ok(txt.includes('No ticket data yet'));
+    assert.ok(txt.includes('No cash deposit data yet'));
+    assert.ok(txt.includes('No food cost data yet'));
+  });
+
+  test('available domains render counts and detail lines', () => {
+    const txt = renderOpsContext({
+      projects: {
+        available: true,
+        counts: { total: 2, active: 1, behind: 1, atRisk: 1, completed: 1 },
+        projects: [{ name: 'West Chester', district: 6, type: 'Remodel', status: 'Active', targetCompletion: '2026-06-01', daysBehind: 8, atRisk: true, budget: 100000, actualCost: 120000, variancePct: 20, gc: 'Jane Doe', gcCompany: 'Premier', utilities: ['electric: In Progress (Peco)'], nextMilestone: 'DCP delivery 2026-06-20', notes: null }],
+      },
+      tickets: {
+        available: true, totalOpen: 1, aging: { gt7: 1, gt14: 0 },
+        tickets: [{ number: 'T-0001', title: 'Ice machine down', store: 'Wadsworth', district: 1, category: 'Equipment', priority: 'High', status: 'In Progress', owner: 'Clarence Jackson', dueDate: '2026-06-11', ageDays: 8 }],
+        openByStore: [{ store: 'Wadsworth', district: 1, open: 1, oldestDays: 8 }],
+        critical: [{ number: 'T-0001', store: 'Wadsworth', title: 'Ice machine down', owner: 'Clarence Jackson', ageDays: 8 }],
+      },
+      cash: {
+        available: true, last7Total: 356.18, last30Total: 1024.5, missingCount: 1,
+        deposits: [{ store: 'Wadsworth', district: 1, depositDate: '2026-06-05', amount: 356.18, llcName: 'Rao 7 Inc', businessDates: ['2026-06-04'] }],
+        missingDeposits: [{ store: 'Wadsworth', district: 1, date: '2026-05-31' }],
+      },
+      foodCost: {
+        available: true,
+        categories: [{ category: 'beverages', itemCount: 3, avgUnitCost: 1.5, items: [{ item: 'Latte L', unitCost: 2 }] }],
+      },
+    });
+    assert.ok(txt.includes('8d BEHIND'));
+    assert.ok(txt.includes('GC: Jane Doe (Premier)'));
+    assert.ok(txt.includes('variance +20%'));
+    assert.ok(txt.includes('T-0001'));
+    assert.ok(txt.includes('Clarence Jackson'));
+    assert.ok(txt.includes('$356.18'));
+    assert.ok(txt.includes('2026-05-31'));
+    assert.ok(txt.includes('Latte L'));
+    assert.ok(txt.includes('possible missing deposits'));
   });
 });
 

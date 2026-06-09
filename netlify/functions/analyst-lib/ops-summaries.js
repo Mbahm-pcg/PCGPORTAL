@@ -242,4 +242,64 @@ function compactComputed(blob) {
   return Object.keys(out).length > 0 ? out : null; // null when nothing survived the trim
 }
 
-module.exports = { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, LIST_CAPS };
+function renderOpsContext({ projects, tickets, cash, foodCost } = {}) {
+  const L = [];
+
+  L.push('\n\nCONSTRUCTION & PROJECTS:');
+  if (!projects || !projects.available) L.push('  No project data yet.');
+  else {
+    const c = projects.counts;
+    L.push(`  ${c.active} active (${c.behind} behind schedule, ${c.atRisk} at risk), ${c.completed} completed.`);
+    for (const p of projects.projects) {
+      let line = `  ${p.name} (${p.type || 'Project'}, D${p.district ?? '?'}): target ${p.targetCompletion || 'n/a'}`;
+      if (p.daysBehind > 0) line += `, ${p.daysBehind}d BEHIND`;
+      else if (p.atRisk) line += ', AT RISK';
+      if (p.budget != null) line += `, budget $${p.budget.toLocaleString('en-US')}`;
+      if (p.actualCost != null) line += `, spent $${p.actualCost.toLocaleString('en-US')}`;
+      if (p.variancePct != null) line += `, variance ${p.variancePct > 0 ? '+' : ''}${p.variancePct}%`;
+      if (p.gc) line += `, GC: ${p.gc}${p.gcCompany ? ` (${p.gcCompany})` : ''}`;
+      L.push(line);
+      if (p.nextMilestone) L.push(`    next: ${p.nextMilestone}`);
+      if (p.utilities && p.utilities.length) L.push(`    utilities: ${p.utilities.join('; ')}`);
+      if (p.notes) L.push(`    notes: ${p.notes}`);
+    }
+  }
+
+  L.push('\nMAINTENANCE TICKETS:');
+  if (!tickets || !tickets.available) L.push('  No ticket data yet.');
+  else if (tickets.totalOpen === 0) L.push('  No open tickets.');
+  else {
+    L.push(`  ${tickets.totalOpen} open (${tickets.aging.gt7} older than 7d, ${tickets.aging.gt14} older than 14d).`);
+    for (const t of tickets.tickets) {
+      L.push(`  ${t.number} | ${t.store} (D${t.district ?? '?'}) | ${t.title} | ${t.priority} | ${t.status} | owner: ${t.owner || 'unassigned'} | ${t.ageDays ?? '?'}d old${t.dueDate ? ` | due ${t.dueDate}` : ''}`);
+    }
+    if (tickets.critical.length) L.push(`  CRITICAL/HIGH: ${tickets.critical.map(t => `${t.number} ${t.store} (${t.owner || 'unassigned'})`).join('; ')}`);
+  }
+
+  L.push('\nCASH DEPOSITS:');
+  if (!cash || !cash.available) L.push('  No cash deposit data yet.');
+  else {
+    L.push(`  Last 7 days: $${cash.last7Total.toLocaleString('en-US')} deposited. Last 30 days: $${cash.last30Total.toLocaleString('en-US')}.`);
+    for (const d of cash.deposits.slice(0, 10)) {
+      L.push(`  ${d.depositDate} | ${d.store} (D${d.district ?? '?'}) | $${d.amount.toLocaleString('en-US')} | ${d.llcName || ''} | covers ${d.businessDates.join(', ')}`);
+    }
+    if (cash.missingCount > 0) {
+      L.push(`  ${cash.missingCount} possible missing deposits (business dates with no covering deposit — derived heuristic, verify before acting):`);
+      for (const m of cash.missingDeposits) L.push(`    ${m.store} (D${m.district ?? '?'}): ${m.date}`);
+    }
+  }
+
+  L.push('\nFOOD COST (THEORETICAL UNIT COSTS):');
+  if (!foodCost || !foodCost.available) L.push('  No food cost data yet.');
+  else {
+    for (const c of foodCost.categories) {
+      L.push(`  ${c.category}: ${c.itemCount} items, avg unit cost $${c.avgUnitCost}`);
+      L.push(`    top: ${c.items.map(i => `${i.item} $${i.unitCost}`).join('; ')}`);
+    }
+    if (foodCost.computed) L.push(`  computed overlay: ${JSON.stringify(foodCost.computed)}`);
+  }
+
+  return L.join('\n');
+}
+
+module.exports = { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, LIST_CAPS, renderOpsContext };
