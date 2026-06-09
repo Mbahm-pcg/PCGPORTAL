@@ -77,6 +77,42 @@ export function beforeAfter(weekly, eventDate, weeksBefore, weeksAfter) {
 }
 
 /**
+ * Convert a scorecard week-END date (MM/DD/YYYY or MM/DD/YY) to the ISO week-START
+ * date (Sunday), i.e. end − 6 days, matching the Pulse/claim "week of" convention.
+ * @param {string} endStr e.g. '01/03/2026'
+ * @returns {string|null} ISO 'YYYY-MM-DD' week start, or null if unparseable
+ */
+export function isoWeekStartFromEnd(endStr) {
+  const m = String(endStr || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (!m) return null;
+  let y = +m[3];
+  if (y < 100) y += 2000;
+  const endUtc = Date.UTC(y, +m[1] - 1, +m[2]);
+  return new Date(endUtc - 6 * 86400000).toISOString().slice(0, 10);
+}
+
+/**
+ * Build a store's weekly net-sales series from the uploaded weekly scorecard
+ * (`pcg_sales_v1` / salesWeeks). Each scorecard week is `{ weekEnd, stores:[{pc, lwSale}] }`;
+ * `lwSale` is that week's net sales. Returns `{weekOf, sales}[]` shaped for beforeAfter().
+ *
+ * @param {{weekEnd:string, stores:{pc:string, lwSale:number}[]}[]} salesWeeks
+ * @param {string} pc  store pulse-cloud number
+ * @returns {{weekOf:string, sales:number}[]} ascending by weekOf, weeks with sales>0
+ */
+export function weeklyFromScorecard(salesWeeks, pc) {
+  return (salesWeeks || [])
+    .map((w) => {
+      const weekOf = isoWeekStartFromEnd(w && w.weekEnd);
+      const row = w && w.stores && w.stores.find((s) => String(s.pc) === String(pc));
+      const sales = row ? Number(row.lwSale) : NaN;
+      return weekOf && Number.isFinite(sales) && sales > 0 ? { weekOf, sales } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+}
+
+/**
  * Choose representative near/mid/far control stores from a distance-ranked list,
  * excluding the impacted store. Picks an even spread across the available range:
  * always the nearest and farthest, then evenly-indexed picks in between.

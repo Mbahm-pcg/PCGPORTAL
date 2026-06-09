@@ -5,7 +5,7 @@ import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, authHeader, clearSessionToken } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
-import { haversineMiles, beforeAfter, pickControls } from './src/impact.mjs';
+import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard } from './src/impact.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -17880,7 +17880,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
       firstMsg: msgs[0],
       messages: msgs,
       lastActivity: msgs[msgs.length - 1].timestamp,
-    })).sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
+    })).sort((a, b) => a.lastActivity.localeCompare(b.lastActivity)); // oldest first → newest at the bottom by the input (normal chat order)
   }, [threadMessages, activeChannel]);
 
   // Group messages by date
@@ -24118,7 +24118,7 @@ function PnLStoreDetail({ store, th, onClose }) {
 // for the full version history and line items. Read-only (data from ndcp.js).
 const COORDS_BLOB = 'pcg_store_coords_v1';
 
-function ImpactRadar({ th, user, dark }) {
+function ImpactRadar({ th, user, dark, salesWeeks }) {
   const [eventAddr, setEventAddr] = useState('2310 W Passyunk Ave, Philadelphia, PA 19145');
   const [eventLatLng, setEventLatLng] = useState(null); // {lat,lng}
   const [eventDate, setEventDate] = useState('2025-12-28');
@@ -24141,13 +24141,21 @@ function ImpactRadar({ th, user, dark }) {
     if (!impactedPc) return;
     setBusy(true); setStatus('Loading sales history…');
     const wa = weeksAfter === '' ? null : (+weeksAfter || null);
+    const cards = Array.isArray(salesWeeks) ? salesWeeks : [];
     const loadOne = async (pc) => {
       const blob = await cloudLoad(`pcg_labor_store_${pc}`);
-      const weekly = (blob && blob.weekly) || [];
+      const laborWeekly = (blob && blob.weekly) || [];
+      const cardWeekly = weeklyFromScorecard(cards, pc);
+      // Prefer whichever source carries more weeks of history. The uploaded weekly
+      // scorecard (pcg_sales_v1) usually goes back further than the labor blob, which
+      // labor-cron caps at ~13 weeks — so this lets the full claim window compute on live data.
+      const useCard = cardWeekly.length > laborWeekly.length;
+      const weekly = useCard ? cardWeekly : laborWeekly;
+      const source = useCard ? 'scorecard' : 'labor';
       const store = STORES_SEED.find((s) => s.pc === pc);
       const ba = beforeAfter(weekly, eventDate, weeksBefore, wa);
       const rankRow = ranked.find((r) => r.pc === pc);
-      return { pc, name: store?.name || pc, distance: rankRow ? rankRow.distance : null, ...ba };
+      return { pc, name: store?.name || pc, distance: rankRow ? rankRow.distance : null, source, weeksAvailable: weekly.length, ...ba };
     };
     const impacted = await loadOne(impactedPc);
     const controls = [];
@@ -24449,7 +24457,9 @@ function ImpactRadar({ th, user, dark }) {
             </tbody>
           </table>
           <div style={{ color: th.muted, fontSize: 11, marginTop: 8 }}>
-            Source: Pulse net sales via labor blobs. ⚠ = fewer weeks than requested (live blobs retain ~13 weeks).
+            Source: {results.impacted.source === 'scorecard'
+              ? `uploaded weekly scorecards (${results.impacted.weeksAvailable} wks available for the impacted store)`
+              : `Pulse net sales via labor blobs (~13-week retention; ${results.impacted.weeksAvailable} wks available)`}. ⚠ = fewer weeks than requested.
           </div>
         </div>
       )}
@@ -33689,7 +33699,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.51
+            v14.52
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -34127,7 +34137,7 @@ function PCGPortal() {
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && <AdminNdcp th={th} user={user} />}
-          {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} />}
+          {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
