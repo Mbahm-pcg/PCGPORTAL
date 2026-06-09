@@ -6741,9 +6741,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
         })}
         {hovered ? (
           <>
-            <text x={cx} y={cy - 18} textAnchor="middle" fill={th.muted} fontSize="10" fontWeight="600" style={{ textTransform:'uppercase', letterSpacing: 1 }}>{hovered.name}</text>
+            <text x={cx} y={cy - 20} textAnchor="middle" fill={th.muted} fontSize={hovered.name.length > 12 ? '8' : '9'} fontWeight="600">{hovered.name.toUpperCase()}</text>
             <text x={cx} y={cy + 4} textAnchor="middle" fill={hovered.color} fontSize="20" fontWeight="900" fontFamily="'Raleway'">{fmtUSD(hovered.value)}</text>
-            <text x={cx} y={cy + 22} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">{hoveredPct.toFixed(1) + '%'}</text>
+            <text x={cx} y={cy + 21} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">{hoveredPct.toFixed(1) + '%'}</text>
           </>
         ) : (
           <>
@@ -7072,14 +7072,14 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
               <div style={{ animation:'pulseRing 1.5s ease-in-out infinite', display:'inline-block' }}>Loading...</div>
             </div>
           ) : tenderData ? (
-            <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:'1.5rem', alignItems:'center' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'210px 1fr', gap:'1.25rem', alignItems:'center' }}>
               <div style={{ display:'flex', justifyContent:'center' }}>
                 <DonutChart
                   data={tenderData.map((t,i) => ({ value: t.ttl, color: CHART_COLORS[i % CHART_COLORS.length], name: t.name }))}
                   hoveredIdx={hoveredTender}
                   onHover={setHoveredTender} />
               </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.2rem', minWidth:0 }}>
                 {tenderData.slice(0, 8).map((t, i) => {
                   const total = tenderData.reduce((a,x) => a + x.ttl, 0);
                   const pct = total > 0 ? (t.ttl / total * 100) : 0;
@@ -7090,16 +7090,16 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
                     <div key={i}
                       onMouseEnter={() => setHoveredTender(i)}
                       onMouseLeave={() => setHoveredTender(null)}
-                      style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.72rem',
-                        padding:'0.3rem 0.5rem', borderRadius:'0.375rem', cursor:'pointer',
+                      style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.72rem',
+                        padding:'0.28rem 0.5rem', borderRadius:'0.375rem', cursor:'pointer', minWidth:0,
                         background: isHovered ? color + '22' : 'transparent',
                         opacity: isDimmed ? 0.4 : 1,
                         transform: isHovered ? 'translateX(2px)' : 'translateX(0)',
                         transition: 'all .15s ease' }}>
-                      <div style={{ width: isHovered ? 11 : 9, height: isHovered ? 11 : 9, borderRadius:'50%', background:color, flexShrink:0, transition:'all .15s', boxShadow: isHovered ? `0 0 6px ${color}` : 'none' }} />
-                      <span style={{ flex:1, color:th.text, fontWeight: isHovered ? 700 : 400 }}>{t.name}</span>
-                      <span style={{ color:th.muted }}>{fmtUSD(t.ttl)}</span>
-                      <span style={{ color, fontWeight:700, minWidth:36, textAlign:'right' }}>{pct.toFixed(1)}%</span>
+                      <div style={{ width: isHovered ? 10 : 8, height: isHovered ? 10 : 8, borderRadius:'50%', background:color, flexShrink:0, transition:'all .15s', boxShadow: isHovered ? `0 0 6px ${color}` : 'none' }} />
+                      <span style={{ flex:1, color:th.text, fontWeight: isHovered ? 700 : 400, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>{t.name}</span>
+                      <span style={{ color:th.muted, flexShrink:0 }}>{fmtUSD(t.ttl)}</span>
+                      <span style={{ color, fontWeight:700, minWidth:42, textAlign:'right', flexShrink:0 }}>{pct.toFixed(1)}%</span>
                     </div>
                   );
                 })}
@@ -7758,22 +7758,23 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
         const journalTxt = (txnModal?.journalTxt || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
         const receiptText = journalTxt || rLines.join('\n');
 
+        const isMobileModal = window.innerWidth < 700;
         return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 99999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '1.5rem 1rem', overflowY: 'auto' }}
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 99999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: isMobileModal ? '0' : '1.5rem 1rem', overflowY: 'auto' }}
             onClick={e => { if (e.target === e.currentTarget) setTxnModal(null); }}>
-            <div style={{ background: th.bg, borderRadius: 12, width: '100%', maxWidth: 920, boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+            <div style={{ background: th.bg, borderRadius: isMobileModal ? 0 : 12, width: '100%', maxWidth: isMobileModal ? '100%' : 920, minHeight: isMobileModal ? '100dvh' : 'unset', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', borderBottom: `1px solid ${th.cardBorder}` }}>
                 <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1rem', color: th.text }}>Transaction Detail {!txnModalLoading && <span style={{ color: O }}>#{chk.chkNum}</span>}</div>
                 <button onClick={() => { setTxnModal(null); setTxnModalLoading(false); }} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}>×</button>
               </div>
               {txnModalLoading ? (
                 <div style={{ padding: '4rem', textAlign: 'center', color: th.muted }}>Loading transaction detail…</div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', padding: '1.5rem' }}>
-                  <div style={{ background: '#fff', borderRadius: 8, padding: '1.5rem 1.25rem', fontFamily: "'Courier New', monospace", fontSize: '0.73rem', color: '#1a1a1a', lineHeight: 1.65, whiteSpace: 'pre-wrap', boxShadow: '0 2px 16px rgba(0,0,0,0.14)', maxHeight: 520, overflowY: 'auto', wordBreak: 'break-word' }}>
+                <div style={{ display: 'flex', flexDirection: isMobileModal ? 'column' : 'row', gap: '1.25rem', padding: isMobileModal ? '1rem' : '1.5rem' }}>
+                  <div style={{ background: '#fff', borderRadius: 8, padding: isMobileModal ? '1.25rem' : '1.5rem 1.25rem', fontFamily: "'Courier New', monospace", fontSize: isMobileModal ? '0.85rem' : '0.73rem', color: '#1a1a1a', lineHeight: 1.7, whiteSpace: 'pre-wrap', boxShadow: '0 2px 16px rgba(0,0,0,0.14)', maxHeight: isMobileModal ? 'none' : 520, overflowY: isMobileModal ? 'visible' : 'auto', wordBreak: 'break-word', flexShrink: 0, width: isMobileModal ? '100%' : '50%', boxSizing: 'border-box' }}>
                     {receiptText}
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, minWidth: 0 }}>
                     <div style={{ ...card(th), padding: '1rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
                         <span style={{ fontSize: '0.8rem' }}>📊</span>
@@ -8241,9 +8242,9 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         })}
         {hovered ? (
           <>
-            <text x={cx} y={cy - 18} textAnchor="middle" fill={th.muted} fontSize="10" fontWeight="600" style={{ textTransform:'uppercase', letterSpacing: 1 }}>{hovered.name}</text>
+            <text x={cx} y={cy - 20} textAnchor="middle" fill={th.muted} fontSize={hovered.name.length > 12 ? '8' : '9'} fontWeight="600">{hovered.name.toUpperCase()}</text>
             <text x={cx} y={cy + 4} textAnchor="middle" fill={hovered.color} fontSize="20" fontWeight="900" fontFamily="'Raleway'">{fmtUSD(hovered.value)}</text>
-            <text x={cx} y={cy + 22} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">{hoveredPct.toFixed(1) + '%'}</text>
+            <text x={cx} y={cy + 21} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">{hoveredPct.toFixed(1) + '%'}</text>
           </>
         ) : (
           <>
@@ -8670,14 +8671,14 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
               <div style={{ animation:'pulseRing 1.5s ease-in-out infinite', display:'inline-block' }}>Loading...</div>
             </div>
           ) : tenderData ? (
-            <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:'1.5rem', alignItems:'center' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'210px 1fr', gap:'1.25rem', alignItems:'center' }}>
               <div style={{ display:'flex', justifyContent:'center' }}>
                 <DonutChart
                   data={tenderData.map((t,i) => ({ value: t.ttl, color: CHART_COLORS[i % CHART_COLORS.length], name: t.name }))}
                   hoveredIdx={hoveredTender}
                   onHover={setHoveredTender} />
               </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.2rem', minWidth:0 }}>
                 {tenderData.slice(0, 8).map((t, i) => {
                   const total = tenderData.reduce((a,x) => a + x.ttl, 0);
                   const pct = total > 0 ? (t.ttl / total * 100) : 0;
@@ -8688,16 +8689,16 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                     <div key={i}
                       onMouseEnter={() => setHoveredTender(i)}
                       onMouseLeave={() => setHoveredTender(null)}
-                      style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.72rem',
-                        padding:'0.3rem 0.5rem', borderRadius:'0.375rem', cursor:'pointer',
+                      style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.72rem',
+                        padding:'0.28rem 0.5rem', borderRadius:'0.375rem', cursor:'pointer', minWidth:0,
                         background: isHovered ? color + '22' : 'transparent',
                         opacity: isDimmed ? 0.4 : 1,
                         transform: isHovered ? 'translateX(2px)' : 'translateX(0)',
                         transition: 'all .15s ease' }}>
-                      <div style={{ width: isHovered ? 11 : 9, height: isHovered ? 11 : 9, borderRadius:'50%', background:color, flexShrink:0, transition:'all .15s', boxShadow: isHovered ? `0 0 6px ${color}` : 'none' }} />
-                      <span style={{ flex:1, color:th.text, fontWeight: isHovered ? 700 : 400 }}>{t.name}</span>
-                      <span style={{ color:th.muted }}>{fmtUSD(t.ttl)}</span>
-                      <span style={{ color, fontWeight:700, minWidth:36, textAlign:'right' }}>{pct.toFixed(1)}%</span>
+                      <div style={{ width: isHovered ? 10 : 8, height: isHovered ? 10 : 8, borderRadius:'50%', background:color, flexShrink:0, transition:'all .15s', boxShadow: isHovered ? `0 0 6px ${color}` : 'none' }} />
+                      <span style={{ flex:1, color:th.text, fontWeight: isHovered ? 700 : 400, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>{t.name}</span>
+                      <span style={{ color:th.muted, flexShrink:0 }}>{fmtUSD(t.ttl)}</span>
+                      <span style={{ color, fontWeight:700, minWidth:42, textAlign:'right', flexShrink:0 }}>{pct.toFixed(1)}%</span>
                     </div>
                   );
                 })}
@@ -28759,7 +28760,7 @@ function EmailTab({ th, user }) {
 
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
-function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull }) {
+function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull, todos, projects }) {
   const O = '#FF671F';
   const [activeTab, setActiveTab] = React.useState('brief');
   const [brief, setBrief] = React.useState(null);
@@ -28780,6 +28781,9 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
   const [pulseLoading, setPulseLoading] = React.useState(false);
   const [pulseProgress, setPulseProgress] = React.useState(0);
   const [pulseDate, setPulseDate] = React.useState(new Date().toISOString().slice(0,10));
+  const [pulseViewMode, setPulseViewMode] = React.useState('day');
+  const [pulseWtdData, setPulseWtdData] = React.useState({});
+  const [pulseWtdLoading, setPulseWtdLoading] = React.useState(false);
   const chatEndRef = React.useRef(null);
   const askInputRef = React.useRef(null);
 
@@ -28945,6 +28949,39 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
     setPulseApiData(results); setPulseLoading(false); setPulseProgress(100);
   };
 
+  const fetchPulseWtd = async (date) => {
+    const districtStores = (stores||[]).filter(s => (isExec || Number(s.district) === district) && s.status === 'Open');
+    if (!districtStores.length) return;
+    setPulseWtdLoading(true); setPulseWtdData({});
+    const d = new Date(date + 'T12:00:00');
+    const sun = new Date(d); sun.setDate(d.getDate() - d.getDay());
+    const weekDates = [];
+    for (let i = 0; i < 7; i++) {
+      const dd = new Date(sun); dd.setDate(sun.getDate() + i);
+      const ds = `${dd.getFullYear()}-${String(dd.getMonth()+1).padStart(2,'0')}-${String(dd.getDate()).padStart(2,'0')}`;
+      if (ds <= today) weekDates.push(ds);
+    }
+    const sums = {};
+    districtStores.forEach(s => { sums[s.pc] = { netSales:0, guests:0, forecast:0, voids:0, voidCnt:0, errCor:0, discounts:0, tax:0 }; });
+    for (const dayDate of weekDates) {
+      const batchSize = 4;
+      for (let i = 0; i < districtStores.length; i += batchSize) {
+        await Promise.all(districtStores.slice(i, i + batchSize).map(async s => {
+          try {
+            const json = await fetchOpsTotals(String(s.pc), dayDate);
+            const r = sumRVC(json.revenueCenters || []);
+            const sm = sums[s.pc];
+            sm.netSales += r.netSales; sm.guests += r.guests; sm.forecast += r.forecast;
+            sm.voids += r.voids; sm.voidCnt += r.voidCnt; sm.errCor += r.errCor;
+            sm.discounts += r.discounts; sm.tax += r.tax;
+          } catch {}
+        }));
+      }
+    }
+    Object.values(sums).forEach(s => { s.avgCheck = s.guests > 0 ? s.netSales / s.guests : 0; });
+    setPulseWtdData(sums); setPulseWtdLoading(false);
+  };
+
   const severityColor = s => s === 'high' ? '#f44336' : s === 'medium' ? '#ff9800' : '#4caf50';
   const laborColor = p => !p ? th.muted : p < 23 ? '#4caf50' : p < 26 ? '#ff9800' : '#f44336';
   const fmtDollars = n => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
@@ -28953,7 +28990,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
     { id: 'brief', label: 'Brief', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8M8 8h5M8 16h6"/></svg> },
     { id: 'pulse', label: 'Pulse', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
     { id: 'cases', label: 'Cases', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12l2 2 4-4"/></svg> },
-    { id: 'chat', label: 'Chat', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
+    { id: 'calendar', label: 'Calendar', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
     { id: 'ask', label: 'Ask', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> },
   ];
 
@@ -28981,159 +29018,132 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
       </div>
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 14px 12px', WebkitOverflowScrolling: 'touch' }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 14px 100px', WebkitOverflowScrolling: 'touch' }}>
 
         {/* ── PULSE TAB ── */}
         {activeTab === 'pulse' && (() => {
           const G = '#00d084';
-          const apiVals = Object.values(pulseApiData);
-          const totalTodaySales = apiVals.length > 0
-            ? apiVals.reduce((s,d)=>s+(d?.netSales||0),0)
-            : storeRows.reduce((s,r)=>s+r.todaySales,0);
-          const totalGuests = apiVals.reduce((s,d)=>s+(d?.netGuests||d?.guests||0),0);
-          const totalDiscounts = apiVals.reduce((s,d)=>s+(d?.discountAmount||d?.discounts||0),0);
-          const totalVoids = apiVals.reduce((s,d)=>s+(d?.voidAmount||d?.voids||0),0);
-          const avgCheck = totalGuests>0 ? totalTodaySales/totalGuests : 0;
-          const voidRate = totalTodaySales>0 ? (totalVoids/totalTodaySales*100) : 0;
-          const validLabor = storeRows.filter(r=>r.todayLaborPct>0);
-          const avgLabor = validLabor.length>0 ? validLabor.reduce((s,r)=>s+r.todayLaborPct,0)/validLabor.length : 0;
-          const totalWtd = storeRows.reduce((s,r)=>s+r.wtdSales,0);
-          const validWtdLabor = storeRows.filter(r=>r.wtdLaborPct>0);
-          const avgWtdLabor = validWtdLabor.length>0 ? validWtdLabor.reduce((s,r)=>s+r.wtdLaborPct,0)/validWtdLabor.length : 0;
+          const isWeek = pulseViewMode === 'week';
+          const activeData = isWeek ? pulseWtdData : pulseApiData;
+          const activeVals = Object.values(activeData);
+          const agg = activeVals.reduce((a,d) => ({
+            netSales:  a.netSales  + (d?.netSales  || 0),
+            guests:    a.guests    + (d?.guests     || 0),
+            discounts: a.discounts + (d?.discounts  || 0),
+            voids:     a.voids     + (d?.voids      || 0),
+            tax:       a.tax       + (d?.tax        || 0),
+            errCor:    a.errCor    + (d?.errCor     || 0),
+            forecast:  a.forecast  + (d?.forecast   || 0),
+          }), { netSales:0, guests:0, discounts:0, voids:0, tax:0, errCor:0, forecast:0 });
+          const avgCheck = agg.guests > 0 ? agg.netSales / agg.guests : 0;
+          const voidRate = agg.netSales > 0 ? (agg.voids / agg.netSales * 100) : 0;
+          const wtdFromLabor = storeRows.reduce((s,r) => s + r.wtdSales, 0);
+          const fmtUSD = n => n === 0 ? '—' : (Math.abs(n) >= 1000 ? `$${(n/1000).toFixed(1)}k` : `$${Math.round(n)}`);
+          const fmtNum = n => n > 0 ? n.toLocaleString() : '—';
+          const isActive = pulseLoading || pulseWtdLoading;
           return (
             <div>
-              {/* ── Exact same Pulse header as full portal ── */}
-              <div style={{background:'linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)',
-                border:`1px solid ${G}33`,borderRadius:16,padding:'16px 18px',margin:'14px 0 12px',
-                position:'relative',overflow:'hidden'}}>
+              <div style={{background:'linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)',border:`1px solid ${G}33`,borderRadius:16,padding:'14px 16px',margin:'14px 0 10px',position:'relative',overflow:'hidden'}}>
                 <div style={{position:'absolute',top:-60,right:-60,width:200,height:200,borderRadius:'50%',background:`${G}15`,pointerEvents:'none'}}/>
-                {/* Icon + title */}
-                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:4}}>
-                  <div style={{position:'relative',display:'flex',alignItems:'center',justifyContent:'center',
-                    width:42,height:42,borderRadius:'50%',background:`${G}22`,border:`2px solid ${G}`,boxShadow:`0 0 16px ${G}66`}}>
-                    <span style={{fontSize:'1.3rem',filter:`drop-shadow(0 0 6px ${G})`}}>💚</span>
-                    <div style={{position:'absolute',top:0,left:0,right:0,bottom:0,borderRadius:'50%',
-                      border:`2px solid ${G}`,animation:'pulseRing 2s ease-out infinite'}}/>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+                  <div style={{position:'relative',display:'flex',alignItems:'center',justifyContent:'center',width:38,height:38,borderRadius:'50%',background:`${G}22`,border:`2px solid ${G}`,boxShadow:`0 0 14px ${G}66`,flexShrink:0}}>
+                    <span style={{fontSize:'1.1rem',filter:`drop-shadow(0 0 6px ${G})`}}>💚</span>
+                    <div style={{position:'absolute',top:0,left:0,right:0,bottom:0,borderRadius:'50%',border:`2px solid ${G}`,animation:'pulseRing 2s ease-out infinite'}}/>
                   </div>
                   <div style={{flex:1}}>
-                    <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:'1.4rem',color:G,
-                      textShadow:`0 0 20px ${G}99`,letterSpacing:1,lineHeight:1}}>PULSE</div>
-                    <div style={{fontSize:'0.7rem',color:`${G}99`,fontWeight:600,letterSpacing:2}}>LIVE {isExec?'NETWORK':'DISTRICT'} MONITOR</div>
+                    <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:'1.3rem',color:G,textShadow:`0 0 20px ${G}99`,letterSpacing:1,lineHeight:1}}>PULSE</div>
+                    <div style={{fontSize:'0.65rem',color:`${G}99`,fontWeight:600,letterSpacing:2}}>LIVE {isExec?'NETWORK':'DISTRICT'} MONITOR</div>
                   </div>
                   <div style={{textAlign:'right'}}>
-                    {pulseLoading
-                      ? <div style={{color:`${G}88`,fontSize:11,fontWeight:700}}>⏳ {pulseProgress}%</div>
-                      : <div style={{color:`${G}88`,fontSize:11}}>● API connected</div>
-                    }
+                    {isActive ? <div style={{color:`${G}88`,fontSize:11,fontWeight:700}}>⏳ {pulseProgress}%</div> : <div style={{color:`${G}88`,fontSize:11}}>● API connected</div>}
                   </div>
                 </div>
-                {/* Heartbeat line — exact same as full portal */}
                 <HeartbeatLine />
-                {/* Date picker + Refresh */}
                 <div style={{display:'flex',alignItems:'center',gap:8,marginTop:8}}>
-                  <div style={{display:'inline-flex',alignItems:'center',gap:4,background:'#001a0d',border:`1px solid ${G}44`,borderRadius:10,padding:'3px 6px',flex:1}}>
-                    <button onClick={()=>{const d=new Date(pulseDate+'T12:00:00');d.setDate(d.getDate()-1);setPulseDate(d.toISOString().slice(0,10));}}
-                      style={{background:'none',border:'none',color:G,cursor:'pointer',fontWeight:800,fontSize:16,padding:'0 4px',lineHeight:1}}>‹</button>
-                    <input type="date" value={pulseDate} max={today} onChange={e=>setPulseDate(e.target.value)}
-                      style={{background:'transparent',border:'none',color:G,fontSize:12,fontWeight:700,fontFamily:"'Raleway'",outline:'none',flex:1,textAlign:'center'}}/>
-                    <button onClick={()=>{const d=new Date(pulseDate+'T12:00:00');d.setDate(d.getDate()+1);if(d.toISOString().slice(0,10)<=today)setPulseDate(d.toISOString().slice(0,10));}}
-                      style={{background:'none',border:'none',color:pulseDate>=today?`${G}33`:G,cursor:'pointer',fontWeight:800,fontSize:16,padding:'0 4px',lineHeight:1}}>›</button>
+                  <div style={{display:'inline-flex',background:'#001a0d',border:`1px solid ${G}44`,borderRadius:8,padding:'2px'}}>
+                    {['day','week'].map(m => (
+                      <button key={m} onClick={() => { setPulseViewMode(m); if (m === 'week' && Object.keys(pulseWtdData).length === 0 && !pulseWtdLoading) fetchPulseWtd(pulseDate); }} style={{background:pulseViewMode===m?G:'transparent',color:pulseViewMode===m?'#0a2e0a':`${G}88`,border:'none',borderRadius:6,padding:'4px 12px',fontSize:'0.68rem',fontWeight:800,cursor:'pointer',textTransform:'uppercase',letterSpacing:1,fontFamily:"'Source Sans 3'",transition:'all .15s'}}>{m}</button>
+                    ))}
                   </div>
-                  <button onClick={()=>fetchPulseData(pulseDate)} disabled={pulseLoading}
-                    style={{background:`${G}22`,border:`1px solid ${G}55`,color:G,borderRadius:10,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0}}>
-                    {pulseLoading?'⏳':'⚡'} {pulseLoading?'Loading…':'Refresh'}
-                  </button>
+                  <div style={{display:'inline-flex',alignItems:'center',gap:4,background:'#001a0d',border:`1px solid ${G}44`,borderRadius:8,padding:'3px 6px',flex:1}}>
+                    <button onClick={()=>{const d=new Date(pulseDate+'T12:00:00');d.setDate(d.getDate()-1);setPulseDate(d.toISOString().slice(0,10));}} style={{background:'none',border:'none',color:G,cursor:'pointer',fontWeight:800,fontSize:16,padding:'0 4px',lineHeight:1}}>‹</button>
+                    <input type="date" value={pulseDate} max={today} onChange={e=>setPulseDate(e.target.value)} style={{background:'transparent',border:'none',color:G,fontSize:12,fontWeight:700,fontFamily:"'Raleway'",outline:'none',flex:1,textAlign:'center'}}/>
+                    <button onClick={()=>{const d=new Date(pulseDate+'T12:00:00');d.setDate(d.getDate()+1);if(d.toISOString().slice(0,10)<=today)setPulseDate(d.toISOString().slice(0,10));}} style={{background:'none',border:'none',color:pulseDate>=today?`${G}33`:G,cursor:'pointer',fontWeight:800,fontSize:16,padding:'0 4px',lineHeight:1}}>›</button>
+                  </div>
+                  <button onClick={()=>{ fetchPulseData(pulseDate); if(isWeek) fetchPulseWtd(pulseDate); }} disabled={isActive} style={{background:`${G}22`,border:`1px solid ${G}55`,color:G,borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0}}>{isActive?'⏳':'⚡'} {isActive?'…':'Refresh'}</button>
                 </div>
+                {(agg.netSales > 0 || agg.guests > 0) && (
+                  <div style={{display:'flex',flexWrap:'wrap',gap:'0.35rem',marginTop:'0.75rem',paddingTop:'0.65rem',borderTop:'1px solid rgba(34,197,94,0.15)'}}>
+                    {[
+                      {label:'Net Sales',  value: fmtUSD(agg.netSales),    color: G},
+                      {label:'Checks',     value: fmtNum(agg.guests),      color: '#74c0fc'},
+                      {label:'Avg Check',  value: avgCheck>0?`$${avgCheck.toFixed(2)}`:'—', color: '#ffd43b'},
+                      {label:'Discounts',  value: agg.discounts!==0?`$${Math.round(Math.abs(agg.discounts)).toLocaleString()}`:'—', color: '#f06595'},
+                      {label:'Void Rate',  value: agg.netSales>0?`${voidRate.toFixed(2)}%`:'—', color: voidRate>1?'#ff6b6b':'#69db7c'},
+                      {label:'Tax',        value: fmtUSD(agg.tax),         color: '#20c997'},
+                      {label:'Err Cor',    value: fmtUSD(agg.errCor),      color: '#868e96'},
+                      {label: isWeek?'Wk Total':'WTD', value: wtdFromLabor>0?fmtUSD(wtdFromLabor):'—', color: '#4dabf7'},
+                      {label:'Forecast',   value: agg.forecast>0?fmtUSD(agg.forecast):'—', color: '#cc5de8'},
+                    ].map(k=>(
+                      <div key={k.label} style={{display:'flex',flexDirection:'column',alignItems:'center',background:`${k.color}12`,border:`1px solid ${k.color}30`,borderRadius:999,padding:'0.25rem 0.7rem',minWidth:56}}>
+                        <span style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:'0.78rem',color:k.color,lineHeight:1.1,whiteSpace:'nowrap'}}>{k.value}</span>
+                        <span style={{fontSize:'0.48rem',color:`${k.color}77`,textTransform:'uppercase',letterSpacing:0.8,fontWeight:700,whiteSpace:'nowrap'}}>{k.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-
-              {/* ── KPI cards (same style as full portal) ── */}
-              {(totalTodaySales > 0 || totalGuests > 0) && (
-                <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:4,marginBottom:12,WebkitOverflowScrolling:'touch'}}>
-                  {[
-                    {label:`Net Sales — ${pulseDate}`,value:`$${Math.round(totalTodaySales).toLocaleString()}`,color:G,border:G},
-                    {label:'Guests / Checks',value:totalGuests>0?totalGuests.toLocaleString():'—',color:'#74c0fc',border:'#74c0fc'},
-                    {label:'Avg Check',value:avgCheck>0?`$${avgCheck.toFixed(2)}`:'—',color:'#ffd43b',border:'#ffd43b'},
-                    {label:'Discounts',value:totalDiscounts>0?`$${Math.round(Math.abs(totalDiscounts)).toLocaleString()}`:'—',color:'#f06595',border:'#f06595'},
-                    {label:'Void Rate',value:totalTodaySales>0?`${voidRate.toFixed(2)}%`:'—',color:voidRate>1?'#ff6b6b':'#69db7c',border:voidRate>1?'#ff6b6b':'#69db7c'},
-                  ].map(k=>(
-                    <div key={k.label} style={{background:th.card,border:`1px solid ${k.border}44`,borderRadius:12,padding:'12px 14px',minWidth:120,flexShrink:0}}>
-                      <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:18,color:k.color}}>{k.value}</div>
-                      <div style={{fontSize:9,color:th.muted,textTransform:'uppercase',letterSpacing:0.7,fontWeight:600,marginTop:4}}>{k.label}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ── WTD summary ── */}
-              <div style={{background:th.card,border:`1px solid ${th.cardBorder}`,borderRadius:12,padding:'12px 14px',marginBottom:12,borderLeft:`3px solid ${G}`}}>
-                <div style={{fontSize:12,fontWeight:700,color:th.text,marginBottom:8}}>Week to Date</div>
-                <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
-                  {[
-                    {label:'Net Sales',value:`$${Math.round(totalWtd).toLocaleString()}`,color:G},
-                    {label:'Avg Labor',value:avgWtdLabor>0?`${avgWtdLabor.toFixed(1)}%`:'—',color:laborColor(avgWtdLabor)},
-                    {label:'Stores',value:storeRows.length,color:'#74c0fc'},
-                  ].map(k=>(
-                    <div key={k.label}>
-                      <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:16,color:k.color}}>{k.value}</div>
-                      <div style={{fontSize:10,color:th.muted,fontWeight:600,marginTop:2}}>{k.label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── Store cards ── */}
               <div style={{fontSize:11,color:th.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:1.2,marginBottom:8}}>Store Breakdown</div>
               {storeRows.length===0 && loading && <div style={{textAlign:'center',color:th.muted,padding:20,fontSize:13}}>Loading stores...</div>}
+              {(pulseWtdLoading && isWeek) && <div style={{textAlign:'center',color:G,padding:12,fontSize:12,fontWeight:600}}>⏳ Loading week data…</div>}
               {storeRows.map(s=>{
                 const isOpen = expandedStore === s.pc;
-                const api = pulseApiData[s.pc];
-                const todaySales = api?.netSales || s.todaySales;
-                const guests = api?.netGuests||api?.guests||0;
-                const avgChk = guests>0?(todaySales/guests):0;
-                const discounts = api?.discountAmount||api?.discounts||0;
-                const voids = api?.voidAmount||api?.voids||0;
-                const voidR = todaySales>0?(voids/todaySales*100):0;
-                const lColor = laborColor(s.todayLaborPct);
-                const lBg = s.todayLaborPct>=26?'#f4433618':s.todayLaborPct>=23?'#ff980018':s.todayLaborPct>0?'#4caf5018':'transparent';
+                const api = isWeek ? pulseWtdData[s.pc] : pulseApiData[s.pc];
+                const sales = api?.netSales || (isWeek ? s.wtdSales : s.todaySales);
+                const guests = api?.guests || 0;
+                const avgChk = guests>0?(sales/guests):0;
+                const discounts = api?.discounts || 0;
+                const voids = api?.voids || 0;
+                const tax = api?.tax || 0;
+                const errCor = api?.errCor || 0;
+                const voidR = sales>0?(voids/sales*100):0;
+                const laborPct = isWeek ? s.wtdLaborPct : s.todayLaborPct;
+                const lColor = laborColor(laborPct);
+                const lBg = laborPct>=26?'#f4433618':laborPct>=23?'#ff980018':laborPct>0?'#4caf5018':'transparent';
                 return (
-                  <div key={s.pc} onClick={()=>setExpandedStore(isOpen?null:s.pc)}
-                    style={{background:th.card,border:`1px solid ${isOpen?G:th.cardBorder}`,borderRadius:14,marginBottom:8,overflow:'hidden',cursor:'pointer',transition:'border-color .2s',boxShadow:isOpen?`0 0 0 1px ${G}44`:'none'}}>
-                    {/* Row header */}
+                  <div key={s.pc} onClick={()=>setExpandedStore(isOpen?null:s.pc)} style={{background:th.card,border:`1px solid ${isOpen?G:th.cardBorder}`,borderRadius:14,marginBottom:8,overflow:'hidden',cursor:'pointer',transition:'border-color .2s',boxShadow:isOpen?`0 0 0 1px ${G}44`:'none'}}>
                     <div style={{display:'flex',alignItems:'center',padding:'12px 14px',gap:10}}>
                       <div style={{width:8,height:8,borderRadius:'50%',background:lColor,flexShrink:0,boxShadow:`0 0 5px ${lColor}`}}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:14,fontWeight:700,color:th.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s.name}</div>
-                        <div style={{fontSize:11,color:th.muted,marginTop:2}}>WTD {fmtDollars(s.wtdSales)} {guests>0?`· ${guests.toLocaleString()} guests`:''}</div>
+                        <div style={{fontSize:11,color:th.muted,marginTop:2}}>{isWeek?'WTD':'Today'} {guests>0?`· ${guests.toLocaleString()} checks`:''}</div>
                       </div>
                       <div style={{textAlign:'right',flexShrink:0,marginRight:6}}>
-                        <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:16,color:todaySales>0?G:th.muted}}>{todaySales>0?`$${Math.round(todaySales).toLocaleString()}`:'—'}</div>
-                        {s.todayLaborPct>0&&<div style={{fontSize:11,fontWeight:700,color:lColor,background:lBg,borderRadius:5,padding:'1px 5px',display:'inline-block',marginTop:2}}>{s.todayLaborPct.toFixed(1)}%</div>}
+                        <div style={{fontFamily:"'Raleway'",fontWeight:900,fontSize:16,color:sales>0?G:th.muted}}>{sales>0?`$${Math.round(sales).toLocaleString()}`:'—'}</div>
+                        {laborPct>0&&<div style={{fontSize:11,fontWeight:700,color:lColor,background:lBg,borderRadius:5,padding:'1px 5px',display:'inline-block',marginTop:2}}>{laborPct.toFixed(1)}%</div>}
                       </div>
                       <span style={{color:th.muted,fontSize:18,transform:isOpen?'rotate(90deg)':'none',transition:'transform .2s',flexShrink:0}}>›</span>
                     </div>
-                    {/* Expanded */}
                     {isOpen && (
-                      <div style={{borderTop:`1px solid ${th.cardBorder}`,padding:'12px 14px',background:th.bg}}>
-                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
+                      <div style={{borderTop:`1px solid ${th.cardBorder}`,padding:'10px 14px',background:th.bg}}>
+                        <div style={{display:'flex',flexWrap:'wrap',gap:'0.3rem',marginBottom:8}}>
                           {[
-                            {label:'Today Net Sales',value:todaySales>0?`$${Math.round(todaySales).toLocaleString()}`:'—',color:G},
-                            {label:'Guests',value:guests>0?guests.toLocaleString():'—',color:'#74c0fc'},
-                            {label:'Avg Check',value:avgChk>0?`$${avgChk.toFixed(2)}`:'—',color:'#ffd43b'},
-                            {label:'Discounts',value:discounts!==0?`$${Math.round(Math.abs(discounts)).toLocaleString()}`:'—',color:'#f06595'},
-                            {label:'Void Rate',value:todaySales>0?`${voidR.toFixed(2)}%`:'—',color:voidR>1?'#ff6b6b':'#69db7c'},
-                            {label:'Today Labor',value:s.todayLaborPct>0?`${s.todayLaborPct.toFixed(1)}%`:'—',color:lColor},
+                            {label:'Net Sales',  value:sales>0?`$${Math.round(sales).toLocaleString()}`:'—',color:G},
+                            {label:'Checks',     value:guests>0?guests.toLocaleString():'—',color:'#74c0fc'},
+                            {label:'Avg Check',  value:avgChk>0?`$${avgChk.toFixed(2)}`:'—',color:'#ffd43b'},
+                            {label:'Discounts',  value:discounts!==0?`$${Math.round(Math.abs(discounts)).toLocaleString()}`:'—',color:'#f06595'},
+                            {label:'Void Rate',  value:sales>0?`${voidR.toFixed(2)}%`:'—',color:voidR>1?'#ff6b6b':'#69db7c'},
+                            {label:'Tax',        value:tax>0?`$${Math.round(tax).toLocaleString()}`:'—',color:'#20c997'},
+                            {label:'Err Cor',    value:errCor!==0?`$${Math.round(Math.abs(errCor)).toLocaleString()}`:'—',color:'#868e96'},
+                            {label:'Labor',      value:laborPct>0?`${laborPct.toFixed(1)}%`:'—',color:lColor},
                           ].map(k=>(
-                            <div key={k.label} style={{background:th.card,borderRadius:10,padding:'8px 10px',border:`1px solid ${k.color}33`}}>
-                              <div style={{fontSize:9,color:th.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:0.7,marginBottom:4}}>{k.label}</div>
-                              <div style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:14,color:k.color}}>{k.value}</div>
+                            <div key={k.label} style={{display:'flex',flexDirection:'column',alignItems:'center',background:`${k.color}12`,border:`1px solid ${k.color}30`,borderRadius:999,padding:'0.22rem 0.6rem',minWidth:50}}>
+                              <span style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:'0.75rem',color:k.color,lineHeight:1.1,whiteSpace:'nowrap'}}>{k.value}</span>
+                              <span style={{fontSize:'0.45rem',color:`${k.color}77`,textTransform:'uppercase',letterSpacing:0.7,fontWeight:700,whiteSpace:'nowrap'}}>{k.label}</span>
                             </div>
                           ))}
                         </div>
-                        <div style={{display:'flex',justifyContent:'space-between',padding:'8px 10px',background:th.card,borderRadius:8,fontSize:11}}>
-                          <span style={{color:th.muted}}>WTD Sales: <span style={{color:G,fontWeight:700}}>{fmtDollars(s.wtdSales)}</span></span>
-                          <span style={{color:th.muted}}>WTD Labor: <span style={{color:laborColor(s.wtdLaborPct),fontWeight:700}}>{s.wtdLaborPct>0?`${s.wtdLaborPct.toFixed(1)}%`:'—'}</span></span>
-                          <span style={{color:th.muted,fontSize:10}}>PC# {s.pc}</span>
-                        </div>
+                        <div style={{fontSize:10,color:th.muted,textAlign:'right'}}>PC# {s.pc}</div>
                       </div>
                     )}
                   </div>
@@ -29328,6 +29338,13 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
             )}
           </div>
         )}
+
+        {/* ── CALENDAR TAB ── */}
+        {activeTab === 'calendar' && (
+          <div style={{ padding: '14px 0 0' }}>
+            <PortalCalendar th={th} user={user} stores={stores} todos={todos || []} projects={projects || []} />
+          </div>
+        )}
       </div>
 
       {/* Chat input bar (only on chat tab) */}
@@ -29344,14 +29361,14 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
         </div>
       )}
 
-      {/* Bottom nav */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '6px 8px 20px', background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0 }}>
+      {/* Bottom nav — floating glass pill */}
+      <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 420, background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', border: `1px solid ${dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.55)'}`, borderRadius: 999, padding: '6px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 200, boxShadow: `0 8px 40px rgba(0,0,0,0.15), inset 0 1px 0 ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.7)'}` }}>
         {NAV_ITEMS.map(item => {
           const active = activeTab === item.id;
           return (
-            <button key={item.id} onClick={() => setActiveTab(item.id)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 18px', borderRadius: 12, border: 'none', background: active ? O + '18' : 'none', cursor: 'pointer', color: active ? O : th.muted }}>
-              <span style={{ display: 'flex', color: active ? O : th.muted }}>{item.icon}</span>
-              <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: active ? O : th.muted }}>{item.label}</span>
+            <button key={item.id} onClick={() => setActiveTab(item.id)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 14px', borderRadius: 999, border: 'none', background: active ? `linear-gradient(135deg, ${O}55, ${O}33)` : 'transparent', cursor: 'pointer', transition: 'background 0.2s', boxShadow: active ? `0 2px 12px ${O}44` : 'none' }}>
+              <span style={{ display: 'flex', color: active ? O : dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>{item.icon}</span>
+              <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: active ? O : dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>{item.label}</span>
             </button>
           );
         })}
@@ -30090,37 +30107,30 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
         </div>
       )}
 
-      {/* Bottom nav — curved floating-circle design */}
+      {/* Bottom nav — floating glass pill */}
       {(() => {
-        const NAV_BG = '#111111';
         const activeIdx = NAV.findIndex(n => n.id === activeTab);
         const safeIdx = activeIdx >= 0 ? activeIdx : 0;
         const circleLeft = `calc(${(safeIdx + 0.5) * 25}% - 28px)`;
-        const notchLeft  = `calc(${(safeIdx + 0.5) * 25}% - 36px)`;
         const spring = '0.38s cubic-bezier(0.34, 1.4, 0.64, 1)';
         return (
-          <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, zIndex: 100 }}>
-            {/* Notch — background-color circle that "cuts into" the bar */}
-            <div style={{ position: 'absolute', width: 72, height: 72, borderRadius: '50%', background: th.bg, top: -38, left: notchLeft, transition: `left ${spring}`, zIndex: 1, pointerEvents: 'none' }} />
+          <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 420, zIndex: 100 }}>
             {/* Floating active icon circle */}
-            <div style={{ position: 'absolute', width: 56, height: 56, borderRadius: '50%', background: `linear-gradient(135deg, ${PURPLE}, #ff9a5c)`, top: -40, left: circleLeft, transition: `left ${spring}`, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 6px 24px ${PURPLE}88`, color: '#fff', pointerEvents: 'none' }}>
+            <div style={{ position: 'absolute', width: 54, height: 54, borderRadius: '50%', background: `linear-gradient(135deg, ${PURPLE}, #ff9a5c)`, top: -36, left: circleLeft, transition: `left ${spring}`, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 6px 24px ${PURPLE}88`, color: '#fff', pointerEvents: 'none' }}>
               {NAV[safeIdx]?.icon()}
               {NAV[safeIdx]?.badge > 0 && (
                 <div style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444', color: '#fff', borderRadius: 999, fontSize: '0.5rem', fontWeight: 800, minWidth: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{NAV[safeIdx].badge}</div>
               )}
             </div>
-            {/* Bar */}
-            <div style={{ background: NAV_BG, borderRadius: '1.375rem 1.375rem 0 0', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', paddingBottom: 'env(safe-area-inset-bottom, 0px)', height: 64, position: 'relative', zIndex: 0, boxShadow: '0 -6px 30px rgba(0,0,0,0.22)' }}>
+            {/* Glass pill bar */}
+            <div style={{ background: 'rgba(255,255,255,0.10)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 999, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', height: 62, position: 'relative', zIndex: 0, boxShadow: '0 8px 40px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.12)' }}>
               {NAV.map((item, i) => {
                 const isActive = item.id === activeTab;
                 return (
                   <button key={item.id} onClick={() => item.id === 'portal' ? onFullPortal() : setActiveTab(item.id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '0 4px 10px', gap: 2, color: isActive ? '#fff' : 'rgba(255,255,255,0.38)', fontFamily: "'Source Sans 3'", position: 'relative', WebkitTapHighlightColor: 'transparent' }}>
-                    {/* Inactive icon */}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '0 4px 10px', gap: 2, color: isActive ? '#fff' : 'rgba(255,255,255,0.4)', fontFamily: "'Source Sans 3'", position: 'relative', WebkitTapHighlightColor: 'transparent' }}>
                     {!isActive && <div style={{ transition: 'opacity 0.2s' }}>{item.icon()}</div>}
-                    {/* Space holder when active (floating circle fills this visually) */}
                     {isActive && <div style={{ height: 22 }} />}
-                    {/* Badge on inactive tickets */}
                     {!isActive && item.badge > 0 && (
                       <div style={{ position: 'absolute', top: 8, right: '18%', background: '#ef4444', color: '#fff', borderRadius: 999, fontSize: '0.5rem', fontWeight: 800, minWidth: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{item.badge}</div>
                     )}
@@ -31216,11 +31226,18 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     return enrichedCalProjects;
   }, [enrichedCalProjects, isManager, isDM, user]);
 
+  const [isMobile, setIsMobile] = React.useState(() => window.innerWidth < 700);
+  React.useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 700);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, []);
+
   const year  = viewDate.getFullYear();
   const month = viewDate.getMonth();
   const firstDay    = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month+1, 0).getDate();
-  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const DAYS        = isMobile ? ['S','M','T','W','T','F','S'] : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   // Filter maintenance schedules by role
@@ -31307,7 +31324,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
       <div style={{ fontSize:'0.78rem', color:th.muted, marginBottom:'1.25rem' }}>
         {isManager ? 'Your store' : isDM ? `District ${user?.district}` : 'Network'} · tickets · equipment · projects · tasks
       </div>
-      <div style={{ display:'flex', gap:'1rem', height:'calc(100vh - 175px)', minHeight:480 }}>
+      <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', gap:'1rem', height: isMobile ? 'auto' : 'calc(100vh - 175px)', minHeight: isMobile ? 0 : 480 }}>
         {/* Grid */}
         <div style={{ flex:3, display:'flex', flexDirection:'column', ...card(th), overflow:'hidden', minWidth:0 }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.875rem 1.25rem', borderBottom:`1px solid ${th.cardBorder}`, flexShrink:0 }}>
@@ -31319,7 +31336,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
             </div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', background:th.card2, flexShrink:0 }}>
-            {DAYS.map(d=><div key={d} style={{ padding:'0.6rem 0', textAlign:'center', fontSize:'0.72rem', fontWeight:700, color:th.muted, textTransform:'uppercase', letterSpacing:1 }}>{d}</div>)}
+            {DAYS.map(d=><div key={d} style={{ padding: isMobile ? '0.5rem 0' : '0.6rem 0', textAlign:'center', fontSize: isMobile ? '0.65rem' : '0.72rem', fontWeight:700, color:th.muted, textTransform:'uppercase', letterSpacing: isMobile ? 0 : 1 }}>{d}</div>)}
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gridAutoRows:'1fr', gap:1, background:th.cardBorder, flex:1 }}>
             {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`} style={{ background:th.card, opacity:0.5 }}/>)}
@@ -31330,14 +31347,26 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
               const isSel=selectedDay===dateStr;
               const evts=eventMap[dateStr]||[];
               return (
-                <div key={day} onClick={()=>setSelectedDay(isSel?null:dateStr)} style={{ background:isSel?`${O}12`:th.card, padding:'0.4rem 0.45rem', cursor:'pointer', borderTop:isSel?`2px solid ${O}`:'2px solid transparent', transition:'background 0.12s', overflow:'hidden' }}>
-                  <div style={{ fontFamily:"'Raleway'", fontWeight:isToday?900:600, fontSize:'0.85rem', color:isToday?'#fff':th.text, background:isToday?O:'transparent', width:24, height:24, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:3 }}>{day}</div>
-                  {evts.slice(0,3).map((e,ei)=>(
-                    <div key={ei} style={{ fontSize:'0.62rem', fontWeight:600, padding:'2px 5px', borderRadius:4, marginBottom:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', background:`${eventColor(e)}20`, color:eventColor(e), borderLeft:`2px solid ${eventColor(e)}` }}>
-                      {eventIcon(e)} {e.title}
-                    </div>
-                  ))}
-                  {evts.length>3 && <div style={{ fontSize:'0.58rem', color:th.muted, marginTop:1 }}>+{evts.length-3} more</div>}
+                <div key={day} onClick={()=>setSelectedDay(isSel?null:dateStr)} style={{ background:isSel?`${O}12`:th.card, padding: isMobile ? '0.35rem 0.2rem' : '0.4rem 0.45rem', cursor:'pointer', borderTop:isSel?`2px solid ${O}`:'2px solid transparent', transition:'background 0.12s', overflow:'hidden', minHeight: isMobile ? 44 : 'unset' }}>
+                  <div style={{ fontFamily:"'Raleway'", fontWeight:isToday?900:600, fontSize: isMobile ? '0.8rem' : '0.85rem', color:isToday?'#fff':th.text, background:isToday?O:'transparent', width: isMobile ? 26 : 24, height: isMobile ? 26 : 24, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:3, margin: isMobile ? '0 auto 3px' : undefined }}>{day}</div>
+                  {isMobile
+                    ? evts.length > 0 && (
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:2, justifyContent:'center' }}>
+                        {evts.slice(0,3).map((e,ei)=>(
+                          <div key={ei} style={{ width:7, height:7, borderRadius:'50%', background:eventColor(e), flexShrink:0 }} />
+                        ))}
+                        {evts.length>3 && <div style={{ width:7, height:7, borderRadius:'50%', background:th.muted, flexShrink:0 }} />}
+                      </div>
+                    )
+                    : <>
+                      {evts.slice(0,3).map((e,ei)=>(
+                        <div key={ei} style={{ fontSize:'0.62rem', fontWeight:600, padding:'2px 5px', borderRadius:4, marginBottom:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', background:`${eventColor(e)}20`, color:eventColor(e), borderLeft:`2px solid ${eventColor(e)}` }}>
+                          {eventIcon(e)} {e.title}
+                        </div>
+                      ))}
+                      {evts.length>3 && <div style={{ fontSize:'0.58rem', color:th.muted, marginTop:1 }}>+{evts.length-3} more</div>}
+                    </>
+                  }
                 </div>
               );
             })}
@@ -31345,7 +31374,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
         </div>
 
         {/* Side panel */}
-        <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'0.75rem', minWidth:220, maxWidth:300 }}>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'0.75rem', minWidth: isMobile ? 0 : 220, maxWidth: isMobile ? 'none' : 300 }}>
           <div style={{ ...card(th), flex:1, overflowY:'auto', minHeight:0, padding:'1rem' }}>
             {selectedDay ? (
               <>
@@ -31392,12 +31421,14 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
           </div>
           <div style={{ ...card(th), padding:'0.75rem 1rem' }}>
             <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.78rem', color:th.text, marginBottom:'0.5rem' }}>Legend</div>
-            {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],['#a855f7','🔧 Equipment check'],['#14b8a6','🏗️ Project'],[O,'📝 Task/Todo']].map(([c,l])=>(
-              <div key={l} style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom:'0.3rem' }}>
-                <div style={{ width:10, height:10, borderRadius:'50%', background:c, flexShrink:0 }} />
-                <span style={{ fontSize:'0.7rem', color:th.muted }}>{l}</span>
-              </div>
-            ))}
+            <div style={{ display:'flex', flexWrap:'wrap', gap: isMobile ? '0.4rem 0.75rem' : 0 }}>
+              {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],['#a855f7','🔧 Equipment check'],['#14b8a6','🏗️ Project'],[O,'📝 Task/Todo']].map(([c,l])=>(
+                <div key={l} style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom: isMobile ? 0 : '0.3rem' }}>
+                  <div style={{ width:10, height:10, borderRadius:'50%', background:c, flexShrink:0 }} />
+                  <span style={{ fontSize:'0.7rem', color:th.muted }}>{l}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* + Maintenance Schedule button — exec/IT/construction only */}
@@ -33762,7 +33793,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.54
+            v14.60
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -33790,7 +33821,7 @@ function PCGPortal() {
   );
 
   if (user && isMobile && !preferFullPortal && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
-    return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} />;
+    return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} todos={todos} projects={projects} />;
   }
 
   return (
