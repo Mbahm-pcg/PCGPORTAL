@@ -7828,6 +7828,10 @@
     const [dateCache, setDateCache] = useState({});
     const [lyCache, setLyCache] = useState({});
     const [wtdLoading, setWtdLoading] = useState(false);
+    const [viewMode, setViewMode] = useState("day");
+    const [weekStoreData, setWeekStoreData] = useState({});
+    const [weekLoading, setWeekLoading] = useState(false);
+    const [dayStoreCache, setDayStoreCache] = useState({});
     const [collapsed, setCollapsed] = useState(/* @__PURE__ */ new Set());
     const [pulseView, setPulseView] = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
     const [weatherForecast, setWeatherForecast] = useState(null);
@@ -7903,6 +7907,31 @@
         }
       }
       setWtdLoading(false);
+    }
+    async function loadWeekGrid() {
+      setWeekLoading(true);
+      const dates = getWeekDates(busDt);
+      const cache = { ...dayStoreCache, [busDt]: storeData };
+      for (const date of dates) {
+        if (!cache[date]) cache[date] = await fetchDate(date, 8);
+      }
+      setDayStoreCache(cache);
+      const sums = {};
+      for (const pc of activePCs) {
+        let netSales = 0, guests = 0, voids = 0, discounts = 0;
+        for (const date of dates) {
+          const r = cache[date] && cache[date][pc];
+          if (r && r.status === "ok") {
+            netSales += r.data.netSales;
+            guests += r.data.guests;
+            voids += r.data.voids;
+            discounts += r.data.discounts;
+          }
+        }
+        sums[pc] = { netSales, guests, voids, discounts };
+      }
+      setWeekStoreData(sums);
+      setWeekLoading(false);
     }
     async function loadLYWeek() {
       const d = /* @__PURE__ */ new Date(busDt + "T12:00:00");
@@ -7993,6 +8022,14 @@ ${t2.slice(0, 300)}`);
       return () => clearInterval(cdRef.current);
     }, [autoRefresh, busDt]);
     useEffect(() => {
+      if (viewMode !== "week") return;
+      loadWeekGrid();
+    }, [viewMode, busDt]);
+    useEffect(() => {
+      if (viewMode !== "week" || loading) return;
+      loadWeekGrid();
+    }, [storeData]);
+    useEffect(() => {
       (async () => {
         try {
           const [fRes, cRes] = await Promise.all([
@@ -8065,7 +8102,10 @@ ${t2.slice(0, 300)}`);
       avgCheck: 0
     }), { netSales: 0, guests: 0, voids: 0, forecast: 0, discounts: 0, avgCheck: 0 });
     totals.avgCheck = totals.guests > 0 ? totals.netSales / totals.guests : 0;
-    const allRows = stores.filter((s) => distFilter === 0 || s.district === distFilter).map((s) => ({ ...s, live: storeData[s.pc] }));
+    const allRows = stores.filter((s) => distFilter === 0 || s.district === distFilter).map((s) => ({
+      ...s,
+      live: viewMode === "week" ? weekStoreData[s.pc] ? { status: "ok", data: weekStoreData[s.pc] } : void 0 : storeData[s.pc]
+    }));
     const distNums = [...new Set(allRows.map((s) => s.district))].filter(Boolean).sort((a, b) => a - b);
     const dmName = (d) => (Object.values(districts || {}).find((x) => x.num === d)?.name || "").split(" ")[0] || `D${d}`;
     const fmtUSD = (v) => "$" + Math.round(v).toLocaleString();
@@ -8290,7 +8330,24 @@ ${t2.slice(0, 300)}`);
         }) }
       },
       autoRefresh ? `\u23F1 ${Math.floor(countdown / 60)}:${String(countdown % 60).padStart(2, "0")}` : "\u{1F504} Auto"
-    )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: `${G}88` } }, /* @__PURE__ */ React.createElement("span", { style: { color: G } }, "\u25CF API connected"), lastRefresh && /* @__PURE__ */ React.createElement("span", null, " \xB7 Last refreshed ", lastRefresh.toLocaleTimeString(), " \xB7 ", loaded.length, "/", activePCs.length, " stores", errored.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#ff6b6b" } }, " \xB7 ", errored.length, " errors"))))), loading && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", background: `${G}22`, borderRadius: 4, height: 6, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${th.cardBorder}` } }, [["day", "Daily"], ["week", "Week"]].map(([m, label]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: m,
+        onClick: () => setViewMode(m),
+        style: {
+          padding: "0.4rem 0.7rem",
+          fontSize: "0.72rem",
+          fontWeight: 700,
+          cursor: "pointer",
+          border: "none",
+          background: viewMode === m ? G : "transparent",
+          color: viewMode === m ? "#04150d" : th.muted
+        }
+      },
+      label,
+      m === "week" && weekLoading ? " \u23F3" : ""
+    ))), viewMode === "week" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted } }, "WTD \xB7 Sun\u2192today (", getWeekDates(busDt).length, "d)"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: `${G}88` } }, /* @__PURE__ */ React.createElement("span", { style: { color: G } }, "\u25CF API connected"), lastRefresh && /* @__PURE__ */ React.createElement("span", null, " \xB7 Last refreshed ", lastRefresh.toLocaleTimeString(), " \xB7 ", loaded.length, "/", activePCs.length, " stores", errored.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#ff6b6b" } }, " \xB7 ", errored.length, " errors"))))), loading && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", background: `${G}22`, borderRadius: 4, height: 6, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
       height: "100%",
       background: G,
       borderRadius: 4,
@@ -25573,7 +25630,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.52", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.53", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

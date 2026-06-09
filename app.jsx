@@ -8987,6 +8987,10 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const [dateCache,   setDateCache]  = useState({});   // date → { netSales, guests, voids }
   const [lyCache,     setLyCache]    = useState({});   // LY same-week date → { netSales }
   const [wtdLoading,  setWtdLoading] = useState(false);
+  const [viewMode,     setViewMode]     = useState('day');   // 'day' | 'week' (WTD Sun→today)
+  const [weekStoreData,setWeekStoreData]= useState({});      // pc → { netSales, guests, voids, discounts } (WTD sums)
+  const [weekLoading,  setWeekLoading]  = useState(false);
+  const [dayStoreCache,setDayStoreCache]= useState({});      // date → fetchDate() result (memoize per-day per-store)
   const [collapsed,   setCollapsed]  = useState(new Set());
   const [pulseView,   setPulseView]  = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
   const [weatherForecast, setWeatherForecast] = useState(null);
@@ -9071,6 +9075,31 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
     setWtdLoading(false);
   }
 
+  // Build per-store WTD (Sun→today) by summing each day's fetchDate results.
+  async function loadWeekGrid() {
+    setWeekLoading(true);
+    const dates = getWeekDates(busDt);
+    const cache = { ...dayStoreCache, [busDt]: storeData }; // today's slice already loaded
+    for (const date of dates) {
+      if (!cache[date]) cache[date] = await fetchDate(date, 8);
+    }
+    setDayStoreCache(cache);
+    const sums = {};
+    for (const pc of activePCs) {
+      let netSales = 0, guests = 0, voids = 0, discounts = 0;
+      for (const date of dates) {
+        const r = cache[date] && cache[date][pc];
+        if (r && r.status === 'ok') {
+          netSales += r.data.netSales; guests += r.data.guests;
+          voids += r.data.voids; discounts += r.data.discounts;
+        }
+      }
+      sums[pc] = { netSales, guests, voids, discounts };
+    }
+    setWeekStoreData(sums);
+    setWeekLoading(false);
+  }
+
   // Fetch last year's same-week data (364 days prior) for weekly forecast
   async function loadLYWeek() {
     const d = new Date(busDt + 'T12:00:00');
@@ -9143,6 +9172,20 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
     }
     return () => clearInterval(cdRef.current);
   }, [autoRefresh, busDt]);
+
+  // Lazily compute per-store WTD when Week view is active; recompute when the week (busDt) changes.
+  useEffect(() => {
+    if (viewMode !== 'week') return;
+    loadWeekGrid();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, busDt]);
+
+  // A new day's data just loaded (storeData changed) — refresh today's slice into the WTD sums while in Week view.
+  useEffect(() => {
+    if (viewMode !== 'week' || loading) return;
+    loadWeekGrid();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeData]);
 
   // Weather data + reviews
   useEffect(() => {
@@ -9217,7 +9260,12 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
 
   const allRows = stores
     .filter(s => distFilter === 0 || s.district === distFilter)
-    .map(s => ({ ...s, live: storeData[s.pc] }));
+    .map(s => ({
+      ...s,
+      live: viewMode === 'week'
+        ? (weekStoreData[s.pc] ? { status: 'ok', data: weekStoreData[s.pc] } : undefined)
+        : storeData[s.pc],
+    }));
 
   // Group by district
   const distNums = [...new Set(allRows.map(s => s.district))].filter(Boolean).sort((a,b)=>a-b);
@@ -9369,6 +9417,21 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                   fontSize:'0.78rem', padding:'0.4rem 0.75rem' }) }}>
                 {autoRefresh ? `⏱ ${Math.floor(countdown/60)}:${String(countdown%60).padStart(2,'0')}` : '🔄 Auto'}
               </button>
+              {/* Daily | Week (WTD) toggle */}
+              <div style={{ display:'inline-flex', alignItems:'center', gap:6, marginLeft:8 }}>
+                <div style={{ display:'inline-flex', borderRadius:8, overflow:'hidden', border:`1px solid ${th.cardBorder}` }}>
+                  {[['day','Daily'],['week','Week']].map(([m,label]) => (
+                    <button key={m} onClick={() => setViewMode(m)}
+                      style={{ padding:'0.4rem 0.7rem', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', border:'none',
+                        background: viewMode===m ? G : 'transparent', color: viewMode===m ? '#04150d' : th.muted }}>
+                      {label}{m==='week' && weekLoading ? ' ⏳' : ''}
+                    </button>
+                  ))}
+                </div>
+                {viewMode==='week' && (
+                  <span style={{ fontSize:'0.6rem', color:th.muted }}>WTD · Sun→today ({getWeekDates(busDt).length}d)</span>
+                )}
+              </div>
             </div>
             <div style={{ fontSize:'0.68rem', color:`${G}88` }}>
               <span style={{color:G}}>● API connected</span>
@@ -33699,7 +33762,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.52
+            v14.53
             <SyncStatus dark={dark} />
           </div>
         )}
