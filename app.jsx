@@ -6475,6 +6475,14 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [txnFilters, setTxnFilters] = React.useState({ otCat: 'all', voids: false, refunds: false, discounts: false, timeStart: '', timeEnd: '' });
   const [txnDate, setTxnDate] = React.useState(localDate);
   const [txnMenuMap, setTxnMenuMap] = React.useState(null);
+  const [dtSchedule, setDtSchedule] = React.useState(null);
+  const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
+
+  React.useEffect(() => {
+    if (storeTab !== 'driveThru') return;
+    const id = setInterval(() => { loadTxnList(txnDate); }, 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [storeTab, txnDate]);
 
   React.useEffect(() => {
     (async () => {
@@ -6918,10 +6926,12 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
 
       {/* ── Tab Navigation ── */}
       <div style={{ display:'flex', marginBottom:'1.25rem', background:th.card, borderRadius:'0.75rem', border:`1px solid ${th.cardBorder}`, overflow:'hidden' }}>
-        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},{id:'reviews',label:'⭐ Reviews'}].map((t,i,arr) => (
+        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},{id:'driveThru',label:'🚗 Drive-Thru'},{id:'reviews',label:'⭐ Reviews'}].map((t,i,arr) => (
           <button key={t.id} onClick={() => {
               setStoreTab(t.id);
               if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
+              if(t.id==='driveThru' && !txnList && !txnListLoading){ loadTxnList(); }
+              if(t.id==='driveThru' && !dtSchedule){ cloudLoad(`pcg_schedule_${pc}`).then(d => setDtSchedule(Array.isArray(d) ? d : [])).catch(() => setDtSchedule([])); }
               if(t.id==='foodcost' && !foodCostT && !foodCostLoading){ setFoodCostLoading(true); fetch('/.netlify/functions/food-cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'store',pc,date:localDate})}).then(r=>r.ok?r.json():null).then(j=>{if(j)setFoodCostT(j);}).catch(()=>{}).finally(()=>setFoodCostLoading(false)); }
             }}
             style={{ flex:1, padding:'0.7rem 0.5rem', border:'none', borderRight:i<arr.length-1?`1px solid ${th.cardBorder}`:'none', background:storeTab===t.id?O+'18':'transparent', color:storeTab===t.id?O:th.muted, fontWeight:storeTab===t.id?700:400, fontSize:'0.78rem', cursor:'pointer', transition:'all .15s', borderBottom:storeTab===t.id?`2px solid ${O}`:'2px solid transparent', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
@@ -7566,6 +7576,163 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
 
       {/* ════ END REVIEWS TAB ════ */}
       </>}
+
+      {/* ════ DRIVE-THRU TAB ════ */}
+      {storeTab === 'driveThru' && (() => {
+        const svcSec = chk => chk.opnUTC && chk.clsdUTC
+          ? Math.round((new Date(chk.clsdUTC.endsWith('Z') ? chk.clsdUTC : chk.clsdUTC + 'Z') - new Date(chk.opnUTC.endsWith('Z') ? chk.opnUTC : chk.opnUTC + 'Z')) / 1000)
+          : null;
+        const isDT = chk => {
+          const n = (txnOTMap[chk.otNum] || '').toLowerCase();
+          return n.includes('drive') || n.includes('dt') || n.includes('d/t') || n.includes('mobile dt') || n.includes('thru');
+        };
+        const dtChecks = (txnList || []).filter(chk => isDT(chk) && svcSec(chk) !== null && svcSec(chk) > 0 && svcSec(chk) < 1800);
+        const totalChecks = (txnList || []).length;
+        const byHour = {};
+        for (const chk of dtChecks) {
+          try {
+            const hr = parseInt(new Date(chk.opnUTC.endsWith('Z') ? chk.opnUTC : chk.opnUTC + 'Z').toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/New_York' })) % 24;
+            if (!byHour[hr]) byHour[hr] = { count: 0, totalSecs: 0, sales: 0 };
+            byHour[hr].count++;
+            byHour[hr].totalSecs += svcSec(chk);
+            byHour[hr].sales += (chk.chkTtl || 0);
+          } catch {}
+        }
+        const hours = Object.entries(byHour).map(([h, d]) => ({ hr: +h, count: d.count, avg: Math.round(d.totalSecs / d.count), sales: d.sales })).sort((a, b) => a.hr - b.hr);
+        const avgSecs = dtChecks.length > 0 ? Math.round(dtChecks.reduce((s, c) => s + svcSec(c), 0) / dtChecks.length) : 0;
+        const dtPct = totalChecks > 0 ? (dtChecks.length / totalChecks * 100) : 0;
+        const dtRevenue = dtChecks.reduce((s, c) => s + (c.chkTtl || 0), 0);
+        const dtAvgCheck = dtChecks.length > 0 ? dtRevenue / dtChecks.length : 0;
+        const slowestHour = hours.length > 0 ? hours.reduce((a, b) => b.avg > a.avg ? b : a) : null;
+        const fastestHour = hours.length > 0 ? hours.reduce((a, b) => b.avg < a.avg ? b : a) : null;
+        const fmtSecs = s => s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+        const fmtHr = h => h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
+        const svcColor = s => s <= 120 ? '#22c55e' : s <= 180 ? '#74c0fc' : s <= 240 ? '#ff922b' : '#ef4444';
+        const svcLabel = s => s <= 120 ? 'Excellent' : s <= 180 ? 'Good' : s <= 240 ? 'Watch' : 'Slow';
+        const buckets = [
+          { label: '< 2 min', min: 0, max: 120, color: '#22c55e' },
+          { label: '2 – 3 min', min: 120, max: 180, color: '#74c0fc' },
+          { label: '3 – 4 min', min: 180, max: 240, color: '#ffd43b' },
+          { label: '4 – 5 min', min: 240, max: 300, color: '#ff922b' },
+          { label: '5 min+', min: 300, max: Infinity, color: '#ef4444' },
+        ].map(b => ({ ...b, count: dtChecks.filter(c => { const s = svcSec(c); return s >= b.min && s < b.max; }).length }));
+        const maxBucket = Math.max(...buckets.map(b => b.count), 1);
+        return (
+          <div>
+            {/* Date Picker */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.85rem', color: th.text }}>Drive-Thru Service Times</div>
+              <input type="date" value={txnDate} max={localDate}
+                onChange={e => { setTxnDate(e.target.value); setTxnList(null); loadTxnList(e.target.value); }}
+                style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: 'auto' }} />
+            </div>
+            {txnListLoading && <div style={{ textAlign: 'center', padding: '3rem', color: th.muted, fontSize: '0.85rem' }}>Loading drive-thru data…</div>}
+            {!txnListLoading && txnList && dtChecks.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '3rem', color: th.muted, fontSize: '0.85rem' }}>
+                No drive-thru transactions found for this date.
+                {totalChecks > 0 && <div style={{ marginTop: '0.5rem', fontSize: '0.72rem' }}>({totalChecks} total checks — order type may not be set to drive-thru)</div>}
+              </div>
+            )}
+            {!txnListLoading && dtChecks.length > 0 && <>
+              {/* KPI strip */}
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+                {[
+                  { label: 'Avg Service', value: fmtSecs(avgSecs), color: svcColor(avgSecs), sub: svcLabel(avgSecs) },
+                  { label: 'DT Cars', value: fmtNum(dtChecks.length), color: '#74c0fc' },
+                  { label: 'DT % of Traffic', value: dtPct.toFixed(1) + '%', color: '#a78bfa' },
+                  { label: 'DT Revenue', value: fmtUSD(dtRevenue), color: '#34d399' },
+                  { label: 'Avg Check', value: fmtAvg(dtAvgCheck), color: '#fbbf24' },
+                  slowestHour ? { label: 'Slowest Hour', value: fmtHr(slowestHour.hr), color: '#f87171', sub: fmtSecs(slowestHour.avg) } : null,
+                ].filter(Boolean).map(k => (
+                  <div key={k.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: k.color + '12', border: `1px solid ${k.color}30`, borderRadius: '999px', padding: '0.28rem 0.75rem', minWidth: 64 }}>
+                    <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.82rem', color: k.color, lineHeight: 1.1, whiteSpace: 'nowrap' }}>{k.value}</span>
+                    {k.sub && <span style={{ fontSize: '0.5rem', color: k.color + '99', whiteSpace: 'nowrap' }}>{k.sub}</span>}
+                    <span style={{ fontSize: '0.5rem', color: k.color + '77', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700, whiteSpace: 'nowrap', marginTop: 1 }}>{k.label}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Legend */}
+              <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                {[['#22c55e','≤ 2 min — Excellent'],['#74c0fc','2–3 min — Good'],['#ff922b','3–4 min — Watch'],['#ef4444','4 min+ — Slow']].map(([c,l]) => (
+                  <div key={l} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.65rem', color: th.muted }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />{l}
+                  </div>
+                ))}
+              </div>
+              {/* Hourly chart */}
+              {hours.length > 0 && (() => {
+                // Headcount per hour from schedule for the selected date
+                const schedForDate = (dtSchedule || []).filter(s => (s.startDateTime || '').slice(0, 10) === txnDate);
+                const headcountByHr = {};
+                for (let h = 0; h < 24; h++) {
+                  headcountByHr[h] = schedForDate.filter(s => {
+                    if (!s.startDateTime || !s.endDateTime) return false;
+                    const st = new Date(s.startDateTime), en = new Date(s.endDateTime);
+                    const hrMs = new Date(txnDate + 'T' + String(h).padStart(2,'0') + ':00:00').getTime();
+                    return st.getTime() <= hrMs + 3599000 && en.getTime() > hrMs;
+                  }).map(s => s.employeeName || 'Staff');
+                }
+                return (
+                  <div style={{ ...card(th), padding: '1rem', marginBottom: '1.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.85rem', color: th.text }}>Avg Service Time by Hour</div>
+                      {fastestHour && <span style={{ fontSize: '0.68rem', color: '#22c55e' }}>Best: {fmtHr(fastestHour.hr)} ({fmtSecs(fastestHour.avg)})</span>}
+                    </div>
+                    {hours.map(h => {
+                      const pct = Math.min(h.avg / 360, 1);
+                      const col = svcColor(h.avg);
+                      const staff = headcountByHr[h.hr] || [];
+                      const isHovered = dtHoveredHr === h.hr;
+                      return (
+                        <div key={h.hr} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}
+                          onMouseEnter={() => setDtHoveredHr(h.hr)} onMouseLeave={() => setDtHoveredHr(null)}>
+                          <div style={{ width: 46, fontSize: '0.62rem', color: th.muted, flexShrink: 0, textAlign: 'right' }}>{fmtHr(h.hr)}</div>
+                          <div style={{ flex: 1, height: 22, background: th.card2, borderRadius: 4, overflow: 'hidden', position: 'relative', cursor: 'default' }}>
+                            <div style={{ height: '100%', width: (pct * 100) + '%', background: col + 'cc', borderRadius: 4, transition: 'width .4s', minWidth: pct > 0 ? 4 : 0 }} />
+                            <span style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', fontSize: '0.65rem', fontWeight: 700, color: th.text }}>{fmtSecs(h.avg)}</span>
+                          </div>
+                          <div style={{ fontSize: '0.6rem', color: th.muted, flexShrink: 0, minWidth: 40 }}>{h.count} cars</div>
+                          {/* Hover tooltip */}
+                          {isHovered && (
+                            <div style={{ position: 'absolute', left: 52, bottom: 28, zIndex: 20, background: th.sidebar, border: `1px solid ${col}55`, borderRadius: 8, padding: '0.5rem 0.75rem', minWidth: 170, boxShadow: '0 6px 20px #0008', pointerEvents: 'none' }}>
+                              <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.78rem', color: col, marginBottom: 2 }}>{fmtHr(h.hr)} — {fmtSecs(h.avg)}</div>
+                              <div style={{ fontSize: '0.65rem', color: th.muted, marginBottom: 4 }}>{h.count} cars · {svcLabel(h.avg)}</div>
+                              <div style={{ fontSize: '0.65rem', borderTop: `1px solid ${th.cardBorder}`, paddingTop: 4, color: staff.length > 0 ? th.text : th.muted }}>
+                                {staff.length > 0 ? <><span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.9rem' }}>{staff.length}</span> staff on schedule</> : 'No schedule data for this hour'}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+              {/* Distribution */}
+              <div style={{ ...card(th), padding: '1rem' }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.85rem', color: th.text, marginBottom: '0.75rem' }}>Service Time Distribution</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                  {buckets.map(b => (
+                    <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: 64, fontSize: '0.65rem', color: th.muted, flexShrink: 0 }}>{b.label}</div>
+                      <div style={{ flex: 1, height: 18, background: th.card2, borderRadius: 4, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: (b.count / maxBucket * 100) + '%', background: b.color + 'bb', borderRadius: 4, transition: 'width .4s' }} />
+                      </div>
+                      <div style={{ fontSize: '0.65rem', color: th.muted, flexShrink: 0, minWidth: 68, textAlign: 'right' }}>
+                        {b.count} <span style={{ color: b.color, fontWeight: 700 }}>({dtChecks.length > 0 ? (b.count / dtChecks.length * 100).toFixed(0) : 0}%)</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: '0.75rem', fontSize: '0.62rem', color: th.muted, borderTop: `1px solid ${th.cardBorder}`, paddingTop: '0.5rem' }}>
+                  Service time = order entry → payment close. Does not include pre-order queue time.
+                </div>
+              </div>
+            </>}
+          </div>
+        );
+      })()}
+      {/* ════ END DRIVE-THRU TAB ════ */}
 
       {/* ════ TRANSACTIONS TAB ════ */}
       {storeTab === 'transactions' && <>
@@ -34009,7 +34176,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.67
+            v14.71
             <SyncStatus dark={dark} />
           </div>
         )}

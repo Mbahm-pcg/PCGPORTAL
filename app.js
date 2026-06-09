@@ -6031,6 +6031,15 @@
     const [txnFilters, setTxnFilters] = React.useState({ otCat: "all", voids: false, refunds: false, discounts: false, timeStart: "", timeEnd: "" });
     const [txnDate, setTxnDate] = React.useState(localDate);
     const [txnMenuMap, setTxnMenuMap] = React.useState(null);
+    const [dtSchedule, setDtSchedule] = React.useState(null);
+    const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
+    React.useEffect(() => {
+      if (storeTab !== "driveThru") return;
+      const id = setInterval(() => {
+        loadTxnList(txnDate);
+      }, 60 * 60 * 1e3);
+      return () => clearInterval(id);
+    }, [storeTab, txnDate]);
     React.useEffect(() => {
       (async () => {
         try {
@@ -6397,7 +6406,7 @@
       { label: "Err Cor", value: fmtUSD(d.errCor), color: "#868e96" },
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
       { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null }
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", marginBottom: "1.25rem", background: th.card, borderRadius: "0.75rem", border: `1px solid ${th.cardBorder}`, overflow: "hidden" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, { id: "reviews", label: "\u2B50 Reviews" }].map((t, i, arr) => /* @__PURE__ */ React.createElement(
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", marginBottom: "1.25rem", background: th.card, borderRadius: "0.75rem", border: `1px solid ${th.cardBorder}`, overflow: "hidden" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, { id: "driveThru", label: "\u{1F697} Drive-Thru" }, { id: "reviews", label: "\u2B50 Reviews" }].map((t, i, arr) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -6406,6 +6415,12 @@
           if (t.id === "transactions" && !txnList && !txnListLoading) {
             setTxnExpanded(true);
             loadTxnList();
+          }
+          if (t.id === "driveThru" && !txnList && !txnListLoading) {
+            loadTxnList();
+          }
+          if (t.id === "driveThru" && !dtSchedule) {
+            cloudLoad(`pcg_schedule_${pc}`).then((d2) => setDtSchedule(Array.isArray(d2) ? d2 : [])).catch(() => setDtSchedule([]));
           }
           if (t.id === "foodcost" && !foodCostT && !foodCostLoading) {
             setFoodCostLoading(true);
@@ -6758,7 +6773,99 @@
         review.themes?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.2rem", marginTop: "0.25rem" } }, review.themes.map((t) => /* @__PURE__ */ React.createElement("span", { key: t, style: { fontSize: "0.55rem", padding: "0.05rem 0.3rem", borderRadius: 999, background: th.card2, color: th.muted } }, t))),
         review.text && !isOpen && review.text.length > 200 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.15rem", fontWeight: 600 } }, "tap to read more")
       );
-    }))), storeTab === "transactions" && /* @__PURE__ */ React.createElement(React.Fragment, null, (() => {
+    }))), storeTab === "driveThru" && (() => {
+      const svcSec = (chk) => chk.opnUTC && chk.clsdUTC ? Math.round((new Date(chk.clsdUTC.endsWith("Z") ? chk.clsdUTC : chk.clsdUTC + "Z") - new Date(chk.opnUTC.endsWith("Z") ? chk.opnUTC : chk.opnUTC + "Z")) / 1e3) : null;
+      const isDT = (chk) => {
+        const n = (txnOTMap[chk.otNum] || "").toLowerCase();
+        return n.includes("drive") || n.includes("dt") || n.includes("d/t") || n.includes("mobile dt") || n.includes("thru");
+      };
+      const dtChecks = (txnList || []).filter((chk) => isDT(chk) && svcSec(chk) !== null && svcSec(chk) > 0 && svcSec(chk) < 1800);
+      const totalChecks = (txnList || []).length;
+      const byHour = {};
+      for (const chk of dtChecks) {
+        try {
+          const hr = parseInt(new Date(chk.opnUTC.endsWith("Z") ? chk.opnUTC : chk.opnUTC + "Z").toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/New_York" })) % 24;
+          if (!byHour[hr]) byHour[hr] = { count: 0, totalSecs: 0, sales: 0 };
+          byHour[hr].count++;
+          byHour[hr].totalSecs += svcSec(chk);
+          byHour[hr].sales += chk.chkTtl || 0;
+        } catch {
+        }
+      }
+      const hours = Object.entries(byHour).map(([h, d2]) => ({ hr: +h, count: d2.count, avg: Math.round(d2.totalSecs / d2.count), sales: d2.sales })).sort((a, b) => a.hr - b.hr);
+      const avgSecs = dtChecks.length > 0 ? Math.round(dtChecks.reduce((s2, c) => s2 + svcSec(c), 0) / dtChecks.length) : 0;
+      const dtPct = totalChecks > 0 ? dtChecks.length / totalChecks * 100 : 0;
+      const dtRevenue = dtChecks.reduce((s2, c) => s2 + (c.chkTtl || 0), 0);
+      const dtAvgCheck = dtChecks.length > 0 ? dtRevenue / dtChecks.length : 0;
+      const slowestHour = hours.length > 0 ? hours.reduce((a, b) => b.avg > a.avg ? b : a) : null;
+      const fastestHour = hours.length > 0 ? hours.reduce((a, b) => b.avg < a.avg ? b : a) : null;
+      const fmtSecs = (s2) => s2 >= 60 ? `${Math.floor(s2 / 60)}m ${s2 % 60}s` : `${s2}s`;
+      const fmtHr = (h) => h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`;
+      const svcColor = (s2) => s2 <= 120 ? "#22c55e" : s2 <= 180 ? "#74c0fc" : s2 <= 240 ? "#ff922b" : "#ef4444";
+      const svcLabel = (s2) => s2 <= 120 ? "Excellent" : s2 <= 180 ? "Good" : s2 <= 240 ? "Watch" : "Slow";
+      const buckets = [
+        { label: "< 2 min", min: 0, max: 120, color: "#22c55e" },
+        { label: "2 \u2013 3 min", min: 120, max: 180, color: "#74c0fc" },
+        { label: "3 \u2013 4 min", min: 180, max: 240, color: "#ffd43b" },
+        { label: "4 \u2013 5 min", min: 240, max: 300, color: "#ff922b" },
+        { label: "5 min+", min: 300, max: Infinity, color: "#ef4444" }
+      ].map((b) => ({ ...b, count: dtChecks.filter((c) => {
+        const s2 = svcSec(c);
+        return s2 >= b.min && s2 < b.max;
+      }).length }));
+      const maxBucket = Math.max(...buckets.map((b) => b.count), 1);
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Drive-Thru Service Times"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "date",
+          value: txnDate,
+          max: localDate,
+          onChange: (e) => {
+            setTxnDate(e.target.value);
+            setTxnList(null);
+            loadTxnList(e.target.value);
+          },
+          style: { ...inp(th), fontSize: "0.75rem", padding: "0.25rem 0.5rem", width: "auto" }
+        }
+      )), txnListLoading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "3rem", color: th.muted, fontSize: "0.85rem" } }, "Loading drive-thru data\u2026"), !txnListLoading && txnList && dtChecks.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "3rem", color: th.muted, fontSize: "0.85rem" } }, "No drive-thru transactions found for this date.", totalChecks > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", fontSize: "0.72rem" } }, "(", totalChecks, " total checks \u2014 order type may not be set to drive-thru)")), !txnListLoading && dtChecks.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1.25rem" } }, [
+        { label: "Avg Service", value: fmtSecs(avgSecs), color: svcColor(avgSecs), sub: svcLabel(avgSecs) },
+        { label: "DT Cars", value: fmtNum(dtChecks.length), color: "#74c0fc" },
+        { label: "DT % of Traffic", value: dtPct.toFixed(1) + "%", color: "#a78bfa" },
+        { label: "DT Revenue", value: fmtUSD(dtRevenue), color: "#34d399" },
+        { label: "Avg Check", value: fmtAvg(dtAvgCheck), color: "#fbbf24" },
+        slowestHour ? { label: "Slowest Hour", value: fmtHr(slowestHour.hr), color: "#f87171", sub: fmtSecs(slowestHour.avg) } : null
+      ].filter(Boolean).map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.82rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), k.sub && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "99", whiteSpace: "nowrap" } }, k.sub), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap", marginTop: 1 } }, k.label)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", marginBottom: "1rem", flexWrap: "wrap" } }, [["#22c55e", "\u2264 2 min \u2014 Excellent"], ["#74c0fc", "2\u20133 min \u2014 Good"], ["#ff922b", "3\u20134 min \u2014 Watch"], ["#ef4444", "4 min+ \u2014 Slow"]].map(([c, l]) => /* @__PURE__ */ React.createElement("div", { key: l, style: { display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.65rem", color: th.muted } }, /* @__PURE__ */ React.createElement("div", { style: { width: 8, height: 8, borderRadius: 2, background: c } }), l))), hours.length > 0 && (() => {
+        const schedForDate = (dtSchedule || []).filter((s2) => (s2.startDateTime || "").slice(0, 10) === txnDate);
+        const headcountByHr = {};
+        for (let h = 0; h < 24; h++) {
+          headcountByHr[h] = schedForDate.filter((s2) => {
+            if (!s2.startDateTime || !s2.endDateTime) return false;
+            const st = new Date(s2.startDateTime), en = new Date(s2.endDateTime);
+            const hrMs = (/* @__PURE__ */ new Date(txnDate + "T" + String(h).padStart(2, "0") + ":00:00")).getTime();
+            return st.getTime() <= hrMs + 3599e3 && en.getTime() > hrMs;
+          }).map((s2) => s2.employeeName || "Staff");
+        }
+        return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Avg Service Time by Hour"), fastestHour && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#22c55e" } }, "Best: ", fmtHr(fastestHour.hr), " (", fmtSecs(fastestHour.avg), ")")), hours.map((h) => {
+          const pct = Math.min(h.avg / 360, 1);
+          const col = svcColor(h.avg);
+          const staff = headcountByHr[h.hr] || [];
+          const isHovered = dtHoveredHr === h.hr;
+          return /* @__PURE__ */ React.createElement(
+            "div",
+            {
+              key: h.hr,
+              style: { position: "relative", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.4rem" },
+              onMouseEnter: () => setDtHoveredHr(h.hr),
+              onMouseLeave: () => setDtHoveredHr(null)
+            },
+            /* @__PURE__ */ React.createElement("div", { style: { width: 46, fontSize: "0.62rem", color: th.muted, flexShrink: 0, textAlign: "right" } }, fmtHr(h.hr)),
+            /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 22, background: th.card2, borderRadius: 4, overflow: "hidden", position: "relative", cursor: "default" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: pct * 100 + "%", background: col + "cc", borderRadius: 4, transition: "width .4s", minWidth: pct > 0 ? 4 : 0 } }), /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: 6, top: "50%", transform: "translateY(-50%)", fontSize: "0.65rem", fontWeight: 700, color: th.text } }, fmtSecs(h.avg))),
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, flexShrink: 0, minWidth: 40 } }, h.count, " cars"),
+            isHovered && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", left: 52, bottom: 28, zIndex: 20, background: th.sidebar, border: `1px solid ${col}55`, borderRadius: 8, padding: "0.5rem 0.75rem", minWidth: 170, boxShadow: "0 6px 20px #0008", pointerEvents: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.78rem", color: col, marginBottom: 2 } }, fmtHr(h.hr), " \u2014 ", fmtSecs(h.avg)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, marginBottom: 4 } }, h.count, " cars \xB7 ", svcLabel(h.avg)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", borderTop: `1px solid ${th.cardBorder}`, paddingTop: 4, color: staff.length > 0 ? th.text : th.muted } }, staff.length > 0 ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.9rem" } }, staff.length), " staff on schedule") : "No schedule data for this hour"))
+          );
+        }));
+      })(), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text, marginBottom: "0.75rem" } }, "Service Time Distribution"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.45rem" } }, buckets.map((b) => /* @__PURE__ */ React.createElement("div", { key: b.label, style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 64, fontSize: "0.65rem", color: th.muted, flexShrink: 0 } }, b.label), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 18, background: th.card2, borderRadius: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: b.count / maxBucket * 100 + "%", background: b.color + "bb", borderRadius: 4, transition: "width .4s" } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, flexShrink: 0, minWidth: 68, textAlign: "right" } }, b.count, " ", /* @__PURE__ */ React.createElement("span", { style: { color: b.color, fontWeight: 700 } }, "(", dtChecks.length > 0 ? (b.count / dtChecks.length * 100).toFixed(0) : 0, "%)"))))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", fontSize: "0.62rem", color: th.muted, borderTop: `1px solid ${th.cardBorder}`, paddingTop: "0.5rem" } }, "Service time = order entry \u2192 payment close. Does not include pre-order queue time."))));
+    })(), storeTab === "transactions" && /* @__PURE__ */ React.createElement(React.Fragment, null, (() => {
       const toET = (utc) => {
         try {
           return new Date(utc.endsWith("Z") ? utc : utc + "Z").toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
@@ -25785,7 +25892,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.67", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.71", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

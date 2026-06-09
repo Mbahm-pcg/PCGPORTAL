@@ -43,10 +43,10 @@
 *"Know your unit economics in real time, not 30 days later."*
 
 ### 7.1 Live Store P&L
-- Combine Pulse sales + Paycor labor + Food Cost(T) for real-time estimated P&L per store, updated hourly
-- Weekly/monthly rollups with trend lines
-- Rank stores by contribution margin, not just sales
-- Revenue - Labor - COGS = Gross Contribution, visible at a glance
+- Combine Pulse sales + Paycor labor + Food Cost(T) for real-time estimated P&L per store, updated hourly ← pnl-cron runs monthly; true hourly update not yet done
+✅ - Weekly/monthly rollups with trend lines (pcg_pnl_store_{pc} daily history, PnLStoreDetail drill-down)
+✅ - Rank stores by contribution margin, not just sales (AdminPnL sorts by contribution)
+✅ - Revenue - Labor - COGS = Gross Contribution, visible at a glance (KPI cards: Revenue / Labor / COGS / Contribution / Margin %)
 
 ### 7.2 Food Cost(T) Full BOM
 ✅ - Complete bill-of-materials for every menu item — cost-to-make per unit sourced from POS analysis report (Jun 2026)
@@ -117,12 +117,14 @@
 - Detect stockout events (menu item sales dropping to zero mid-day)
 
 ### 9.3 Sales Mix Intelligence
-- Menu item performance by store, daypart, day of week
-- "Store 220 sells 40% fewer espresso drinks than district average — equipment or training issue?"
+✅ - Menu item performance by store (daily totals via Pulse getMenuItemDailyTotals — full item name + sales $ + count per store drill-down)
+- Menu item performance by daypart and day of week — not yet done
+- "Store 220 sells 40% fewer espresso drinks than district average — equipment or training issue?" — cross-store item comparison not yet done
 - Track new product launch performance across the network
 
 ### 9.4 Guest Check Analytics
-- Average check size trending, items per transaction, upsell rate (combo vs individual)
+✅ - Average check size trending, items per transaction (avgCheck computed per store; full transaction detail modal with itemized line items via getGuestChecks)
+- Upsell rate (combo vs individual) — not yet done
 - Identify top upselling stores and extract their practices
 - "Store 345 averages $8.20/check vs network $7.10 — what are they doing differently?"
 
@@ -143,9 +145,13 @@
 - ~~Mic button center of manager mobile nav; Orion context includes sales, labor, tickets, DCP, schedule (store-scoped)~~
 
 ### 10.2 Drive-Thru Performance Analytics
-- Integrate with HME/timer systems: avg service time, cars/hour, peak wait times
-- Correlate with staffing: "4 people on shift = 180 sec avg. 5 people = 140 sec avg."
-- Drive-thru is 70%+ of Dunkin' revenue
+✅ - Avg service time per car (order entry → payment close via POS opnUTC/clsdUTC — no HME needed)
+✅ - Cars/hour by daypart — hourly bar chart color-coded by threshold (≤2m excellent / 2–3m good / 3–4m watch / 4m+ slow)
+✅ - Peak wait identification — slowest hour KPI + service time distribution buckets (< 2m / 2–3m / 3–4m / 4–5m / 5m+)
+✅ - DT % of total traffic, DT revenue, DT avg check — all surfaced per store per day (v14.68)
+✅ - Staffing correlation: hover any hour → see service time + staff count on schedule side by side (Paycor schedule + POS service time joined by hour)
+✅ - Pre-menu-board queue time — covered by POS opnUTC/clsdUTC (order entry → payment close); HME not required
+✅ - Drive-thru is 70%+ of Dunkin' revenue — DT % of traffic surfaced per store per day
 
 ### 10.3 Benchmarking Engine
 - Every metric ranked: store vs district vs network
@@ -159,7 +165,7 @@
 
 ### 10.5 Competitive Intelligence Layer
 - Track nearby competitor openings/closings (manual entry or public data)
-- Correlate with store performance: "Sales dropped 8% after Starbucks opened 0.3 miles away"
+✅ - Correlate with store performance: "Sales dropped 8% after Starbucks opened 0.3 miles away" — ImpactRadar: before/after event analysis vs distance-ranked control stores, exportable PDF report
 - Market share estimation using data proxies
 
 ### 10.6 White-Label / Multi-Brand Architecture
