@@ -8327,7 +8327,24 @@ ${t2.slice(0, 300)}`);
         }) }
       },
       autoRefresh ? `\u23F1 ${Math.floor(countdown / 60)}:${String(countdown % 60).padStart(2, "0")}` : "\u{1F504} Auto"
-    )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: `${G}88` } }, /* @__PURE__ */ React.createElement("span", { style: { color: G } }, "\u25CF API connected"), lastRefresh && /* @__PURE__ */ React.createElement("span", null, " \xB7 Last refreshed ", lastRefresh.toLocaleTimeString(), " \xB7 ", loaded.length, "/", activePCs.length, " stores", errored.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#ff6b6b" } }, " \xB7 ", errored.length, " errors"))))), loading && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", background: `${G}22`, borderRadius: 4, height: 6, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${th.cardBorder}` } }, [["day", "Daily"], ["week", "Week"]].map(([m, label]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: m,
+        onClick: () => setViewMode(m),
+        style: {
+          padding: "0.4rem 0.7rem",
+          fontSize: "0.72rem",
+          fontWeight: 700,
+          cursor: "pointer",
+          border: "none",
+          background: viewMode === m ? G : "transparent",
+          color: viewMode === m ? "#04150d" : th.muted
+        }
+      },
+      label,
+      m === "week" && weekLoading ? " \u23F3" : ""
+    ))), viewMode === "week" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted } }, "WTD \xB7 Sun\u2192today (", getWeekDates(busDt).length, "d)"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: `${G}88` } }, /* @__PURE__ */ React.createElement("span", { style: { color: G } }, "\u25CF API connected"), lastRefresh && /* @__PURE__ */ React.createElement("span", null, " \xB7 Last refreshed ", lastRefresh.toLocaleTimeString(), " \xB7 ", loaded.length, "/", activePCs.length, " stores", errored.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#ff6b6b" } }, " \xB7 ", errored.length, " errors"))))), loading && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", background: `${G}22`, borderRadius: 4, height: 6, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
       height: "100%",
       background: G,
       borderRadius: 4,

@@ -9412,6 +9412,21 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                   fontSize:'0.78rem', padding:'0.4rem 0.75rem' }) }}>
                 {autoRefresh ? `⏱ ${Math.floor(countdown/60)}:${String(countdown%60).padStart(2,'0')}` : '🔄 Auto'}
               </button>
+              {/* Daily | Week (WTD) toggle */}
+              <div style={{ display:'inline-flex', alignItems:'center', gap:6, marginLeft:8 }}>
+                <div style={{ display:'inline-flex', borderRadius:8, overflow:'hidden', border:`1px solid ${th.cardBorder}` }}>
+                  {[['day','Daily'],['week','Week']].map(([m,label]) => (
+                    <button key={m} onClick={() => setViewMode(m)}
+                      style={{ padding:'0.4rem 0.7rem', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', border:'none',
+                        background: viewMode===m ? G : 'transparent', color: viewMode===m ? '#04150d' : th.muted }}>
+                      {label}{m==='week' && weekLoading ? ' ⏳' : ''}
+                    </button>
+                  ))}
+                </div>
+                {viewMode==='week' && (
+                  <span style={{ fontSize:'0.6rem', color:th.muted }}>WTD · Sun→today ({getWeekDates(busDt).length}d)</span>
+                )}
+              </div>
             </div>
             <div style={{ fontSize:'0.68rem', color:`${G}88` }}>
               <span style={{color:G}}>● API connected</span>
