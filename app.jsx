@@ -24131,6 +24131,8 @@ function ImpactRadar({ th, user, dark }) {
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState(null); // { impacted:{...}, controls:[{...}] }
+  const chartCanvas = useRef(null);
+  const chartRef = useRef(null);
 
   async function compute() {
     if (!impactedPc) return;
@@ -24212,6 +24214,43 @@ function ImpactRadar({ th, user, dark }) {
     }
   }, [eventLatLng, coords]);
 
+  // (Re)draw the trend chart whenever results (or theme) change.
+  useEffect(() => {
+    if (!results || !chartCanvas.current || !window.Chart) return;
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+
+    const all = [results.impacted, ...results.controls];
+    const labels = [...new Set(all.flatMap((r) => r.series.map((s) => s.weekOf)))].sort();
+    const palette = ['#FF671F', '#2563eb', '#16a34a', '#9333ea', '#0891b2'];
+    const datasets = all.map((r, i) => {
+      const byWeek = Object.fromEntries(r.series.map((s) => [s.weekOf, s.sales]));
+      return {
+        label: r.name + (i === 0 ? ' (impacted)' : ''),
+        data: labels.map((w) => byWeek[w] ?? null),
+        borderColor: palette[i % palette.length],
+        borderWidth: i === 0 ? 3 : 1.5,
+        spanGaps: true, tension: 0.25, pointRadius: 2,
+      };
+    });
+
+    chartRef.current = new window.Chart(chartCanvas.current.getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: th.text } },
+          tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtDollars(c.parsed.y)}` } },
+        },
+        scales: {
+          x: { ticks: { color: th.muted, maxRotation: 60, minRotation: 60 }, grid: { color: th.sidebarBorder } },
+          y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) }, grid: { color: th.sidebarBorder } },
+        },
+      },
+    });
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [results, dark]);
+
   return (
     <div style={{ padding: '1rem', color: th.text }}>
       <h2 style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 800 }}>Impact / Cannibalization Radar</h2>
@@ -24245,6 +24284,7 @@ function ImpactRadar({ th, user, dark }) {
 
       {results && (
         <div style={{ marginTop: 16 }}>
+          <div style={{ height: 320, marginBottom: 16 }}><canvas ref={chartCanvas} /></div>
           {(() => {
             const imp = results.impacted;
             const nearestCtrl = results.controls[0];
