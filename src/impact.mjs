@@ -20,3 +20,58 @@ export function haversineMiles(a, b) {
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return 2 * EARTH_RADIUS_MI * Math.asin(Math.min(1, Math.sqrt(h)));
 }
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
+/**
+ * Split a store's weekly net-sales series into before/after the event week and
+ * compute averages, % change, and annualized loss.
+ *
+ * Convention: the event week (weekOf === eventDate) is the LAST "before" week,
+ * matching the manual 18th-St claim (competitor licensed the day after that Monday).
+ *
+ * @param {{weekOf:string, sales:number}[]} weekly  store's weekly[] (any order)
+ * @param {string} eventDate  ISO Monday of the opening week, e.g. '2025-12-28'
+ * @param {number} weeksBefore  max pre-event weeks to average (most recent N)
+ * @param {number|null} weeksAfter  max post-event weeks to average; null = through now
+ * @returns {{avgBefore:number, avgAfter:number, deltaPct:number, annualizedLoss:number,
+ *            weeksBeforeUsed:number, weeksAfterUsed:number,
+ *            series:{weekOf:string, sales:number, side:'before'|'after'}[]}}
+ */
+export function beforeAfter(weekly, eventDate, weeksBefore, weeksAfter) {
+  const rows = (weekly || [])
+    .filter((w) => w && w.weekOf && typeof w.sales === 'number')
+    .slice()
+    .sort((a, b) => a.weekOf.localeCompare(b.weekOf)); // ascending by date
+
+  const series = rows.map((w) => ({
+    weekOf: w.weekOf,
+    sales: w.sales,
+    side: w.weekOf <= eventDate ? 'before' : 'after',
+  }));
+
+  const beforeAll = series.filter((s) => s.side === 'before');
+  const afterAll = series.filter((s) => s.side === 'after');
+
+  // before = the most recent `weeksBefore` pre-event weeks (tail of the before set)
+  const beforeUsed = beforeAll.slice(Math.max(0, beforeAll.length - weeksBefore));
+  // after = the earliest `weeksAfter` post-event weeks, or all when null
+  const afterUsed = weeksAfter == null ? afterAll : afterAll.slice(0, weeksAfter);
+
+  const mean = (arr) => (arr.length ? arr.reduce((s, x) => s + x.sales, 0) / arr.length : 0);
+  const avgBefore = mean(beforeUsed);
+  const avgAfter = mean(afterUsed);
+
+  const deltaPct = avgBefore && afterUsed.length ? ((avgAfter - avgBefore) / avgBefore) * 100 : 0;
+  const annualizedLoss = afterUsed.length ? (avgBefore - avgAfter) * 52 : 0;
+
+  return {
+    avgBefore: round2(avgBefore),
+    avgAfter: round2(avgAfter),
+    deltaPct: round2(deltaPct),
+    annualizedLoss: Math.round(annualizedLoss),
+    weeksBeforeUsed: beforeUsed.length,
+    weeksAfterUsed: afterUsed.length,
+    series,
+  };
+}

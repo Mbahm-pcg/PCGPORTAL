@@ -22,3 +22,94 @@ describe('haversineMiles', () => {
     assert.ok(Math.abs(d - 0.40) < 0.02, `expected ~0.40, got ${d}`);
   });
 });
+
+import { beforeAfter } from './impact.mjs';
+
+// ── The real 18th-St weekly net-sales series, verbatim from PCG/18th-street-impact-claim.md §6 ──
+// Event week = 2025-12-28 (competitor food license issued 2025-12-29).
+const EIGHTEENTH_ST = [
+  { weekOf: '2025-10-05', sales: 29308 }, { weekOf: '2025-10-12', sales: 29022 },
+  { weekOf: '2025-10-19', sales: 30168 }, { weekOf: '2025-10-26', sales: 30075 },
+  { weekOf: '2025-11-02', sales: 30000 }, { weekOf: '2025-11-09', sales: 29187 },
+  { weekOf: '2025-11-16', sales: 29184 }, { weekOf: '2025-11-23', sales: 29818 },
+  { weekOf: '2025-11-30', sales: 28135 }, { weekOf: '2025-12-07', sales: 28137 },
+  { weekOf: '2025-12-14', sales: 27951 }, { weekOf: '2025-12-21', sales: 27220 },
+  { weekOf: '2025-12-28', sales: 23507 }, // ← event week (last "before")
+  { weekOf: '2026-01-04', sales: 23502 }, { weekOf: '2026-01-11', sales: 22479 },
+  { weekOf: '2026-01-18', sales: 21647 }, { weekOf: '2026-01-25', sales: 17944 },
+  { weekOf: '2026-02-01', sales: 20948 }, { weekOf: '2026-02-08', sales: 20951 },
+  { weekOf: '2026-02-15', sales: 20115 }, { weekOf: '2026-02-22', sales: 18622 },
+  { weekOf: '2026-03-01', sales: 20757 }, { weekOf: '2026-03-08', sales: 21585 },
+  { weekOf: '2026-03-15', sales: 20837 }, { weekOf: '2026-03-22', sales: 20518 },
+  { weekOf: '2026-03-29', sales: 20799 }, { weekOf: '2026-04-05', sales: 21043 },
+  { weekOf: '2026-04-12', sales: 21575 }, { weekOf: '2026-04-19', sales: 20257 },
+  { weekOf: '2026-04-26', sales: 22571 }, { weekOf: '2026-05-03', sales: 22297 },
+  { weekOf: '2026-05-10', sales: 22781 },
+];
+
+describe('beforeAfter — formula exactness vs the claim headline', () => {
+  // Two synthetic weeks whose averages ARE the claim's stated figures.
+  // Proves the formula reproduces −28.9% / $429,154 exactly.
+  test('avgBefore=28593, avgAfter=20340 → −28.9% / ~$429k', () => {
+    const series = [
+      { weekOf: '2025-12-21', sales: 28593 }, // before
+      { weekOf: '2026-01-04', sales: 20340 }, // after
+    ];
+    const r = beforeAfter(series, '2025-12-28', 13, null);
+    assert.strictEqual(Math.round(r.avgBefore), 28593);
+    assert.strictEqual(Math.round(r.avgAfter), 20340);
+    assert.ok(Math.abs(r.deltaPct - -28.86) < 0.05, `deltaPct ${r.deltaPct}`);
+    assert.ok(Math.abs(r.annualizedLoss - 429156) < 100, `annualizedLoss ${r.annualizedLoss}`);
+  });
+});
+
+describe('beforeAfter — real 18th-St series (event week → before)', () => {
+  const r = beforeAfter(EIGHTEENTH_ST, '2025-12-28', 13, null); // 13 before, "through now" after
+
+  test('reproduces the claim avgBefore to the dollar ($28,593)', () => {
+    assert.strictEqual(Math.round(r.avgBefore), 28593);
+    assert.strictEqual(r.weeksBeforeUsed, 13);
+  });
+
+  test('after-side regression lock (live table extends through spring recovery)', () => {
+    assert.strictEqual(r.weeksAfterUsed, 19);
+    assert.strictEqual(Math.round(r.avgAfter), 21117);
+    assert.ok(Math.abs(r.deltaPct - -26.15) < 0.1, `deltaPct ${r.deltaPct}`);
+    assert.ok(Math.abs(r.annualizedLoss - 388750) < 200, `annualizedLoss ${r.annualizedLoss}`);
+  });
+
+  test('is directionally consistent with the manual claim (within ~10%)', () => {
+    assert.ok(r.deltaPct < -23 && r.deltaPct > -32, `deltaPct ${r.deltaPct}`);
+    assert.ok(r.annualizedLoss > 360000 && r.annualizedLoss < 460000, `loss ${r.annualizedLoss}`);
+  });
+
+  test('series carries before/after side labels for charting', () => {
+    assert.strictEqual(r.series.length, 32);
+    assert.strictEqual(r.series[0].side, 'before');
+    assert.strictEqual(r.series.find(s => s.weekOf === '2025-12-28').side, 'before');
+    assert.strictEqual(r.series.find(s => s.weekOf === '2026-01-04').side, 'after');
+  });
+});
+
+describe('beforeAfter — windowing & guardrails', () => {
+  test('weeksBefore caps how many pre-event weeks are averaged', () => {
+    const r = beforeAfter(EIGHTEENTH_ST, '2025-12-28', 4, null);
+    // last 4 before-or-equal weeks: 12/07,12/14,12/21,12/28 = 28137,27951,27220,23507
+    assert.strictEqual(r.weeksBeforeUsed, 4);
+    assert.strictEqual(Math.round(r.avgBefore), Math.round((28137 + 27951 + 27220 + 23507) / 4));
+  });
+
+  test('weeksAfter caps how many post-event weeks are averaged', () => {
+    const r = beforeAfter(EIGHTEENTH_ST, '2025-12-28', 13, 3);
+    // first 3 after weeks: 01/04,01/11,01/18 = 23502,22479,21647
+    assert.strictEqual(r.weeksAfterUsed, 3);
+    assert.strictEqual(Math.round(r.avgAfter), Math.round((23502 + 22479 + 21647) / 3));
+  });
+
+  test('empty / no-after series degrades safely', () => {
+    const r = beforeAfter([{ weekOf: '2025-12-21', sales: 1000 }], '2025-12-28', 13, null);
+    assert.strictEqual(r.weeksAfterUsed, 0);
+    assert.strictEqual(r.avgAfter, 0);
+    assert.strictEqual(r.deltaPct, 0);
+  });
+});
