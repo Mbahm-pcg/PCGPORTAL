@@ -194,6 +194,13 @@ describe('summarizeFoodCost', () => {
     const r = summarizeFoodCost(tables, { beverages: { asOf: '2026-06-08', storeCount: 45 } });
     assert.deepStrictEqual(r.computed, { beverages: { asOf: '2026-06-08', storeCount: 45 } });
   });
+
+  test('non-number values excluded from itemCount and average', () => {
+    const r = summarizeFoodCost({ mixed: { Good: 2.00, Bad: 'n/a', Also: null } }, null);
+    const c = r.categories[0];
+    assert.strictEqual(c.itemCount, 1);
+    assert.strictEqual(c.avgUnitCost, 2);
+  });
 });
 
 describe('compactComputed', () => {
@@ -206,5 +213,8 @@ describe('compactComputed', () => {
   test('non-object passthrough → null', () => {
     assert.strictEqual(compactComputed(null), null);
     assert.strictEqual(compactComputed('str'), null);
+  });
+  test('nothing survives the trim → null, not {}', () => {
+    assert.strictEqual(compactComputed({ big: 'y'.repeat(500) }), null);
   });
 });

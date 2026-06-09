@@ -239,7 +239,7 @@ function compactComputed(blob) {
     else if (Array.isArray(v)) out[k] = `[${v.length} items]`;
     else if (v && typeof v === 'object') out[k] = '[object]';
   }
-  return out;
+  return Object.keys(out).length > 0 ? out : null; // null when nothing survived the trim
 }
 
 module.exports = { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, LIST_CAPS };
