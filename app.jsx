@@ -9173,6 +9173,20 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
     return () => clearInterval(cdRef.current);
   }, [autoRefresh, busDt]);
 
+  // Lazily compute per-store WTD when Week view is active; recompute when the week (busDt) changes.
+  useEffect(() => {
+    if (viewMode !== 'week') return;
+    loadWeekGrid();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, busDt]);
+
+  // A new day's data just loaded (storeData changed) — refresh today's slice into the WTD sums while in Week view.
+  useEffect(() => {
+    if (viewMode !== 'week' || loading) return;
+    loadWeekGrid();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeData]);
+
   // Weather data + reviews
   useEffect(() => {
     (async () => {

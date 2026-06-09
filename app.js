@@ -8022,6 +8022,14 @@ ${t2.slice(0, 300)}`);
       return () => clearInterval(cdRef.current);
     }, [autoRefresh, busDt]);
     useEffect(() => {
+      if (viewMode !== "week") return;
+      loadWeekGrid();
+    }, [viewMode, busDt]);
+    useEffect(() => {
+      if (viewMode !== "week" || loading) return;
+      loadWeekGrid();
+    }, [storeData]);
+    useEffect(() => {
       (async () => {
         try {
           const [fRes, cRes] = await Promise.all([
