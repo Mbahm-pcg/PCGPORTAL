@@ -18329,6 +18329,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [results, setResults] = useState(null);
     const chartCanvas = useRef(null);
     const chartRef = useRef(null);
+    const mapDiv = useRef(null);
+    const mapRef = useRef(null);
+    const [radiusMi, setRadiusMi] = useState(1);
     async function compute() {
       if (!impactedPc) return;
       setBusy(true);
@@ -18454,7 +18457,47 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         }
       };
     }, [results, dark]);
-    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", color: th.text } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Raleway, sans-serif", fontWeight: 800 } }, "Impact / Cannibalization Radar"), status && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 8 } }, status), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { flex: "1 1 320px" } }, "Event address", /* @__PURE__ */ React.createElement("input", { value: eventAddr, onChange: (e) => setEventAddr(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Opening date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eventDate, onChange: (e) => setEventDate(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks before", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksBefore, onChange: (e) => setWeeksBefore(+e.target.value || 13), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks after (blank = now)", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksAfter, onChange: (e) => setWeeksAfter(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("button", { onClick: geocodeEvent, disabled: busy, style: btn(th) }, "Locate & rank"), /* @__PURE__ */ React.createElement("button", { onClick: compute, disabled: busy || !impactedPc, style: btn(th) }, "Compute impact")), ranked.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ranked.length), " stores ranked by distance. Impacted (nearest):", " ", /* @__PURE__ */ React.createElement("strong", null, ranked[0].name), " (", ranked[0].distance.toFixed(2), " mi). Controls:", " ", controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(", "), "."), results && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 320, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("canvas", { ref: chartCanvas })), (() => {
+    useEffect(() => {
+      if (!eventLatLng || !mapDiv.current || !window.L) return;
+      if (!mapRef.current) {
+        mapRef.current = window.L.map(mapDiv.current).setView([eventLatLng.lat, eventLatLng.lng], 13);
+        window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "\xA9 OpenStreetMap",
+          maxZoom: 19
+        }).addTo(mapRef.current);
+      }
+      const map = mapRef.current;
+      map.eachLayer((l) => {
+        if (!(l instanceof window.L.TileLayer)) map.removeLayer(l);
+      });
+      window.L.marker([eventLatLng.lat, eventLatLng.lng]).addTo(map).bindPopup("Event (new competitor)");
+      window.L.circle([eventLatLng.lat, eventLatLng.lng], {
+        radius: radiusMi * 1609.34,
+        color: "#FF671F",
+        weight: 1,
+        fillOpacity: 0.06
+      }).addTo(map);
+      const deltaFor = (pc) => {
+        if (!results) return null;
+        const row = [results.impacted, ...results.controls].find((r) => r.pc === pc);
+        return row ? row.deltaPct : null;
+      };
+      const colorFor = (d) => d == null ? "#94a3b8" : d < -15 ? "#dc2626" : d < -7 ? "#d97706" : "#16a34a";
+      for (const r of ranked) {
+        const c = coords[r.pc];
+        if (!c) continue;
+        const d = deltaFor(r.pc);
+        window.L.circleMarker([c.lat, c.lng], {
+          radius: r.pc === impactedPc ? 9 : 6,
+          color: colorFor(d),
+          fillColor: colorFor(d),
+          fillOpacity: 0.85,
+          weight: 1
+        }).addTo(map).bindPopup(`${r.name} \xB7 ${r.distance.toFixed(1)} mi${d != null ? ` \xB7 ${fmtPct(d)}` : ""}`);
+      }
+      map.setView([eventLatLng.lat, eventLatLng.lng], 13);
+    }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
+    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", color: th.text } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Raleway, sans-serif", fontWeight: 800 } }, "Impact / Cannibalization Radar"), status && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 8 } }, status), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { flex: "1 1 320px" } }, "Event address", /* @__PURE__ */ React.createElement("input", { value: eventAddr, onChange: (e) => setEventAddr(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Opening date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eventDate, onChange: (e) => setEventDate(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks before", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksBefore, onChange: (e) => setWeeksBefore(+e.target.value || 13), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks after (blank = now)", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksAfter, onChange: (e) => setWeeksAfter(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("button", { onClick: geocodeEvent, disabled: busy, style: btn(th) }, "Locate & rank"), /* @__PURE__ */ React.createElement("button", { onClick: compute, disabled: busy || !impactedPc, style: btn(th) }, "Compute impact")), ranked.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ranked.length), " stores ranked by distance. Impacted (nearest):", " ", /* @__PURE__ */ React.createElement("strong", null, ranked[0].name), " (", ranked[0].distance.toFixed(2), " mi). Controls:", " ", controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(", "), "."), eventLatLng && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: th.muted } }, "Trade-area radius (mi)", " ", /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.1", value: radiusMi, onChange: (e) => setRadiusMi(+e.target.value || 1), style: { ...inp(th), width: 80 } })), /* @__PURE__ */ React.createElement("div", { ref: mapDiv, style: { height: 360, marginTop: 8, borderRadius: 8, overflow: "hidden" } })), results && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 320, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("canvas", { ref: chartCanvas })), (() => {
       const imp = results.impacted;
       const nearestCtrl = results.controls[0];
       const ratio = nearestCtrl && nearestCtrl.deltaPct ? imp.deltaPct / nearestCtrl.deltaPct : null;
