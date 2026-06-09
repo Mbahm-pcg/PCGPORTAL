@@ -1,6 +1,6 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
-const { summarizeProjects, summarizeTickets, summarizeCash } = require('./ops-summaries');
+const { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed } = require('./ops-summaries');
 
 // Small store fixture (mirrors STORES shape)
 const STORES_FIX = [
@@ -165,5 +165,46 @@ describe('summarizeCash', () => {
   test('district filter', () => {
     const r = summarizeCash([dep()], 6, NOW, STORES_FIX);
     assert.deepStrictEqual(r.deposits, []);
+  });
+});
+
+describe('summarizeFoodCost', () => {
+  const tables = {
+    beverages: { 'Latte M': 1.50, 'Latte L': 2.00, 'Cold Brew': 1.00 },
+    food: { Sandwich: 2.00 },
+    empty: {},
+  };
+
+  test('no tables → available:false', () => {
+    assert.deepStrictEqual(summarizeFoodCost({}, null), { available: false });
+  });
+
+  test('per-category counts, averages, items sorted by cost desc; empty category dropped', () => {
+    const r = summarizeFoodCost(tables, null);
+    assert.strictEqual(r.available, true);
+    assert.strictEqual(r.categories.length, 2);
+    const bev = r.categories.find(c => c.category === 'beverages');
+    assert.strictEqual(bev.itemCount, 3);
+    assert.strictEqual(bev.avgUnitCost, 1.5);
+    assert.strictEqual(bev.items[0].item, 'Latte L');
+    assert.strictEqual(r.computed, undefined);
+  });
+
+  test('computed overlay included when present', () => {
+    const r = summarizeFoodCost(tables, { beverages: { asOf: '2026-06-08', storeCount: 45 } });
+    assert.deepStrictEqual(r.computed, { beverages: { asOf: '2026-06-08', storeCount: 45 } });
+  });
+});
+
+describe('compactComputed', () => {
+  test('keeps scalars, replaces arrays/objects with sizes', () => {
+    assert.deepStrictEqual(
+      compactComputed({ asOf: 'x', pct: 0.28, rows: [1, 2, 3], nested: { a: 1 }, big: 'y'.repeat(500) }),
+      { asOf: 'x', pct: 0.28, rows: '[3 items]', nested: '[object]' }
+    );
+  });
+  test('non-object passthrough → null', () => {
+    assert.strictEqual(compactComputed(null), null);
+    assert.strictEqual(compactComputed('str'), null);
   });
 });

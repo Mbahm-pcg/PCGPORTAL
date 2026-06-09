@@ -209,4 +209,37 @@ function summarizeCash(raw, district, now, stores) {
   };
 }
 
-module.exports = { summarizeProjects, summarizeTickets, summarizeCash, LIST_CAPS };
+function summarizeFoodCost(tables, computed) {
+  const categories = [];
+  for (const [category, table] of Object.entries(tables || {})) {
+    const entries = Object.entries(table || {}).filter(([, v]) => typeof v === 'number');
+    if (entries.length === 0) continue;
+    const avg = entries.reduce((s, [, v]) => s + v, 0) / entries.length;
+    categories.push({
+      category,
+      itemCount: entries.length,
+      avgUnitCost: Math.round(avg * 100) / 100,
+      items: entries.sort((a, b) => b[1] - a[1]).slice(0, LIST_CAPS.foodItems)
+        .map(([item, unitCost]) => ({ item, unitCost })),
+    });
+  }
+  if (categories.length === 0) return { available: false };
+  const out = { available: true, categories };
+  if (computed && typeof computed === 'object' && Object.keys(computed).length > 0) out.computed = computed;
+  return out;
+}
+
+/** Defensive trim of an unknown blob: top-level scalars only (strings ≤200 chars), arrays/objects → size markers */
+function compactComputed(blob) {
+  if (!blob || typeof blob !== 'object' || Array.isArray(blob)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(blob)) {
+    if (typeof v === 'number' || typeof v === 'boolean') out[k] = v;
+    else if (typeof v === 'string' && v.length <= 200) out[k] = v;
+    else if (Array.isArray(v)) out[k] = `[${v.length} items]`;
+    else if (v && typeof v === 'object') out[k] = '[object]';
+  }
+  return out;
+}
+
+module.exports = { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, LIST_CAPS };
