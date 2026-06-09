@@ -11,7 +11,7 @@
 **Branch:** `feature/orion-ops-datasets` (already checked out in `pcg-netlify 3`).
 
 **Verified production data reality (sampled 2026-06-09 via the storage function):**
-- `pcg_projects_v1` — 16 records (14 active). Flat fields incl. `nickname`, `pc`, `type` (Remodel/Relocation/New Location), `dueDate`, `constructionCompleteBy`, milestone dates (`dcpDeliveryDate`, `installationDate`, …), `completed`. Pipeline projects also have `gc`, `gcCompany`, `utilities` (`{electric:{provider,status},…}`), `phaseOverride`. **No `budget`/`actual` fields exist** (Task 1 adds them). `attorney`/`architect`/`engineer` are FK ids (`"att1"`) into a separate professionals blob — **do not render these ids** (decision: no vendor-blob join in this pass).
+- `pcg_projects_v1` — 16 records (14 active). Flat fields incl. `nickname`, `pc`, `type` (Remodel/Relocation/New Location), `dueDate`, `constructionCompleteBy`, milestone dates (`dcpDeliveryDate`, `installationDate`, …), `completed`. Pipeline projects also have `gc`, `gcCompany`, `utilities` (`{electric:{provider,status},…}`), `phaseOverride`. **Budget fields already exist in the UI** as `totalBudget`/`spentToDate` (editable inputs app.jsx:11834/:11842, progress bar :11856, export :12983) but are stored as **raw strings** (possibly `"$250,000"`-style) and are unfilled on all current records — the summarizer reads these keys with money-string coercion. (Task 1 originally added duplicate `budget`/`actualCost` inputs; reverted in f4b7639.) `attorney`/`architect`/`engineer` are FK ids (`"att1"`) into a separate professionals blob — **do not render these ids** (decision: no vendor-blob join in this pass).
 - `pcg_tickets_v1` — fields: `id,number,title,storePC,storeName,address,category,priority,dueDate,status,ticketOwner,createdBy,description,selectedIssues,attachments,comments,createdAt,updatedAt,startedBy,startedAt`. **`attachments` contain multi-MB base64 dataUrls — summarizer must never pass them through.**
 - `pcg_cash_deposits_v1` — 504 records: `{id, depositDate, businessDates:[], pc, llcName, amount, uploadId, uploadedAt, uploadedBy}`. **No reconciled flag** — "missing deposits" is derived (business dates not covered by any deposit).
 - `pcg_food_cost_beverages_v1` — **empty in production.** Real unit costs are static tables in `analyst-lib/cost-lookup.js` (`BEVERAGE_COSTS`, `FOOD_COSTS`, `ICE_CREAM_COSTS`, `INGREDIENT_COSTS`: flat `{ "Item Name": 2.28 }` maps). Decision: static tables are the baseline, blob is an overlay when populated.
@@ -94,7 +94,7 @@ describe('summarizeProjects', () => {
     const raw = [{
       id: 1, nickname: 'West Chester', pc: '342144', district: null, type: 'Remodel',
       dueDate: '2026-07-01', constructionCompleteBy: '2026-06-01', completed: false,
-      budget: 100000, actualCost: 120000, gc: 'Jane Doe', gcCompany: 'Premier',
+      totalBudget: '$100,000', spentToDate: '120000', gc: 'Jane Doe', gcCompany: 'Premier',
       utilities: { electric: { provider: 'Peco', status: 'In Progress' } },
       dcpDeliveryDate: '2026-06-20', notes: 'on it',
     }];
@@ -105,6 +105,8 @@ describe('summarizeProjects', () => {
     assert.strictEqual(p.targetCompletion, '2026-06-01'); // constructionCompleteBy wins over dueDate
     assert.strictEqual(p.daysBehind, 8);            // 6/1 → 6/9
     assert.strictEqual(p.atRisk, true);
+    assert.strictEqual(p.budget, 100000);           // '$100,000' coerced
+    assert.strictEqual(p.actualCost, 120000);       // '120000' coerced
     assert.strictEqual(p.variancePct, 20);          // (120k-100k)/100k
     assert.strictEqual(p.gc, 'Jane Doe');
     assert.deepStrictEqual(p.utilities, ['electric: In Progress (Peco)']);
@@ -127,8 +129,16 @@ describe('summarizeProjects', () => {
   test('no budget → variancePct null; FK vendor ids are not exposed', () => {
     const raw = [{ id: 1, nickname: 'A', pc: '342144', type: 'Remodel', dueDate: '2026-08-01', completed: false, attorney: 'att1' }];
     const p = summarizeProjects(raw, null, NOW, STORES_FIX).projects[0];
+    assert.strictEqual(p.budget, null);
     assert.strictEqual(p.variancePct, null);
     assert.ok(!JSON.stringify(p).includes('att1'));
+  });
+
+  test('garbage money strings coerce to null, empty string to null', () => {
+    const raw = [{ id: 1, nickname: 'A', pc: '342144', type: 'Remodel', dueDate: '2026-08-01', completed: false, totalBudget: 'TBD', spentToDate: '' }];
+    const p = summarizeProjects(raw, null, NOW, STORES_FIX).projects[0];
+    assert.strictEqual(p.budget, null);
+    assert.strictEqual(p.actualCost, null);
   });
 });
 ```
@@ -160,6 +170,13 @@ function toMs(d) { return d instanceof Date ? d.getTime() : new Date(d).getTime(
 function dateMs(yyyyMmDd) { return new Date(yyyyMmDd + 'T12:00:00').getTime(); }
 function daysBetween(laterMs, earlierMs) { return Math.round((laterMs - earlierMs) / DAY_MS); }
 
+/** Coerce a money value that may be a number or a user-typed string ("$250,000") to a number, else null. */
+function toMoney(v) {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/[^0-9.\-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
 // Milestone date fields on project records, in pipeline order
 const PROJECT_MILESTONES = [
   ['dcpDeliveryDate', 'DCP delivery'],
@@ -185,8 +202,8 @@ function summarizeProjects(raw, district, now, stores) {
     const active = !p.completed;
     const daysBehind = active && target ? Math.max(0, daysBetween(nowMs, dateMs(target))) : 0;
     const atRisk = active && target ? daysBetween(dateMs(target), nowMs) <= AT_RISK_WINDOW_DAYS : false;
-    const budget = typeof p.budget === 'number' ? p.budget : (p.budget ? Number(p.budget) : null);
-    const actualCost = typeof p.actualCost === 'number' ? p.actualCost : (p.actualCost ? Number(p.actualCost) : null);
+    const budget = toMoney(p.totalBudget);       // existing UI key (app.jsx:11834), string-typed
+    const actualCost = toMoney(p.spentToDate);   // existing UI key (app.jsx:11842), string-typed
     const variancePct = budget > 0 && actualCost != null
       ? Math.round(((actualCost - budget) / budget) * 1000) / 10 : null;
     let nextMilestone = null;
@@ -930,6 +947,6 @@ git checkout main && git pull && npm run build && npx netlify deploy --prod
 
 ## Self-Review
 
-- **Spec coverage:** all four domains ✔; role scoping via district param ✔; graceful absence ✔ (`available:false` → "No X data yet"); no PII/secrets ✔ (attachments stripped + tested, deposit images never read, FK vendor ids dropped); list caps ✔ (`LIST_CAPS`); prompt section ✔ (Task 8); TDD via node:test ✔; integration test = the screenshot question ✔. **Deviation from spec (approved by Mike 2026-06-09):** budget fields added to UI first (Task 1) instead of assuming they exist; food cost from static tables + blob overlay instead of blob-only; cash gaps derived instead of a nonexistent `reconciled` flag; `summarizeFoodCost` takes `(tables, computed)` not `(rawByCategory)`.
+- **Spec coverage:** all four domains ✔; role scoping via district param ✔; graceful absence ✔ (`available:false` → "No X data yet"); no PII/secrets ✔ (attachments stripped + tested, deposit images never read, FK vendor ids dropped); list caps ✔ (`LIST_CAPS`); prompt section ✔ (Task 8); TDD via node:test ✔; integration test = the screenshot question ✔. **Deviation from spec (approved by Mike 2026-06-09):** budget fields added to UI first (Task 1) instead of assuming they exist; food cost from static tables + blob overlay instead of blob-only; cash gaps derived instead of a nonexistent `reconciled` flag; `summarizeFoodCost` takes `(tables, computed)` not `(rawByCategory)`. **Task 1 superseded during execution:** budget entry already existed as `totalBudget`/`spentToDate` (string-typed); duplicate inputs reverted (f4b7639) and the summarizer reads the existing keys via `toMoney()` coercion.
 - **Placeholder scan:** none — every code step has complete code.
 - **Type consistency:** summarizer signatures `(raw, district, now, stores)` consistent across Tasks 2-4; `renderOpsContext({projects,tickets,cash,foodCost})` matches Task 7's call; export names in Task 7 Step 1 require match Tasks 2-6 exports.
