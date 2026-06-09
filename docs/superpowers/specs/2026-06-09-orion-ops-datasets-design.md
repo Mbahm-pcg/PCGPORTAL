@@ -35,11 +35,12 @@ Each domain = a **pure summarizer** (testable) + a **thin async builder** (loads
 
 Pure summarizers are exported and unit-tested; async builders use `cacheLoad` and are exported from `analyst-data.js`'s `module.exports` (alongside `buildWeatherContext`, etc.).
 
-### Summary shapes (compact)
-- **Projects** → `{ available, projects: [{ store, district, type, phase, status, targetCompletion, daysBehind, budget, actual, variancePct, permitHold }], counts: { total, behind, atRisk, permitHolds } }`. `daysBehind`/`atRisk` derived from `targetCompletion` vs now; `variancePct = (actual-budget)/budget`.
-- **Tickets** → `{ available, openByStore: [{ store, district, open, oldestDays }], aging: { gt7, gt14 }, critical: [{ store, title, days }], totalOpen }`.
-- **Cash** → `{ available, missingDeposits: [{ store, district, date, expected }], unreconciledCount, unreconciledTotal, recent: [{ store, date, amount }] }`.
-- **Food cost** → `{ available, categories: [{ category, itemCount, avgUnitCost, topMovers: [{ item, unitCost }] }] }`.
+### Summary shapes (detail-rich, but list-capped for token control)
+Per Mike: include the **detail-level fields**, not just rollups, so Orion can answer specifics (who's the GC, who owns a ticket, etc.). Each domain returns both a per-record list **with details** and a rollup; list lengths are capped (top/oldest/at-risk N) to bound tokens.
+- **Projects** → `{ available, projects: [{ store, district, name, type, phase, status, startDate, targetCompletion, daysBehind, atRisk, budget, actual, variancePct, permitHold, gc, contractorStatus, nextMilestone, notes }], counts: { total, behind, atRisk, permitHolds } }`. `daysBehind`/`atRisk` derived from `targetCompletion` vs now; `variancePct = (actual-budget)/budget`. (`gc`/contractor + the project's vendor roster — attorney/architect/engineer — surfaced where present in the blob.)
+- **Tickets** → `{ available, tickets: [{ store, district, title, status, priority, assignee, ageDays, createdAt }], openByStore: [{ store, district, open, oldestDays }], aging: { gt7, gt14 }, critical: [{ store, title, assignee, days }], totalOpen }`. The `tickets` list carries open/aging items with details (assignee, priority), capped to the oldest/most-critical N.
+- **Cash** → `{ available, deposits: [{ store, district, date, amount, status, reconciled }], missingDeposits: [{ store, district, date, expected }], unreconciledCount, unreconciledTotal }`. `deposits` is the recent detail list (capped); deposit-slip images/notes are never included.
+- **Food cost** → `{ available, categories: [{ category, itemCount, avgUnitCost, items: [{ item, unitCost, unit }] }] }`. Per-category item detail (capped per category), plus category averages.
 
 ### Role scoping
 - `district` (a number) → filter each summary to stores in that district; `null` → full network. Reuse `getStoresByDistrict` already in `analyst-data.js`. The analyst entrypoint already resolves `district` from the request/user.
@@ -75,7 +76,7 @@ request {district, user} → buildDataContext
 - New: `netlify/functions/analyst-lib/ops-summaries.js` (the four pure summarizers + `ops-summaries.test.js`).
 - Edit: `analyst-lib/analyst-data.js` (four `build*Context` async builders + exports + wire into `buildDataContext`); `analyst-lib/analyst-prompts.js` (describe + render the four summaries).
 
-## Confirm on review
-1. The four summary shapes above capture what you'd want Orion to reason over — anything missing (e.g. project GC/contractor name, ticket assignee)?
-2. Food cost is the lightest/most optional — keep it in this pass, or drop to fast-follow?
-3. List caps (top/oldest N) acceptable for token control, or do you want full enumeration for a domain?
+## Resolved on review
+1. **Include detail-level fields** — projects carry GC/contractor + vendor roster, tickets carry assignee/priority, etc. (summary shapes updated above).
+2. **Keep food cost** in this pass.
+3. **List caps (top/oldest/at-risk N) accepted** for token control.
