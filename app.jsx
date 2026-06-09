@@ -9260,7 +9260,12 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
 
   const allRows = stores
     .filter(s => distFilter === 0 || s.district === distFilter)
-    .map(s => ({ ...s, live: storeData[s.pc] }));
+    .map(s => ({
+      ...s,
+      live: viewMode === 'week'
+        ? (weekStoreData[s.pc] ? { status: 'ok', data: weekStoreData[s.pc] } : undefined)
+        : storeData[s.pc],
+    }));
 
   // Group by district
   const distNums = [...new Set(allRows.map(s => s.district))].filter(Boolean).sort((a,b)=>a-b);

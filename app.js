@@ -8102,7 +8102,10 @@ ${t2.slice(0, 300)}`);
       avgCheck: 0
     }), { netSales: 0, guests: 0, voids: 0, forecast: 0, discounts: 0, avgCheck: 0 });
     totals.avgCheck = totals.guests > 0 ? totals.netSales / totals.guests : 0;
-    const allRows = stores.filter((s) => distFilter === 0 || s.district === distFilter).map((s) => ({ ...s, live: storeData[s.pc] }));
+    const allRows = stores.filter((s) => distFilter === 0 || s.district === distFilter).map((s) => ({
+      ...s,
+      live: viewMode === "week" ? weekStoreData[s.pc] ? { status: "ok", data: weekStoreData[s.pc] } : void 0 : storeData[s.pc]
+    }));
     const distNums = [...new Set(allRows.map((s) => s.district))].filter(Boolean).sort((a, b) => a - b);
     const dmName = (d) => (Object.values(districts || {}).find((x) => x.num === d)?.name || "").split(" ")[0] || `D${d}`;
     const fmtUSD = (v) => "$" + Math.round(v).toLocaleString();
