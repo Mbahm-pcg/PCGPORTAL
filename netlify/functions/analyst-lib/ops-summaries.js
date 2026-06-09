@@ -13,7 +13,9 @@ function storesByPc(stores) {
 
 function toMs(d) { return d instanceof Date ? d.getTime() : new Date(d).getTime(); }
 function dateMs(yyyyMmDd) { return new Date(yyyyMmDd + 'T12:00:00').getTime(); }
-function daysBetween(laterMs, earlierMs) { return Math.round((laterMs - earlierMs) / DAY_MS); }
+// Signed: positive when `aMs` is after `bMs`. Callers choose the order — e.g. daysBehind
+// passes (now, target) so past-due is positive; atRisk passes (target, now) so "days until".
+function daysBetween(aMs, bMs) { return Math.round((aMs - bMs) / DAY_MS); }
 
 /** Coerce a money value that may be a number or a user-typed string ("$250,000") to a number, else null. */
 function toMoney(v) {
