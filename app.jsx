@@ -5,6 +5,7 @@ import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, authHeader, clearSessionToken } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
+import { haversineMiles, beforeAfter, pickControls } from './src/impact.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -16539,6 +16540,7 @@ const getTabs = (user) => {
     { id: "labor",     label: "Labor",          icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "P&L",            icon: (c) => ICONS.dollar(c) },
     { id: "ndcp",      label: "NDCP Orders",    icon: (c) => ICONS.dollar(c) },
+    { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.map(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
@@ -16560,6 +16562,7 @@ const getTabs = (user) => {
     { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "P&L",          icon: (c) => ICONS.dollar(c) },
     { id: "ndcp",      label: "NDCP Orders",  icon: (c) => ICONS.dollar(c) },
+    { id: "impact",    label: "Impact Radar", icon: (c) => ICONS.map(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
@@ -24113,6 +24116,114 @@ function PnLStoreDetail({ store, th, onClose }) {
 // Browse National DCP supply orders ingested from the reports@ mailbox. Shows the
 // latest version of each order with a revision badge + dollar delta; click through
 // for the full version history and line items. Read-only (data from ndcp.js).
+const COORDS_BLOB = 'pcg_store_coords_v1';
+
+function ImpactRadar({ th, user, dark }) {
+  const [eventAddr, setEventAddr] = useState('2310 W Passyunk Ave, Philadelphia, PA 19145');
+  const [eventLatLng, setEventLatLng] = useState(null); // {lat,lng}
+  const [eventDate, setEventDate] = useState('2025-12-28');
+  const [weeksBefore, setWeeksBefore] = useState(13);
+  const [weeksAfter, setWeeksAfter] = useState(''); // '' = through now
+  const [coords, setCoords] = useState(null);        // { [pc]: {lat,lng} }
+  const [ranked, setRanked] = useState([]);          // [{pc,name,address,distance}]
+  const [impactedPc, setImpactedPc] = useState(null);
+  const [controlPcs, setControlPcs] = useState([]);
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Load (or first-time build) the 45-store coordinate cache.
+  useEffect(() => {
+    (async () => {
+      let c = await cloudLoad(COORDS_BLOB);
+      if (!c || Object.keys(c).length < STORES_SEED.length) {
+        setStatus('Geocoding store addresses (first run)…');
+        c = await buildCoordsCache(c || {});
+        await cloudSave(COORDS_BLOB, c);
+      }
+      setCoords(c);
+      setStatus('');
+    })();
+  }, []);
+
+  async function buildCoordsCache(existing) {
+    const out = { ...existing };
+    for (const s of STORES_SEED) {
+      if (out[s.pc]) continue;
+      const full = `${s.address}, ${s.city}, ${s.state} ${s.zip}`;
+      try {
+        const r = await fetch('/.netlify/functions/geocode', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: full }),
+        }).then((x) => x.json());
+        if (r && r.matched) out[s.pc] = { lat: r.lat, lng: r.lng };
+      } catch { /* skip; left out of cache, re-geocodable later */ }
+    }
+    return out;
+  }
+
+  async function geocodeEvent() {
+    setBusy(true); setStatus('Locating event address…');
+    try {
+      const r = await fetch('/.netlify/functions/geocode', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: eventAddr }),
+      }).then((x) => x.json());
+      if (r && r.matched) { setEventLatLng({ lat: r.lat, lng: r.lng }); setStatus(''); }
+      else setStatus('No match — enter lat/lng manually.');
+    } catch { setStatus('Geocode failed — enter lat/lng manually.'); }
+    setBusy(false);
+  }
+
+  // Rank stores by distance whenever the event location or coords cache changes.
+  useEffect(() => {
+    if (!eventLatLng || !coords) return;
+    const rows = STORES_SEED
+      .filter((s) => coords[s.pc])
+      .map((s) => ({
+        pc: s.pc, name: s.name, address: `${s.address}, ${s.city}`,
+        distance: haversineMiles(eventLatLng, coords[s.pc]),
+      }))
+      .sort((a, b) => a.distance - b.distance);
+    setRanked(rows);
+    if (rows.length) {
+      setImpactedPc(rows[0].pc);
+      setControlPcs(pickControls(rows, rows[0].pc, 3).map((s) => s.pc));
+    }
+  }, [eventLatLng, coords]);
+
+  return (
+    <div style={{ padding: '1rem', color: th.text }}>
+      <h2 style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 800 }}>Impact / Cannibalization Radar</h2>
+      {status && <div style={{ color: th.muted, marginBottom: 8 }}>{status}</div>}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+        <label style={{ flex: '1 1 320px' }}>
+          Event address
+          <input value={eventAddr} onChange={(e) => setEventAddr(e.target.value)} style={inp(th)} />
+        </label>
+        <label>Opening date
+          <input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} style={inp(th)} />
+        </label>
+        <label>Weeks before
+          <input type="number" value={weeksBefore} onChange={(e) => setWeeksBefore(+e.target.value || 13)} style={inp(th)} />
+        </label>
+        <label>Weeks after (blank = now)
+          <input type="number" value={weeksAfter} onChange={(e) => setWeeksAfter(e.target.value)} style={inp(th)} />
+        </label>
+        <button onClick={geocodeEvent} disabled={busy} style={btn(th)}>Locate &amp; rank</button>
+      </div>
+
+      {ranked.length > 0 && (
+        <div style={{ ...card(th), padding: 12 }}>
+          <strong>{ranked.length}</strong> stores ranked by distance. Impacted (nearest):{' '}
+          <strong>{ranked[0].name}</strong> ({ranked[0].distance.toFixed(2)} mi). Controls:{' '}
+          {controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(', ')}.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminNdcp({ th, user }) {
   const [orders, setOrders] = useState(null);   // null = loading
   const [err, setErr] = useState(null);
@@ -33343,7 +33454,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.48
+            v14.49
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -33760,6 +33871,7 @@ function PCGPortal() {
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && <AdminNdcp th={th} user={user} />}
+          {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} />}
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
