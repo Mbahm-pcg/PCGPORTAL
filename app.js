@@ -356,6 +356,33 @@
     const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
     return 2 * EARTH_RADIUS_MI * Math.asin(Math.min(1, Math.sqrt(h)));
   }
+  var round2 = (n) => Math.round(n * 100) / 100;
+  function beforeAfter(weekly, eventDate, weeksBefore, weeksAfter) {
+    const rows = (weekly || []).filter((w) => w && w.weekOf && typeof w.sales === "number").slice().sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+    const series = rows.map((w) => ({
+      weekOf: w.weekOf,
+      sales: w.sales,
+      side: w.weekOf <= eventDate ? "before" : "after"
+    }));
+    const beforeAll = series.filter((s) => s.side === "before");
+    const afterAll = series.filter((s) => s.side === "after");
+    const beforeUsed = beforeAll.slice(Math.max(0, beforeAll.length - weeksBefore));
+    const afterUsed = weeksAfter == null ? afterAll : afterAll.slice(0, weeksAfter);
+    const mean = (arr) => arr.length ? arr.reduce((s, x) => s + x.sales, 0) / arr.length : 0;
+    const avgBefore = mean(beforeUsed);
+    const avgAfter = mean(afterUsed);
+    const deltaPct = avgBefore && afterUsed.length ? (avgAfter - avgBefore) / avgBefore * 100 : 0;
+    const annualizedLoss = afterUsed.length ? (avgBefore - avgAfter) * 52 : 0;
+    return {
+      avgBefore: round2(avgBefore),
+      avgAfter: round2(avgAfter),
+      deltaPct: round2(deltaPct),
+      annualizedLoss: Math.round(annualizedLoss),
+      weeksBeforeUsed: beforeUsed.length,
+      weeksAfterUsed: afterUsed.length,
+      series
+    };
+  }
   function pickControls(rankedStores, impactedPc, n = 3) {
     const pool = (rankedStores || []).filter((s) => s && s.pc !== impactedPc).slice().sort((a, b) => a.distance - b.distance);
     if (pool.length <= n) return pool;
@@ -18299,6 +18326,27 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [controlPcs, setControlPcs] = useState([]);
     const [status, setStatus] = useState("");
     const [busy, setBusy] = useState(false);
+    const [results, setResults] = useState(null);
+    async function compute() {
+      if (!impactedPc) return;
+      setBusy(true);
+      setStatus("Loading sales history\u2026");
+      const wa = weeksAfter === "" ? null : +weeksAfter || null;
+      const loadOne = async (pc) => {
+        const blob = await cloudLoad(`pcg_labor_store_${pc}`);
+        const weekly = blob && blob.weekly || [];
+        const store = STORES_SEED.find((s) => s.pc === pc);
+        const ba = beforeAfter(weekly, eventDate, weeksBefore, wa);
+        const rankRow = ranked.find((r) => r.pc === pc);
+        return { pc, name: store?.name || pc, distance: rankRow ? rankRow.distance : null, ...ba };
+      };
+      const impacted = await loadOne(impactedPc);
+      const controls = [];
+      for (const pc of controlPcs) controls.push(await loadOne(pc));
+      setResults({ impacted, controls });
+      setStatus("");
+      setBusy(false);
+    }
     useEffect(() => {
       (async () => {
         let c = await cloudLoad(COORDS_BLOB);
@@ -18360,7 +18408,12 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         setControlPcs(pickControls(rows, rows[0].pc, 3).map((s) => s.pc));
       }
     }, [eventLatLng, coords]);
-    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", color: th.text } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Raleway, sans-serif", fontWeight: 800 } }, "Impact / Cannibalization Radar"), status && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 8 } }, status), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { flex: "1 1 320px" } }, "Event address", /* @__PURE__ */ React.createElement("input", { value: eventAddr, onChange: (e) => setEventAddr(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Opening date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eventDate, onChange: (e) => setEventDate(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks before", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksBefore, onChange: (e) => setWeeksBefore(+e.target.value || 13), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks after (blank = now)", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksAfter, onChange: (e) => setWeeksAfter(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("button", { onClick: geocodeEvent, disabled: busy, style: btn(th) }, "Locate & rank")), ranked.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ranked.length), " stores ranked by distance. Impacted (nearest):", " ", /* @__PURE__ */ React.createElement("strong", null, ranked[0].name), " (", ranked[0].distance.toFixed(2), " mi). Controls:", " ", controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(", "), "."));
+    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", color: th.text } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Raleway, sans-serif", fontWeight: 800 } }, "Impact / Cannibalization Radar"), status && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 8 } }, status), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { flex: "1 1 320px" } }, "Event address", /* @__PURE__ */ React.createElement("input", { value: eventAddr, onChange: (e) => setEventAddr(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Opening date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eventDate, onChange: (e) => setEventDate(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks before", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksBefore, onChange: (e) => setWeeksBefore(+e.target.value || 13), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks after (blank = now)", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksAfter, onChange: (e) => setWeeksAfter(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("button", { onClick: geocodeEvent, disabled: busy, style: btn(th) }, "Locate & rank"), /* @__PURE__ */ React.createElement("button", { onClick: compute, disabled: busy || !impactedPc, style: btn(th) }, "Compute impact")), ranked.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ranked.length), " stores ranked by distance. Impacted (nearest):", " ", /* @__PURE__ */ React.createElement("strong", null, ranked[0].name), " (", ranked[0].distance.toFixed(2), " mi). Controls:", " ", controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(", "), "."), results && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16 } }, (() => {
+      const imp = results.impacted;
+      const nearestCtrl = results.controls[0];
+      const ratio = nearestCtrl && nearestCtrl.deltaPct ? imp.deltaPct / nearestCtrl.deltaPct : null;
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { ...accentCard(th), padding: 14, minWidth: 180 } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 12 } }, "Impacted \u0394"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 26, fontWeight: 800 } }, fmtPct(imp.deltaPct)), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 12 } }, imp.name, " \xB7 ", imp.weeksBeforeUsed, "w before / ", imp.weeksAfterUsed, "w after")), /* @__PURE__ */ React.createElement("div", { style: { ...accentCard(th), padding: 14, minWidth: 180 } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 12 } }, "Annualized loss"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 26, fontWeight: 800 } }, fmtDollars(imp.annualizedLoss))), ratio && /* @__PURE__ */ React.createElement("div", { style: { ...accentCard(th), padding: 14, minWidth: 180 } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 12 } }, "vs nearest control"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 26, fontWeight: 800 } }, ratio.toFixed(1), "\xD7 worse")));
+    })(), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", color: th.muted, fontSize: 12 } }, /* @__PURE__ */ React.createElement("th", { style: { padding: 6 } }, "Store"), /* @__PURE__ */ React.createElement("th", null, "Distance"), /* @__PURE__ */ React.createElement("th", null, "Before $/wk"), /* @__PURE__ */ React.createElement("th", null, "After $/wk"), /* @__PURE__ */ React.createElement("th", null, "%\u0394"), /* @__PURE__ */ React.createElement("th", null, "Weeks"))), /* @__PURE__ */ React.createElement("tbody", null, [results.impacted, ...results.controls].map((row, i) => /* @__PURE__ */ React.createElement("tr", { key: row.pc, style: { borderTop: `1px solid ${th.sidebarBorder}`, fontWeight: i === 0 ? 700 : 400 } }, /* @__PURE__ */ React.createElement("td", { style: { padding: 6 } }, row.name, i === 0 ? " (impacted)" : ""), /* @__PURE__ */ React.createElement("td", null, row.distance != null ? `${row.distance.toFixed(1)} mi` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgBefore)), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgAfter)), /* @__PURE__ */ React.createElement("td", { style: { color: row.deltaPct < -15 ? "#dc2626" : row.deltaPct < -7 ? "#d97706" : th.text } }, fmtPct(row.deltaPct)), /* @__PURE__ */ React.createElement("td", { style: { color: row.weeksBeforeUsed < weeksBefore ? "#d97706" : th.muted } }, row.weeksBeforeUsed, "/", row.weeksAfterUsed, row.weeksBeforeUsed < weeksBefore ? " \u26A0" : ""))))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 11, marginTop: 8 } }, "Source: Pulse net sales via labor blobs. \u26A0 = fewer weeks than requested (live blobs retain ~13 weeks).")));
   }
   function AdminNdcp({ th, user }) {
     const [orders, setOrders] = useState(null);

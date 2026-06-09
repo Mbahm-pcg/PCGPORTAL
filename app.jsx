@@ -24130,6 +24130,27 @@ function ImpactRadar({ th, user, dark }) {
   const [controlPcs, setControlPcs] = useState([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState(null); // { impacted:{...}, controls:[{...}] }
+
+  async function compute() {
+    if (!impactedPc) return;
+    setBusy(true); setStatus('Loading sales history…');
+    const wa = weeksAfter === '' ? null : (+weeksAfter || null);
+    const loadOne = async (pc) => {
+      const blob = await cloudLoad(`pcg_labor_store_${pc}`);
+      const weekly = (blob && blob.weekly) || [];
+      const store = STORES_SEED.find((s) => s.pc === pc);
+      const ba = beforeAfter(weekly, eventDate, weeksBefore, wa);
+      const rankRow = ranked.find((r) => r.pc === pc);
+      return { pc, name: store?.name || pc, distance: rankRow ? rankRow.distance : null, ...ba };
+    };
+    const impacted = await loadOne(impactedPc);
+    const controls = [];
+    for (const pc of controlPcs) controls.push(await loadOne(pc));
+    setResults({ impacted, controls });
+    setStatus('');
+    setBusy(false);
+  }
 
   // Load (or first-time build) the 45-store coordinate cache.
   useEffect(() => {
@@ -24211,6 +24232,7 @@ function ImpactRadar({ th, user, dark }) {
           <input type="number" value={weeksAfter} onChange={(e) => setWeeksAfter(e.target.value)} style={inp(th)} />
         </label>
         <button onClick={geocodeEvent} disabled={busy} style={btn(th)}>Locate &amp; rank</button>
+        <button onClick={compute} disabled={busy || !impactedPc} style={btn(th)}>Compute impact</button>
       </div>
 
       {ranked.length > 0 && (
@@ -24218,6 +24240,60 @@ function ImpactRadar({ th, user, dark }) {
           <strong>{ranked.length}</strong> stores ranked by distance. Impacted (nearest):{' '}
           <strong>{ranked[0].name}</strong> ({ranked[0].distance.toFixed(2)} mi). Controls:{' '}
           {controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(', ')}.
+        </div>
+      )}
+
+      {results && (
+        <div style={{ marginTop: 16 }}>
+          {(() => {
+            const imp = results.impacted;
+            const nearestCtrl = results.controls[0];
+            const ratio = nearestCtrl && nearestCtrl.deltaPct ? (imp.deltaPct / nearestCtrl.deltaPct) : null;
+            return (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <div style={{ ...accentCard(th), padding: 14, minWidth: 180 }}>
+                  <div style={{ color: th.muted, fontSize: 12 }}>Impacted Δ</div>
+                  <div style={{ fontSize: 26, fontWeight: 800 }}>{fmtPct(imp.deltaPct)}</div>
+                  <div style={{ color: th.muted, fontSize: 12 }}>{imp.name} · {imp.weeksBeforeUsed}w before / {imp.weeksAfterUsed}w after</div>
+                </div>
+                <div style={{ ...accentCard(th), padding: 14, minWidth: 180 }}>
+                  <div style={{ color: th.muted, fontSize: 12 }}>Annualized loss</div>
+                  <div style={{ fontSize: 26, fontWeight: 800 }}>{fmtDollars(imp.annualizedLoss)}</div>
+                </div>
+                {ratio && (
+                  <div style={{ ...accentCard(th), padding: 14, minWidth: 180 }}>
+                    <div style={{ color: th.muted, fontSize: 12 }}>vs nearest control</div>
+                    <div style={{ fontSize: 26, fontWeight: 800 }}>{ratio.toFixed(1)}× worse</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: th.muted, fontSize: 12 }}>
+                <th style={{ padding: 6 }}>Store</th><th>Distance</th><th>Before $/wk</th><th>After $/wk</th><th>%Δ</th><th>Weeks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[results.impacted, ...results.controls].map((row, i) => (
+                <tr key={row.pc} style={{ borderTop: `1px solid ${th.sidebarBorder}`, fontWeight: i === 0 ? 700 : 400 }}>
+                  <td style={{ padding: 6 }}>{row.name}{i === 0 ? ' (impacted)' : ''}</td>
+                  <td>{row.distance != null ? `${row.distance.toFixed(1)} mi` : '—'}</td>
+                  <td>{fmtDollars(row.avgBefore)}</td>
+                  <td>{fmtDollars(row.avgAfter)}</td>
+                  <td style={{ color: row.deltaPct < -15 ? '#dc2626' : row.deltaPct < -7 ? '#d97706' : th.text }}>{fmtPct(row.deltaPct)}</td>
+                  <td style={{ color: row.weeksBeforeUsed < weeksBefore ? '#d97706' : th.muted }}>
+                    {row.weeksBeforeUsed}/{row.weeksAfterUsed}{row.weeksBeforeUsed < weeksBefore ? ' ⚠' : ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ color: th.muted, fontSize: 11, marginTop: 8 }}>
+            Source: Pulse net sales via labor blobs. ⚠ = fewer weeks than requested (live blobs retain ~13 weeks).
+          </div>
         </div>
       )}
     </div>
