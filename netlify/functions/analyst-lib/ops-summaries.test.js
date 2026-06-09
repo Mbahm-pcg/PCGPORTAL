@@ -110,4 +110,21 @@ describe('summarizeTickets', () => {
     const r = summarizeTickets([mkTicket()], 6, NOW, STORES_FIX); // Wadsworth is district 1
     assert.strictEqual(r.totalOpen, 0);
   });
+
+  test('critical list is sorted oldest-first before the cap', () => {
+    const r = summarizeTickets([
+      mkTicket({ id: 1, createdAt: '2026-06-05T08:00:00Z', priority: 'High' }), // 4 days
+      mkTicket({ id: 2, createdAt: '2026-05-20T08:00:00Z', priority: 'High' }), // 20 days
+    ], null, NOW, STORES_FIX);
+    assert.strictEqual(r.critical[0].ageDays, 20);
+  });
+
+  test('openByStore keys by PC — same display name at two PCs does not collide', () => {
+    const r = summarizeTickets([
+      mkTicket({ id: 1, storePC: '339616', storeName: 'Twin' }),
+      mkTicket({ id: 2, storePC: '342144', storeName: 'Twin' }),
+    ], null, NOW, STORES_FIX);
+    assert.strictEqual(r.openByStore.length, 2);
+    assert.ok(r.openByStore.every(s => s.open === 1));
+  });
 });

@@ -104,6 +104,7 @@ function summarizeTickets(raw, district, now, stores) {
       return {
         number: t.number || String(t.id),
         title: t.title || null,
+        storePC: t.storePC != null ? String(t.storePC) : null,
         store: t.storeName || (store && store.name) || String(t.storePC),
         district: store ? store.district : null,
         category: t.category || null,
@@ -122,12 +123,14 @@ function summarizeTickets(raw, district, now, stores) {
   };
   const critical = scoped
     .filter(t => CRITICAL_PRIORITIES.has(String(t.priority).toLowerCase()))
+    .sort((a, b) => (b.ageDays || 0) - (a.ageDays || 0)) // oldest first, so the cap keeps the worst
     .slice(0, LIST_CAPS.critical);
   const byStore = {};
   for (const t of scoped) {
-    byStore[t.store] = byStore[t.store] || { store: t.store, district: t.district, open: 0, oldestDays: 0 };
-    byStore[t.store].open++;
-    byStore[t.store].oldestDays = Math.max(byStore[t.store].oldestDays, t.ageDays || 0);
+    const key = String(t.storePC || t.store); // key by PC — store display names can collide
+    byStore[key] = byStore[key] || { store: t.store, district: t.district, open: 0, oldestDays: 0 };
+    byStore[key].open++;
+    byStore[key].oldestDays = Math.max(byStore[key].oldestDays, t.ageDays || 0);
   }
   const tickets = [...scoped].sort((a, b) => (b.ageDays || 0) - (a.ageDays || 0)).slice(0, LIST_CAPS.tickets);
   return {
