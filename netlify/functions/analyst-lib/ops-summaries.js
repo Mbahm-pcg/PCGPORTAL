@@ -89,4 +89,55 @@ function summarizeProjects(raw, district, now, stores) {
   return { available: true, counts, projects };
 }
 
-module.exports = { summarizeProjects, LIST_CAPS };
+const CLOSED_TICKET_STATUSES = new Set(['completed', 'closed', 'resolved', 'done', 'cancelled']);
+const CRITICAL_PRIORITIES = new Set(['high', 'urgent', 'critical']);
+
+function summarizeTickets(raw, district, now, stores) {
+  if (!Array.isArray(raw) || raw.length === 0) return { available: false };
+  const byPc = storesByPc(stores);
+  const nowMs = toMs(now);
+
+  let scoped = raw
+    .filter(t => !CLOSED_TICKET_STATUSES.has(String(t.status || '').toLowerCase()))
+    .map(t => {
+      const store = byPc.get(String(t.storePC));
+      return {
+        number: t.number || String(t.id),
+        title: t.title || null,
+        store: t.storeName || (store && store.name) || String(t.storePC),
+        district: store ? store.district : null,
+        category: t.category || null,
+        priority: t.priority || 'Medium',
+        status: t.status || 'Open',
+        owner: t.ticketOwner || null,
+        dueDate: t.dueDate || null,
+        ageDays: t.createdAt ? Math.max(0, daysBetween(nowMs, toMs(t.createdAt))) : null,
+      };
+    });
+  if (district) scoped = scoped.filter(t => t.district === district);
+
+  const aging = {
+    gt7: scoped.filter(t => (t.ageDays || 0) > 7).length,
+    gt14: scoped.filter(t => (t.ageDays || 0) > 14).length,
+  };
+  const critical = scoped
+    .filter(t => CRITICAL_PRIORITIES.has(String(t.priority).toLowerCase()))
+    .slice(0, LIST_CAPS.critical);
+  const byStore = {};
+  for (const t of scoped) {
+    byStore[t.store] = byStore[t.store] || { store: t.store, district: t.district, open: 0, oldestDays: 0 };
+    byStore[t.store].open++;
+    byStore[t.store].oldestDays = Math.max(byStore[t.store].oldestDays, t.ageDays || 0);
+  }
+  const tickets = [...scoped].sort((a, b) => (b.ageDays || 0) - (a.ageDays || 0)).slice(0, LIST_CAPS.tickets);
+  return {
+    available: true,
+    totalOpen: scoped.length,
+    tickets,
+    openByStore: Object.values(byStore).sort((a, b) => b.open - a.open),
+    aging,
+    critical,
+  };
+}
+
+module.exports = { summarizeProjects, summarizeTickets, LIST_CAPS };

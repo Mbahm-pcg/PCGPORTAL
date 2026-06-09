@@ -1,6 +1,6 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
-const { summarizeProjects } = require('./ops-summaries');
+const { summarizeProjects, summarizeTickets } = require('./ops-summaries');
 
 // Small store fixture (mirrors STORES shape)
 const STORES_FIX = [
@@ -64,5 +64,50 @@ describe('summarizeProjects', () => {
     const p = summarizeProjects(raw, null, NOW, STORES_FIX).projects[0];
     assert.strictEqual(p.budget, null);
     assert.strictEqual(p.actualCost, null);
+  });
+});
+
+describe('summarizeTickets', () => {
+  const mkTicket = (over = {}) => ({
+    id: 1780950032935, number: 'T-0001', title: 'Ice machine down', storePC: '339616',
+    storeName: 'Wadsworth', category: 'Equipment Repair / Maintenance', priority: 'Medium',
+    dueDate: '2026-06-11', status: 'In Progress', ticketOwner: 'Clarence Jackson',
+    createdAt: '2026-06-01T08:00:00Z',
+    attachments: [{ name: 'image.jpg', dataUrl: 'data:image/jpeg;base64,AAAA' }],
+    comments: [{ text: 'big blob of chatter' }],
+    ...over,
+  });
+
+  test('empty → available:false', () => {
+    assert.deepStrictEqual(summarizeTickets(null, null, NOW, STORES_FIX), { available: false });
+  });
+
+  test('open ticket summarized with ageDays, owner; attachments/comments stripped', () => {
+    const r = summarizeTickets([mkTicket()], null, NOW, STORES_FIX);
+    assert.strictEqual(r.totalOpen, 1);
+    const t = r.tickets[0];
+    assert.strictEqual(t.owner, 'Clarence Jackson');
+    assert.strictEqual(t.ageDays, 8);
+    assert.strictEqual(t.district, 1);
+    const s = JSON.stringify(r);
+    assert.ok(!s.includes('dataUrl') && !s.includes('base64') && !s.includes('chatter'));
+  });
+
+  test('closed statuses excluded; aging buckets and critical list', () => {
+    const r = summarizeTickets([
+      mkTicket({ id: 1, status: 'Completed' }),
+      mkTicket({ id: 2, createdAt: '2026-05-20T08:00:00Z', priority: 'High' }), // 20 days old
+      mkTicket({ id: 3, createdAt: '2026-06-08T08:00:00Z' }),                   // 1 day old
+    ], null, NOW, STORES_FIX);
+    assert.strictEqual(r.totalOpen, 2);
+    assert.deepStrictEqual(r.aging, { gt7: 1, gt14: 1 });
+    assert.strictEqual(r.critical.length, 1);
+    assert.strictEqual(r.tickets[0].ageDays, 20); // oldest first
+    assert.strictEqual(r.openByStore[0].open, 2);
+  });
+
+  test('district filter', () => {
+    const r = summarizeTickets([mkTicket()], 6, NOW, STORES_FIX); // Wadsworth is district 1
+    assert.strictEqual(r.totalOpen, 0);
   });
 });
