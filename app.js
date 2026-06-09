@@ -344,6 +344,58 @@
     return lines.join("\r\n");
   }
 
+  // src/impact.mjs
+  var EARTH_RADIUS_MI = 3958.7613;
+  function haversineMiles(a, b) {
+    if (!a || !b) return NaN;
+    const toRad = (d) => d * Math.PI / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+    return 2 * EARTH_RADIUS_MI * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  var round2 = (n) => Math.round(n * 100) / 100;
+  function beforeAfter(weekly, eventDate, weeksBefore, weeksAfter) {
+    const rows = (weekly || []).filter((w) => w && w.weekOf && typeof w.sales === "number").slice().sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+    const series = rows.map((w) => ({
+      weekOf: w.weekOf,
+      sales: w.sales,
+      side: w.weekOf <= eventDate ? "before" : "after"
+    }));
+    const beforeAll = series.filter((s) => s.side === "before");
+    const afterAll = series.filter((s) => s.side === "after");
+    const beforeUsed = beforeAll.slice(Math.max(0, beforeAll.length - weeksBefore));
+    const afterUsed = weeksAfter == null ? afterAll : afterAll.slice(0, weeksAfter);
+    const mean = (arr) => arr.length ? arr.reduce((s, x) => s + x.sales, 0) / arr.length : 0;
+    const avgBefore = mean(beforeUsed);
+    const avgAfter = mean(afterUsed);
+    const deltaPct = avgBefore && afterUsed.length ? (avgAfter - avgBefore) / avgBefore * 100 : 0;
+    const annualizedLoss = afterUsed.length ? (avgBefore - avgAfter) * 52 : 0;
+    return {
+      avgBefore: round2(avgBefore),
+      avgAfter: round2(avgAfter),
+      deltaPct: round2(deltaPct),
+      annualizedLoss: Math.round(annualizedLoss),
+      weeksBeforeUsed: beforeUsed.length,
+      weeksAfterUsed: afterUsed.length,
+      series
+    };
+  }
+  function pickControls(rankedStores, impactedPc, n = 3) {
+    const pool = (rankedStores || []).filter((s) => s && s.pc !== impactedPc).slice().sort((a, b) => a.distance - b.distance);
+    if (pool.length <= n) return pool;
+    if (n <= 1) return pool.slice(0, Math.max(0, n));
+    const picks = [];
+    for (let i = 0; i < n; i++) {
+      const idx = Math.round(i * (pool.length - 1) / (n - 1));
+      picks.push(pool[idx]);
+    }
+    const seen = /* @__PURE__ */ new Set();
+    return picks.filter((s) => seen.has(s.pc) ? false : seen.add(s.pc));
+  }
+
   // app.jsx
   var { useState, useRef, useCallback, useEffect } = React;
   var GOOGLE_CLIENT_ID = "450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com";
@@ -13226,6 +13278,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       { id: "labor", label: "Labor", icon: (c) => ICONS.dollar(c) },
       { id: "pnl", label: "P&L", icon: (c) => ICONS.dollar(c) },
       { id: "ndcp", label: "NDCP Orders", icon: (c) => ICONS.dollar(c) },
+      { id: "impact", label: "Impact Radar", icon: (c) => ICONS.map(c) },
       { id: "cash", label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
       { id: "recon", label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
@@ -13246,6 +13299,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       { id: "labor", label: "Labor", icon: (c) => ICONS.dollar(c) },
       { id: "pnl", label: "P&L", icon: (c) => ICONS.dollar(c) },
       { id: "ndcp", label: "NDCP Orders", icon: (c) => ICONS.dollar(c) },
+      { id: "impact", label: "Impact Radar", icon: (c) => ICONS.map(c) },
       { id: "cash", label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
@@ -18258,6 +18312,288 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       { label: "= Contribution", value: store.contribution, color: "#22c55e" }
     ];
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 1e3 }, onClick: onClose }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), width: "min(540px, 92vw)", height: "100%", overflowY: "auto", borderRadius: 0, padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text } }, store.name), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { ...btn(th), padding: "0.3rem 0.7rem" } }, "Close")), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, waterfall.map((w) => /* @__PURE__ */ React.createElement("div", { key: w.label, style: { display: "flex", justifyContent: "space-between", padding: "0.4rem 0", borderBottom: `1px solid ${th.cardBorder}`, color: th.text } }, /* @__PURE__ */ React.createElement("span", null, w.label), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: w.color } }, fmtDollars(w.value))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.5rem", textTransform: "uppercase" } }, "Margin % Trend"), /* @__PURE__ */ React.createElement("canvas", { ref: canvasRef, style: { maxHeight: "180px" } })), [["Weekly", rollups.weekly], ["Monthly", rollups.monthly]].map(([title, rows]) => /* @__PURE__ */ React.createElement("div", { key: title, style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.4rem", textTransform: "uppercase" } }, title), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem", color: th.text } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { color: th.muted, textAlign: "left" } }, ["Period", "Revenue", "Contribution", "Margin %"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "0.3rem" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.key, style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem" } }, r.key), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem" } }, fmtDollars(r.revenue)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem" } }, fmtDollars(r.contribution)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem", color: r.marginPct >= 30 ? "#22c55e" : "#ef4444" } }, fmtPct(r.marginPct))))))))));
+  }
+  var COORDS_BLOB = "pcg_store_coords_v1";
+  function ImpactRadar({ th, user, dark }) {
+    const [eventAddr, setEventAddr] = useState("2310 W Passyunk Ave, Philadelphia, PA 19145");
+    const [eventLatLng, setEventLatLng] = useState(null);
+    const [eventDate, setEventDate] = useState("2025-12-28");
+    const [weeksBefore, setWeeksBefore] = useState(13);
+    const [weeksAfter, setWeeksAfter] = useState("");
+    const [coords, setCoords] = useState(null);
+    const [ranked, setRanked] = useState([]);
+    const [impactedPc, setImpactedPc] = useState(null);
+    const [controlPcs, setControlPcs] = useState([]);
+    const [status, setStatus] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [results, setResults] = useState(null);
+    const chartCanvas = useRef(null);
+    const chartRef = useRef(null);
+    const mapDiv = useRef(null);
+    const mapRef = useRef(null);
+    const [radiusMi, setRadiusMi] = useState(1);
+    async function compute() {
+      if (!impactedPc) return;
+      setBusy(true);
+      setStatus("Loading sales history\u2026");
+      const wa = weeksAfter === "" ? null : +weeksAfter || null;
+      const loadOne = async (pc) => {
+        const blob = await cloudLoad(`pcg_labor_store_${pc}`);
+        const weekly = blob && blob.weekly || [];
+        const store = STORES_SEED.find((s) => s.pc === pc);
+        const ba = beforeAfter(weekly, eventDate, weeksBefore, wa);
+        const rankRow = ranked.find((r) => r.pc === pc);
+        return { pc, name: store?.name || pc, distance: rankRow ? rankRow.distance : null, ...ba };
+      };
+      const impacted = await loadOne(impactedPc);
+      const controls = [];
+      for (const pc of controlPcs) controls.push(await loadOne(pc));
+      setResults({ impacted, controls });
+      setStatus("");
+      setBusy(false);
+    }
+    function generatePdf() {
+      if (!results) return;
+      const Ctor = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
+      if (!Ctor) {
+        setStatus("jsPDF not available");
+        return;
+      }
+      const doc = new Ctor({ unit: "in", format: "letter", orientation: "portrait" });
+      const margin = 0.6, contentW = 8.5 - margin * 2;
+      const hx = BRAND_CONFIG.primary.replace("#", "");
+      const orange = [parseInt(hx.slice(0, 2), 16), parseInt(hx.slice(2, 4), 16), parseInt(hx.slice(4, 6), 16)];
+      let y = margin;
+      doc.setFillColor(orange[0], orange[1], orange[2]);
+      doc.rect(margin, y, contentW, 0.7, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text("Impact / Cannibalization Analysis", margin + 0.2, y + 0.3);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(`Event: ${eventAddr}  \xB7  Opening: ${eventDate}`, margin + 0.2, y + 0.52);
+      y += 0.95;
+      const imp = results.impacted;
+      doc.setTextColor(17, 17, 17);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text(`Documented Sales Impact \u2014 ${imp.name}`, margin, y);
+      y += 0.28;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      const impLines = [
+        `Avg weekly net sales BEFORE: ${fmtDollars(imp.avgBefore)}  (${imp.weeksBeforeUsed} weeks)`,
+        `Avg weekly net sales AFTER:  ${fmtDollars(imp.avgAfter)}  (${imp.weeksAfterUsed} weeks)`,
+        `Change: ${fmtPct(imp.deltaPct)}     Annualized revenue loss: ${fmtDollars(imp.annualizedLoss)}`
+      ];
+      impLines.forEach((t) => {
+        doc.text(t, margin, y);
+        y += 0.22;
+      });
+      y += 0.15;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text("Control Store Comparison", margin, y);
+      y += 0.26;
+      doc.setFontSize(9);
+      const cols = [margin, margin + 2.4, margin + 3.4, margin + 4.7, margin + 6];
+      doc.text("Store", cols[0], y);
+      doc.text("Dist", cols[1], y);
+      doc.text("Before/wk", cols[2], y);
+      doc.text("After/wk", cols[3], y);
+      doc.text("%\u0394", cols[4], y);
+      y += 0.06;
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, y, margin + contentW, y);
+      y += 0.18;
+      doc.setFont("helvetica", "normal");
+      [results.impacted, ...results.controls].forEach((r, i) => {
+        doc.setFont("helvetica", i === 0 ? "bold" : "normal");
+        doc.text(`${r.name}${i === 0 ? " (impacted)" : ""}`.slice(0, 28), cols[0], y);
+        doc.text(r.distance != null ? `${r.distance.toFixed(1)}mi` : "\u2014", cols[1], y);
+        doc.text(fmtDollars(r.avgBefore), cols[2], y);
+        doc.text(fmtDollars(r.avgAfter), cols[3], y);
+        doc.text(fmtPct(r.deltaPct), cols[4], y);
+        y += 0.2;
+      });
+      y += 0.2;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      if (y > 9.5) {
+        doc.addPage();
+        y = margin;
+      }
+      doc.text(`Weekly Net Sales Trend \u2014 ${imp.name}`, margin, y);
+      y += 0.26;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      imp.series.forEach((s) => {
+        if (y > 10.4) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(s.weekOf, margin, y);
+        doc.text(fmtDollars(s.sales), margin + 1.6, y);
+        doc.text(s.side, margin + 3.2, y);
+        y += 0.18;
+      });
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 120);
+      doc.text("Source: Dunkin\u2019 Pulse POS net sales. Distances are geocoded centroid estimates (US Census).", margin, 10.7);
+      doc.save(`impact-${imp.name.replace(/\s+/g, "-")}-${eventDate}.pdf`);
+    }
+    useEffect(() => {
+      (async () => {
+        let c = await cloudLoad(COORDS_BLOB);
+        if (!c || Object.keys(c).length < STORES_SEED.length) {
+          setStatus("Geocoding store addresses (first run)\u2026");
+          c = await buildCoordsCache(c || {});
+          await cloudSave(COORDS_BLOB, c);
+        }
+        setCoords(c);
+        setStatus("");
+      })();
+    }, []);
+    async function buildCoordsCache(existing) {
+      const out = { ...existing };
+      for (const s of STORES_SEED) {
+        if (out[s.pc]) continue;
+        const full = `${s.address}, ${s.city}, ${s.state} ${s.zip}`;
+        try {
+          const r = await fetch("/.netlify/functions/geocode", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: full })
+          }).then((x) => x.json());
+          if (r && r.matched) out[s.pc] = { lat: r.lat, lng: r.lng };
+        } catch {
+        }
+      }
+      return out;
+    }
+    async function geocodeEvent() {
+      setBusy(true);
+      setStatus("Locating event address\u2026");
+      try {
+        const r = await fetch("/.netlify/functions/geocode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: eventAddr })
+        }).then((x) => x.json());
+        if (r && r.matched) {
+          setEventLatLng({ lat: r.lat, lng: r.lng });
+          setStatus("");
+        } else setStatus("No match \u2014 enter lat/lng manually.");
+      } catch {
+        setStatus("Geocode failed \u2014 enter lat/lng manually.");
+      }
+      setBusy(false);
+    }
+    useEffect(() => {
+      if (!eventLatLng || !coords) return;
+      const rows = STORES_SEED.filter((s) => coords[s.pc]).map((s) => ({
+        pc: s.pc,
+        name: s.name,
+        address: `${s.address}, ${s.city}`,
+        distance: haversineMiles(eventLatLng, coords[s.pc])
+      })).sort((a, b) => a.distance - b.distance);
+      setRanked(rows);
+      if (rows.length) {
+        setImpactedPc(rows[0].pc);
+        setControlPcs(pickControls(rows, rows[0].pc, 3).map((s) => s.pc));
+      }
+    }, [eventLatLng, coords]);
+    useEffect(() => {
+      if (!results || !chartCanvas.current || !window.Chart) return;
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+      const all = [results.impacted, ...results.controls];
+      const labels = [...new Set(all.flatMap((r) => r.series.map((s) => s.weekOf)))].sort();
+      const palette = ["#FF671F", "#2563eb", "#16a34a", "#9333ea", "#0891b2"];
+      const datasets = all.map((r, i) => {
+        const byWeek = Object.fromEntries(r.series.map((s) => [s.weekOf, s.sales]));
+        return {
+          label: r.name + (i === 0 ? " (impacted)" : ""),
+          data: labels.map((w) => byWeek[w] ?? null),
+          borderColor: palette[i % palette.length],
+          borderWidth: i === 0 ? 3 : 1.5,
+          spanGaps: true,
+          tension: 0.25,
+          pointRadius: 2
+        };
+      });
+      chartRef.current = new window.Chart(chartCanvas.current.getContext("2d"), {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: th.text } },
+            tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtDollars(c.parsed.y)}` } }
+          },
+          scales: {
+            x: { ticks: { color: th.muted, maxRotation: 60, minRotation: 60 }, grid: { color: th.sidebarBorder } },
+            y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) }, grid: { color: th.sidebarBorder } }
+          }
+        }
+      });
+      return () => {
+        if (chartRef.current) {
+          chartRef.current.destroy();
+          chartRef.current = null;
+        }
+      };
+    }, [results, dark]);
+    useEffect(() => {
+      if (!eventLatLng || !mapDiv.current || !window.L) return;
+      if (!mapRef.current) {
+        mapRef.current = window.L.map(mapDiv.current).setView([eventLatLng.lat, eventLatLng.lng], 13);
+        window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "\xA9 OpenStreetMap",
+          maxZoom: 19
+        }).addTo(mapRef.current);
+      }
+      const map = mapRef.current;
+      map.eachLayer((l) => {
+        if (!(l instanceof window.L.TileLayer)) map.removeLayer(l);
+      });
+      window.L.marker([eventLatLng.lat, eventLatLng.lng]).addTo(map).bindPopup("Event (new competitor)");
+      window.L.circle([eventLatLng.lat, eventLatLng.lng], {
+        radius: radiusMi * 1609.34,
+        color: "#FF671F",
+        weight: 1,
+        fillOpacity: 0.06
+      }).addTo(map);
+      const deltaFor = (pc) => {
+        if (!results) return null;
+        const row = [results.impacted, ...results.controls].find((r) => r.pc === pc);
+        return row ? row.deltaPct : null;
+      };
+      const colorFor = (d) => d == null ? "#94a3b8" : d < -15 ? "#dc2626" : d < -7 ? "#d97706" : "#16a34a";
+      for (const r of ranked) {
+        const c = coords[r.pc];
+        if (!c) continue;
+        const d = deltaFor(r.pc);
+        window.L.circleMarker([c.lat, c.lng], {
+          radius: r.pc === impactedPc ? 9 : 6,
+          color: colorFor(d),
+          fillColor: colorFor(d),
+          fillOpacity: 0.85,
+          weight: 1
+        }).addTo(map).bindPopup(`${r.name} \xB7 ${r.distance.toFixed(1)} mi${d != null ? ` \xB7 ${fmtPct(d)}` : ""}`);
+      }
+      map.setView([eventLatLng.lat, eventLatLng.lng], 13);
+    }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
+    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", color: th.text } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Raleway, sans-serif", fontWeight: 800 } }, "Impact / Cannibalization Radar"), status && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 8 } }, status), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { flex: "1 1 320px" } }, "Event address", /* @__PURE__ */ React.createElement("input", { value: eventAddr, onChange: (e) => setEventAddr(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Opening date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eventDate, onChange: (e) => setEventDate(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks before", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksBefore, onChange: (e) => setWeeksBefore(+e.target.value || 13), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks after (blank = now)", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksAfter, onChange: (e) => setWeeksAfter(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("button", { onClick: geocodeEvent, disabled: busy, style: btn(th) }, "Locate & rank"), /* @__PURE__ */ React.createElement("button", { onClick: compute, disabled: busy || !impactedPc, style: btn(th) }, "Compute impact")), ranked.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ranked.length), " stores ranked by distance. Impacted (nearest):", " ", /* @__PURE__ */ React.createElement("strong", null, ranked[0].name), " (", ranked[0].distance.toFixed(2), " mi). Controls:", " ", controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(", "), "."), eventLatLng && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: th.muted } }, "Trade-area radius (mi)", " ", /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.1", value: radiusMi, onChange: (e) => setRadiusMi(+e.target.value || 1), style: { ...inp(th), width: 80 } })), /* @__PURE__ */ React.createElement("div", { ref: mapDiv, style: { height: 360, marginTop: 8, borderRadius: 8, overflow: "hidden" } })), results && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement("button", { onClick: generatePdf, style: { ...btn(th), marginBottom: 12 } }, "\u{1F4C4} Generate PDF exhibit"), /* @__PURE__ */ React.createElement("div", { style: { height: 320, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("canvas", { ref: chartCanvas })), (() => {
+      const imp = results.impacted;
+      const nearestCtrl = results.controls[0];
+      const ratio = nearestCtrl && nearestCtrl.deltaPct ? imp.deltaPct / nearestCtrl.deltaPct : null;
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { ...accentCard(th), padding: 14, minWidth: 180 } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 12 } }, "Impacted \u0394"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 26, fontWeight: 800 } }, fmtPct(imp.deltaPct)), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 12 } }, imp.name, " \xB7 ", imp.weeksBeforeUsed, "w before / ", imp.weeksAfterUsed, "w after")), /* @__PURE__ */ React.createElement("div", { style: { ...accentCard(th), padding: 14, minWidth: 180 } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 12 } }, "Annualized loss"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 26, fontWeight: 800 } }, fmtDollars(imp.annualizedLoss))), ratio && /* @__PURE__ */ React.createElement("div", { style: { ...accentCard(th), padding: 14, minWidth: 180 } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 12 } }, "vs nearest control"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 26, fontWeight: 800 } }, ratio.toFixed(1), "\xD7 worse")));
+    })(), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", color: th.muted, fontSize: 12 } }, /* @__PURE__ */ React.createElement("th", { style: { padding: 6 } }, "Store"), /* @__PURE__ */ React.createElement("th", null, "Distance"), /* @__PURE__ */ React.createElement("th", null, "Before $/wk"), /* @__PURE__ */ React.createElement("th", null, "After $/wk"), /* @__PURE__ */ React.createElement("th", null, "%\u0394"), /* @__PURE__ */ React.createElement("th", null, "Weeks"))), /* @__PURE__ */ React.createElement("tbody", null, [results.impacted, ...results.controls].map((row, i) => /* @__PURE__ */ React.createElement("tr", { key: row.pc, style: { borderTop: `1px solid ${th.sidebarBorder}`, fontWeight: i === 0 ? 700 : 400 } }, /* @__PURE__ */ React.createElement("td", { style: { padding: 6 } }, row.name, i === 0 ? " (impacted)" : ""), /* @__PURE__ */ React.createElement("td", null, row.distance != null ? `${row.distance.toFixed(1)} mi` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgBefore)), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgAfter)), /* @__PURE__ */ React.createElement("td", { style: { color: row.deltaPct < -15 ? "#dc2626" : row.deltaPct < -7 ? "#d97706" : th.text } }, fmtPct(row.deltaPct)), /* @__PURE__ */ React.createElement("td", { style: { color: row.weeksBeforeUsed < weeksBefore ? "#d97706" : th.muted } }, row.weeksBeforeUsed, "/", row.weeksAfterUsed, row.weeksBeforeUsed < weeksBefore ? " \u26A0" : ""))))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 11, marginTop: 8 } }, "Source: Pulse net sales via labor blobs. \u26A0 = fewer weeks than requested (live blobs retain ~13 weeks).")));
   }
   function AdminNdcp({ th, user }) {
     const [orders, setOrders] = useState(null);
@@ -25212,7 +25548,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.48", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.49", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
@@ -25468,7 +25804,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     } }, dataAlert.type === "success" ? ICONS.checkCircle("#111") : ICONS.xCircle("#111"), " ", dataAlert.msg), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" } }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "settings" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminSettings, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
+    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "settings" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminSettings, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
       const ut = user?.userType;
       const pinnedIds = ut === "executive" || ut === "it" ? ["dashboard", "pulse", "labor", "chat"] : ut === "office_staff" ? ["dashboard", "pulse", "labor", "chat"] : ut === "dm" ? ["dashboard", "labor", "chat", "tickets"] : ut === "manager" ? ["dashboard", "labor", "chat", "tickets"] : ["dashboard", "chat", "announcements", "tickets"];
       const pinnedTabs = pinnedIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);

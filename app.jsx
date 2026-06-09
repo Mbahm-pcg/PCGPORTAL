@@ -5,6 +5,7 @@ import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, authHeader, clearSessionToken } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
+import { haversineMiles, beforeAfter, pickControls } from './src/impact.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -16539,6 +16540,7 @@ const getTabs = (user) => {
     { id: "labor",     label: "Labor",          icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "P&L",            icon: (c) => ICONS.dollar(c) },
     { id: "ndcp",      label: "NDCP Orders",    icon: (c) => ICONS.dollar(c) },
+    { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.map(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
@@ -16560,6 +16562,7 @@ const getTabs = (user) => {
     { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "P&L",          icon: (c) => ICONS.dollar(c) },
     { id: "ndcp",      label: "NDCP Orders",  icon: (c) => ICONS.dollar(c) },
+    { id: "impact",    label: "Impact Radar", icon: (c) => ICONS.map(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
@@ -24113,6 +24116,347 @@ function PnLStoreDetail({ store, th, onClose }) {
 // Browse National DCP supply orders ingested from the reports@ mailbox. Shows the
 // latest version of each order with a revision badge + dollar delta; click through
 // for the full version history and line items. Read-only (data from ndcp.js).
+const COORDS_BLOB = 'pcg_store_coords_v1';
+
+function ImpactRadar({ th, user, dark }) {
+  const [eventAddr, setEventAddr] = useState('2310 W Passyunk Ave, Philadelphia, PA 19145');
+  const [eventLatLng, setEventLatLng] = useState(null); // {lat,lng}
+  const [eventDate, setEventDate] = useState('2025-12-28');
+  const [weeksBefore, setWeeksBefore] = useState(13);
+  const [weeksAfter, setWeeksAfter] = useState(''); // '' = through now
+  const [coords, setCoords] = useState(null);        // { [pc]: {lat,lng} }
+  const [ranked, setRanked] = useState([]);          // [{pc,name,address,distance}]
+  const [impactedPc, setImpactedPc] = useState(null);
+  const [controlPcs, setControlPcs] = useState([]);
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState(null); // { impacted:{...}, controls:[{...}] }
+  const chartCanvas = useRef(null);
+  const chartRef = useRef(null);
+  const mapDiv = useRef(null);
+  const mapRef = useRef(null);
+  const [radiusMi, setRadiusMi] = useState(1.0);
+
+  async function compute() {
+    if (!impactedPc) return;
+    setBusy(true); setStatus('Loading sales history…');
+    const wa = weeksAfter === '' ? null : (+weeksAfter || null);
+    const loadOne = async (pc) => {
+      const blob = await cloudLoad(`pcg_labor_store_${pc}`);
+      const weekly = (blob && blob.weekly) || [];
+      const store = STORES_SEED.find((s) => s.pc === pc);
+      const ba = beforeAfter(weekly, eventDate, weeksBefore, wa);
+      const rankRow = ranked.find((r) => r.pc === pc);
+      return { pc, name: store?.name || pc, distance: rankRow ? rankRow.distance : null, ...ba };
+    };
+    const impacted = await loadOne(impactedPc);
+    const controls = [];
+    for (const pc of controlPcs) controls.push(await loadOne(pc));
+    setResults({ impacted, controls });
+    setStatus('');
+    setBusy(false);
+  }
+
+  function generatePdf() {
+    if (!results) return;
+    const Ctor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (!Ctor) { setStatus('jsPDF not available'); return; }
+    const doc = new Ctor({ unit: 'in', format: 'letter', orientation: 'portrait' });
+    const margin = 0.6, contentW = 8.5 - margin * 2;
+    const hx = BRAND_CONFIG.primary.replace('#', '');
+    const orange = [parseInt(hx.slice(0, 2), 16), parseInt(hx.slice(2, 4), 16), parseInt(hx.slice(4, 6), 16)];
+    let y = margin;
+
+    // Header band
+    doc.setFillColor(orange[0], orange[1], orange[2]); doc.rect(margin, y, contentW, 0.7, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+    doc.text('Impact / Cannibalization Analysis', margin + 0.2, y + 0.3);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    doc.text(`Event: ${eventAddr}  ·  Opening: ${eventDate}`, margin + 0.2, y + 0.52);
+    y += 0.95;
+
+    const imp = results.impacted;
+    doc.setTextColor(17, 17, 17); doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    doc.text(`Documented Sales Impact — ${imp.name}`, margin, y); y += 0.28;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    const impLines = [
+      `Avg weekly net sales BEFORE: ${fmtDollars(imp.avgBefore)}  (${imp.weeksBeforeUsed} weeks)`,
+      `Avg weekly net sales AFTER:  ${fmtDollars(imp.avgAfter)}  (${imp.weeksAfterUsed} weeks)`,
+      `Change: ${fmtPct(imp.deltaPct)}     Annualized revenue loss: ${fmtDollars(imp.annualizedLoss)}`,
+    ];
+    impLines.forEach((t) => { doc.text(t, margin, y); y += 0.22; });
+    y += 0.15;
+
+    // Control comparison table
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    doc.text('Control Store Comparison', margin, y); y += 0.26;
+    doc.setFontSize(9);
+    const cols = [margin, margin + 2.4, margin + 3.4, margin + 4.7, margin + 6.0];
+    doc.text('Store', cols[0], y); doc.text('Dist', cols[1], y);
+    doc.text('Before/wk', cols[2], y); doc.text('After/wk', cols[3], y); doc.text('%Δ', cols[4], y);
+    y += 0.06; doc.setDrawColor(200, 200, 200); doc.line(margin, y, margin + contentW, y); y += 0.18;
+    doc.setFont('helvetica', 'normal');
+    [results.impacted, ...results.controls].forEach((r, i) => {
+      doc.setFont('helvetica', i === 0 ? 'bold' : 'normal');
+      doc.text(`${r.name}${i === 0 ? ' (impacted)' : ''}`.slice(0, 28), cols[0], y);
+      doc.text(r.distance != null ? `${r.distance.toFixed(1)}mi` : '—', cols[1], y);
+      doc.text(fmtDollars(r.avgBefore), cols[2], y);
+      doc.text(fmtDollars(r.avgAfter), cols[3], y);
+      doc.text(fmtPct(r.deltaPct), cols[4], y);
+      y += 0.2;
+    });
+    y += 0.2;
+
+    // Weekly trend table (impacted only, paginated)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    if (y > 9.5) { doc.addPage(); y = margin; }
+    doc.text(`Weekly Net Sales Trend — ${imp.name}`, margin, y); y += 0.26;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    imp.series.forEach((s) => {
+      if (y > 10.4) { doc.addPage(); y = margin; }
+      doc.text(s.weekOf, margin, y);
+      doc.text(fmtDollars(s.sales), margin + 1.6, y);
+      doc.text(s.side, margin + 3.2, y);
+      y += 0.18;
+    });
+
+    doc.setFontSize(8); doc.setTextColor(120, 120, 120);
+    doc.text('Source: Dunkin’ Pulse POS net sales. Distances are geocoded centroid estimates (US Census).', margin, 10.7);
+    doc.save(`impact-${imp.name.replace(/\s+/g, '-')}-${eventDate}.pdf`);
+  }
+
+  // Load (or first-time build) the 45-store coordinate cache.
+  useEffect(() => {
+    (async () => {
+      let c = await cloudLoad(COORDS_BLOB);
+      if (!c || Object.keys(c).length < STORES_SEED.length) {
+        setStatus('Geocoding store addresses (first run)…');
+        c = await buildCoordsCache(c || {});
+        await cloudSave(COORDS_BLOB, c);
+      }
+      setCoords(c);
+      setStatus('');
+    })();
+  }, []);
+
+  async function buildCoordsCache(existing) {
+    const out = { ...existing };
+    for (const s of STORES_SEED) {
+      if (out[s.pc]) continue;
+      const full = `${s.address}, ${s.city}, ${s.state} ${s.zip}`;
+      try {
+        const r = await fetch('/.netlify/functions/geocode', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: full }),
+        }).then((x) => x.json());
+        if (r && r.matched) out[s.pc] = { lat: r.lat, lng: r.lng };
+      } catch { /* skip; left out of cache, re-geocodable later */ }
+    }
+    return out;
+  }
+
+  async function geocodeEvent() {
+    setBusy(true); setStatus('Locating event address…');
+    try {
+      const r = await fetch('/.netlify/functions/geocode', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: eventAddr }),
+      }).then((x) => x.json());
+      if (r && r.matched) { setEventLatLng({ lat: r.lat, lng: r.lng }); setStatus(''); }
+      else setStatus('No match — enter lat/lng manually.');
+    } catch { setStatus('Geocode failed — enter lat/lng manually.'); }
+    setBusy(false);
+  }
+
+  // Rank stores by distance whenever the event location or coords cache changes.
+  useEffect(() => {
+    if (!eventLatLng || !coords) return;
+    const rows = STORES_SEED
+      .filter((s) => coords[s.pc])
+      .map((s) => ({
+        pc: s.pc, name: s.name, address: `${s.address}, ${s.city}`,
+        distance: haversineMiles(eventLatLng, coords[s.pc]),
+      }))
+      .sort((a, b) => a.distance - b.distance);
+    setRanked(rows);
+    if (rows.length) {
+      setImpactedPc(rows[0].pc);
+      setControlPcs(pickControls(rows, rows[0].pc, 3).map((s) => s.pc));
+    }
+  }, [eventLatLng, coords]);
+
+  // (Re)draw the trend chart whenever results (or theme) change.
+  useEffect(() => {
+    if (!results || !chartCanvas.current || !window.Chart) return;
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+
+    const all = [results.impacted, ...results.controls];
+    const labels = [...new Set(all.flatMap((r) => r.series.map((s) => s.weekOf)))].sort();
+    const palette = ['#FF671F', '#2563eb', '#16a34a', '#9333ea', '#0891b2'];
+    const datasets = all.map((r, i) => {
+      const byWeek = Object.fromEntries(r.series.map((s) => [s.weekOf, s.sales]));
+      return {
+        label: r.name + (i === 0 ? ' (impacted)' : ''),
+        data: labels.map((w) => byWeek[w] ?? null),
+        borderColor: palette[i % palette.length],
+        borderWidth: i === 0 ? 3 : 1.5,
+        spanGaps: true, tension: 0.25, pointRadius: 2,
+      };
+    });
+
+    chartRef.current = new window.Chart(chartCanvas.current.getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: th.text } },
+          tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtDollars(c.parsed.y)}` } },
+        },
+        scales: {
+          x: { ticks: { color: th.muted, maxRotation: 60, minRotation: 60 }, grid: { color: th.sidebarBorder } },
+          y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) }, grid: { color: th.sidebarBorder } },
+        },
+      },
+    });
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [results, dark]);
+
+  // (Re)draw the Leaflet trade-area map: event pin, radius circle, severity-colored store markers.
+  useEffect(() => {
+    if (!eventLatLng || !mapDiv.current || !window.L) return;
+    if (!mapRef.current) {
+      mapRef.current = window.L.map(mapDiv.current).setView([eventLatLng.lat, eventLatLng.lng], 13);
+      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap', maxZoom: 19,
+      }).addTo(mapRef.current);
+    }
+    const map = mapRef.current;
+    // Clear prior overlay layers (keep the tile layer).
+    map.eachLayer((l) => { if (!(l instanceof window.L.TileLayer)) map.removeLayer(l); });
+
+    window.L.marker([eventLatLng.lat, eventLatLng.lng]).addTo(map).bindPopup('Event (new competitor)');
+    window.L.circle([eventLatLng.lat, eventLatLng.lng], {
+      radius: radiusMi * 1609.34, color: '#FF671F', weight: 1, fillOpacity: 0.06,
+    }).addTo(map);
+
+    const deltaFor = (pc) => {
+      if (!results) return null;
+      const row = [results.impacted, ...results.controls].find((r) => r.pc === pc);
+      return row ? row.deltaPct : null;
+    };
+    const colorFor = (d) => (d == null ? '#94a3b8' : d < -15 ? '#dc2626' : d < -7 ? '#d97706' : '#16a34a');
+
+    for (const r of ranked) {
+      const c = coords[r.pc]; if (!c) continue;
+      const d = deltaFor(r.pc);
+      window.L.circleMarker([c.lat, c.lng], {
+        radius: r.pc === impactedPc ? 9 : 6, color: colorFor(d), fillColor: colorFor(d), fillOpacity: 0.85, weight: 1,
+      }).addTo(map).bindPopup(`${r.name} · ${r.distance.toFixed(1)} mi${d != null ? ` · ${fmtPct(d)}` : ''}`);
+    }
+    map.setView([eventLatLng.lat, eventLatLng.lng], 13);
+  }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
+
+  return (
+    <div style={{ padding: '1rem', color: th.text }}>
+      <h2 style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 800 }}>Impact / Cannibalization Radar</h2>
+      {status && <div style={{ color: th.muted, marginBottom: 8 }}>{status}</div>}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+        <label style={{ flex: '1 1 320px' }}>
+          Event address
+          <input value={eventAddr} onChange={(e) => setEventAddr(e.target.value)} style={inp(th)} />
+        </label>
+        <label>Opening date
+          <input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} style={inp(th)} />
+        </label>
+        <label>Weeks before
+          <input type="number" value={weeksBefore} onChange={(e) => setWeeksBefore(+e.target.value || 13)} style={inp(th)} />
+        </label>
+        <label>Weeks after (blank = now)
+          <input type="number" value={weeksAfter} onChange={(e) => setWeeksAfter(e.target.value)} style={inp(th)} />
+        </label>
+        <button onClick={geocodeEvent} disabled={busy} style={btn(th)}>Locate &amp; rank</button>
+        <button onClick={compute} disabled={busy || !impactedPc} style={btn(th)}>Compute impact</button>
+      </div>
+
+      {ranked.length > 0 && (
+        <div style={{ ...card(th), padding: 12 }}>
+          <strong>{ranked.length}</strong> stores ranked by distance. Impacted (nearest):{' '}
+          <strong>{ranked[0].name}</strong> ({ranked[0].distance.toFixed(2)} mi). Controls:{' '}
+          {controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(', ')}.
+        </div>
+      )}
+
+      {eventLatLng && (
+        <div style={{ marginTop: 16, marginBottom: 16 }}>
+          <label style={{ fontSize: 12, color: th.muted }}>
+            Trade-area radius (mi){' '}
+            <input type="number" step="0.1" value={radiusMi} onChange={(e) => setRadiusMi(+e.target.value || 1.0)} style={{ ...inp(th), width: 80 }} />
+          </label>
+          <div ref={mapDiv} style={{ height: 360, marginTop: 8, borderRadius: 8, overflow: 'hidden' }} />
+        </div>
+      )}
+
+      {results && (
+        <div style={{ marginTop: 16 }}>
+          <button onClick={generatePdf} style={{ ...btn(th), marginBottom: 12 }}>📄 Generate PDF exhibit</button>
+          <div style={{ height: 320, marginBottom: 16 }}><canvas ref={chartCanvas} /></div>
+          {(() => {
+            const imp = results.impacted;
+            const nearestCtrl = results.controls[0];
+            const ratio = nearestCtrl && nearestCtrl.deltaPct ? (imp.deltaPct / nearestCtrl.deltaPct) : null;
+            return (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <div style={{ ...accentCard(th), padding: 14, minWidth: 180 }}>
+                  <div style={{ color: th.muted, fontSize: 12 }}>Impacted Δ</div>
+                  <div style={{ fontSize: 26, fontWeight: 800 }}>{fmtPct(imp.deltaPct)}</div>
+                  <div style={{ color: th.muted, fontSize: 12 }}>{imp.name} · {imp.weeksBeforeUsed}w before / {imp.weeksAfterUsed}w after</div>
+                </div>
+                <div style={{ ...accentCard(th), padding: 14, minWidth: 180 }}>
+                  <div style={{ color: th.muted, fontSize: 12 }}>Annualized loss</div>
+                  <div style={{ fontSize: 26, fontWeight: 800 }}>{fmtDollars(imp.annualizedLoss)}</div>
+                </div>
+                {ratio && (
+                  <div style={{ ...accentCard(th), padding: 14, minWidth: 180 }}>
+                    <div style={{ color: th.muted, fontSize: 12 }}>vs nearest control</div>
+                    <div style={{ fontSize: 26, fontWeight: 800 }}>{ratio.toFixed(1)}× worse</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: th.muted, fontSize: 12 }}>
+                <th style={{ padding: 6 }}>Store</th><th>Distance</th><th>Before $/wk</th><th>After $/wk</th><th>%Δ</th><th>Weeks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[results.impacted, ...results.controls].map((row, i) => (
+                <tr key={row.pc} style={{ borderTop: `1px solid ${th.sidebarBorder}`, fontWeight: i === 0 ? 700 : 400 }}>
+                  <td style={{ padding: 6 }}>{row.name}{i === 0 ? ' (impacted)' : ''}</td>
+                  <td>{row.distance != null ? `${row.distance.toFixed(1)} mi` : '—'}</td>
+                  <td>{fmtDollars(row.avgBefore)}</td>
+                  <td>{fmtDollars(row.avgAfter)}</td>
+                  <td style={{ color: row.deltaPct < -15 ? '#dc2626' : row.deltaPct < -7 ? '#d97706' : th.text }}>{fmtPct(row.deltaPct)}</td>
+                  <td style={{ color: row.weeksBeforeUsed < weeksBefore ? '#d97706' : th.muted }}>
+                    {row.weeksBeforeUsed}/{row.weeksAfterUsed}{row.weeksBeforeUsed < weeksBefore ? ' ⚠' : ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ color: th.muted, fontSize: 11, marginTop: 8 }}>
+            Source: Pulse net sales via labor blobs. ⚠ = fewer weeks than requested (live blobs retain ~13 weeks).
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminNdcp({ th, user }) {
   const [orders, setOrders] = useState(null);   // null = loading
   const [err, setErr] = useState(null);
@@ -33343,7 +33687,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.48
+            v14.49
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -33760,6 +34104,7 @@ function PCGPortal() {
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && <AdminNdcp th={th} user={user} />}
+          {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} />}
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
