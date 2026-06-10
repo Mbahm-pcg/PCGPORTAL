@@ -148,7 +148,7 @@ exports.handler = async (event) => {
       }
 
       // Generate fresh brief
-      const dataContext = await buildDataContext({ district: district || null });
+      const dataContext = await buildDataContext({ district: district || null, includeVoids: true });
       const prompt = buildBriefPrompt(role, today, dataContext);
       const result = await generateStructured({
         system: PERSONA,
@@ -177,7 +177,7 @@ exports.handler = async (event) => {
       // Re-call with refresh flag
       const today = new Date().toISOString().slice(0, 10);
       const role = userRole === 'dm' ? 'District Manager' : 'VP / Executive';
-      const dataContext = await buildDataContext({ district: district || null });
+      const dataContext = await buildDataContext({ district: district || null, includeVoids: true });
       const prompt = buildBriefPrompt(role, today, dataContext);
       const result = await generateStructured({
         system: PERSONA,

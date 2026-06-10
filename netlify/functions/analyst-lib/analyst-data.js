@@ -50,11 +50,11 @@ async function getVoidsAndRefunds(pc, busDt) {
     const json = await pulsePostJSON(pc, 'getGuestChecks', {
       locRef: pc,
       busDt: busDt || todayET(),
-      include: 'guestChecks.chkNum,guestChecks.opnUTC,guestChecks.chkTtl,guestChecks.vdTtl,guestChecks.rtrnCnt',
+      include: 'guestChecks.chkNum,guestChecks.opnUTC,guestChecks.chkTtl,guestChecks.vdTtl,guestChecks.mgrVdTtl,guestChecks.returnTtl',
     });
     const checks = json?.guestChecks || [];
     return checks
-      .filter(c => (c.vdTtl && Math.abs(c.vdTtl) > 0) || (c.rtrnCnt || 0) > 0 || (c.chkTtl || 0) < 0)
+      .filter(c => Math.abs(c.vdTtl || 0) > 0 || Math.abs(c.mgrVdTtl || 0) > 0 || Math.abs(c.returnTtl || 0) > 0 || (c.chkTtl || 0) < 0)
       .map(c => {
         const raw = c.opnUTC || '';
         const dt = raw ? new Date(raw.endsWith('Z') ? raw : raw + 'Z') : null;
@@ -62,8 +62,8 @@ async function getVoidsAndRefunds(pc, busDt) {
           ? dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
           : 'unknown time';
         let type = 'void';
-        if ((c.rtrnCnt || 0) > 0 || (c.chkTtl || 0) < 0) type = 'refund';
-        return { chkNum: c.chkNum, time, type, amount: c.vdTtl || c.chkTtl || 0 };
+        if (Math.abs(c.returnTtl || 0) > 0 || (c.chkTtl || 0) < 0) type = 'refund';
+        return { chkNum: c.chkNum, time, type, amount: c.vdTtl || c.mgrVdTtl || c.returnTtl || c.chkTtl || 0 };
       });
   } catch (e) {
     console.warn(`[analyst-data] getVoidsAndRefunds failed for ${pc}: ${e.message}`);
@@ -210,7 +210,7 @@ async function buildKPISnapshot({ district } = {}) {
  * Build a compact data context string for LLM prompts.
  * Keeps token count low by summarizing.
  */
-async function buildDataContext({ district, includeStoreDetail } = {}) {
+async function buildDataContext({ district, includeStoreDetail, includeVoids } = {}) {
   const snapshot = await buildKPISnapshot({ district });
   const opsContext = await buildOpsContext({ district: district || null });
   if (snapshot.error) return snapshot.error + opsContext;
@@ -253,6 +253,32 @@ async function buildDataContext({ district, includeStoreDetail } = {}) {
         context += `\n`;
       }
       context += `\n`;
+    }
+  }
+
+  // Today's voids/refunds per district store (brief generation only — live POS calls)
+  if (district && includeVoids) {
+    try {
+      const distStores = getStoresByDistrict(district);
+      const busDt = snapshot.busDt || todayET();
+      const all = await Promise.all(distStores.map(async s => ({ s, vr: await getVoidsAndRefunds(s.pc, busDt) })));
+      context += `VOIDS/REFUNDS TODAY (${busDt}, District ${district}, per store):\n`;
+      let any = false;
+      for (const { s, vr } of all) {
+        if (!vr.length) continue;
+        any = true;
+        const voids = vr.filter(v => v.type === 'void');
+        const refunds = vr.filter(v => v.type === 'refund');
+        const ttl = vr.reduce((sum, v) => sum + Math.abs(v.amount || 0), 0);
+        const biggest = [...vr]
+          .sort((a, b) => Math.abs(b.amount || 0) - Math.abs(a.amount || 0)).slice(0, 3)
+          .map(v => `${v.time} ${v.type} receipt #${v.chkNum} $${Math.abs(v.amount || 0).toFixed(2)}`).join('; ');
+        context += `  ${s.name}: ${voids.length} void(s), ${refunds.length} refund(s), $${ttl.toFixed(2)} total — largest: ${biggest}\n`;
+      }
+      if (!any) context += `  None recorded.\n`;
+      context += `\n`;
+    } catch (e) {
+      console.warn(`[analyst-data] district voids/refunds failed: ${e.message}`);
     }
   }
 
@@ -583,17 +609,117 @@ async function buildFoodCostContext() {
 }
 
 async function buildUpsellContext({ district } = {}) {
-  const stores = district ? STORES.filter(s => s.district === district) : STORES;
-  const entries = await Promise.all(stores.map(async (s) => {
+  // Always network-wide so the avg and top/bottom 5 are true network stats;
+  // district stores get their own comparison block on top of that.
+  const entries = (await Promise.all(STORES.map(async (s) => {
     const history = await cacheLoad(`pcg_hourly_history_${s.pc}`);
     const recent = (Array.isArray(history) ? history : [])
       .filter(e => typeof e.upsellRate === 'number')
       .slice(0, 7);
     if (recent.length === 0) return null;
     const avg = Math.round((recent.reduce((sum, e) => sum + e.upsellRate, 0) / recent.length) * 10) / 10;
-    return { pc: s.pc, name: s.name, district: s.district, upsellRate: avg, days: recent.length };
+    let sales = 0, checks = 0;
+    for (const e of recent) for (const h of (e.hours || [])) { sales += h.sales || 0; checks += h.checks || 0; }
+    const avgCheck = checks > 0 ? Math.round((sales / checks) * 100) / 100 : null;
+    return { pc: s.pc, name: s.name, district: s.district, upsellRate: avg, avgCheck, days: recent.length };
+  }))).filter(Boolean);
+
+  const summary = summarizeUpsell(entries);
+  if (!summary.available) return summary;
+
+  if (district) {
+    summary.district = {
+      num: district,
+      stores: entries.filter(e => e.district === district).sort((a, b) => b.upsellRate - a.upsellRate),
+    };
+  }
+
+  try {
+    summary.itemDiff = await buildUpsellItemDiff(summary.top, summary.bottom);
+  } catch (e) {
+    console.warn(`[analyst-data] upsell item diff failed: ${e.message}`);
+  }
+  return summary;
+}
+
+/**
+ * Item-mix comparison between the network's top-5 and bottom-5 upsell stores:
+ * "what are the top stores selling more of, per 100 checks?"
+ * Hits Pulse POS for ~10 stores, so the result is cached once per day.
+ */
+async function buildUpsellItemDiff(top, bottom) {
+  if (!top?.length || !bottom?.length) return null;
+  const cacheKey = `analyst/upsell-item-diff_${todayET()}`;
+  const cached = await cacheLoad(cacheKey);
+  if (cached) return cached;
+
+  const group = [
+    ...top.map(s => ({ ...s, grp: 'top' })),
+    ...bottom.map(s => ({ ...s, grp: 'bottom' })),
+  ];
+
+  // Menu item num → name map (dimensions fetched once per Pulse route)
+  const nameMap = {};
+  const routes = [...new Set(group.map(s => pulseRoute(s.pc)))];
+  await Promise.all(routes.map(async (r) => {
+    const rep = group.find(s => pulseRoute(s.pc) === r);
+    try {
+      const dims = await pulsePostJSON(rep.pc, 'getMenuItemDimensions', { locRef: rep.pc });
+      (dims?.menuItems || []).forEach(m => { nameMap[m.num] = m.name; });
+    } catch {}
   }));
-  return summarizeUpsell(entries.filter(Boolean));
+
+  const perStore = (await Promise.all(group.map(async (s) => {
+    try {
+      const hist = await cacheLoad(`pcg_hourly_history_${s.pc}`);
+      const latest = (Array.isArray(hist) ? hist : []).find(e => e.date && (e.totalChecks || 0) > 0);
+      if (!latest) return null;
+      const menu = await pulsePostJSON(s.pc, 'getMenuItemDailyTotals', {
+        locRef: s.pc, busDt: latest.date,
+        searchCriteria: 'where greaterThan(revenueCenters.menuItems.slsCnt, 0)',
+        include: 'revenueCenters.menuItems.miNum,revenueCenters.menuItems.slsCnt',
+      });
+      const counts = {};
+      for (const rc of (menu?.revenueCenters || [])) {
+        for (const mi of (rc.menuItems || [])) {
+          const nm = nameMap[mi.miNum] || `Item ${mi.miNum}`;
+          counts[nm] = (counts[nm] || 0) + (mi.slsCnt || 0);
+        }
+      }
+      return { grp: s.grp, name: s.name, date: latest.date, checks: latest.totalChecks, counts };
+    } catch (e) {
+      console.warn(`[analyst-data] item mix fetch failed for ${s.pc}: ${e.message}`);
+      return null;
+    }
+  }))).filter(Boolean);
+
+  const tops = perStore.filter(s => s.grp === 'top');
+  const bots = perStore.filter(s => s.grp === 'bottom');
+  if (!tops.length || !bots.length) return null;
+
+  // Average units per 100 checks across each group, per item
+  const per100 = (list, item) => list.reduce((sum, s) => sum + ((s.counts[item] || 0) / s.checks) * 100, 0) / list.length;
+  const itemNames = new Set();
+  perStore.forEach(s => Object.keys(s.counts).forEach(i => itemNames.add(i)));
+  const items = [...itemNames]
+    .map(item => {
+      const t = per100(tops, item), b = per100(bots, item);
+      return { item, topPer100: Math.round(t * 10) / 10, bottomPer100: Math.round(b * 10) / 10, gap: t - b };
+    })
+    .filter(r => Math.max(r.topPer100, r.bottomPer100) >= 5) // skip rarely-sold items (noise)
+    .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))
+    .slice(0, 8)
+    .map(({ gap, ...r }) => r);
+
+  if (!items.length) return null;
+  const result = {
+    asOf: todayET(),
+    topStores: tops.map(s => s.name),
+    bottomStores: bots.map(s => s.name),
+    items,
+  };
+  await cacheSave(cacheKey, result);
+  return result;
 }
 
 /** Render all four ops summaries as a text block for the prompt data section. */

@@ -3271,6 +3271,7 @@ function dmFirstName(districts, num) {
 }
 
 function StoreMap({ stores, th, setTab }) {
+  const O = '#FF671F';
   const [selectedStore,    setSelectedStore]    = React.useState(null);
   const [laborData,        setLaborData]        = React.useState(null);
   const [allTickets,       setAllTickets]       = React.useState([]);
@@ -3278,6 +3279,8 @@ function StoreMap({ stores, th, setTab }) {
   const [filterPerf,       setFilterPerf]       = React.useState(null);
   const [storeEmps,        setStoreEmps]        = React.useState(null);
   const [storeEmpsLoading, setStoreEmpsLoading] = React.useState(false);
+  const [storeHourly,        setStoreHourly]        = React.useState(null);
+  const [storeHourlyLoading, setStoreHourlyLoading] = React.useState(false);
   const containerRef  = React.useRef(null);
   const mapRef        = React.useRef(null);
   const markersRef    = React.useRef([]);
@@ -3310,6 +3313,35 @@ function StoreMap({ stores, th, setTab }) {
       setStoreEmpsLoading(false);
     }).catch(() => { setStoreEmps([]); setStoreEmpsLoading(false); });
   }, [selectedStore?.pc]);
+
+  // Load hourly sales history when a pin is selected (for daypart heatmap)
+  React.useEffect(() => {
+    if (!selectedStore) { setStoreHourly(null); return; }
+    setStoreHourly(null);
+    setStoreHourlyLoading(true);
+    cloudLoad(`pcg_hourly_history_${selectedStore.pc}`).then(d => {
+      setStoreHourly(Array.isArray(d) ? d.slice(0, 7) : []);
+      setStoreHourlyLoading(false);
+    }).catch(() => { setStoreHourly([]); setStoreHourlyLoading(false); });
+  }, [selectedStore?.pc]);
+
+  // Build a 7-day x hour grid of sales for the daypart heatmap
+  const hourLabel = h => h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
+  const heatmap = React.useMemo(() => {
+    if (!storeHourly || storeHourly.length === 0) return null;
+    let minH = 23, maxH = 0;
+    storeHourly.forEach(d => (d.hours || []).forEach(h => { if (h.h < minH) minH = h.h; if (h.h > maxH) maxH = h.h; }));
+    if (minH > maxH) return null;
+    const hours = [];
+    for (let h = minH; h <= maxH; h++) hours.push(h);
+    let max = 0;
+    const days = storeHourly.map(d => {
+      const byHour = {};
+      (d.hours || []).forEach(h => { byHour[h.h] = h.sales || 0; if ((h.sales || 0) > max) max = h.sales; });
+      return { date: d.date, values: hours.map(h => byHour[h] ?? 0) };
+    }).reverse(); // oldest → newest, top to bottom
+    return { hours, days, max };
+  }, [storeHourly]);
 
   // Ticket counts for pin alert dots (derived from allTickets)
   const ticketCounts = React.useMemo(() => {
@@ -3557,6 +3589,49 @@ function StoreMap({ stores, th, setTab }) {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+
+              {/* Daypart Heatmap */}
+              <div style={{ padding:'0.875rem 1.25rem', borderBottom:`1px solid ${th.cardBorder}` }}>
+                <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.8rem', color:th.text, marginBottom:'0.5rem' }}>Hourly Traffic (Last 7 Days)</div>
+                {storeHourlyLoading && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>Loading…</div>}
+                {storeHourly && storeHourly.length === 0 && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>No history available yet</div>}
+                {heatmap && (
+                  <div style={{ overflowX:'auto' }}>
+                    <div style={{ display:'inline-block' }}>
+                      {/* Hour header */}
+                      <div style={{ display:'flex', marginLeft:46 }}>
+                        {heatmap.hours.map((h, i) => (
+                          <div key={h} style={{ width:18, flexShrink:0, fontSize:'0.5rem', color:th.muted, textAlign:'center' }}>
+                            {(i % 2 === 0) ? hourLabel(h) : ''}
+                          </div>
+                        ))}
+                      </div>
+                      {/* Day rows */}
+                      {heatmap.days.map(d => (
+                        <div key={d.date} style={{ display:'flex', alignItems:'center', marginTop:1 }}>
+                          <div style={{ width:46, flexShrink:0, fontSize:'0.6rem', color:th.muted, paddingRight:4 }}>
+                            {new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
+                          </div>
+                          {d.values.map((v, i) => {
+                            const intensity = heatmap.max > 0 ? v / heatmap.max : 0;
+                            return (
+                              <div key={i} title={`${hourLabel(heatmap.hours[i])}: ${fmtDollars(v)}`}
+                                style={{ width:18, height:18, flexShrink:0, margin:'0 1px', borderRadius:3, background: intensity > 0 ? `${O}${Math.max(Math.round(intensity*255),18).toString(16).padStart(2,'0')}` : th.card2 }} />
+                            );
+                          })}
+                        </div>
+                      ))}
+                      <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginTop:'0.5rem', marginLeft:46, fontSize:'0.6rem', color:th.muted }}>
+                        <span>Less</span>
+                        {[0.15, 0.35, 0.55, 0.75, 1].map(v => (
+                          <div key={v} style={{ width:14, height:14, borderRadius:3, background:`${O}${Math.round(v*255).toString(16).padStart(2,'0')}` }} />
+                        ))}
+                        <span>More</span>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -6478,22 +6553,6 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user }
   const [dtSchedule, setDtSchedule] = React.useState(null);
   const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
   const [upsellHistory, setUpsellHistory] = React.useState(null);
-  const [storeBrief, setStoreBrief] = React.useState(null);
-  const [storeBriefLoading, setStoreBriefLoading] = React.useState(false);
-  const [storeBriefRefreshing, setStoreBriefRefreshing] = React.useState(false);
-
-  const loadStoreBrief = async (refresh) => {
-    if (refresh) setStoreBriefRefreshing(true); else setStoreBriefLoading(true);
-    try {
-      const res = await fetch('/.netlify/functions/analyst', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'store-brief', storePC: pc, userId: user?.id, userRole: user?.userType, refresh: !!refresh }),
-      });
-      const data = await res.json();
-      if (data.brief) setStoreBrief(data.brief);
-    } catch {}
-    setStoreBriefLoading(false); setStoreBriefRefreshing(false);
-  };
 
   // Most recent upsell-rate entry on or before localDate
   const upsellEntry = React.useMemo(() => {
@@ -6959,44 +7018,17 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user }
 
       {/* ── Tab Navigation ── */}
       <div style={{ display:'flex', alignItems:'center', gap:'0.3rem', marginBottom:'1.25rem', background:th.card, borderRadius:'999px', border:`1px solid ${th.cardBorder}`, padding:'0.3rem' }}>
-        {[{id:'brief',label:'🔮 Brief'},{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
+        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
           <button key={t.id} onClick={() => {
               setStoreTab(t.id);
               if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
               if(t.id==='driveThru' && !txnList && !txnListLoading){ loadTxnList(); }
               if(t.id==='driveThru' && !dtSchedule){ cloudLoad(`pcg_schedule_${pc}`).then(d => setDtSchedule(d?.shifts || [])).catch(() => setDtSchedule([])); }
               if(t.id==='foodcost' && !foodCostT && !foodCostLoading){ setFoodCostLoading(true); fetch('/.netlify/functions/food-cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'store',pc,date:localDate})}).then(r=>r.ok?r.json():null).then(j=>{if(j)setFoodCostT(j);}).catch(()=>{}).finally(()=>setFoodCostLoading(false)); }
-              if(t.id==='brief' && !storeBrief && !storeBriefLoading){ loadStoreBrief(false); }
             }}
             style={{ flex:1, padding:'0.6rem 0.5rem', border:'none', borderRadius:'999px', background:storeTab===t.id?O:'transparent', color:storeTab===t.id?'#fff':th.muted, fontWeight:storeTab===t.id?800:500, fontSize:'0.78rem', cursor:'pointer', transition:'all .15s', boxShadow:storeTab===t.id?`0 2px 10px ${O}55`:'none', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
         ))}
       </div>
-
-      {/* ════ BRIEF TAB ════ */}
-      {storeTab === 'brief' && (
-        <div>
-          {storeBriefLoading ? (
-            <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 20, textAlign: 'center', color: th.muted, fontSize: 13 }}>🔮 Orion is reviewing {s?.name}'s data...</div>
-          ) : storeBrief?.content ? (
-            <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 16 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 12 }}>
-                <span style={{ fontSize: 11, color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>{storeBrief.date ? new Date(storeBrief.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : ''}</span>
-                <span style={{ background: O + '22', color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: '2px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8 }}>{s?.name}</span>
-              </div>
-              <div style={{ fontSize: 13.5, color: th.text, lineHeight: 1.65 }}>{renderAnalystMarkdown(storeBrief.content, th)}</div>
-              <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${th.cardBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— Orion, {storeBrief.generatedAt ? new Date(storeBrief.generatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}</span>
-                <button onClick={() => loadStoreBrief(true)} disabled={storeBriefRefreshing} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '3px 10px', color: th.muted, fontSize: 11, cursor: storeBriefRefreshing ? 'default' : 'pointer', fontFamily: "'Source Sans 3'" }}>{storeBriefRefreshing ? 'Refreshing…' : '↻ Refresh'}</button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 20, textAlign: 'center' }}>
-              <div style={{ color: th.muted, fontSize: 13, marginBottom: 10 }}>No brief generated yet.</div>
-              <button onClick={() => loadStoreBrief(false)} style={{ background: O, border: 'none', borderRadius: 8, padding: '6px 14px', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Generate Brief</button>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ════ SALES TAB ════ */}
       {storeTab === 'sales' && <>
@@ -7818,7 +7850,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user }
           const f = txnFilters;
           if (f.otCat !== 'all' && otCat(chk.otNum) !== f.otCat) return false;
           if (f.voids && !(chk.vdTtl && Math.abs(chk.vdTtl) > 0)) return false;
-          if (f.refunds && !((chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
+          if (f.refunds && !(Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
           if (f.discounts && !(chk.dscTtl && Math.abs(chk.dscTtl) > 0)) return false;
           if (f.timeStart) {
             const chkT = toETHHMM(chk.opnUTC || '');
@@ -7904,7 +7936,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user }
                       const t = chk.opnUTC ? toET(chk.opnUTC) : '--';
                       const hasDisc = Math.abs(chk.dscTtl || 0) > 0;
                       const hasVoid = Math.abs(chk.vdTtl || 0) > 0;
-                      const hasRefund = (chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0;
+                      const hasRefund = Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0;
                       const otName = txnOTMap[chk.otNum] || '';
                       const cat = otCat(chk.otNum);
                       const otColor = cat === 'drive_thru' ? '#2563eb' : cat === 'eat_in' ? '#059669' : cat === 'uber' ? '#d97706' : cat === 'doordash' ? '#dc2626' : cat === 'mobile' ? '#7c3aed' : cat === 'delivery' ? '#0891b2' : '#64748b';
@@ -8141,7 +8173,6 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
   const [weatherForecast, setWeatherForecast] = React.useState(null);
   const [weatherCorrelations, setWeatherCorrelations] = React.useState(null);
   const [networkReviews, setNetworkReviews] = React.useState(null);
-
   React.useEffect(() => {
     (async () => {
       try {
@@ -9245,7 +9276,6 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const [collapsed,   setCollapsed]  = useState(new Set());
   const [pulseView,   setPulseView]  = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
   const [weatherForecast, setWeatherForecast] = useState(null);
-  const [weatherCorrelations, setWeatherCorrelations] = useState(null);
   const [networkReviews, setNetworkReviews] = useState(null);
   const cdRef = useRef(null);
 
@@ -9442,12 +9472,8 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   useEffect(() => {
     (async () => {
       try {
-        const [fRes, cRes] = await Promise.all([
-          fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_weather_forecast' }) }),
-          fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_weather_correlations' }) }),
-        ]);
+        const fRes = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_weather_forecast' }) });
         if (fRes.ok) { const j = await fRes.json(); setWeatherForecast(j.data || j); }
-        if (cRes.ok) { const j = await cRes.json(); setWeatherCorrelations(j.data || j); }
         const rRes = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_reviews_network' }) });
         if (rRes.ok) { const j = await rRes.json(); setNetworkReviews(j.data || j); }
       } catch {}
@@ -9532,9 +9558,6 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const tdS = { padding:'0.5rem 0.65rem', fontSize:'0.78rem', color:th.text, verticalAlign:'middle' };
 
   const distList = Object.values(districts||{}).sort((a,b)=>a.num-b.num);
-
-  const cardS = { background:th.card2, borderRadius:'0.75rem', padding:'1rem 1.25rem',
-    borderLeft:`3px solid ${G}`, flex:'1 1 150px', minWidth:130 };
 
   const toggleCollapse = d => setCollapsed(prev => {
     const next = new Set(prev);
@@ -9656,12 +9679,6 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                   fontWeight:700, padding:'0.4rem 1rem', fontSize:'0.78rem' }) }}>
                 {loading ? '⏳ Loading…' : '⚡ Refresh'}
               </button>
-              <button onClick={loadWTD} disabled={wtdLoading || loading}
-                style={{ ...btn(th, { background: hasWTD ? `${G}33` : '#1a3a2a',
-                  color: hasWTD ? G : `${G}88`, border:`1px solid ${G}33`,
-                  fontWeight:700, padding:'0.4rem 1rem', fontSize:'0.78rem' }) }}>
-                {wtdLoading ? '⏳ WTD…' : hasWTD ? `✅ WTD (${wtdLoaded}d)` : '📅 Load WTD'}
-              </button>
               <button onClick={()=>setAutoRefresh(a=>!a)}
                 style={{ ...btn(th, { background: autoRefresh ? `${G}33` : th.card3,
                   color: autoRefresh ? G : th.muted, border: autoRefresh ? `1px solid ${G}55` : 'none',
@@ -9709,6 +9726,62 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
             <span style={{ fontSize:'0.65rem', color:`${G}88` }}>Loading WTD data…</span>
           </div>
         )}
+        {/* ── Today + WTD summary, inline in the Pulse monitor ── */}
+        {pulseView === "network" && loaded.length > 0 && (() => {
+          const vRate  = t => t.netSales > 0 ? (t.voids / t.netSales * 100) : null;
+          const vCell  = t => { const r = vRate(t); return r == null ? '—' : r.toFixed(2) + '%'; };
+          const vColor = t => { const r = vRate(t); return r != null && r > 1 ? '#ff6b6b' : '#69db7c'; };
+          const lblS2 = { padding:'0.15rem 1.1rem 0.15rem 0', fontSize:'0.65rem', color:`${G}99`, textTransform:'uppercase', letterSpacing:0.8, fontWeight:700, textAlign:'left', whiteSpace:'nowrap' };
+          const valS2 = { padding:'0.2rem 1.1rem 0.2rem 0', fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.15rem', whiteSpace:'nowrap' };
+          const divL  = { borderLeft:`1px solid ${G}33`, paddingLeft:'1.1rem' };
+          const onPace = hasLYWeek && lyDaysLoaded === 7 && weeklyForecastLY > 0;
+          return (
+            <div style={{ marginTop:'1rem', paddingTop:'0.85rem', borderTop:`1px solid ${G}33`, overflowX:'auto' }}>
+              <table style={{ borderCollapse:'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={lblS2}></th>
+                    <th style={lblS2}>Net Sales</th>
+                    <th style={lblS2}>Guests</th>
+                    <th style={lblS2}>Avg Check</th>
+                    <th style={lblS2}>Discounts</th>
+                    <th style={lblS2}>Void Rate</th>
+                    <th style={{ ...lblS2, ...divL }}>Weekly Forecast <span style={{ opacity:0.7, textTransform:'none' }}>(LY + 2%)</span></th>
+                    <th style={lblS2}>Pace</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ ...lblS2, fontSize:'0.7rem', color:'#e9fff4' }}>Today</td>
+                    <td style={{ ...valS2, color:G, textShadow:`0 0 12px ${G}66` }}>{fmtUSD(totals.netSales)}</td>
+                    <td style={{ ...valS2, color:'#74c0fc' }}>{fmtNum(totals.guests)}</td>
+                    <td style={{ ...valS2, color:'#ffd43b' }}>{fmtAvg(totals.avgCheck)}</td>
+                    <td style={{ ...valS2, color:'#f06595' }}>{fmtUSD(totals.discounts)}</td>
+                    <td style={{ ...valS2, color:vColor(totals) }}>{vCell(totals)}</td>
+                    <td style={{ ...valS2, ...divL, color:`${G}66`, fontSize:'0.8rem', fontWeight:600 }}>—</td>
+                    <td style={{ ...valS2, color:`${G}66`, fontSize:'0.8rem', fontWeight:600 }}>—</td>
+                  </tr>
+                  {hasWTD && (
+                    <tr>
+                      <td style={{ ...lblS2, fontSize:'0.7rem', color:'#e9fff4' }}>WTD ({wtdLoaded}d)</td>
+                      <td style={{ ...valS2, color:G }}>{fmtUSD(wtdTotals.netSales)}</td>
+                      <td style={{ ...valS2, color:'#74c0fc' }}>{fmtNum(wtdTotals.guests)}</td>
+                      <td style={{ ...valS2, color:'#ffd43b' }}>{wtdTotals.guests > 0 ? fmtAvg(wtdTotals.netSales / wtdTotals.guests) : '—'}</td>
+                      <td style={{ ...valS2, color:'#f06595' }}>{fmtUSD(wtdTotals.discounts)}</td>
+                      <td style={{ ...valS2, color:vColor(wtdTotals) }}>{vCell(wtdTotals)}</td>
+                      <td style={{ ...valS2, ...divL, color:'#cc5de8' }}>
+                        {hasLYWeek && lyDaysLoaded === 7 ? fmtUSD(weeklyForecastLY) : (hasLYWeek ? `${lyDaysLoaded}/7…` : 'Loading…')}
+                      </td>
+                      <td style={{ ...valS2, color: wtdTotals.netSales >= (weeklyForecastLY * wtdLoaded / 7) ? '#69db7c' : '#ff6b6b' }}>
+                        {onPace ? ((wtdTotals.netSales / (weeklyForecastLY * wtdLoaded / 7)) * 100).toFixed(0) + '%' : '—'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>}
 
       {/* ── Non-Open Stores Banner ── */}
@@ -9724,172 +9797,9 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
         );
       })()}
 
-      {/* ── KPI Cards ── */}
-      {pulseView === "network" && loaded.length > 0 && (
-        <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'1rem' }}>
-          {/* Net Sales */}
-          <div style={{ ...cardS }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:G,
-              textShadow:`0 0 12px ${G}66` }}>{fmtUSD(totals.netSales)}</div>
-            <div style={{ fontSize:'0.75rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.7, fontWeight:600, marginTop:'0.25rem' }}>Net Sales — {busDt}</div>
-          </div>
-          {/* Guests */}
-          <div style={{ ...cardS, borderColor:'#74c0fc' }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:'#74c0fc' }}>{fmtNum(totals.guests)}</div>
-            <div style={{ fontSize:'0.75rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.7, fontWeight:600, marginTop:'0.25rem' }}>Guests / Checks</div>
-          </div>
-          {/* Avg Check */}
-          <div style={{ ...cardS, borderColor:'#ffd43b' }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:'#ffd43b' }}>{fmtAvg(totals.avgCheck)}</div>
-            <div style={{ fontSize:'0.75rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.7, fontWeight:600, marginTop:'0.25rem' }}>Avg Check</div>
-          </div>
-          {/* Discounts */}
-          <div style={{ ...cardS, borderColor:'#f06595' }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:'#f06595' }}>{fmtUSD(totals.discounts)}</div>
-            <div style={{ fontSize:'0.75rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.7, fontWeight:600, marginTop:'0.25rem' }}>Discounts</div>
-          </div>
-          {/* Void Rate */}
-          <div style={{ ...cardS, borderColor:'#ff8787' }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color: totals.netSales > 0 && (totals.voids / totals.netSales * 100) > 1 ? '#ff6b6b' : '#69db7c' }}>
-              {totals.netSales > 0 ? (totals.voids / totals.netSales * 100).toFixed(2) + '%' : '—'}
-            </div>
-            <div style={{ fontSize:'0.75rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.7, fontWeight:600, marginTop:'0.25rem' }}>Void Rate</div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Week-to-Date + Weekly Forecast Card ── */}
-      {pulseView === "network" && hasWTD && (
-        <div style={{ ...card(th), padding:'1rem', marginBottom:'1rem', borderLeft:`3px solid ${G}` }}>
-          <div style={{ fontSize:'0.85rem', fontWeight:700, color:th.text, marginBottom:'0.75rem' }}>
-            Week to Date <span style={{ fontSize:'0.75rem', fontWeight:400, color:th.muted }}>({wtdLoaded} days)</span>
-          </div>
-          <div style={{ display:'flex', gap:'1.25rem', flexWrap:'wrap', alignItems:'flex-end' }}>
-            <div>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem', color:G }}>{fmtUSD(wtdTotals.netSales)}</div>
-              <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Net Sales</div>
-            </div>
-            <div>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem', color:'#74c0fc' }}>{fmtNum(wtdTotals.guests)}</div>
-              <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Guests</div>
-            </div>
-            <div>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem', color:'#ffd43b' }}>{wtdTotals.guests > 0 ? fmtAvg(wtdTotals.netSales / wtdTotals.guests) : '—'}</div>
-              <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Avg Check</div>
-            </div>
-            <div>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem', color:'#f06595' }}>{fmtUSD(wtdTotals.discounts)}</div>
-              <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Discounts</div>
-            </div>
-            {/* Vertical divider */}
-            <div style={{ borderLeft:`1px solid ${th.cardBorder}`, paddingLeft:'1.25rem', marginLeft:'0.25rem' }}>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem', color:'#cc5de8' }}>
-                {hasLYWeek && lyDaysLoaded === 7 ? fmtUSD(weeklyForecastLY) : (hasLYWeek ? `${lyDaysLoaded}/7…` : 'Loading…')}
-              </div>
-              <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Weekly Forecast <span style={{ opacity:0.7 }}>(LY + 2%)</span></div>
-            </div>
-            {hasLYWeek && lyDaysLoaded === 7 && weeklyForecastLY > 0 && (
-              <div>
-                <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem',
-                  color: wtdTotals.netSales >= (weeklyForecastLY * wtdLoaded / 7) ? '#69db7c' : '#ff6b6b' }}>
-                  {((wtdTotals.netSales / (weeklyForecastLY * wtdLoaded / 7)) * 100).toFixed(0)}%
-                </div>
-                <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Pace vs Forecast</div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* ── Trend Chart ── */}
       {pulseView === "network" && hasWTD && trendData.some(d => d.hasData) && (
         <TrendChart data={trendData} G={G} th={th} onBarClick={(dateKey) => setBusDt(dateKey)} />
-      )}
-
-      {/* ── District Overview Cards ── */}
-      {pulseView === "network" && loaded.length > 0 && (
-        <div style={{ ...card(th), padding:'1.125rem', marginBottom:'1rem' }}>
-          <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.9rem', color:th.text, marginBottom:'0.875rem' }}>
-            📊 District Performance — {busDt}
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:'0.75rem' }}>
-            {distNums.map(distNum => {
-              const distStores = allRows.filter(s => s.district === distNum);
-              const distOk = distStores.filter(s => s.live?.status === 'ok');
-              const distTotals = distOk.reduce((a,s) => ({
-                netSales: a.netSales + s.live.data.netSales,
-                guests: a.guests + s.live.data.guests,
-                voids: a.voids + (s.live.data.voids || 0),
-                forecast: a.forecast + (s.live.data.forecast || 0),
-              }), { netSales:0, guests:0, voids:0, forecast:0 });
-              distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
-              const fcPct = distTotals.forecast > 0 ? (distTotals.netSales / distTotals.forecast * 100) : 0;
-              const fcColor = fcPct <= 0 ? th.muted : fcPct >= 100 ? '#22c55e' : fcPct >= 90 ? '#ff9800' : '#f44336';
-              return (
-                <div key={distNum} onClick={() => setPulseView({ level:"district", num:distNum })}
-                  className="card-hover" style={{
-                  background:th.card2, borderRadius:'0.625rem', padding:'1rem',
-                  paddingTop:'0.85rem',
-                  borderTop:`3px solid ${G}`,
-                  cursor:'pointer', transition:'all .2s', overflow:'hidden',
-                }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.35rem' }}>
-                    <div style={{ fontWeight:700, fontSize:'0.85rem', color:G }}>District {distNum}</div>
-                    <div style={{ display:'flex', alignItems:'center', gap:'0.35rem' }}>
-                      {fcPct > 0 && (
-                        <span style={{ fontSize:'0.62rem', fontWeight:800, color:fcColor, background:`${fcColor}18`, border:`1px solid ${fcColor}33`, padding:'0.1rem 0.4rem', borderRadius:999 }}>
-                          {fcPct.toFixed(0)}% fc
-                        </span>
-                      )}
-                      <div style={{ fontSize:'0.65rem', color:th.muted }}>{dmName(distNum)} · {distStores.length}</div>
-                    </div>
-                  </div>
-                  <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.3rem', color:th.text }}>{fmtUSD(distTotals.netSales)}</div>
-                  {/* Forecast attainment bar */}
-                  {fcPct > 0 && (
-                    <div style={{ height:3, background:`${G}22`, borderRadius:999, margin:'0.4rem 0', overflow:'hidden' }}>
-                      <div style={{ height:'100%', width:`${Math.min(fcPct, 100)}%`, background: fcColor, borderRadius:999, boxShadow:`0 0 6px ${fcColor}88`, transition:'width .5s ease' }} />
-                    </div>
-                  )}
-                  <div style={{ display:'flex', gap:'0.75rem', marginTop:'0.25rem', fontSize:'0.72rem' }}>
-                    <span style={{ color:'#74c0fc' }}>{fmtNum(distTotals.guests)} guests</span>
-                    <span style={{ color:'#ffd43b' }}>{fmtAvg(distTotals.avgCheck)} avg</span>
-                  </div>
-                  {weatherForecast?.[distNum] && (() => {
-                    const todayForecast = (weatherForecast[distNum]?.days || []).find(d => d.date === busDt);
-                    if (!todayForecast) return null;
-                    const impact = weatherCorrelations?.[distNum]?.[todayForecast.condition];
-                    const hasNegImpact = impact && impact < 0.90;
-                    return (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.3rem', fontSize: '0.68rem' }}>
-                        <span>{WEATHER_ICONS[todayForecast.condition] || '🌡️'}</span>
-                        <span style={{ color: th.muted }}>{todayForecast.tempHighF}°F</span>
-                        {hasNegImpact && (
-                          <span style={{ color: '#f44336', fontWeight: 700, fontSize: '0.62rem' }}>
-                            {Math.round((impact - 1) * 100)}% impact
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  {networkReviews?.storeRatings && (() => {
-                    const distPCs = allRows.filter(s => s.district === distNum).map(s => s.pc);
-                    const ratings = distPCs.map(pc => networkReviews.storeRatings[pc]).filter(r => r > 0);
-                    if (ratings.length === 0) return null;
-                    const avgRating = Math.round((ratings.reduce((s, r) => s + r, 0) / ratings.length) * 10) / 10;
-                    const color = avgRating >= 4.0 ? '#4caf50' : avgRating >= 3.5 ? '#ff9800' : '#f44336';
-                    return (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.68rem', marginTop: '0.15rem' }}>
-                        <span style={{ color }}>★ {avgRating}</span>
-                        <span style={{ color: th.muted, fontSize: '0.6rem' }}>({ratings.length} stores)</span>
-                      </div>
-                    );
-                  })()}
-                </div>
-              );
-            })}
-          </div>
-        </div>
       )}
 
       {/* ── District Detail View ── */}
@@ -9949,11 +9859,10 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
           <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'1.1rem', color:G, marginBottom:'0.5rem' }}>Ready to Monitor</div>
           <div style={{ color:th.muted, fontSize:'0.875rem', marginBottom:'1.25rem' }}>
             Select a date and click <strong style={{color:G}}>⚡ Refresh</strong> to pull live data for all {activePCs.length} active stores.
-            Use <strong style={{color:G}}>📅 Load WTD</strong> to fetch the full week trend.
+            The full week trend loads automatically afterward.
           </div>
           <div style={{ display:'flex', gap:'0.75rem', justifyContent:'center' }}>
             <button onClick={loadAll} style={{ ...btn(th, { background:`${G}22`, color:G, border:`1px solid ${G}55`, fontWeight:700, padding:'0.6rem 2rem', fontSize:'0.9rem' }) }}>⚡ Load Today</button>
-            <button onClick={loadWTD} style={{ ...btn(th, { background:'#1a3a2a', color:`${G}88`, border:`1px solid ${G}33`, fontWeight:700, padding:'0.6rem 2rem', fontSize:'0.9rem' }) }}>📅 Load Full Week</button>
           </div>
         </div>
       )}
@@ -9994,8 +9903,15 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                   const distTotals = distOk.reduce((a,s) => ({
                     netSales: a.netSales + s.live.data.netSales,
                     guests:   a.guests   + s.live.data.guests,
-                  }), { netSales:0, guests:0 });
+                    forecast: a.forecast + (s.live.data.forecast || 0),
+                  }), { netSales:0, guests:0, forecast:0 });
                   distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
+                  const fcPct = distTotals.forecast > 0 ? (distTotals.netSales / distTotals.forecast * 100) : 0;
+                  const fcColor = fcPct <= 0 ? th.muted : fcPct >= 100 ? '#22c55e' : fcPct >= 90 ? '#ff9800' : '#f44336';
+                  const todayForecast = (weatherForecast?.[distNum]?.days || []).find(d => d.date === busDt);
+                  const distRatings = networkReviews?.storeRatings ? distRows.map(s => networkReviews.storeRatings[s.pc]).filter(r => r > 0) : [];
+                  const avgRating = distRatings.length ? Math.round((distRatings.reduce((s, r) => s + r, 0) / distRatings.length) * 10) / 10 : 0;
+                  const ratingColor = avgRating >= 4.0 ? '#4caf50' : avgRating >= 3.5 ? '#ff9800' : '#f44336';
                   const isCollapsed = collapsed.has(distNum);
                   return (
                     <React.Fragment key={distNum}>
@@ -10006,12 +9922,26 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                           colSpan={1}>
                           <span style={{ marginRight:'0.4rem', fontSize:'0.65rem' }}>{isCollapsed ? '▶' : '▼'}</span>
                           District {distNum} — {dmName(distNum)}
+                          <button onClick={e => { e.stopPropagation(); setPulseView({ level:'district', num:distNum }); }}
+                            style={{ marginLeft:'0.6rem', background:'none', border:`1px solid ${G}44`, color:G, cursor:'pointer',
+                              fontSize:'0.62rem', fontWeight:700, padding:'0.1rem 0.45rem', borderRadius:999 }}>
+                            View →
+                          </button>
                         </td>
-                        <td style={{ ...tdS, color:th.muted, fontSize:'0.7rem' }}>{distRows.length} stores</td>
-                        <td style={{ ...tdS }}>
+                        <td style={{ ...tdS, color:th.muted, fontSize:'0.7rem', whiteSpace:'nowrap' }}>
+                          {distRows.length} stores
+                          {todayForecast && <span style={{ marginLeft:6 }}>{WEATHER_ICONS[todayForecast.condition] || '🌡️'} {todayForecast.tempHighF}°</span>}
+                          {avgRating > 0 && <span style={{ marginLeft:6, color:ratingColor, fontWeight:700 }}>★ {avgRating}</span>}
+                        </td>
+                        <td style={{ ...tdS, whiteSpace:'nowrap' }}>
                           <span style={{ fontSize:'0.68rem', color:G, fontWeight:600 }}>
                             {distOk.length}/{distRows.length} live
                           </span>
+                          {fcPct > 0 && (
+                            <span style={{ marginLeft:6, fontSize:'0.62rem', fontWeight:800, color:fcColor, background:`${fcColor}18`, border:`1px solid ${fcColor}33`, padding:'0.1rem 0.4rem', borderRadius:999 }}>
+                              {fcPct.toFixed(0)}% fc
+                            </span>
+                          )}
                         </td>
                         <td style={{ ...tdS, textAlign:'right', fontWeight:800, color:G }}>{fmtUSD(distTotals.netSales)}</td>
                         <td style={{ ...tdS, textAlign:'right', color:'#74c0fc', fontWeight:700 }}>{fmtNum(distTotals.guests)}</td>
@@ -24223,6 +24153,12 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
 
   useEffect(() => { fetchLaborData(); }, [fetchLaborData]);
 
+  // Auto-refresh: re-pull the labor blob every hour (labor-cron refreshes it hourly)
+  useEffect(() => {
+    const id = setInterval(fetchLaborData, 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [fetchLaborData]);
+
   const managerStorePCs = React.useMemo(() => {
     if (!isManager) return new Set();
     return new Set(stores.filter(s => isManagersStore(s, user)).map(s => String(s.pc)));
@@ -34236,7 +34172,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.83
+            v14.90
             <SyncStatus dark={dark} />
           </div>
         )}

@@ -4,6 +4,9 @@ const PERSONA = `You are 'Orion,' an AI analyst embedded in PCG's Unified Operat
 
 const BRIEF_TEMPLATE = `Produce 3–5 bullets for a {role} starting their day on {date}. Each bullet = (what moved) · (why, with one number) · (what to do). Prefer bullets that cross two metrics. End with a one-line 'Watch today' note.
 
+If UPSELL & AVG CHECK data is present, include one bullet comparing a standout or lagging store to the network average, framed as "Store X averages $Y/check vs network $Z — what are they doing differently?" — and when the ITEM MIX comparison is present, cite the 1-2 items with the biggest gap as the likely "what" (e.g. "top upsell stores attach N more hash browns per 100 checks").
+If VOIDS/REFUNDS data is present and any store shows outsized activity (high count or dollar total), flag it with the timestamps and receipt numbers so the DM can pull the tapes.
+
 Available data (all real, do NOT invent numbers):
 {data}
 

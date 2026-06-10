@@ -3712,6 +3712,7 @@
     "Coming Soon": { color: "#b197fc", bg: "#b197fc18" }
   };
   function StoreMap({ stores, th, setTab }) {
+    const O2 = "#FF671F";
     const [selectedStore, setSelectedStore] = React.useState(null);
     const [laborData, setLaborData] = React.useState(null);
     const [allTickets, setAllTickets] = React.useState([]);
@@ -3719,6 +3720,8 @@
     const [filterPerf, setFilterPerf] = React.useState(null);
     const [storeEmps, setStoreEmps] = React.useState(null);
     const [storeEmpsLoading, setStoreEmpsLoading] = React.useState(false);
+    const [storeHourly, setStoreHourly] = React.useState(null);
+    const [storeHourlyLoading, setStoreHourlyLoading] = React.useState(false);
     const containerRef = React.useRef(null);
     const mapRef = React.useRef(null);
     const markersRef = React.useRef([]);
@@ -3762,6 +3765,43 @@
         setStoreEmpsLoading(false);
       });
     }, [selectedStore?.pc]);
+    React.useEffect(() => {
+      if (!selectedStore) {
+        setStoreHourly(null);
+        return;
+      }
+      setStoreHourly(null);
+      setStoreHourlyLoading(true);
+      cloudLoad(`pcg_hourly_history_${selectedStore.pc}`).then((d) => {
+        setStoreHourly(Array.isArray(d) ? d.slice(0, 7) : []);
+        setStoreHourlyLoading(false);
+      }).catch(() => {
+        setStoreHourly([]);
+        setStoreHourlyLoading(false);
+      });
+    }, [selectedStore?.pc]);
+    const hourLabel = (h) => h === 0 ? "12a" : h < 12 ? h + "a" : h === 12 ? "12p" : h - 12 + "p";
+    const heatmap = React.useMemo(() => {
+      if (!storeHourly || storeHourly.length === 0) return null;
+      let minH = 23, maxH = 0;
+      storeHourly.forEach((d) => (d.hours || []).forEach((h) => {
+        if (h.h < minH) minH = h.h;
+        if (h.h > maxH) maxH = h.h;
+      }));
+      if (minH > maxH) return null;
+      const hours = [];
+      for (let h = minH; h <= maxH; h++) hours.push(h);
+      let max = 0;
+      const days = storeHourly.map((d) => {
+        const byHour = {};
+        (d.hours || []).forEach((h) => {
+          byHour[h.h] = h.sales || 0;
+          if ((h.sales || 0) > max) max = h.sales;
+        });
+        return { date: d.date, values: hours.map((h) => byHour[h] ?? 0) };
+      }).reverse();
+      return { hours, days, max };
+    }, [storeHourly]);
     const ticketCounts = React.useMemo(() => {
       const counts = {};
       allTickets.forEach((t) => {
@@ -3915,7 +3955,17 @@
       const eHours = typeof e.hoursToday === "number" ? e.hoursToday.toFixed(1) + "h" : "\u2014";
       const initials = eName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase() || "?";
       return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0.5rem", borderRadius: "0.5rem", background: th.card2 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 30, height: 30, borderRadius: "50%", background: "#FF671F22", color: "#FF671F", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "0.6rem", flexShrink: 0 } }, initials), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, eName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted } }, eRole)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 600, color: th.text } }, eHours), e.overtime === "ot" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", color: "#ef4444", fontWeight: 700 } }, "OT"), e.overtime === "approaching" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", color: "#f59e0b", fontWeight: 700 } }, "~OT")));
-    }))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text, marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" } }, "Open Tickets", storeTickets.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#ef4444", fontWeight: 700, background: "#ef444420", padding: "0.1rem 0.4rem", borderRadius: "1rem" } }, storeTickets.length)), storeTickets.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#22c55e", display: "flex", alignItems: "center", gap: "0.35rem" } }, "\u2713 No open tickets"), storeTickets.map((t, i) => {
+    }))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text, marginBottom: "0.5rem" } }, "Hourly Traffic (Last 7 Days)"), storeHourlyLoading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "Loading\u2026"), storeHourly && storeHourly.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "No history available yet"), heatmap && /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-block" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", marginLeft: 46 } }, heatmap.hours.map((h, i) => /* @__PURE__ */ React.createElement("div", { key: h, style: { width: 18, flexShrink: 0, fontSize: "0.5rem", color: th.muted, textAlign: "center" } }, i % 2 === 0 ? hourLabel(h) : ""))), heatmap.days.map((d) => /* @__PURE__ */ React.createElement("div", { key: d.date, style: { display: "flex", alignItems: "center", marginTop: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 46, flexShrink: 0, fontSize: "0.6rem", color: th.muted, paddingRight: 4 } }, (/* @__PURE__ */ new Date(d.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short" })), d.values.map((v, i) => {
+      const intensity = heatmap.max > 0 ? v / heatmap.max : 0;
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: i,
+          title: `${hourLabel(heatmap.hours[i])}: ${fmtDollars(v)}`,
+          style: { width: 18, height: 18, flexShrink: 0, margin: "0 1px", borderRadius: 3, background: intensity > 0 ? `${O2}${Math.max(Math.round(intensity * 255), 18).toString(16).padStart(2, "0")}` : th.card2 }
+        }
+      );
+    }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.5rem", marginLeft: 46, fontSize: "0.6rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Less"), [0.15, 0.35, 0.55, 0.75, 1].map((v) => /* @__PURE__ */ React.createElement("div", { key: v, style: { width: 14, height: 14, borderRadius: 3, background: `${O2}${Math.round(v * 255).toString(16).padStart(2, "0")}` } })), /* @__PURE__ */ React.createElement("span", null, "More"))))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text, marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" } }, "Open Tickets", storeTickets.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#ef4444", fontWeight: 700, background: "#ef444420", padding: "0.1rem 0.4rem", borderRadius: "1rem" } }, storeTickets.length)), storeTickets.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#22c55e", display: "flex", alignItems: "center", gap: "0.35rem" } }, "\u2713 No open tickets"), storeTickets.map((t, i) => {
       const tTitle = typeof t.title === "string" ? t.title : typeof t.description === "string" ? t.description.slice(0, 50) : "Untitled";
       const tPriority = typeof t.priority === "string" ? t.priority : "\u2014";
       const tStatus = typeof t.status === "string" ? t.status : "\u2014";
@@ -6034,25 +6084,6 @@
     const [dtSchedule, setDtSchedule] = React.useState(null);
     const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
     const [upsellHistory, setUpsellHistory] = React.useState(null);
-    const [storeBrief, setStoreBrief] = React.useState(null);
-    const [storeBriefLoading, setStoreBriefLoading] = React.useState(false);
-    const [storeBriefRefreshing, setStoreBriefRefreshing] = React.useState(false);
-    const loadStoreBrief = async (refresh) => {
-      if (refresh) setStoreBriefRefreshing(true);
-      else setStoreBriefLoading(true);
-      try {
-        const res = await fetch("/.netlify/functions/analyst", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "store-brief", storePC: pc, userId: user?.id, userRole: user?.userType, refresh: !!refresh })
-        });
-        const data = await res.json();
-        if (data.brief) setStoreBrief(data.brief);
-      } catch {
-      }
-      setStoreBriefLoading(false);
-      setStoreBriefRefreshing(false);
-    };
     const upsellEntry = React.useMemo(() => {
       if (!Array.isArray(upsellHistory)) return null;
       return upsellHistory.find((e) => e.date <= localDate && typeof e.upsellRate === "number") || null;
@@ -6443,7 +6474,7 @@
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
       { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null },
       ...upsellEntry ? [{ label: "Upsell Rate", value: upsellEntry.upsellRate.toFixed(1) + "%", color: "#22d3ee", sub: upsellEntry.date }] : []
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "1.25rem", background: th.card, borderRadius: "999px", border: `1px solid ${th.cardBorder}`, padding: "0.3rem" } }, [{ id: "brief", label: "\u{1F52E} Brief" }, { id: "sales", label: "\u{1F4CA} Sales" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "1.25rem", background: th.card, borderRadius: "999px", border: `1px solid ${th.cardBorder}`, padding: "0.3rem" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -6466,14 +6497,11 @@
             }).catch(() => {
             }).finally(() => setFoodCostLoading(false));
           }
-          if (t.id === "brief" && !storeBrief && !storeBriefLoading) {
-            loadStoreBrief(false);
-          }
         },
         style: { flex: 1, padding: "0.6rem 0.5rem", border: "none", borderRadius: "999px", background: storeTab === t.id ? O : "transparent", color: storeTab === t.id ? "#fff" : th.muted, fontWeight: storeTab === t.id ? 800 : 500, fontSize: "0.78rem", cursor: "pointer", transition: "all .15s", boxShadow: storeTab === t.id ? `0 2px 10px ${O}55` : "none", fontFamily: "'Raleway',sans-serif" }
       },
       t.label
-    ))), storeTab === "brief" && /* @__PURE__ */ React.createElement("div", null, storeBriefLoading ? /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 20, textAlign: "center", color: th.muted, fontSize: 13 } }, "\u{1F52E} Orion is reviewing ", s?.name, "'s data...") : storeBrief?.content ? /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: th.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.8 } }, storeBrief.date ? (/* @__PURE__ */ new Date(storeBrief.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""), /* @__PURE__ */ React.createElement("span", { style: { background: O + "22", color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: "2px 10px", fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.8 } }, s?.name)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: th.text, lineHeight: 1.65 } }, renderAnalystMarkdown(storeBrief.content, th)), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, paddingTop: 10, borderTop: `1px solid ${th.cardBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: th.muted, fontStyle: "italic" } }, "\u2014 Orion, ", storeBrief.generatedAt ? new Date(storeBrief.generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""), /* @__PURE__ */ React.createElement("button", { onClick: () => loadStoreBrief(true), disabled: storeBriefRefreshing, style: { background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "3px 10px", color: th.muted, fontSize: 11, cursor: storeBriefRefreshing ? "default" : "pointer", fontFamily: "'Source Sans 3'" } }, storeBriefRefreshing ? "Refreshing\u2026" : "\u21BB Refresh"))) : /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 20, textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 13, marginBottom: 10 } }, "No brief generated yet."), /* @__PURE__ */ React.createElement("button", { onClick: () => loadStoreBrief(false), style: { background: O, border: "none", borderRadius: 8, padding: "6px 14px", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" } }, "Generate Brief"))), storeTab === "sales" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
+    ))), storeTab === "sales" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
       const isWeek = viewMode === "week";
       const forecast = isWeek ? weekTotals.weekForecast : weekTotals.dayForecast;
       const atPct = d.netSales / forecast * 100;
@@ -6935,7 +6963,7 @@
         const f = txnFilters;
         if (f.otCat !== "all" && otCat(chk.otNum) !== f.otCat) return false;
         if (f.voids && !(chk.vdTtl && Math.abs(chk.vdTtl) > 0)) return false;
-        if (f.refunds && !((chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
+        if (f.refunds && !(Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
         if (f.discounts && !(chk.dscTtl && Math.abs(chk.dscTtl) > 0)) return false;
         if (f.timeStart) {
           const chkT = toETHHMM(chk.opnUTC || "");
@@ -7008,7 +7036,7 @@
         const t = chk.opnUTC ? toET(chk.opnUTC) : "--";
         const hasDisc = Math.abs(chk.dscTtl || 0) > 0;
         const hasVoid = Math.abs(chk.vdTtl || 0) > 0;
-        const hasRefund = (chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0;
+        const hasRefund = Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0;
         const otName = txnOTMap[chk.otNum] || "";
         const cat = otCat(chk.otNum);
         const otColor = cat === "drive_thru" ? "#2563eb" : cat === "eat_in" ? "#059669" : cat === "uber" ? "#d97706" : cat === "doordash" ? "#dc2626" : cat === "mobile" ? "#7c3aed" : cat === "delivery" ? "#0891b2" : "#64748b";
@@ -8003,7 +8031,6 @@
     const [collapsed, setCollapsed] = useState(/* @__PURE__ */ new Set());
     const [pulseView, setPulseView] = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
     const [weatherForecast, setWeatherForecast] = useState(null);
-    const [weatherCorrelations, setWeatherCorrelations] = useState(null);
     const [networkReviews, setNetworkReviews] = useState(null);
     const cdRef = useRef(null);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
@@ -8200,17 +8227,10 @@ ${t2.slice(0, 300)}`);
     useEffect(() => {
       (async () => {
         try {
-          const [fRes, cRes] = await Promise.all([
-            fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_forecast" }) }),
-            fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_correlations" }) })
-          ]);
+          const fRes = await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_forecast" }) });
           if (fRes.ok) {
             const j = await fRes.json();
             setWeatherForecast(j.data || j);
-          }
-          if (cRes.ok) {
-            const j = await cRes.json();
-            setWeatherCorrelations(j.data || j);
           }
           const rRes = await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_reviews_network" }) });
           if (rRes.ok) {
@@ -8292,14 +8312,6 @@ ${t2.slice(0, 300)}`);
     };
     const tdS = { padding: "0.5rem 0.65rem", fontSize: "0.78rem", color: th.text, verticalAlign: "middle" };
     const distList = Object.values(districts || {}).sort((a, b) => a.num - b.num);
-    const cardS = {
-      background: th.card2,
-      borderRadius: "0.75rem",
-      padding: "1rem 1.25rem",
-      borderLeft: `3px solid ${G}`,
-      flex: "1 1 150px",
-      minWidth: 130
-    };
     const toggleCollapse = (d) => setCollapsed((prev) => {
       const next = new Set(prev);
       next.has(d) ? next.delete(d) : next.add(d);
@@ -8473,21 +8485,6 @@ ${t2.slice(0, 300)}`);
     ), /* @__PURE__ */ React.createElement(
       "button",
       {
-        onClick: loadWTD,
-        disabled: wtdLoading || loading,
-        style: { ...btn(th, {
-          background: hasWTD ? `${G}33` : "#1a3a2a",
-          color: hasWTD ? G : `${G}88`,
-          border: `1px solid ${G}33`,
-          fontWeight: 700,
-          padding: "0.4rem 1rem",
-          fontSize: "0.78rem"
-        }) }
-      },
-      wtdLoading ? "\u23F3 WTD\u2026" : hasWTD ? `\u2705 WTD (${wtdLoaded}d)` : "\u{1F4C5} Load WTD"
-    ), /* @__PURE__ */ React.createElement(
-      "button",
-      {
         onClick: () => setAutoRefresh((a) => !a),
         style: { ...btn(th, {
           background: autoRefresh ? `${G}33` : th.card3,
@@ -8528,76 +8525,31 @@ ${t2.slice(0, 300)}`);
       borderRadius: 4,
       width: "100%",
       animation: "wtdPulse 1.5s ease-in-out infinite"
-    } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: `${G}88` } }, "Loading WTD data\u2026"))), (() => {
+    } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: `${G}88` } }, "Loading WTD data\u2026")), pulseView === "network" && loaded.length > 0 && (() => {
+      const vRate = (t) => t.netSales > 0 ? t.voids / t.netSales * 100 : null;
+      const vCell = (t) => {
+        const r = vRate(t);
+        return r == null ? "\u2014" : r.toFixed(2) + "%";
+      };
+      const vColor = (t) => {
+        const r = vRate(t);
+        return r != null && r > 1 ? "#ff6b6b" : "#69db7c";
+      };
+      const lblS2 = { padding: "0.15rem 1.1rem 0.15rem 0", fontSize: "0.65rem", color: `${G}99`, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, textAlign: "left", whiteSpace: "nowrap" };
+      const valS2 = { padding: "0.2rem 1.1rem 0.2rem 0", fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.15rem", whiteSpace: "nowrap" };
+      const divL = { borderLeft: `1px solid ${G}33`, paddingLeft: "1.1rem" };
+      const onPace = hasLYWeek && lyDaysLoaded === 7 && weeklyForecastLY > 0;
+      return /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "0.85rem", borderTop: `1px solid ${G}33`, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: lblS2 }), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Net Sales"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Guests"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Avg Check"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Discounts"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Void Rate"), /* @__PURE__ */ React.createElement("th", { style: { ...lblS2, ...divL } }, "Weekly Forecast ", /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.7, textTransform: "none" } }, "(LY + 2%)")), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Pace"))), /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { style: { ...lblS2, fontSize: "0.7rem", color: "#e9fff4" } }, "Today"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: G, textShadow: `0 0 12px ${G}66` } }, fmtUSD(totals.netSales)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#74c0fc" } }, fmtNum(totals.guests)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#ffd43b" } }, fmtAvg(totals.avgCheck)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#f06595" } }, fmtUSD(totals.discounts)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: vColor(totals) } }, vCell(totals)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, ...divL, color: `${G}66`, fontSize: "0.8rem", fontWeight: 600 } }, "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: `${G}66`, fontSize: "0.8rem", fontWeight: 600 } }, "\u2014")), hasWTD && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { style: { ...lblS2, fontSize: "0.7rem", color: "#e9fff4" } }, "WTD (", wtdLoaded, "d)"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: G } }, fmtUSD(wtdTotals.netSales)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#74c0fc" } }, fmtNum(wtdTotals.guests)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#ffd43b" } }, wtdTotals.guests > 0 ? fmtAvg(wtdTotals.netSales / wtdTotals.guests) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#f06595" } }, fmtUSD(wtdTotals.discounts)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: vColor(wtdTotals) } }, vCell(wtdTotals)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, ...divL, color: "#cc5de8" } }, hasLYWeek && lyDaysLoaded === 7 ? fmtUSD(weeklyForecastLY) : hasLYWeek ? `${lyDaysLoaded}/7\u2026` : "Loading\u2026"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: wtdTotals.netSales >= weeklyForecastLY * wtdLoaded / 7 ? "#69db7c" : "#ff6b6b" } }, onPace ? (wtdTotals.netSales / (weeklyForecastLY * wtdLoaded / 7) * 100).toFixed(0) + "%" : "\u2014")))));
+    })()), (() => {
       const nonOpen = stores.filter((s) => s.status !== "Open" && (!isDMUser || Number(s.district) === dmDistrict));
       if (!nonOpen.length) return null;
       return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem", padding: "0.6rem 0.85rem", background: "#fd7e1418", borderLeft: `3px solid #fd7e14`, borderRadius: "0.375rem", fontSize: "0.78rem", color: th.muted, lineHeight: 1.5 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: "#fd7e14" } }, "Note:"), " ", nonOpen.map((s) => /* @__PURE__ */ React.createElement("span", { key: s.pc }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, s.name), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", padding: "1px 4px", borderRadius: 3, fontWeight: 600, color: "#fff", background: s.status === "Remodel" ? "#fd7e14" : s.status === "Temp Closed" ? "#dc3545" : "#6c757d" } }, s.status))).reduce((a, b) => [a, ", ", b]), " \u2014 ", "totals may be lower due to ", nonOpen.length === 1 ? "this store" : "these stores", " not operating at full capacity.");
-    })(), pulseView === "network" && loaded.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...cardS } }, /* @__PURE__ */ React.createElement("div", { style: {
-      fontFamily: "'Raleway'",
-      fontWeight: 900,
-      fontSize: "1.5rem",
-      color: G,
-      textShadow: `0 0 12px ${G}66`
-    } }, fmtUSD(totals.netSales)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, "Net Sales \u2014 ", busDt)), /* @__PURE__ */ React.createElement("div", { style: { ...cardS, borderColor: "#74c0fc" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: "#74c0fc" } }, fmtNum(totals.guests)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, "Guests / Checks")), /* @__PURE__ */ React.createElement("div", { style: { ...cardS, borderColor: "#ffd43b" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: "#ffd43b" } }, fmtAvg(totals.avgCheck)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, "Avg Check")), /* @__PURE__ */ React.createElement("div", { style: { ...cardS, borderColor: "#f06595" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: "#f06595" } }, fmtUSD(totals.discounts)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, "Discounts")), /* @__PURE__ */ React.createElement("div", { style: { ...cardS, borderColor: "#ff8787" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: totals.netSales > 0 && totals.voids / totals.netSales * 100 > 1 ? "#ff6b6b" : "#69db7c" } }, totals.netSales > 0 ? (totals.voids / totals.netSales * 100).toFixed(2) + "%" : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, "Void Rate"))), pulseView === "network" && hasWTD && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem", borderLeft: `3px solid ${G}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", fontWeight: 700, color: th.text, marginBottom: "0.75rem" } }, "Week to Date ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 400, color: th.muted } }, "(", wtdLoaded, " days)")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.25rem", flexWrap: "wrap", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: G } }, fmtUSD(wtdTotals.netSales)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Net Sales")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#74c0fc" } }, fmtNum(wtdTotals.guests)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Guests")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#ffd43b" } }, wtdTotals.guests > 0 ? fmtAvg(wtdTotals.netSales / wtdTotals.guests) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Avg Check")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#f06595" } }, fmtUSD(wtdTotals.discounts)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Discounts")), /* @__PURE__ */ React.createElement("div", { style: { borderLeft: `1px solid ${th.cardBorder}`, paddingLeft: "1.25rem", marginLeft: "0.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#cc5de8" } }, hasLYWeek && lyDaysLoaded === 7 ? fmtUSD(weeklyForecastLY) : hasLYWeek ? `${lyDaysLoaded}/7\u2026` : "Loading\u2026"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Weekly Forecast ", /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.7 } }, "(LY + 2%)"))), hasLYWeek && lyDaysLoaded === 7 && weeklyForecastLY > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: {
-      fontFamily: "'Raleway'",
-      fontWeight: 900,
-      fontSize: "1.4rem",
-      color: wtdTotals.netSales >= weeklyForecastLY * wtdLoaded / 7 ? "#69db7c" : "#ff6b6b"
-    } }, (wtdTotals.netSales / (weeklyForecastLY * wtdLoaded / 7) * 100).toFixed(0), "%"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Pace vs Forecast")))), pulseView === "network" && hasWTD && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: (dateKey) => setBusDt(dateKey) }), pulseView === "network" && loaded.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.125rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.875rem" } }, "\u{1F4CA} District Performance \u2014 ", busDt), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem" } }, distNums.map((distNum) => {
-      const distStores = allRows.filter((s) => s.district === distNum);
-      const distOk = distStores.filter((s) => s.live?.status === "ok");
-      const distTotals = distOk.reduce((a, s) => ({
-        netSales: a.netSales + s.live.data.netSales,
-        guests: a.guests + s.live.data.guests,
-        voids: a.voids + (s.live.data.voids || 0),
-        forecast: a.forecast + (s.live.data.forecast || 0)
-      }), { netSales: 0, guests: 0, voids: 0, forecast: 0 });
-      distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
-      const fcPct = distTotals.forecast > 0 ? distTotals.netSales / distTotals.forecast * 100 : 0;
-      const fcColor = fcPct <= 0 ? th.muted : fcPct >= 100 ? "#22c55e" : fcPct >= 90 ? "#ff9800" : "#f44336";
-      return /* @__PURE__ */ React.createElement(
-        "div",
-        {
-          key: distNum,
-          onClick: () => setPulseView({ level: "district", num: distNum }),
-          className: "card-hover",
-          style: {
-            background: th.card2,
-            borderRadius: "0.625rem",
-            padding: "1rem",
-            paddingTop: "0.85rem",
-            borderTop: `3px solid ${G}`,
-            cursor: "pointer",
-            transition: "all .2s",
-            overflow: "hidden"
-          }
-        },
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.85rem", color: G } }, "District ", distNum), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.35rem" } }, fcPct > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 800, color: fcColor, background: `${fcColor}18`, border: `1px solid ${fcColor}33`, padding: "0.1rem 0.4rem", borderRadius: 999 } }, fcPct.toFixed(0), "% fc"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, dmName(distNum), " \xB7 ", distStores.length))),
-        /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.3rem", color: th.text } }, fmtUSD(distTotals.netSales)),
-        fcPct > 0 && /* @__PURE__ */ React.createElement("div", { style: { height: 3, background: `${G}22`, borderRadius: 999, margin: "0.4rem 0", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(fcPct, 100)}%`, background: fcColor, borderRadius: 999, boxShadow: `0 0 6px ${fcColor}88`, transition: "width .5s ease" } })),
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", marginTop: "0.25rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#74c0fc" } }, fmtNum(distTotals.guests), " guests"), /* @__PURE__ */ React.createElement("span", { style: { color: "#ffd43b" } }, fmtAvg(distTotals.avgCheck), " avg")),
-        weatherForecast?.[distNum] && (() => {
-          const todayForecast = (weatherForecast[distNum]?.days || []).find((d) => d.date === busDt);
-          if (!todayForecast) return null;
-          const impact = weatherCorrelations?.[distNum]?.[todayForecast.condition];
-          const hasNegImpact = impact && impact < 0.9;
-          return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginTop: "0.3rem", fontSize: "0.68rem" } }, /* @__PURE__ */ React.createElement("span", null, WEATHER_ICONS2[todayForecast.condition] || "\u{1F321}\uFE0F"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, todayForecast.tempHighF, "\xB0F"), hasNegImpact && /* @__PURE__ */ React.createElement("span", { style: { color: "#f44336", fontWeight: 700, fontSize: "0.62rem" } }, Math.round((impact - 1) * 100), "% impact"));
-        })(),
-        networkReviews?.storeRatings && (() => {
-          const distPCs = allRows.filter((s) => s.district === distNum).map((s) => s.pc);
-          const ratings = distPCs.map((pc) => networkReviews.storeRatings[pc]).filter((r) => r > 0);
-          if (ratings.length === 0) return null;
-          const avgRating = Math.round(ratings.reduce((s, r) => s + r, 0) / ratings.length * 10) / 10;
-          const color = avgRating >= 4 ? "#4caf50" : avgRating >= 3.5 ? "#ff9800" : "#f44336";
-          return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.25rem", fontSize: "0.68rem", marginTop: "0.15rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color } }, "\u2605 ", avgRating), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.6rem" } }, "(", ratings.length, " stores)"));
-        })()
-      );
-    }))), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in District ${dmDistrict}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
+    })(), pulseView === "network" && hasWTD && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: (dateKey) => setBusDt(dateKey) }), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in District ${dmDistrict}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
       const dPct = (idx + 1) / arr.length;
       const isDone = progress / 100 >= dPct;
       const isActive = progress / 100 >= idx / arr.length && progress / 100 < dPct;
       return /* @__PURE__ */ React.createElement("div", { key: d, style: { textAlign: "center", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 6, height: 6, borderRadius: "50%", margin: "0 auto 0.2rem", background: isDone ? G : isActive ? `${G}88` : th.cardBorder, boxShadow: isDone ? `0 0 5px ${G}` : "none", animation: isActive ? "pulse 1.5s ease-in-out infinite" : "none", transition: "background .3s" } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.52rem", color: isDone ? `${G}99` : th.muted, fontWeight: 700, letterSpacing: "0.3px" } }, "D", d));
-    })))), Object.keys(storeData).length === 0 && !loading && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", filter: `drop-shadow(0 0 12px ${G})` } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1.1rem", color: G, marginBottom: "0.5rem" } }, "Ready to Monitor"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.875rem", marginBottom: "1.25rem" } }, "Select a date and click ", /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, "\u26A1 Refresh"), " to pull live data for all ", activePCs.length, " active stores. Use ", /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, "\u{1F4C5} Load WTD"), " to fetch the full week trend."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: loadAll, style: { ...btn(th, { background: `${G}22`, color: G, border: `1px solid ${G}55`, fontWeight: 700, padding: "0.6rem 2rem", fontSize: "0.9rem" }) } }, "\u26A1 Load Today"), /* @__PURE__ */ React.createElement("button", { onClick: loadWTD, style: { ...btn(th, { background: "#1a3a2a", color: `${G}88`, border: `1px solid ${G}33`, fontWeight: 700, padding: "0.6rem 2rem", fontSize: "0.9rem" }) } }, "\u{1F4C5} Load Full Week"))), loaded.length > 0 && pulseView === "network" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.125rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.875rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, flex: 1 } }, "\u{1F4CD} Store Breakdown \u2014 ", busDt), !isDMUser && /* @__PURE__ */ React.createElement(
+    })))), Object.keys(storeData).length === 0 && !loading && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", filter: `drop-shadow(0 0 12px ${G})` } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1.1rem", color: G, marginBottom: "0.5rem" } }, "Ready to Monitor"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.875rem", marginBottom: "1.25rem" } }, "Select a date and click ", /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, "\u26A1 Refresh"), " to pull live data for all ", activePCs.length, " active stores. The full week trend loads automatically afterward."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: loadAll, style: { ...btn(th, { background: `${G}22`, color: G, border: `1px solid ${G}55`, fontWeight: 700, padding: "0.6rem 2rem", fontSize: "0.9rem" }) } }, "\u26A1 Load Today"))), loaded.length > 0 && pulseView === "network" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.125rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.875rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, flex: 1 } }, "\u{1F4CD} Store Breakdown \u2014 ", busDt), !isDMUser && /* @__PURE__ */ React.createElement(
       "select",
       {
         style: { ...inp(th), width: "auto", padding: "0.3rem 0.6rem", fontSize: "0.75rem" },
@@ -8612,9 +8564,16 @@ ${t2.slice(0, 300)}`);
       const distOk = distRows.filter((s) => s.live?.status === "ok");
       const distTotals = distOk.reduce((a, s) => ({
         netSales: a.netSales + s.live.data.netSales,
-        guests: a.guests + s.live.data.guests
-      }), { netSales: 0, guests: 0 });
+        guests: a.guests + s.live.data.guests,
+        forecast: a.forecast + (s.live.data.forecast || 0)
+      }), { netSales: 0, guests: 0, forecast: 0 });
       distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
+      const fcPct = distTotals.forecast > 0 ? distTotals.netSales / distTotals.forecast * 100 : 0;
+      const fcColor = fcPct <= 0 ? th.muted : fcPct >= 100 ? "#22c55e" : fcPct >= 90 ? "#ff9800" : "#f44336";
+      const todayForecast = (weatherForecast?.[distNum]?.days || []).find((d) => d.date === busDt);
+      const distRatings = networkReviews?.storeRatings ? distRows.map((s) => networkReviews.storeRatings[s.pc]).filter((r) => r > 0) : [];
+      const avgRating = distRatings.length ? Math.round(distRatings.reduce((s, r) => s + r, 0) / distRatings.length * 10) / 10 : 0;
+      const ratingColor = avgRating >= 4 ? "#4caf50" : avgRating >= 3.5 ? "#ff9800" : "#f44336";
       const isCollapsed = collapsed.has(distNum);
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: distNum }, /* @__PURE__ */ React.createElement(
         "tr",
@@ -8632,10 +8591,31 @@ ${t2.slice(0, 300)}`);
           "District ",
           distNum,
           " \u2014 ",
-          dmName(distNum)
+          dmName(distNum),
+          /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: (e) => {
+                e.stopPropagation();
+                setPulseView({ level: "district", num: distNum });
+              },
+              style: {
+                marginLeft: "0.6rem",
+                background: "none",
+                border: `1px solid ${G}44`,
+                color: G,
+                cursor: "pointer",
+                fontSize: "0.62rem",
+                fontWeight: 700,
+                padding: "0.1rem 0.45rem",
+                borderRadius: 999
+              }
+            },
+            "View \u2192"
+          )
         ),
-        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: th.muted, fontSize: "0.7rem" } }, distRows.length, " stores"),
-        /* @__PURE__ */ React.createElement("td", { style: { ...tdS } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: G, fontWeight: 600 } }, distOk.length, "/", distRows.length, " live")),
+        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: th.muted, fontSize: "0.7rem", whiteSpace: "nowrap" } }, distRows.length, " stores", todayForecast && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 6 } }, WEATHER_ICONS2[todayForecast.condition] || "\u{1F321}\uFE0F", " ", todayForecast.tempHighF, "\xB0"), avgRating > 0 && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 6, color: ratingColor, fontWeight: 700 } }, "\u2605 ", avgRating)),
+        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: G, fontWeight: 600 } }, distOk.length, "/", distRows.length, " live"), fcPct > 0 && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 6, fontSize: "0.62rem", fontWeight: 800, color: fcColor, background: `${fcColor}18`, border: `1px solid ${fcColor}33`, padding: "0.1rem 0.4rem", borderRadius: 999 } }, fcPct.toFixed(0), "% fc")),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", fontWeight: 800, color: G } }, fmtUSD(distTotals.netSales)),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#74c0fc", fontWeight: 700 } }, fmtNum(distTotals.guests)),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#ffd43b", fontWeight: 700 } }, fmtAvg(distTotals.avgCheck))
@@ -18416,6 +18396,10 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     useEffect(() => {
       fetchLaborData();
     }, [fetchLaborData]);
+    useEffect(() => {
+      const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
+      return () => clearInterval(id);
+    }, [fetchLaborData]);
     const managerStorePCs = React.useMemo(() => {
       if (!isManager) return /* @__PURE__ */ new Set();
       return new Set(stores.filter((s) => isManagersStore(s, user)).map((s) => String(s.pc)));
@@ -25932,7 +25916,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.83", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.90", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

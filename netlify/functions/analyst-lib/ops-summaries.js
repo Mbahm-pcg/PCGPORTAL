@@ -230,15 +230,20 @@ function summarizeFoodCost(tables, computed) {
   return out;
 }
 
-// entries: [{ pc, name, district, upsellRate, days }] — 7-day avg upsell rate per store
+// entries: [{ pc, name, district, upsellRate, avgCheck, days }] — 7-day avg upsell rate + avg check per store
 function summarizeUpsell(entries) {
   const valid = (entries || []).filter(e => typeof e.upsellRate === 'number');
   if (valid.length === 0) return { available: false };
   const networkAvg = Math.round((valid.reduce((s, e) => s + e.upsellRate, 0) / valid.length) * 10) / 10;
+  const withCheck = valid.filter(e => typeof e.avgCheck === 'number');
+  const networkAvgCheck = withCheck.length
+    ? Math.round((withCheck.reduce((s, e) => s + e.avgCheck, 0) / withCheck.length) * 100) / 100
+    : null;
   const sorted = [...valid].sort((a, b) => b.upsellRate - a.upsellRate);
   return {
     available: true,
     networkAvg,
+    networkAvgCheck,
     top: sorted.slice(0, LIST_CAPS.upsellStores),
     bottom: sorted.slice(-LIST_CAPS.upsellStores).reverse(),
   };
@@ -315,12 +320,26 @@ function renderOpsContext({ projects, tickets, cash, foodCost, upsell } = {}) {
     if (foodCost.computed) L.push(`  computed overlay: ${JSON.stringify(foodCost.computed)}`);
   }
 
-  L.push('\nUPSELL RATE (% of checks with 2+ items, 7-day avg, proxy metric):');
+  L.push('\nUPSELL & AVG CHECK (7-day avg; upsell = % of checks with 2+ items, proxy metric):');
   if (!upsell || !upsell.available) L.push('  No upsell data yet.');
   else {
-    L.push(`  Network avg: ${upsell.networkAvg}%`);
-    L.push(`  Top: ${upsell.top.map(s => `${s.name} ${s.upsellRate}%`).join(', ')}`);
-    L.push(`  Bottom: ${upsell.bottom.map(s => `${s.name} ${s.upsellRate}%`).join(', ')}`);
+    const fmtS = s => `${s.name} ${s.upsellRate}%${typeof s.avgCheck === 'number' ? ` ($${s.avgCheck.toFixed(2)})` : ''}`;
+    L.push(`  Network avg: ${upsell.networkAvg}% upsell${upsell.networkAvgCheck != null ? `, $${upsell.networkAvgCheck.toFixed(2)} avg check` : ''}`);
+    L.push(`  Network top 5 upsell: ${upsell.top.map(fmtS).join(', ')}`);
+    L.push(`  Network bottom 5 upsell: ${upsell.bottom.map(fmtS).join(', ')}`);
+    if (upsell.district?.stores?.length) {
+      L.push(`  District ${upsell.district.num} stores vs network (frame as "Store X averages $Y/check vs network $${upsell.networkAvgCheck != null ? upsell.networkAvgCheck.toFixed(2) : '?'} — what are they doing differently?"):`);
+      for (const s of upsell.district.stores) {
+        L.push(`    ${s.name}: ${s.upsellRate}% upsell, ${typeof s.avgCheck === 'number' ? `$${s.avgCheck.toFixed(2)} avg check` : 'avg check n/a'}`);
+      }
+    }
+    if (upsell.itemDiff?.items?.length) {
+      L.push(`  ITEM MIX — what the top-5 upsell stores sell more/less of than the bottom-5 (avg units per 100 checks, ${upsell.itemDiff.asOf}):`);
+      L.push(`    Top stores: ${upsell.itemDiff.topStores.join(', ')} | Bottom stores: ${upsell.itemDiff.bottomStores.join(', ')}`);
+      for (const r of upsell.itemDiff.items) {
+        L.push(`    ${r.item}: ${r.topPer100}/100 checks at top stores vs ${r.bottomPer100}/100 at bottom stores`);
+      }
+    }
   }
 
   return L.join('\n');
