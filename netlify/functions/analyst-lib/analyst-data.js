@@ -2,10 +2,74 @@
 // This is the ONLY module that reads raw data sources.
 // TODO (Phase 2): Swap blob reads for Postgres/Supabase queries.
 
+const https = require('https');
 const { cacheLoad, cacheSave } = require('./analyst-cache');
-const { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, renderOpsContext } = require('./ops-summaries');
+const { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, renderOpsContext } = require('./ops-summaries');
 const { BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, INGREDIENT_COSTS } = require('./cost-lookup');
 const { sql } = require('../db');
+
+// ── Pulse POS direct fetcher (same API as pulse-hourly-snapshot.js) ─────────
+const POS_APIS = {
+  p227: { host: 'pos-ra.dunkindonuts.com', path: '/p227', xkey: 'sUVxDiWxfv9xIUyBxJlpN3A7znHoIoPx1nfTR6DL', apikey: 'MjI3Onp2RnIrV1dWbnpFeXN0MThhejdyd0tHTFlOZlNGMmlZV0lRZGZXNTZ3L3FvUmFhUGMyQ1ZQalJjaHZtdWVFMWdJSzhremtJSnkxZ3E1YXlzWGN2OVpBPT0=' },
+  p228: { host: 'pos-ra.dunkindonuts.com', path: '/p228', xkey: 'g6ge9xpyBo2I0tNXGXntQ8fm104dt3VD3lQ7HjTP', apikey: 'MjI4Onp2RnIrV1dWbnpFeXN0MThhejdyd0tHTFlOZlNGMmlZV0lRZGZXNTZ3L3FvUmFhUGMyQ1ZQalJjaHZtdWVFMWdJSzhremtJSnkxZ3E1YXlzWGN2OVpBPT0=' },
+};
+function pulseRoute(pc) { return String(pc) === '345986' ? 'p227' : 'p228'; }
+
+function pulsePostJSON(pc, endpoint, body) {
+  const cfg = POS_APIS[pulseRoute(pc)];
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const req = https.request({
+      hostname: cfg.host, port: 443, path: `${cfg.path}/${endpoint}`, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': cfg.xkey, 'Api-Key': cfg.apikey, 'Content-Length': Buffer.byteLength(data) },
+    }, (res) => {
+      let raw = '';
+      res.on('data', d => raw += d);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+        } else reject(new Error(`HTTP ${res.statusCode}`));
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.write(data);
+    req.end();
+  });
+}
+
+function todayET() {
+  const now = new Date();
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, '0')}-${String(et.getDate()).padStart(2, '0')}`;
+}
+
+/** Fetch today's voided/refunded checks for a store from Pulse POS */
+async function getVoidsAndRefunds(pc, busDt) {
+  try {
+    const json = await pulsePostJSON(pc, 'getGuestChecks', {
+      locRef: pc,
+      busDt: busDt || todayET(),
+      include: 'guestChecks.chkNum,guestChecks.opnUTC,guestChecks.chkTtl,guestChecks.vdTtl,guestChecks.rtrnCnt',
+    });
+    const checks = json?.guestChecks || [];
+    return checks
+      .filter(c => (c.vdTtl && Math.abs(c.vdTtl) > 0) || (c.rtrnCnt || 0) > 0 || (c.chkTtl || 0) < 0)
+      .map(c => {
+        const raw = c.opnUTC || '';
+        const dt = raw ? new Date(raw.endsWith('Z') ? raw : raw + 'Z') : null;
+        const time = dt && !isNaN(dt.getTime())
+          ? dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
+          : 'unknown time';
+        let type = 'void';
+        if ((c.rtrnCnt || 0) > 0 || (c.chkTtl || 0) < 0) type = 'refund';
+        return { chkNum: c.chkNum, time, type, amount: c.vdTtl || c.chkTtl || 0 };
+      });
+  } catch (e) {
+    console.warn(`[analyst-data] getVoidsAndRefunds failed for ${pc}: ${e.message}`);
+    return [];
+  }
+}
 
 // ── Store config (mirrors index.html STORES_SEED) ───────────────────────────
 const STORES = [
@@ -252,6 +316,78 @@ async function buildStoreContext({ storePC }) {
     }
   }
 
+  // Load recent sales/upsell history (from pulse-hourly-snapshot)
+  const hourlyHistory = await cacheLoad(`pcg_hourly_history_${storePC}`).catch(() => null);
+  const recentDays = (Array.isArray(hourlyHistory) ? hourlyHistory : []).slice(0, 7);
+  if (recentDays.length > 0) {
+    sections.push(`\nRecent daily sales (last ${recentDays.length} days):`);
+    recentDays.forEach(d => {
+      const daySales = (d.hours || []).reduce((s, h) => s + (h.sales || 0), 0);
+      const dayChecks = (d.hours || []).reduce((s, h) => s + (h.checks || 0), 0);
+      const avgCheck = dayChecks > 0 ? daySales / dayChecks : 0;
+      let line = `  ${d.date}: $${daySales.toFixed(0)} sales, ${dayChecks} checks, $${avgCheck.toFixed(2)} avg check`;
+      if (typeof d.upsellRate === 'number') line += `, ${d.upsellRate}% upsell rate (${d.upsoldChecks}/${d.totalChecks} checks with 2+ items)`;
+      sections.push(line);
+    });
+  }
+
+  // Compare against same-district stores (proxy for "nearest" stores)
+  const districtMates = STORES.filter(s => s.district === store.district && s.pc !== storePC);
+  if (districtMates.length > 0 && recentDays.length > 0) {
+    const latest = recentDays[0];
+    const mySales = (latest.hours || []).reduce((s, h) => s + (h.sales || 0), 0);
+    const myChecks = (latest.hours || []).reduce((s, h) => s + (h.checks || 0), 0);
+    const myAvgCheck = myChecks > 0 ? mySales / myChecks : null;
+    const myUpsell = typeof latest.upsellRate === 'number' ? latest.upsellRate : null;
+
+    const mateStats = [];
+    for (const mate of districtMates) {
+      const mateHistory = await cacheLoad(`pcg_hourly_history_${mate.pc}`).catch(() => null);
+      const mateLatest = Array.isArray(mateHistory) ? mateHistory[0] : null;
+      if (!mateLatest) continue;
+      const mateSales = (mateLatest.hours || []).reduce((s, h) => s + (h.sales || 0), 0);
+      const mateChecks = (mateLatest.hours || []).reduce((s, h) => s + (h.checks || 0), 0);
+      const mateAvgCheck = mateChecks > 0 ? mateSales / mateChecks : null;
+      mateStats.push({
+        name: mate.name,
+        date: mateLatest.date,
+        avgCheck: mateAvgCheck,
+        upsellRate: typeof mateLatest.upsellRate === 'number' ? mateLatest.upsellRate : null,
+      });
+    }
+
+    if (mateStats.length > 0) {
+      sections.push(`\nNearby store comparison (District ${store.district}, ${latest.date}):`);
+      sections.push(`  ${store.name}: $${(myAvgCheck ?? 0).toFixed(2)} avg check${myUpsell !== null ? `, ${myUpsell}% upsell rate` : ''}`);
+      mateStats.forEach(m => {
+        sections.push(`  ${m.name} (${m.date}): $${(m.avgCheck ?? 0).toFixed(2)} avg check${m.upsellRate !== null ? `, ${m.upsellRate}% upsell rate` : ''}`);
+      });
+    }
+  }
+
+  // Load today's voids/refunds from Pulse POS
+  const busDtForVoids = labor?.busDt || todayET();
+  const voidsRefunds = await getVoidsAndRefunds(storePC, busDtForVoids);
+  if (voidsRefunds.length > 0) {
+    sections.push(`\nVoids/refunds today (${busDtForVoids}):`);
+    voidsRefunds.forEach(v => {
+      sections.push(`  ${v.time} — ${v.type} — receipt #${v.chkNum} — $${Math.abs(v.amount).toFixed(2)}`);
+    });
+  } else {
+    sections.push(`\nVoids/refunds today (${busDtForVoids}): none`);
+  }
+
+  // Load review sentiment for this store
+  const reviews = await cacheLoad(`pcg_reviews_${storePC}`).catch(() => null);
+  if (reviews) {
+    sections.push(`\nGuest reviews: ★${reviews.googleRating ?? '?'} (${reviews.totalReviews ?? 0} total), trend: ${reviews.trendDirection || 'unknown'}`);
+    const negWithActions = (reviews.reviews || []).filter(r => r.sentiment === 'negative' && r.actionItem).slice(0, 5);
+    if (negWithActions.length > 0) {
+      sections.push(`  Recent negative review themes/actions:`);
+      negWithActions.forEach(r => sections.push(`    - ${r.actionItem}`));
+    }
+  }
+
   // Load open tickets for this store
   const ticketsRaw = await cacheLoad('pcg_tickets_v1').catch(() => null);
   const openTickets = Array.isArray(ticketsRaw)
@@ -446,16 +582,31 @@ async function buildFoodCostContext() {
   );
 }
 
+async function buildUpsellContext({ district } = {}) {
+  const stores = district ? STORES.filter(s => s.district === district) : STORES;
+  const entries = await Promise.all(stores.map(async (s) => {
+    const history = await cacheLoad(`pcg_hourly_history_${s.pc}`);
+    const recent = (Array.isArray(history) ? history : [])
+      .filter(e => typeof e.upsellRate === 'number')
+      .slice(0, 7);
+    if (recent.length === 0) return null;
+    const avg = Math.round((recent.reduce((sum, e) => sum + e.upsellRate, 0) / recent.length) * 10) / 10;
+    return { pc: s.pc, name: s.name, district: s.district, upsellRate: avg, days: recent.length };
+  }));
+  return summarizeUpsell(entries.filter(Boolean));
+}
+
 /** Render all four ops summaries as a text block for the prompt data section. */
 async function buildOpsContext({ district } = {}) {
   try {
-    const [projects, tickets, cash, foodCost] = await Promise.all([
+    const [projects, tickets, cash, foodCost, upsell] = await Promise.all([
       buildProjectsContext({ district }),
       buildTicketsContext({ district }),
       buildCashContext({ district }),
       buildFoodCostContext(),
+      buildUpsellContext({ district }),
     ]);
-    return renderOpsContext({ projects, tickets, cash, foodCost });
+    return renderOpsContext({ projects, tickets, cash, foodCost, upsell });
   } catch (err) {
     // One malformed blob record must never take down chat/briefs/reports —
     // degrade to "no ops data" rather than throwing out of buildDataContext.

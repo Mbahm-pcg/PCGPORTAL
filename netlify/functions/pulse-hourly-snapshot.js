@@ -189,17 +189,33 @@ async function fetchDistrictWeather(date) {
 
 // ── Hourly sales aggregation ──────────────────────────────────────────────────
 
+// Modifier-only line items (e.g. "NO", "ADD") — don't count toward item count
+const MODIFIER_MI_NUMS = new Set([906005, 906006]);
+
+// Number of real menu items rung on a check (excludes modifier-only lines, voids, tenders)
+function itemCountForCheck(check) {
+  const lines = check.detailLines || [];
+  return lines.filter(d =>
+    d.menuItem &&
+    !d.vdFlag &&
+    (d.dspQty || 0) > 0 &&
+    !MODIFIER_MI_NUMS.has(d.menuItem.miNum)
+  ).length;
+}
+
 async function fetchHourlySales(pc, busDt) {
   const cfg = APIS[apiRoute(pc)];
   try {
     const json = await postJSON(cfg, 'getGuestChecks', {
       locRef: pc,
       busDt,
-      include: 'guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl',
+      include: 'guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl,guestChecks.detailLines',
     });
 
     const checks = json.guestChecks || [];
     const byHour = {};
+    let upsoldChecks = 0;
+    let totalChecks = 0;
 
     for (const c of checks) {
       const raw = c.opnUTC || '';
@@ -218,11 +234,18 @@ async function fetchHourlySales(pc, busDt) {
       if (!byHour[h]) byHour[h] = { h, sales: 0, checks: 0 };
       byHour[h].sales  += c.chkTtl || c.subTtl || 0;
       byHour[h].checks += 1;
+
+      totalChecks += 1;
+      if (itemCountForCheck(c) >= 2) upsoldChecks += 1;
     }
 
-    return Object.values(byHour)
+    const hours = Object.values(byHour)
       .map(e => ({ ...e, sales: Math.round(e.sales * 100) / 100 }))
       .sort((a, b) => a.h - b.h);
+
+    const upsellRate = totalChecks > 0 ? Math.round((upsoldChecks / totalChecks) * 1000) / 10 : null;
+
+    return { hours, upsoldChecks, totalChecks, upsellRate };
 
   } catch (e) {
     console.warn(`[hourly-snapshot] Guest checks failed for ${pc}: ${e.message}`);
@@ -232,7 +255,7 @@ async function fetchHourlySales(pc, busDt) {
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
-async function appendSnapshot(pc, date, hours, weather) {
+async function appendSnapshot(pc, date, hours, weather, upsell) {
   const key = `pcg_hourly_history_${pc}`;
   const existing = (await cacheLoad(key)) || [];
   const entries = Array.isArray(existing) ? existing : [];
@@ -241,7 +264,7 @@ async function appendSnapshot(pc, date, hours, weather) {
   const filtered = entries.filter(e => e.date !== date);
 
   // Newest first, capped at MAX_HISTORY_DAYS
-  filtered.unshift({ date, weather, hours });
+  filtered.unshift({ date, weather, hours, ...upsell });
   const trimmed = filtered.slice(0, MAX_HISTORY_DAYS);
 
   await cacheSave(key, trimmed);
@@ -267,11 +290,12 @@ exports.handler = async () => {
   for (let i = 0; i < STORES.length; i += BATCH) {
     const batch = STORES.slice(i, i + BATCH);
     await Promise.all(batch.map(async (store) => {
-      const hours = await fetchHourlySales(store.pc, date);
-      if (hours === null) { failed++; return; }
+      const result = await fetchHourlySales(store.pc, date);
+      if (result === null) { failed++; return; }
 
+      const { hours, ...upsell } = result;
       const weather = districtWeather[String(store.district)] || null;
-      await appendSnapshot(store.pc, date, hours, weather);
+      await appendSnapshot(store.pc, date, hours, weather, upsell);
       saved++;
     }));
   }

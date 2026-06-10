@@ -124,9 +124,9 @@
 
 ### 9.4 Guest Check Analytics
 ✅ - Average check size trending, items per transaction (avgCheck computed per store; full transaction detail modal with itemized line items via getGuestChecks)
-- Upsell rate (combo vs individual) — not yet done
-- Identify top upselling stores and extract their practices
-- "Store 345 averages $8.20/check vs network $7.10 — what are they doing differently?"
+✅ - Upsell rate (proxy: % of checks with 2+ real items, tracked daily per store in pcg_hourly_history, surfaced in Pulse store detail + Orion ops context)
+✅ - Identify top upselling stores (network top/bottom 5 surfaced to Orion); item-level "what they're doing differently" not yet done
+✅ - "Store X averages $Y/check vs network $Z — what are they doing differently?" (district-neighbor avg check + upsell rate comparison in Orion store brief)
 
 ### 9.5 Daypart Performance Matrix
 - Heat map: every store's performance by hour of day × day of week

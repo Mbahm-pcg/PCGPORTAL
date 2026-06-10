@@ -13,6 +13,17 @@ Format each bullet as:
 End with:
 🔍 **Watch today:** [one-line note]`;
 
+const STORE_BRIEF_TEMPLATE = `Produce a store performance brief for {storeName} (PC# {pc}) as of {date}. Cover: net sales & avg check trend, guest check / upsell rate (note this is a proxy: % of checks with 2+ items, compare to network avg if known), labor %, food cost / DCP spend, open maintenance tickets, today's voids/refunds (list each with its timestamp and receipt number), nearby store comparison (compare this store's avg check and upsell rate to its district neighbors and call out which neighbor is doing notably better/worse and by how much), and guest review sentiment — but only include sections where data is present below; skip sections with no data rather than saying "no data". If voids/refunds are "none", you may omit that section entirely.
+
+Available data (all real, do NOT invent numbers):
+{data}
+
+Format as 3-6 bullets:
+• **[Area]** [what's happening] · [key number(s)] · [action or note, if relevant]
+
+End with one line:
+🔍 **Bottom line:** [one-sentence overall read on this store]`;
+
 const BUSINESS_CASE_TEMPLATE = `You are analyzing operational data for a multi-unit restaurant chain. An anomaly has been detected:
 
 {anomalyDescription}
@@ -48,7 +59,7 @@ When answering questions:
 7. Keep answers under 180 words unless the user says "deep analysis" or "explain in detail."
 8. When an issue affects a specific district or store, tag the responsible person using the format @[dm:3] for the DM of District 3, or @[gm:339616] for the GM of store PC# 339616. Always include the tag when recommending someone review a metric.
 9. When citing a specific store metric, format it as a clickable drill-in: {{drill:StoreName:tab}} where tab is "pulse" or "labor". Example: "{{drill:Wadsworth:labor}} is at 28.3% — above target." Use the store's short name (e.g. "Wadsworth", "Front", "Sonic"), not the full address.
-10. You also have operational datasets in the data block: CONSTRUCTION & PROJECTS (status, target dates, days behind, GC/contractor, budget vs spend where entered), MAINTENANCE TICKETS (open tickets with owner, priority, age), CASH DEPOSITS (recent deposits and derived possible-missing-deposit gaps), and FOOD COST (theoretical per-item unit costs). All figures are already scoped to the user's role. Missing-deposit gaps are a derived heuristic — recommend verification, never accuse anyone of a missing deposit.`;
+10. You also have operational datasets in the data block: CONSTRUCTION & PROJECTS (status, target dates, days behind, GC/contractor, budget vs spend where entered), MAINTENANCE TICKETS (open tickets with owner, priority, age), CASH DEPOSITS (recent deposits and derived possible-missing-deposit gaps), FOOD COST (theoretical per-item unit costs), and UPSELL RATE (% of guest checks with 2+ items, 7-day store average — a proxy for upselling/suggestive selling, not a precise combo-attach metric). All figures are already scoped to the user's role. Missing-deposit gaps are a derived heuristic — recommend verification, never accuse anyone of a missing deposit. Upsell rate is a relative comparison signal — frame insights as "Store X averages Y% vs network Z% — worth observing what they're doing differently" rather than as an absolute target.`;
 
 const ASK_USER_TEMPLATE = `User question: {question}
 
@@ -105,6 +116,15 @@ function buildBriefPrompt(role, date, dataSnapshot, extraContext) {
     .replace('{data}', JSON.stringify(dataSnapshot, null, 2) + (extraContext || ''));
 }
 
+/** Build a single-store performance brief prompt */
+function buildStoreBriefPrompt(storeName, pc, date, dataSnapshot) {
+  return STORE_BRIEF_TEMPLATE
+    .replace('{storeName}', storeName)
+    .replace(/{pc}/g, pc)
+    .replace('{date}', date)
+    .replace('{data}', dataSnapshot);
+}
+
 /** Build the business case prompt, optionally injecting recent decision history */
 function buildCasePrompt(anomalyDescription, dataContext, decisionHistory) {
   let decisionSection = '';
@@ -155,7 +175,7 @@ Return a JSON array matching the input order. Example:
 Return ONLY the JSON array, no markdown fences, no explanation.`;
 
 module.exports = {
-  PERSONA, BRIEF_TEMPLATE, BUSINESS_CASE_TEMPLATE, ASK_SYSTEM, ASK_USER_TEMPLATE,
-  REPORT_SYSTEM, PNL_SYSTEM, REVIEW_ANALYSIS_SYSTEM,
+  PERSONA, BRIEF_TEMPLATE, STORE_BRIEF_TEMPLATE, BUSINESS_CASE_TEMPLATE, ASK_SYSTEM, ASK_USER_TEMPLATE,
+  REPORT_SYSTEM, PNL_SYSTEM, REVIEW_ANALYSIS_SYSTEM, buildStoreBriefPrompt,
   buildBriefPrompt, buildCasePrompt, buildAskPrompt, buildReportPrompt, buildPnlPrompt,
 };

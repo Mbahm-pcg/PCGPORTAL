@@ -6418,7 +6418,7 @@ function TrendChart({ data, G, th, onBarClick }) {
 }
 
 // ─── Store Detail Component ──────────────────────────────────────────────────
-function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
+function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user }) {
   const s = stores.find(st => st.pc === pc);
 
   const fmtUSD = v => '$' + Math.round(v).toLocaleString();
@@ -6477,6 +6477,29 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [txnMenuMap, setTxnMenuMap] = React.useState(null);
   const [dtSchedule, setDtSchedule] = React.useState(null);
   const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
+  const [upsellHistory, setUpsellHistory] = React.useState(null);
+  const [storeBrief, setStoreBrief] = React.useState(null);
+  const [storeBriefLoading, setStoreBriefLoading] = React.useState(false);
+  const [storeBriefRefreshing, setStoreBriefRefreshing] = React.useState(false);
+
+  const loadStoreBrief = async (refresh) => {
+    if (refresh) setStoreBriefRefreshing(true); else setStoreBriefLoading(true);
+    try {
+      const res = await fetch('/.netlify/functions/analyst', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'store-brief', storePC: pc, userId: user?.id, userRole: user?.userType, refresh: !!refresh }),
+      });
+      const data = await res.json();
+      if (data.brief) setStoreBrief(data.brief);
+    } catch {}
+    setStoreBriefLoading(false); setStoreBriefRefreshing(false);
+  };
+
+  // Most recent upsell-rate entry on or before localDate
+  const upsellEntry = React.useMemo(() => {
+    if (!Array.isArray(upsellHistory)) return null;
+    return upsellHistory.find(e => e.date <= localDate && typeof e.upsellRate === 'number') || null;
+  }, [upsellHistory, localDate]);
 
   React.useEffect(() => {
     if (storeTab !== 'driveThru') return;
@@ -6489,6 +6512,15 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
       try {
         const res = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: `pcg_reviews_${pc}` }) });
         if (res.ok) { const j = await res.json(); setStoreReviews(j.data || j); }
+      } catch {}
+    })();
+  }, [pc]);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: `pcg_hourly_history_${pc}` }) });
+        if (res.ok) { const j = await res.json(); setUpsellHistory(Array.isArray(j.data) ? j.data : []); }
       } catch {}
     })();
   }, [pc]);
@@ -6913,6 +6945,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
             { label:'Err Cor',   value: fmtUSD(d.errCor),    color: '#868e96' },
             { label: viewMode==='week'?'Wk Total':'WTD', value: weekTotals ? fmtUSD(viewMode==='week'?weekTotals.wtdSales:wtdTotalSales) : '—', color: '#4dabf7', sub: weekTotals?(viewMode==='week'?weekTotals.daysLoaded+'d':(weekTotals.daysLoaded+1)+'d'):null },
             { label:'Forecast', value: weeklyForecast>0 ? fmtUSD(weeklyForecast) : (weekTotals?'—':'…'), color: '#cc5de8', sub: weekTotals?.lyWeekSales>0?'LY+2%':null },
+            ...(upsellEntry ? [{ label:'Upsell Rate', value: upsellEntry.upsellRate.toFixed(1)+'%', color: '#22d3ee', sub: upsellEntry.date }] : []),
           ].map(k => (
             <div key={k.label} style={{ display:'flex', flexDirection:'column', alignItems:'center', background: k.color+'12', border:`1px solid ${k.color}30`, borderRadius:'999px', padding:'0.28rem 0.75rem', minWidth:64 }}>
               <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.8rem', color:k.color, lineHeight:1.1, whiteSpace:'nowrap' }}>{k.value}</span>
@@ -6925,18 +6958,45 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
 
 
       {/* ── Tab Navigation ── */}
-      <div style={{ display:'flex', marginBottom:'1.25rem', background:th.card, borderRadius:'0.75rem', border:`1px solid ${th.cardBorder}`, overflow:'hidden' }}>
-        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t,i,arr) => (
+      <div style={{ display:'flex', alignItems:'center', gap:'0.3rem', marginBottom:'1.25rem', background:th.card, borderRadius:'999px', border:`1px solid ${th.cardBorder}`, padding:'0.3rem' }}>
+        {[{id:'brief',label:'🔮 Brief'},{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
           <button key={t.id} onClick={() => {
               setStoreTab(t.id);
               if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
               if(t.id==='driveThru' && !txnList && !txnListLoading){ loadTxnList(); }
               if(t.id==='driveThru' && !dtSchedule){ cloudLoad(`pcg_schedule_${pc}`).then(d => setDtSchedule(d?.shifts || [])).catch(() => setDtSchedule([])); }
               if(t.id==='foodcost' && !foodCostT && !foodCostLoading){ setFoodCostLoading(true); fetch('/.netlify/functions/food-cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'store',pc,date:localDate})}).then(r=>r.ok?r.json():null).then(j=>{if(j)setFoodCostT(j);}).catch(()=>{}).finally(()=>setFoodCostLoading(false)); }
+              if(t.id==='brief' && !storeBrief && !storeBriefLoading){ loadStoreBrief(false); }
             }}
-            style={{ flex:1, padding:'0.7rem 0.5rem', border:'none', borderRight:i<arr.length-1?`1px solid ${th.cardBorder}`:'none', background:storeTab===t.id?O+'18':'transparent', color:storeTab===t.id?O:th.muted, fontWeight:storeTab===t.id?700:400, fontSize:'0.78rem', cursor:'pointer', transition:'all .15s', borderBottom:storeTab===t.id?`2px solid ${O}`:'2px solid transparent', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
+            style={{ flex:1, padding:'0.6rem 0.5rem', border:'none', borderRadius:'999px', background:storeTab===t.id?O:'transparent', color:storeTab===t.id?'#fff':th.muted, fontWeight:storeTab===t.id?800:500, fontSize:'0.78rem', cursor:'pointer', transition:'all .15s', boxShadow:storeTab===t.id?`0 2px 10px ${O}55`:'none', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
         ))}
       </div>
+
+      {/* ════ BRIEF TAB ════ */}
+      {storeTab === 'brief' && (
+        <div>
+          {storeBriefLoading ? (
+            <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 20, textAlign: 'center', color: th.muted, fontSize: 13 }}>🔮 Orion is reviewing {s?.name}'s data...</div>
+          ) : storeBrief?.content ? (
+            <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 16 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 12 }}>
+                <span style={{ fontSize: 11, color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>{storeBrief.date ? new Date(storeBrief.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : ''}</span>
+                <span style={{ background: O + '22', color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: '2px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8 }}>{s?.name}</span>
+              </div>
+              <div style={{ fontSize: 13.5, color: th.text, lineHeight: 1.65 }}>{renderAnalystMarkdown(storeBrief.content, th)}</div>
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${th.cardBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— Orion, {storeBrief.generatedAt ? new Date(storeBrief.generatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}</span>
+                <button onClick={() => loadStoreBrief(true)} disabled={storeBriefRefreshing} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '3px 10px', color: th.muted, fontSize: 11, cursor: storeBriefRefreshing ? 'default' : 'pointer', fontFamily: "'Source Sans 3'" }}>{storeBriefRefreshing ? 'Refreshing…' : '↻ Refresh'}</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 20, textAlign: 'center' }}>
+              <div style={{ color: th.muted, fontSize: 13, marginBottom: 10 }}>No brief generated yet.</div>
+              <button onClick={() => loadStoreBrief(false)} style={{ background: O, border: 'none', borderRadius: 8, padding: '6px 14px', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Generate Brief</button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ════ SALES TAB ════ */}
       {storeTab === 'sales' && <>
@@ -9839,7 +9899,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
 
       {/* ── Store Detail View ── */}
       {pulseView?.level === "store" && loaded.length > 0 && (
-        <StoreDetail pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} />
+        <StoreDetail pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} />
       )}
 
       {/* ── Loading Overlay ── */}
@@ -34176,7 +34236,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.76
+            v14.83
             <SyncStatus dark={dark} />
           </div>
         )}
