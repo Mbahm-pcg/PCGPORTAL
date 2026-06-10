@@ -3279,11 +3279,17 @@ function StoreMap({ stores, th, setTab }) {
   const [filterPerf,       setFilterPerf]       = React.useState(null);
   const [storeEmps,        setStoreEmps]        = React.useState(null);
   const [storeEmpsLoading, setStoreEmpsLoading] = React.useState(false);
+  const [teamExpanded,     setTeamExpanded]     = React.useState(false);
   const [storeHourly,        setStoreHourly]        = React.useState(null);
   const [storeHourlyLoading, setStoreHourlyLoading] = React.useState(false);
+  const [storeSched,         setStoreSched]         = React.useState(null);  // Paycor shifts for selected store (this week)
+  const [peerHourly,         setPeerHourly]         = React.useState(null);  // district mates' 7-day hourly histories
+  const [liveHeat,           setLiveHeat]           = React.useState({});   // pc → [24] sales by ET hour, today
+  const [heatLoading,        setHeatLoading]        = React.useState(true);
   const containerRef  = React.useRef(null);
   const mapRef        = React.useRef(null);
   const markersRef    = React.useRef([]);
+  const heatRef       = React.useRef([]);
   const tileRef       = React.useRef(null);
   const selectRef     = React.useRef(null);
   const tileSwapReady = React.useRef(false);
@@ -3303,6 +3309,7 @@ function StoreMap({ stores, th, setTab }) {
   React.useEffect(() => {
     if (!selectedStore) { setStoreEmps(null); return; }
     setStoreEmps(null);
+    setTeamExpanded(false);
     setStoreEmpsLoading(true);
     const todayStr = new Date().toISOString().slice(0, 10);
     cloudLoad(`pcg_labor_store_${selectedStore.pc}`).then(d => {
@@ -3313,6 +3320,49 @@ function StoreMap({ stores, th, setTab }) {
       setStoreEmpsLoading(false);
     }).catch(() => { setStoreEmps([]); setStoreEmpsLoading(false); });
   }, [selectedStore?.pc]);
+
+  // Live heat clouds — today's sales by hour, fetched from Pulse POS per store,
+  // refreshed every 15 minutes while the map is open
+  React.useEffect(() => {
+    let cancelled = false;
+    const fetchLiveHeat = async () => {
+      const now = new Date();
+      const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const today = `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, '0')}-${String(et.getDate()).padStart(2, '0')}`;
+      const pcs = stores.filter(s => s.status === 'Open').map(s => String(s.pc));
+      const BATCH = 6;
+      for (let i = 0; i < pcs.length; i += BATCH) {
+        if (cancelled) return;
+        const results = {};
+        await Promise.all(pcs.slice(i, i + BATCH).map(async pc => {
+          try {
+            const res = await fetch('/.netlify/functions/pulse', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ api: pc === '345986' ? 'p227' : 'p228', endpoint: 'getGuestChecks', locRef: pc, busDt: today, include: 'guestChecks.opnUTC,guestChecks.chkTtl' }),
+            });
+            if (!res.ok) return;
+            const j = await res.json();
+            const hours = Array(24).fill(0);
+            for (const c of (j.guestChecks || [])) {
+              const raw = c.opnUTC || '';
+              if (!raw) continue;
+              const dt = new Date(raw.endsWith('Z') ? raw : raw + 'Z');
+              if (isNaN(dt.getTime())) continue;
+              const h = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', hour12: false }).format(dt), 10) % 24;
+              hours[h] += c.chkTtl || 0;
+            }
+            results[pc] = hours;
+          } catch {}
+        }));
+        if (cancelled) return;
+        setLiveHeat(prev => ({ ...prev, ...results })); // progressive — clouds appear as batches land
+      }
+      if (!cancelled) setHeatLoading(false);
+    };
+    fetchLiveHeat();
+    const id = setInterval(fetchLiveHeat, 15 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [stores]);
 
   // Load hourly sales history when a pin is selected (for daypart heatmap)
   React.useEffect(() => {
@@ -3325,23 +3375,127 @@ function StoreMap({ stores, th, setTab }) {
     }).catch(() => { setStoreHourly([]); setStoreHourlyLoading(false); });
   }, [selectedStore?.pc]);
 
+  // Load this week's Paycor schedule (staffing overlay) + district peers' hourly histories (dead-zone comparison)
+  React.useEffect(() => {
+    if (!selectedStore) { setStoreSched(null); setPeerHourly(null); return; }
+    setStoreSched(null);
+    setPeerHourly(null);
+    cloudLoad(`pcg_schedule_${selectedStore.pc}`).then(d => setStoreSched(d?.shifts || [])).catch(() => setStoreSched([]));
+    const mates = stores.filter(s => s.district === selectedStore.district && s.pc !== selectedStore.pc && s.status === 'Open').slice(0, 8);
+    Promise.all(mates.map(m =>
+      cloudLoad(`pcg_hourly_history_${m.pc}`).then(d => (Array.isArray(d) && d.length ? d.slice(0, 7) : null)).catch(() => null)
+    )).then(all => setPeerHourly(all.filter(Boolean)));
+  }, [selectedStore?.pc]);
+
   // Build a 7-day x hour grid of sales for the daypart heatmap
   const hourLabel = h => h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
   const heatmap = React.useMemo(() => {
     if (!storeHourly || storeHourly.length === 0) return null;
-    let minH = 23, maxH = 0;
-    storeHourly.forEach(d => (d.hours || []).forEach(h => { if (h.h < minH) minH = h.h; if (h.h > maxH) maxH = h.h; }));
-    if (minH > maxH) return null;
+    // Only span hours that actually saw sales across the week (trim dead early/late columns)
+    const sums = {};
+    storeHourly.forEach(d => (d.hours || []).forEach(h => { sums[h.h] = (sums[h.h] || 0) + (h.sales || 0); }));
+    const active = Object.keys(sums).map(Number).filter(h => sums[h] > 0);
+    if (!active.length) return null;
+    const minH = Math.min(...active), maxH = Math.max(...active);
     const hours = [];
     for (let h = minH; h <= maxH; h++) hours.push(h);
     let max = 0;
     const days = storeHourly.map(d => {
       const byHour = {};
       (d.hours || []).forEach(h => { byHour[h.h] = h.sales || 0; if ((h.sales || 0) > max) max = h.sales; });
-      return { date: d.date, values: hours.map(h => byHour[h] ?? 0) };
+      const values = hours.map(h => byHour[h] ?? 0);
+      return { date: d.date, values, total: values.reduce((a, b) => a + b, 0) };
     }).reverse(); // oldest → newest, top to bottom
-    return { hours, days, max };
+    let peakHour = hours[0];
+    hours.forEach(h => { if ((sums[h] || 0) > (sums[peakHour] || 0)) peakHour = h; });
+    return { hours, days, max, peakHour };
   }, [storeHourly]);
+
+  // Staffing-fit thresholds — sales per scheduled labor hour
+  const SPLH_OVER = 35, SPLH_UNDER = 110;
+
+  // Staffing fit — the schedule blob covers the CURRENT week (today forward), while the sales
+  // heatmap is the PAST 7 days. So compare the upcoming schedule against typical traffic for
+  // that weekday/hour, flagging mismatches before the shift happens.
+  const schedFit = React.useMemo(() => {
+    if (!storeSched?.length || !storeHourly?.length || !heatmap) return null;
+    // Expected sales per hour, by weekday, from the 7-day history (fallback: all-day average)
+    const byDow = {};
+    const avg = Array(24).fill(0);
+    let nDays = 0;
+    storeHourly.forEach(d => {
+      if (!d.date) return;
+      const a = Array(24).fill(0);
+      (d.hours || []).forEach(h => { a[h.h] = h.sales || 0; });
+      byDow[new Date(d.date + 'T12:00:00').getDay()] = a;
+      a.forEach((v, h) => { avg[h] += v; });
+      nDays++;
+    });
+    if (!nDays) return null;
+    for (let h = 0; h < 24; h++) avg[h] /= nDays;
+    const now = new Date();
+    const tStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const dates = [...new Set(storeSched.map(s => s.date).filter(d => d && d >= tStr))].sort().slice(0, 7);
+    if (!dates.length) return null;
+    const hours = heatmap.hours;
+    const rows = dates.map(date => {
+      const exp = byDow[new Date(date + 'T12:00:00').getDay()] || avg;
+      const heads = hours.map(() => 0);
+      storeSched.forEach(sh => {
+        if (sh.date !== date || !sh.startDateTime || !sh.endDateTime) return;
+        const st = new Date(sh.startDateTime), en = new Date(sh.endDateTime);
+        if (isNaN(st.getTime()) || isNaN(en.getTime()) || en <= st) return;
+        const sH = st.getHours() + st.getMinutes() / 60;
+        const eH = en.getHours() + en.getMinutes() / 60 + (en.getDate() !== st.getDate() ? 24 : 0);
+        hours.forEach((h, i) => { if (sH <= h + 0.5 && h + 0.5 < eH) heads[i]++; });
+      });
+      const cells = hours.map((h, i) => {
+        const n = heads[i], expSales = exp[h] || 0;
+        let fit = 'ok';
+        if (n === 0) fit = expSales > 50 ? 'under' : 'off';
+        else {
+          const splh = expSales / n;
+          if (n >= 2 && splh < SPLH_OVER) fit = 'over';
+          else if (splh > SPLH_UNDER) fit = 'under';
+        }
+        return { n, exp: expSales, fit };
+      });
+      return { date, isToday: date === tStr, cells };
+    });
+    return { hours, rows };
+  }, [storeSched, storeHourly, heatmap]);
+
+  // Dead-zone detection: this store's share of daily sales per daypart vs district peers (7-day)
+  const deadZone = React.useMemo(() => {
+    if (!storeHourly?.length || !peerHourly?.length) return null;
+    const DAYPARTS = [
+      { label: '5–8a',   hs: [5, 6, 7] },
+      { label: '8–11a',  hs: [8, 9, 10] },
+      { label: '11a–2p', hs: [11, 12, 13] },
+      { label: '2–5p',   hs: [14, 15, 16] },
+      { label: '5–9p',   hs: [17, 18, 19, 20] },
+    ];
+    const sumHours = days => { const a = Array(24).fill(0); days.forEach(d => (d.hours || []).forEach(h => { a[h.h] += h.sales || 0; })); return a; };
+    const mine = sumHours(storeHourly);
+    const myTotal = mine.reduce((x, y) => x + y, 0);
+    if (myTotal <= 0) return null;
+    const peerShare = Array(24).fill(0);
+    let peers = 0;
+    peerHourly.forEach(hist => {
+      const a = sumHours(hist);
+      const t = a.reduce((x, y) => x + y, 0);
+      if (t > 0) { a.forEach((v, h) => { peerShare[h] += v / t; }); peers++; }
+    });
+    if (!peers) return null;
+    let worst = null;
+    for (const dp of DAYPARTS) {
+      const mineShare = dp.hs.reduce((x, h) => x + mine[h], 0) / myTotal * 100;
+      const theirs = dp.hs.reduce((x, h) => x + peerShare[h], 0) / peers * 100;
+      const gap = mineShare - theirs;
+      if (!worst || gap < worst.gap) worst = { label: dp.label, mine: mineShare, peers: theirs, gap };
+    }
+    return { ...worst, peerCount: peers };
+  }, [storeHourly, peerHourly]);
 
   // Ticket counts for pin alert dots (derived from allTickets)
   const ticketCounts = React.useMemo(() => {
@@ -3393,6 +3547,11 @@ function StoreMap({ stores, th, setTab }) {
     if (!L || !mapRef.current) return;
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
+    heatRef.current.forEach(m => m.remove());
+    heatRef.current = [];
+    // Current ET hour for the live heat clouds
+    const etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const curHr = etNow.getHours(), curMin = etNow.getMinutes();
     stores.forEach(s => {
       const c = STORE_COORDS[s.pc];
       if (!c) return;
@@ -3402,6 +3561,29 @@ function StoreMap({ stores, th, setTab }) {
         if (filterPerf === 'green'  && !(lPct !== null && lPct < 23)) return;
         if (filterPerf === 'yellow' && !(lPct !== null && lPct >= 23 && lPct < 26)) return;
         if (filterPerf === 'red'    && !(lPct !== null && lPct >= 26)) return;
+      }
+      // Live heat cloud — this hour's sales vs the store's own peak hour today
+      const heatHours = liveHeat[String(s.pc)];
+      if (heatHours && s.status === 'Open') {
+        const useHr = (curMin < 15 && curHr > 0) ? curHr - 1 : curHr;   // first 15 min → show last full hour
+        let raw = heatHours[useHr] || 0;
+        if (useHr === curHr && curMin >= 15) raw = raw / (curMin / 60); // prorate the partial hour
+        const peak = Math.max(...heatHours);
+        const intensity = peak > 0 ? Math.min(raw / peak, 1) : 0;
+        // Uber-surge style tiers: red = slammed, orange = steady, grey = dead
+        let rgb, a1, a2, size;
+        if (intensity >= 0.65) {
+          rgb = '239,68,68';    a1 = 0.55; a2 = 0.26; size = Math.round(80 + intensity * 30);  // red surge
+        } else if (intensity >= 0.3) {
+          rgb = '255,103,31';   a1 = 0.42; a2 = 0.18; size = Math.round(64 + intensity * 30);  // orange steady
+        } else {
+          rgb = '148,163,184';  a1 = 0.30; a2 = 0.12; size = 52;                               // grey dead/slow
+        }
+        const pulse = intensity >= 0.3 ? `animation:heatCloudPulse 3.4s ease-in-out infinite;` : '';
+        const cloudHtml = `<div style="width:${size}px;height:${size}px;border-radius:50%;pointer-events:none;background:radial-gradient(circle, rgba(${rgb},${a1}) 0%, rgba(${rgb},${a2}) 45%, rgba(${rgb},0) 72%);${pulse}"></div>`;
+        const cloudIcon = L.divIcon({ className: '', html: cloudHtml, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+        const cloud = L.marker([c.lat, c.lng], { icon: cloudIcon, interactive: false, keyboard: false, zIndexOffset: -1000 }).addTo(mapRef.current);
+        heatRef.current.push(cloud);
       }
       let color;
       if (s.status !== 'Open' && s.status !== 'Remodel') {
@@ -3429,7 +3611,7 @@ function StoreMap({ stores, th, setTab }) {
         });
       markersRef.current.push(marker);
     });
-  }, [stores, ticketCounts, laborData, filterPerf]);
+  }, [stores, ticketCounts, laborData, filterPerf, liveHeat]);
 
 
   // Style zoom controls to match theme
@@ -3441,6 +3623,7 @@ function StoreMap({ stores, th, setTab }) {
       .leaflet-bar { border: 1px solid ${th.cardBorder} !important; box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important; border-radius: 0.5rem !important; overflow: hidden; }
       .leaflet-control-zoom-in, .leaflet-control-zoom-out { background: ${th.card} !important; color: ${th.text} !important; border-bottom: 1px solid ${th.cardBorder} !important; }
       .leaflet-control-zoom-in:hover, .leaflet-control-zoom-out:hover { background: ${th.card2} !important; color: #FF671F !important; }
+      @keyframes heatCloudPulse { 0%, 100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.12); opacity: 1; } }
     `;
   }, [th.dark]);
 
@@ -3495,6 +3678,20 @@ function StoreMap({ stores, th, setTab }) {
         {filterPerf && (
           <button onClick={() => setFilterPerf(null)} style={{ fontSize:'0.68rem', color:th.muted, background:'none', border:`1px solid ${th.cardBorder}`, borderRadius:'2rem', padding:'0.22rem 0.65rem', cursor:'pointer', fontFamily:"'Source Sans 3'" }}>✕ Show all</button>
         )}
+        <span style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:'0.55rem', fontSize:'0.68rem', color:th.muted, fontFamily:"'Source Sans 3'" }}>
+          {heatLoading ? 'loading live heat…' : <>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
+              <span style={{ width:15, height:15, borderRadius:'50%', flexShrink:0, background:'radial-gradient(circle, rgba(239,68,68,0.8) 0%, rgba(239,68,68,0.35) 45%, rgba(239,68,68,0) 72%)' }} />Busy
+            </span>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
+              <span style={{ width:15, height:15, borderRadius:'50%', flexShrink:0, background:'radial-gradient(circle, rgba(255,103,31,0.7) 0%, rgba(255,103,31,0.3) 45%, rgba(255,103,31,0) 72%)' }} />Steady
+            </span>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
+              <span style={{ width:15, height:15, borderRadius:'50%', flexShrink:0, background:'radial-gradient(circle, rgba(148,163,184,0.6) 0%, rgba(148,163,184,0.25) 45%, rgba(148,163,184,0) 72%)' }} />Slow
+            </span>
+            <span style={{ opacity:0.75 }}>· this hour, live</span>
+          </>}
+        </span>
       </div>
 
       {/* ── Map + detail panel row ── */}
@@ -3568,72 +3765,138 @@ function StoreMap({ stores, th, setTab }) {
                 {storeEmpsLoading && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>Fetching team data…</div>}
                 {storeEmps && storeEmps.length===0 && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>No data available for today</div>}
                 {storeEmps && storeEmps.length>0 && (
-                  <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
-                    {storeEmps.map((e, i) => {
+                  <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                    {(teamExpanded ? storeEmps : storeEmps.slice(0, 5)).map((e, i) => {
                       const eName = typeof e.name === 'string' ? e.name : 'Unknown';
                       const eRole = typeof e.role === 'string' ? e.role : 'Crew';
                       const eHours = typeof e.hoursToday === 'number' ? e.hoursToday.toFixed(1)+'h' : '—';
                       const initials = eName.split(' ').map(n=>n[0]||'').join('').slice(0,2).toUpperCase() || '?';
                       return (
-                        <div key={i} style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.35rem 0.5rem', borderRadius:'0.5rem', background:th.card2 }}>
-                          <div style={{ width:30, height:30, borderRadius:'50%', background:'#FF671F22', color:'#FF671F', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:'0.6rem', flexShrink:0 }}>{initials}</div>
-                          <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontSize:'0.78rem', color:th.text, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{eName}</div>
-                            <div style={{ fontSize:'0.64rem', color:th.muted }}>{eRole}</div>
-                          </div>
-                          <div style={{ textAlign:'right', flexShrink:0 }}>
-                            <div style={{ fontSize:'0.75rem', fontWeight:600, color:th.text }}>{eHours}</div>
-                            {e.overtime==='ot' && <span style={{ fontSize:'0.55rem', color:'#ef4444', fontWeight:700 }}>OT</span>}
-                            {e.overtime==='approaching' && <span style={{ fontSize:'0.55rem', color:'#f59e0b', fontWeight:700 }}>~OT</span>}
-                          </div>
+                        <div key={i} style={{ display:'flex', alignItems:'center', gap:'0.45rem', padding:'0.2rem 0.4rem', borderRadius:'0.4rem', background:th.card2 }}>
+                          <div style={{ width:20, height:20, borderRadius:'50%', background:'#FF671F22', color:'#FF671F', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:'0.52rem', flexShrink:0 }}>{initials}</div>
+                          <span style={{ flex:1, minWidth:0, fontSize:'0.74rem', color:th.text, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                            {eName} <span style={{ color:th.muted, fontWeight:400, fontSize:'0.62rem' }}>· {eRole}</span>
+                          </span>
+                          {e.overtime==='ot' && <span style={{ fontSize:'0.52rem', color:'#ef4444', fontWeight:700, flexShrink:0 }}>OT</span>}
+                          {e.overtime==='approaching' && <span style={{ fontSize:'0.52rem', color:'#f59e0b', fontWeight:700, flexShrink:0 }}>~OT</span>}
+                          <span style={{ fontSize:'0.7rem', fontWeight:600, color:th.text, flexShrink:0 }}>{eHours}</span>
                         </div>
                       );
                     })}
+                    {storeEmps.length > 5 && (
+                      <button onClick={() => setTeamExpanded(x => !x)}
+                        style={{ background:'none', border:'none', color:th.muted, fontSize:'0.66rem', fontWeight:600, cursor:'pointer', padding:'0.25rem 0', fontFamily:"'Source Sans 3'" }}>
+                        {teamExpanded ? '▲ Show less' : `▼ Show all ${storeEmps.length}`}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
 
               {/* Daypart Heatmap */}
               <div style={{ padding:'0.875rem 1.25rem', borderBottom:`1px solid ${th.cardBorder}` }}>
-                <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.8rem', color:th.text, marginBottom:'0.5rem' }}>Hourly Traffic (Last 7 Days)</div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:'0.65rem' }}>
+                  <span style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.8rem', color:th.text }}>Hourly Traffic</span>
+                  <span style={{ fontSize:'0.62rem', color:th.muted }}>
+                    last 7 days{heatmap ? <> · peak <span style={{ color:O, fontWeight:700 }}>{hourLabel(heatmap.peakHour)}</span></> : ''}
+                  </span>
+                </div>
                 {storeHourlyLoading && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>Loading…</div>}
                 {storeHourly && storeHourly.length === 0 && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>No history available yet</div>}
-                {heatmap && (
-                  <div style={{ overflowX:'auto' }}>
-                    <div style={{ display:'inline-block' }}>
-                      {/* Hour header */}
-                      <div style={{ display:'flex', marginLeft:46 }}>
-                        {heatmap.hours.map((h, i) => (
-                          <div key={h} style={{ width:18, flexShrink:0, fontSize:'0.5rem', color:th.muted, textAlign:'center' }}>
-                            {(i % 2 === 0) ? hourLabel(h) : ''}
-                          </div>
+                {heatmap && (() => {
+                  // Quantized 5-step scale (GitHub-style) — calmer than a continuous gradient
+                  const cellColor = v => {
+                    const t = heatmap.max > 0 ? v / heatmap.max : 0;
+                    if (t <= 0) return th.card2;
+                    const alpha = t <= 0.15 ? '26' : t <= 0.35 ? '59' : t <= 0.6 ? '8c' : t <= 0.85 ? 'bf' : 'ff';
+                    return `${O}${alpha}`;
+                  };
+                  const fmtTotal = t => t >= 1000 ? `$${(t / 1000).toFixed(1)}k` : `$${Math.round(t)}`;
+                  const cols = `32px repeat(${heatmap.hours.length}, 1fr) 42px`;
+                  const lastIdx = heatmap.days.length - 1;
+                  return (
+                    <div>
+                      {/* Hour labels — every 3 hours */}
+                      <div style={{ display:'grid', gridTemplateColumns:cols, gap:3, marginBottom:3 }}>
+                        <span />
+                        {heatmap.hours.map(h => (
+                          <span key={h} style={{ fontSize:'0.56rem', color:th.muted, textAlign:'center', whiteSpace:'nowrap' }}>
+                            {h % 3 === 0 ? hourLabel(h) : ''}
+                          </span>
                         ))}
+                        <span />
                       </div>
-                      {/* Day rows */}
-                      {heatmap.days.map(d => (
-                        <div key={d.date} style={{ display:'flex', alignItems:'center', marginTop:1 }}>
-                          <div style={{ width:46, flexShrink:0, fontSize:'0.6rem', color:th.muted, paddingRight:4 }}>
+                      {/* Day rows — weekday | cells | day total */}
+                      {heatmap.days.map((d, di) => (
+                        <div key={d.date} style={{ display:'grid', gridTemplateColumns:cols, gap:3, alignItems:'center', marginBottom:3 }}>
+                          <span style={{ fontSize:'0.6rem', fontWeight: di === lastIdx ? 700 : 500, color: di === lastIdx ? th.text : th.muted }}>
                             {new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
-                          </div>
-                          {d.values.map((v, i) => {
-                            const intensity = heatmap.max > 0 ? v / heatmap.max : 0;
-                            return (
-                              <div key={i} title={`${hourLabel(heatmap.hours[i])}: ${fmtDollars(v)}`}
-                                style={{ width:18, height:18, flexShrink:0, margin:'0 1px', borderRadius:3, background: intensity > 0 ? `${O}${Math.max(Math.round(intensity*255),18).toString(16).padStart(2,'0')}` : th.card2 }} />
-                            );
-                          })}
+                          </span>
+                          {d.values.map((v, i) => (
+                            <div key={i} title={`${hourLabel(heatmap.hours[i])} — ${fmtDollars(v)}`}
+                              style={{ height:16, borderRadius:4, background:cellColor(v) }} />
+                          ))}
+                          <span style={{ fontSize:'0.58rem', color:th.muted, textAlign:'right', whiteSpace:'nowrap' }}>{fmtTotal(d.total)}</span>
                         </div>
                       ))}
-                      <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginTop:'0.5rem', marginLeft:46, fontSize:'0.6rem', color:th.muted }}>
+                      {/* Dead-zone insight vs district peers */}
+                      {deadZone && (deadZone.gap < -2.5 ? (
+                        <div style={{ display:'flex', alignItems:'flex-start', gap:'0.4rem', marginTop:'0.55rem', padding:'0.4rem 0.6rem', borderRadius:'0.5rem', background:'#ef444412', border:'1px solid #ef444433', fontSize:'0.66rem', color:th.text, lineHeight:1.45 }}>
+                          <span style={{ flexShrink:0 }}>⚠️</span>
+                          <span><strong>Dead zone {deadZone.label}</strong> — {deadZone.mine.toFixed(1)}% of daily sales vs {deadZone.peers.toFixed(1)}% for {deadZone.peerCount} district peers. Market issue or ops issue?</span>
+                        </div>
+                      ) : (
+                        <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginTop:'0.55rem', fontSize:'0.64rem', color:'#22c55e' }}>
+                          ✓ Daypart mix tracks district peers
+                        </div>
+                      ))}
+                      {/* Legend */}
+                      <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', gap:4, marginTop:'0.5rem', fontSize:'0.58rem', color:th.muted }}>
                         <span>Less</span>
-                        {[0.15, 0.35, 0.55, 0.75, 1].map(v => (
-                          <div key={v} style={{ width:14, height:14, borderRadius:3, background:`${O}${Math.round(v*255).toString(16).padStart(2,'0')}` }} />
+                        {['26', '59', '8c', 'bf', 'ff'].map(a => (
+                          <div key={a} style={{ width:11, height:11, borderRadius:3, background:`${O}${a}` }} />
                         ))}
-                        <span>More</span>
+                        <span style={{ marginRight:2 }}>More</span>
                       </div>
+
+                      {/* ── Staffing Fit — upcoming schedule vs typical traffic ── */}
+                      {schedFit && (
+                        <div style={{ marginTop:'0.85rem', paddingTop:'0.75rem', borderTop:`1px solid ${th.cardBorder}` }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:'0.45rem' }}>
+                            <span style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.74rem', color:th.text }}>Staffing Fit</span>
+                            <span style={{ fontSize:'0.58rem', color:th.muted }}>scheduled heads vs typical traffic</span>
+                          </div>
+                          {schedFit.rows.map(r => (
+                            <div key={r.date} style={{ display:'grid', gridTemplateColumns:cols, gap:3, alignItems:'center', marginBottom:3 }}>
+                              <span style={{ fontSize:'0.6rem', fontWeight: r.isToday ? 700 : 500, color: r.isToday ? th.text : th.muted }}>
+                                {new Date(r.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
+                              </span>
+                              {r.cells.map((cell, i) => {
+                                const c = cell.fit === 'over' ? '#ef4444' : cell.fit === 'under' ? '#f59e0b' : null;
+                                let tip = `${hourLabel(schedFit.hours[i])} — ${cell.n} scheduled · typical ${fmtDollars(cell.exp)}`;
+                                if (cell.fit === 'over') tip += ' · OVERSTAFFED';
+                                if (cell.fit === 'under') tip += cell.n === 0 ? ' · NO COVERAGE' : ' · UNDERSTAFFED';
+                                return (
+                                  <div key={i} title={tip}
+                                    style={{ height:16, borderRadius:4, display:'flex', alignItems:'center', justifyContent:'center',
+                                      background: c ? `${c}22` : th.card2,
+                                      color: c || th.muted, fontSize:'0.55rem', fontWeight:700 }}>
+                                    {cell.fit === 'off' ? '' : cell.n}
+                                  </div>
+                                );
+                              })}
+                              <span />
+                            </div>
+                          ))}
+                          <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', gap:'0.6rem', marginTop:'0.4rem', fontSize:'0.58rem', color:th.muted }}>
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:3 }}><span style={{ width:11, height:11, borderRadius:3, background:'#ef444422', border:'1px solid #ef444455' }} /> overstaffed</span>
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:3 }}><span style={{ width:11, height:11, borderRadius:3, background:'#f59e0b22', border:'1px solid #f59e0b55' }} /> understaffed</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Open Tickets */}
@@ -34172,7 +34435,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.90
+            v14.96
             <SyncStatus dark={dark} />
           </div>
         )}
