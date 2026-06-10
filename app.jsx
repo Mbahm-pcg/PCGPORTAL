@@ -1,6 +1,6 @@
 
 import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
-import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard } from './src/theme.js';
+import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, authHeader, clearSessionToken } from './src/portal-auth.mjs';
@@ -5485,8 +5485,8 @@ function AdminAnalytics({ stores, users, districts, th, salesWeeks, setSalesWeek
     </span>
   );
 
-  const thS = { padding: '0.4rem 0.5rem', color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, fontSize: '0.72rem', whiteSpace: 'nowrap' };
-  const tdS = { padding: '0.45rem 0.5rem' };
+  const thS = thCell(th, { padding: '0.4rem 0.5rem' });
+  const tdS = tdCell(th, { padding: '0.45rem 0.5rem' });
 
   return (
     <div className="fade-in">
@@ -9815,10 +9815,8 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const fmtNum  = v => Math.round(v).toLocaleString();
   const fmtAvg  = v => v > 0 ? '$' + v.toFixed(2) : '—';
 
-  const thS = { padding:'0.45rem 0.65rem', fontFamily:"'Raleway'", fontWeight:700,
-    fontSize:'0.68rem', textTransform:'uppercase', letterSpacing:0.8,
-    color:th.muted, whiteSpace:'nowrap', background:th.card };
-  const tdS = { padding:'0.5rem 0.65rem', fontSize:'0.78rem', color:th.text, verticalAlign:'middle' };
+  const thS = thCell(th, { background: th.card });
+  const tdS = tdCell(th);
 
   const distList = Object.values(districts||{}).sort((a,b)=>a.num-b.num);
 
@@ -21793,8 +21791,8 @@ function SalesReconciliation({ th, user, showAlert }) {
 
   const fmtD = v => '$' + Math.abs(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtDate = d => d ? new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
-  const thS = { padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 };
-  const tdS = { padding: '0.4rem 0.75rem', borderBottom: `1px solid ${th.cardBorder}`, fontSize: '0.8rem', color: th.text };
+  const thS = thCell(th, { padding: '0.5rem 0.75rem', borderBottom: `2px solid ${O}44` });
+  const tdS = tdCell(th, { padding: '0.4rem 0.75rem', borderBottom: `1px solid ${th.cardBorder}` });
 
   // WTD Detail view
   if (view === 'wtdDetail' && wtdDetail) {
@@ -23757,8 +23755,8 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
     }}>{label}</button>
   );
 
-  const thS = { fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5, padding: '0.4rem 0.6rem', textAlign: 'left', borderBottom: `1px solid ${th.cardBorder}` };
-  const tdS = { fontSize: '0.8125rem', color: th.text, padding: '0.4rem 0.6rem', borderBottom: `1px solid ${th.cardBorder}22` };
+  const thS = thCell(th, { padding: '0.4rem 0.6rem', borderBottom: `1px solid ${th.cardBorder}` });
+  const tdS = tdCell(th, { padding: '0.4rem 0.6rem', borderBottom: `1px solid ${th.cardBorder}22` });
 
   return (
     <div style={{ fontFamily: "'Source Sans 3'" }}>
@@ -24312,10 +24310,10 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
                     </td>
                     <td style={{ ...tdS, color: th.muted }}>{emp.role}</td>
                     <td style={tdS}>
-                      <span style={{ fontSize: '0.65rem', fontWeight: 700, color: statusColor, background: statusColor + '20', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>{emp.liveStatus}</span>
-                      {emp.otStatus === 'OT'      && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#f44336', background: '#f4433620', padding: '0.15rem 0.4rem', borderRadius: '0.3rem', marginLeft: 4 }}>OT</span>}
-                      {emp.otStatus === 'Approaching OT' && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#ff9800', background: '#ff980020', padding: '0.15rem 0.4rem', borderRadius: '0.3rem', marginLeft: 4 }}>~OT</span>}
-                      {emp.isSalary               && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2196f3', background: '#2196f320', padding: '0.15rem 0.4rem', borderRadius: '0.3rem', marginLeft: 4 }}>SAL</span>}
+                      <span style={pill(statusColor)}>{emp.liveStatus}</span>
+                      {emp.otStatus === 'OT'      && <span style={pill('#f44336', { marginLeft: 4 })}>OT</span>}
+                      {emp.otStatus === 'Approaching OT' && <span style={pill('#ff9800', { marginLeft: 4 })}>~OT</span>}
+                      {emp.isSalary               && <span style={pill('#2196f3', { marginLeft: 4 })}>SAL</span>}
                     </td>
                     <td style={{ ...tdS, fontSize: '0.75rem', color: th.muted }}>
                       {emp.clockedInAt ? `In ${emp.clockedInAt}` : emp.scheduledStart ? `${emp.scheduledStart} - ${emp.scheduledEnd}` : '—'}
@@ -24570,7 +24568,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
       </div>}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-        <h2 style={{ margin: 0, fontFamily: "'Raleway'", fontWeight: 700, color: th.text }}>Labor</h2>
+        <h2 style={{ ...pageTitle(th), margin: 0 }}>Labor</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <span style={{ fontSize: '0.75rem', color: th.muted }}>Updated {timeAgo(laborData?.lastUpdated)}</span>
           <button onClick={handleRefresh} disabled={refreshing} style={{ ...btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem', opacity: refreshing ? 0.5 : 1 }) }}>
@@ -24582,8 +24580,8 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
         {kpiCards.map((k, i) => (
           <div key={i} style={{ ...card(th), padding: '0.85rem 1rem', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: k.color, borderRadius: '0.625rem 0.625rem 0 0', opacity: 0.85 }} />
-            <div style={{ fontSize: '0.58rem', color: th.muted, textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.8 }}>{k.label}</div>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: k.color, opacity: 0.85 }} />
+            <div style={{ ...microLabel(th, { fontSize: '0.6rem' }) }}>{k.label}</div>
             <div style={{ fontSize: '1.4rem', fontWeight: 700, color: k.color, marginTop: '0.15rem', fontFamily: "'Source Sans 3'" }}>{k.value}</div>
             <div style={{ fontSize: '0.58rem', color: th.muted, marginTop: '0.1rem', fontWeight: 600 }}>{k.sub}</div>
           </div>
@@ -24610,7 +24608,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
           </select>
         )}
         {summary.overtimeCount > 0 && (
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#f44336', padding: '0.3rem 0.6rem', background: '#f4433615', borderRadius: '0.4rem' }}>
+          <span style={pill('#f44336', { fontSize: '0.75rem', padding: '0.3rem 0.6rem' })}>
             {summary.overtimeCount} OT
           </span>
         )}
@@ -24642,7 +24640,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
                 <span style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text }}>{s.name}</span>
                 <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
                   {t.sales > 0 && (
-                    <span style={{ fontSize: '0.65rem', fontWeight: 800, color: clr, background: `${clr}18`, padding: '0.1rem 0.4rem', borderRadius: 999 }}>
+                    <span style={pill(clr, { fontWeight: 800 })}>
                       {fmtPct(pct)}
                     </span>
                   )}
@@ -24659,17 +24657,17 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
               {timeFilter === 'today' && (
                 <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                   {(t.scheduledNow || t.employeesOnClock || 0) > 0 && (
-                    <span style={{ fontSize: '0.58rem', fontWeight: 800, color: '#22c55e', background: '#22c55e18', border: '1px solid #22c55e33', padding: '0.12rem 0.4rem', borderRadius: 999 }}>
+                    <span style={pill('#22c55e', { fontSize: '0.58rem', fontWeight: 800 })}>
                       {t.scheduledNow || t.employeesOnClock} clocked in
                     </span>
                   )}
                   {(t.scheduledToday || t.employees || 0) > 0 && (
-                    <span style={{ fontSize: '0.58rem', fontWeight: 800, color: '#74c0fc', background: '#74c0fc18', border: '1px solid #74c0fc33', padding: '0.12rem 0.4rem', borderRadius: 999 }}>
+                    <span style={pill('#74c0fc', { fontSize: '0.58rem', fontWeight: 800 })}>
                       {t.scheduledToday || t.employees} today
                     </span>
                   )}
                   {(t.overtimeCount || 0) > 0 && (
-                    <span style={{ fontSize: '0.58rem', fontWeight: 800, color: '#f44336', background: '#f4433618', border: '1px solid #f4433633', padding: '0.12rem 0.4rem', borderRadius: 999 }}>
+                    <span style={pill('#f44336', { fontSize: '0.58rem', fontWeight: 800 })}>
                       {t.overtimeCount} OT
                     </span>
                   )}
@@ -34435,7 +34433,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.96
+            v14.97
             <SyncStatus dark={dark} />
           </div>
         )}
