@@ -173,6 +173,13 @@
 - Data model is already mostly brand-agnostic: stores, districts, labor, sales, projects
 - Potential to license to other multi-unit operators
 
+### 10.7 Admin Console & Access Governance ✅ shipped v14.98–v15.05
+✅ - Unified **Admin** console (replaces Settings) — one flat tab bar: Notifications · Users · Access · Orion · Vendors · System & Logs (IT/Exec only)
+✅ - **Access** tab: live "who-can-see-what" matrix derived from the real `getTabs()` logic, per role, with user counts + scope notes
+✅ - **Per-role tab visibility toggles** — IT/Exec show/hide any role-specific section network-wide (Netlify Blob `pcg_access_overrides_v1`, 12s live propagation), with a lockout guard that keeps Admin visible for IT/Exec
+✅ - System overview (users/stores/roles/version) + role breakdown; audit log + notification log consolidated under System & Logs
+✅ - Expense Log promoted to its own Finance tab (IT/Exec only); P&L data-access management relocated to the Access tab
+
 ---
 
 ## Phase 11 — Deal Pipeline & Real Estate (Pre-Construction)

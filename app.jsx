@@ -14139,7 +14139,7 @@ function PnlAccessPanel({ th, user, users, showAlert }) {
   );
 }
 
-function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals }) {
+function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
   const [notifyLog, setNotifyLog] = useState(null);
@@ -14222,7 +14222,11 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
     showAlert("success", "Email removed from ticket list");
   };
 
-  const [settingsTab, setSettingsTab] = React.useState('notifications');
+  const [innerTab, setInnerTab] = React.useState('notifications');
+  // When embedded inside AdminConsole, the active section is driven externally
+  // (single flat tab bar) — otherwise this component owns its own tab bar.
+  const settingsTab = embedSection || innerTab;
+  const setSettingsTab = setInnerTab;
 
   const settingsTabs = [
     { id: 'notifications', label: '📬 Notifications', color: O },
@@ -14233,6 +14237,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
   return (
     <div className="fade-in">
+      {!embedSection && <>
       <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: th.text, marginBottom: "0.25rem" }}>⚙️ Settings</div>
       <div style={{ color: th.muted, fontSize: "0.8125rem", marginBottom: "1.25rem" }}>System configuration and notification settings.</div>
 
@@ -14249,9 +14254,9 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           }}>{t.icon ? <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}>{t.icon}{t.label}</span> : t.label}</button>
         ))}
       </div>
+      </>}
 
-      {/* P&L Access — managers (Mike & Ahmed) only; shows on all settings sub-tabs */}
-      {canManagePnlAccess(user) && <PnlAccessPanel th={th} user={user} users={users} showAlert={showAlert} />}
+      {/* P&L Access moved → Admin · Access tab */}
 
       {/* ── Tab: Notifications ── */}
       {settingsTab === 'notifications' && <>
@@ -15061,10 +15066,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         <AuditLogSection th={th} user={user} users={users || []} accent="#0EA5E9" />
       </div>
 
-      {/* Expense Log */}
-      <div style={{ marginTop: "1.25rem" }}>
-        <ExpenseLogSection th={th} user={user} />
-      </div>
+      {/* Expense Log moved → Finance group, its own tab (exec/IT only) */}
 
       </> /* end admin tab */}
     </div>
@@ -15125,11 +15127,11 @@ async function compressImageToBase64(file, maxPx = 600, quality = 0.72) {
   });
 }
 
-function ExpenseLogSection({ th, user }) {
+function ExpenseLogSection({ th, user, standalone }) {
   const O = '#FF671F';
   const GOLD = '#f59e0b';
   const isVP = user?.userType === 'executive' || user?.userType === 'it';
-  const [open, setOpen] = React.useState(false);
+  const [open, setOpen] = React.useState(!!standalone);
   const [search, setSearch] = React.useState('');
   const [filterCat, setFilterCat] = React.useState('All');
   const [filterUser, setFilterUser] = React.useState('All');
@@ -15547,6 +15549,206 @@ function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, 
       {logOpen && !logLoading && (!notifyLog || notifyLog.length === 0) && (
         <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0', textAlign: 'center' }}>No notification history yet. Run a manual pulse notification to start logging.</div>
       )}
+    </div>
+  );
+}
+
+// ── Admin · System overview — safe, read-only counts + role breakdown ──────
+function AdminDataPanel({ th, user, users, stores, districts, version }) {
+  const activeUsers = (users || []).filter(u => u.active !== false);
+  const roleCounts = {};
+  (users || []).forEach(u => { const t = u.userType || 'unknown'; roleCounts[t] = (roleCounts[t] || 0) + 1; });
+
+  const cards = [
+    { label: 'Users', value: (users || []).length, sub: `${activeUsers.length} active` },
+    { label: 'Stores', value: (stores || []).length, sub: `${(districts || []).length} districts` },
+    { label: 'Roles in use', value: Object.keys(roleCounts).length, sub: 'distinct types' },
+    { label: 'Portal version', value: version || '—', sub: 'live build' },
+  ];
+
+  return (
+    <div>
+      {/* System overview cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        {cards.map(c => (
+          <div key={c.label} style={card(th, { padding: '1rem' })}>
+            <div style={{ ...microLabel(th), marginBottom: '0.35rem' }}>{c.label}</div>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.5rem', color: th.text, lineHeight: 1 }}>{c.value}</div>
+            <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.3rem' }}>{c.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Role breakdown */}
+      <div style={accentCard(th, '#a78bfa', { padding: '1.25rem' })}>
+        <div style={{ ...sectionTitle(th), marginBottom: '0.75rem' }}>Role Breakdown</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          {Object.entries(roleCounts).sort((a, b) => b[1] - a[1]).map(([t, n]) => (
+            <span key={t} style={pill('#a78bfa', { fontSize: '0.72rem', padding: '0.3rem 0.7rem' })}>
+              {ROLE_META[t]?.label || t} · {n}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Role metadata — labels + scope notes for the Access matrix ─────────────
+const ROLE_META = {
+  executive:    { label: 'VP / Executive', admin: true,  scope: 'Full access to every section, network-wide.' },
+  it:           { label: 'IT / HR Admin',  admin: true,  scope: 'Full access + user management & this Admin console.' },
+  office_staff: { label: 'Office Staff',   admin: false, scope: 'All operational tabs, network-wide. No destructive admin powers.' },
+  dm:           { label: 'District Manager',admin: false, scope: 'Tabs filtered to their own district only.' },
+  manager:      { label: 'Store Manager',  admin: false, scope: 'Their assigned store(s) only; My Store mobile mode.' },
+  construction: { label: 'Construction',   admin: false, scope: 'Projects / Construction (incl. mobile construction view).' },
+  maintenance:  { label: 'Maintenance',    admin: false, scope: 'Tickets, calendar, expense tracking/approvals.' },
+  vendor:       { label: 'Vendor',         admin: false, scope: 'Projects tab only (+ chat).' },
+  kiosk_pulse:  { label: 'Kiosk TV',       admin: false, scope: 'Pulse TV display only — no portal access.' },
+  kiosk_upload: { label: 'Kiosk Upload',   admin: false, scope: 'Upload-only kiosk — no portal access.' },
+};
+
+// ── Access Matrix — who can see what + per-role visibility toggles ──────────
+function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, showAlert }) {
+  const roles = Object.keys(ROLE_META);
+  const userCounts = {};
+  (users || []).forEach(u => { const t = u.userType || 'unknown'; userCounts[t] = (userCounts[t] || 0) + 1; });
+  const KIOSK = new Set(['kiosk_pulse', 'kiosk_upload']);
+  const ov = accessOverrides || {};
+
+  // A section is locked-on (cannot be toggled off) if it's the Admin tab for a full-admin role.
+  const isLocked = (rt, tabId) => tabId === 'admin' && (rt === 'executive' || rt === 'it');
+  const isOn = (rt, tabId) => ov[rt]?.[tabId] !== false;
+
+  const toggle = (rt, tabId) => {
+    if (isLocked(rt, tabId)) { showAlert && showAlert('error', 'The Admin console stays visible for IT/Executive — lockout guard.'); return; }
+    setAccessOverrides(prev => {
+      const next = { ...prev, [rt]: { ...(prev[rt] || {}) } };
+      if (next[rt][tabId] === false) delete next[rt][tabId];   // turn back ON (default)
+      else next[rt][tabId] = false;                            // turn OFF
+      if (Object.keys(next[rt]).length === 0) delete next[rt];
+      return next;
+    });
+  };
+
+  const hiddenCount = Object.values(ov).reduce((n, m) => n + Object.values(m || {}).filter(v => v === false).length, 0);
+
+  return (
+    <div>
+      <div style={accentCard(th, '#0ea5e9', { padding: '0.85rem 1rem', marginBottom: '1.1rem', display: 'flex', gap: '0.6rem', alignItems: 'flex-start' })}>
+        <span style={{ fontSize: '1.1rem' }}>🔐</span>
+        <span style={{ fontSize: '0.82rem', color: th.text }}>
+          Tap any section chip to <strong>show / hide</strong> it for that role. Changes save automatically and
+          apply to everyone in that role network-wide. Hidden sections (<span style={{ textDecoration: 'line-through', opacity: 0.6 }}>dimmed</span>) disappear
+          from their sidebar on next refresh. Universal tabs (Dashboard, Chat, Notes…) are always available and aren't listed here.
+          {hiddenCount > 0 && <> <strong>{hiddenCount} section{hiddenCount !== 1 ? 's' : ''} currently hidden.</strong></>}
+        </span>
+      </div>
+
+      {/* P&L data access — managers only */}
+      {canManagePnlAccess(user) && <div style={{ marginBottom: '1.1rem' }}><PnlAccessPanel th={th} user={user} users={users} showAlert={showAlert} /></div>}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+        {roles.map(rt => {
+          const meta = ROLE_META[rt];
+          // Dedupe tabs by id; exclude universal base tabs (always visible, not toggleable)
+          const seen = new Set();
+          const tabs = (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: '000000' }))
+            .filter(t => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
+          const visibleN = tabs.filter(t => isOn(rt, t.id)).length;
+          return (
+            <div key={rt} style={card(th, { padding: '1rem 1.15rem' })}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                <span style={{ ...sectionTitle(th) }}>{meta.label}</span>
+                {meta.admin && <span style={pill('#ef4444')}>ADMIN</span>}
+                <span style={pill('#94a3b8')}>{userCounts[rt] || 0} user{(userCounts[rt] || 0) !== 1 ? 's' : ''}</span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: th.muted }}>
+                  {KIOSK.has(rt) ? '—' : `${visibleN}/${tabs.length} visible`}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.74rem', color: th.muted, marginBottom: tabs.length ? '0.6rem' : 0 }}>{meta.scope}</div>
+              {tabs.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                  {tabs.map(t => {
+                    const on = isOn(rt, t.id);
+                    const locked = isLocked(rt, t.id);
+                    return (
+                      <button key={t.id} onClick={() => toggle(rt, t.id)} title={locked ? 'Locked — always visible for this role' : on ? 'Click to hide' : 'Click to show'} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                        fontSize: '0.68rem', fontWeight: 600, fontFamily: "'Source Sans 3'",
+                        cursor: locked ? 'default' : 'pointer',
+                        color: on ? th.text : th.muted,
+                        textDecoration: on ? 'none' : 'line-through',
+                        opacity: on ? 1 : 0.55,
+                        background: on ? (th.card2 || th.card) : 'transparent',
+                        border: `1px solid ${on ? th.cardBorder : `${th.muted}55`}`,
+                        borderRadius: RADIUS.chip, padding: '0.18rem 0.5rem', transition: 'all .12s',
+                      }}>
+                        <span style={{ fontSize: '0.6rem' }}>{locked ? '🔒' : on ? '●' : '○'}</span>{t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Admin Console — one flat tab bar, no nested settings page ───────────────
+function AdminConsole(props) {
+  const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
+  const SUBS = [
+    { id: 'notifications', label: 'Notifications', icon: '📬', accent: O },
+    { id: 'users',         label: 'Users',         icon: '👥', accent: '#a78bfa' },
+    { id: 'access',        label: 'Access',        icon: '🔐', accent: '#ef4444' },
+    { id: 'orion',         label: 'Orion',         icon: '🟣', accent: '#7C3AED' },
+    { id: 'vendors',       label: 'Vendors',       icon: '🏗️', accent: '#14b8a6' },
+    { id: 'system',        label: 'System & Logs', icon: '🗄️', accent: '#94a3b8' },
+  ];
+  // Map our flat tabs onto AdminSettings' internal section ids
+  const SETTINGS_SECTION = { notifications: 'notifications', orion: 'orion', vendors: 'vendors' };
+
+  const VALID = SUBS.map(s => s.id);
+  const [sub, setSub] = React.useState(() => {
+    try { const s = localStorage.getItem('pcg_admin_sub'); return VALID.includes(s) ? s : 'notifications'; } catch { return 'notifications'; }
+  });
+  const go = (id) => { setSub(id); try { localStorage.setItem('pcg_admin_sub', id); } catch {} };
+
+  return (
+    <div>
+      {/* Single flat tab bar */}
+      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1.25rem', borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: '0.6rem' }}>
+        {SUBS.map(s => {
+          const on = sub === s.id;
+          return (
+            <button key={s.id} onClick={() => go(s.id)} style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.5rem 1rem', fontSize: '0.82rem', fontWeight: 700,
+              fontFamily: "'Source Sans 3'", cursor: 'pointer',
+              borderRadius: RADIUS.control,
+              border: `1px solid ${on ? s.accent : th.cardBorder}`,
+              background: on ? `${s.accent}1a` : 'transparent',
+              color: on ? s.accent : th.muted, transition: 'all .15s',
+            }}>
+              <span>{s.icon}</span>{s.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {sub === 'users' && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
+      {sub === 'access' && <AccessMatrix th={th} user={user} users={users} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} showAlert={showAlert} />}
+      {SETTINGS_SECTION[sub] && <AdminSettings {...props} embedSection={SETTINGS_SECTION[sub]} />}
+      {sub === 'system' && <>
+        <AdminDataPanel th={th} user={user} users={users} stores={stores} districts={districts} version={version} />
+        <div style={{ marginTop: '1.25rem' }}>
+          <AdminSettings {...props} embedSection="admin" />
+        </div>
+      </>}
     </div>
   );
 }
@@ -17048,12 +17250,12 @@ const getTabs = (user) => {
     { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.map(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
+    { id: "expenses",  label: "Expense Log",    icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
-    { id: "users",     label: "Users",        icon: (c) => ICONS.users(c) },
     { id: "email",     label: "Email",        icon: '📧' },
-    { id: "settings",  label: "Settings",     icon: (c) => ICONS.settings(c) },
+    { id: "admin",     label: "Admin",        icon: (c) => ICONS.settings(c) },
   ];
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
@@ -32504,6 +32706,9 @@ function PCGPortal() {
   const [chatReadState, setChatReadState] = useState({});
   const [announcements, setAnnouncements] = useState([]);
   const [announcementsDismissed, setAnnouncementsDismissed] = useState({});
+  // IT/exec-managed per-role tab visibility overrides: { [userType]: { [tabId]: false } }
+  const [accessOverrides, setAccessOverrides] = useState({});
+  const cloudAccessLoaded = useRef(false);
 
   // Flags to prevent cloud save effects from firing before initial cloud load completes
   const cloudProjectsLoaded = useRef(false);
@@ -32591,9 +32796,20 @@ function PCGPortal() {
     let t = getTabs(u);
     if (!canPnl) t = t.filter(x => x.id !== 'pnl');
     if (!canDeals) t = t.filter(x => x.id !== 'deals');
+    // Per-role visibility toggles (IT/exec managed). Base/universal tabs are
+    // never filtered (always visible). Lockout guard: full admins can never
+    // lose the Admin tab, even if it's toggled off for their role.
+    const ov = accessOverrides[u?.userType];
+    if (ov) t = t.filter(x => BASE_TAB_IDS.includes(x.id) || ov[x.id] !== false || (x.id === 'admin' && isFullAdmin(u)));
     return t;
   };
   const TABS = tabsForUser(user);
+  // If the active tab just got hidden for this user's role, bounce to a visible one
+  useEffect(() => {
+    if (!user || !tab) return;
+    const ids = tabsForUser(user).map(t => t.id);
+    if (!ids.includes(tab)) setTab(ids[0] || 'dashboard');
+  }, [accessOverrides, tab, user?.userType]);
 
   // Lock body scroll while mobile drawer is open
   useEffect(() => {
@@ -33477,6 +33693,15 @@ function PCGPortal() {
   useEffect(() => { if (chatPollActive.current || !cloudAnnouncementsLoaded.current) return; cloudSave('pcg_announcements_v1', announcements); }, [announcements]);
   useEffect(() => { if (chatPollActive.current || !cloudAnnouncementsLoaded.current || Object.keys(announcementsDismissed).length === 0) return; cloudSave('pcg_announcements_dismissed_v1', announcementsDismissed); }, [announcementsDismissed]);
 
+  // Cloud sync role access overrides (IT/exec manage which tabs each role sees)
+  useEffect(() => {
+    cloudLoad('pcg_access_overrides_v1').then(ov => {
+      cloudAccessLoaded.current = true;
+      if (ov && typeof ov === 'object' && !Array.isArray(ov)) setAccessOverrides(ov);
+    }).catch(() => { cloudAccessLoaded.current = true; });
+  }, []);
+  useEffect(() => { if (chatPollActive.current || !cloudAccessLoaded.current) return; cloudSave('pcg_access_overrides_v1', accessOverrides); }, [accessOverrides]);
+
   // Register service worker for PWA push notifications
   useEffect(() => { registerServiceWorker(); }, []);
   // Re-subscribe to push if user already has pushNotify enabled (handles expired subs / new devices)
@@ -33489,12 +33714,13 @@ function PCGPortal() {
     if (!user) return;
     chatPollRef.current = setInterval(async () => {
       try {
-        const [ch, ms, rd, ann, dis] = await Promise.all([
+        const [ch, ms, rd, ann, dis, acc] = await Promise.all([
           cloudLoad('pcg_chat_channels_v1'),
           cloudLoad('pcg_chat_messages_v1'),
           cloudLoad('pcg_chat_read_v1'),
           cloudLoad('pcg_announcements_v1'),
           cloudLoad('pcg_announcements_dismissed_v1'),
+          cloudLoad('pcg_access_overrides_v1'),
         ]);
         chatPollActive.current = true;
         if (ch && Array.isArray(ch)) setChatChannels(ch);
@@ -33502,6 +33728,7 @@ function PCGPortal() {
         if (rd && typeof rd === 'object' && rd !== null) setChatReadState(rd);
         if (ann && Array.isArray(ann)) setAnnouncements(ann);
         if (dis && typeof dis === 'object' && dis !== null) setAnnouncementsDismissed(dis);
+        if (acc && typeof acc === 'object' && !Array.isArray(acc)) setAccessOverrides(acc);
         // Reset after effects have flushed (setTimeout runs after useEffect)
         setTimeout(() => { chatPollActive.current = false; }, 0);
       } catch {}
@@ -33975,9 +34202,9 @@ function PCGPortal() {
   // ─── Admin groups config ──────────────────────────────────────────────────
   const ADMIN_GROUPS = [
     { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics', 'anomalies', 'scorecard'] },
-    { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon'] },
+    { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon', 'expenses'] },
     { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'impact', 'projects', 'deals', 'users'] },
-    { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'settings'] },
+    { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'admin'] },
   ];
 
   // ─── Collapsible admin group — Doclines-style accordion ──────────────────
@@ -34275,7 +34502,7 @@ function PCGPortal() {
 
       {/* ─── Nav body ─────────────────────────────────────────────────── */}
       <div ref={navRef} onScroll={onNavScroll} style={{ padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
-        {/* Universal tabs */}
+        {/* Universal tabs — always visible (not managed by Admin · Access) */}
         {BASE_TABS.map(t => {
           const isActive = tab === t.id;
           let badge = null;
@@ -34433,7 +34660,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.97
+            v15.05
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -34565,7 +34792,8 @@ function PCGPortal() {
                 {tab === "projects" && "Track construction, remodels, and new store builds."}
                 {tab === "users" && "User accounts and access management."}
                 {tab === "kb" && "Company guides, SOPs, training materials, and reference articles."}
-                {tab === "settings" && "Portal configuration and preferences."}
+                {tab === "expenses" && "All maintenance expenses across tickets — review, filter, and approve."}
+                {tab === "admin" && "Users, configuration, audit log, and system data."}
                 {tab === "email" && "Shared inbox and outbound email from the portal."}
                 {tab === "tickets"  && "Submit and track maintenance & service tickets."}
               </p>
@@ -34878,9 +35106,10 @@ function PCGPortal() {
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
+          {tab === "expenses"  && isFullAdmin(user) && <ExpenseLogSection th={th} user={user} standalone />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
-          {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version="v15.05" accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
