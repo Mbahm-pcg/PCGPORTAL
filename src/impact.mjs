@@ -131,7 +131,9 @@ export function weeklyMetricsFromScorecard(salesWeeks, pc) {
       if (!weekOf || !Number.isFinite(sales) || sales <= 0) return null;
       const guests = row && Number.isFinite(Number(row.lwCC)) && Number(row.lwCC) > 0 ? Number(row.lwCC) : null;
       const laborDollar = row && Number.isFinite(Number(row.laborDollar)) ? Number(row.laborDollar) : null;
-      const laborPct = laborDollar != null && sales > 0 ? round2((laborDollar / sales) * 100) : null;
+      const rawLaborPct = laborDollar != null && sales > 0 ? round2((laborDollar / sales) * 100) : null;
+      // Clamp: labor% > 60 on a Dunkin' store is a data error (bad paste, zero-sales week, etc.)
+      const laborPct = rawLaborPct != null && rawLaborPct <= 60 ? rawLaborPct : null;
       return { weekOf, sales, guests, laborPct };
     })
     .filter(Boolean)
@@ -197,11 +199,22 @@ export function beforeAfterMulti(weekly, eventDate, weeksBefore, weeksAfter, key
  * isn't credited (or blamed) for a market-wide trend. Sales/guests adjust by
  * % change; labor adjusts by percentage-POINT change (labor% is already a ratio).
  *
+ * Cost opts:
+ *   cogsPct          — food cost % of sales (default 28). Used for variable cost breakdown.
+ *   royaltiesPct     — Dunkin' royalty + ad fund % of sales (default 10.9).
+ *   fixedCostsMonthly— rent + utilities + other (monthly $). Only subtracted for new
+ *                      locations (type includes "new"); for remodels fixed costs are sunk.
+ *   marginPct        — legacy single flow-through % override. When set, bypasses
+ *                      cogsPct/royaltiesPct so existing callers keep the same result.
+ *
  * @param {{pc:string, grandOpeningDate:string, totalBudget:number, type?:string}} project
  * @param {object[]} storeWeekly  the project store's multi-metric weekly[]
  * @param {object[][]} controlsWeekly  peer stores' multi-metric weekly[]
- * @param {{weeksBefore?:number, weeksAfter?:number|null, minWeeksAfter?:number, marginPct?:number}} [opts]
- * @returns {object} { status, ...inputs, metrics? }  status ∈ no-date|maturing|ready
+ * @param {{weeksBefore?:number, weeksAfter?:number|null, minWeeksAfter?:number,
+ *          cogsPct?:number, royaltiesPct?:number, fixedCostsMonthly?:number,
+ *          marginPct?:number}} [opts]
+ * @returns {object} { status, ...inputs, metrics? }
+ *          status ∈ no-date | maturing | no-baseline | ready | ready-new
  */
 // Resolve a project's before/after window. END (reopen/done) walks a fallback
 // chain so remodels — which carry completionDate, not grandOpeningDate — work.
@@ -267,15 +280,23 @@ export function beforeAfterMultiWindow(weekly, beforeEnd, afterStart, weeksBefor
 }
 
 export function computeProjectROI(project, storeWeekly, controlsWeekly, opts = {}) {
-  const { weeksBefore = 13, weeksAfter = null, minWeeksAfter = 6, marginPct = 30 } = opts;
+  const {
+    weeksBefore = 13, weeksAfter = null, minWeeksAfter = 6,
+    marginPct = null,        // legacy override: when set, skips cogsPct/royaltiesPct
+    cogsPct = 28,            // food cost % of sales
+    royaltiesPct = 10.9,     // Dunkin' royalty + ad fund % of sales
+    fixedCostsMonthly = 0,   // rent + utilities + other (new locations only)
+  } = opts;
+
   const win = resolveProjectWindow(project);
   // totalBudget is free-text in the form — tolerate "$250,000", "250000", etc.
   const budgetNum = project && project.totalBudget != null ? Number(String(project.totalBudget).replace(/[^0-9.]/g, '')) : NaN;
   const budget = Number.isFinite(budgetNum) && budgetNum > 0 ? budgetNum : null;
+  const isNewLocation = /new/i.test(String(project?.type || ''));
   const base = {
     pc: project ? project.pc || null : null, type: project ? project.type || null : null,
     openDate: win.endDate, openSource: win.endSource, startDate: win.hasStart ? win.startDate : null,
-    hasStart: win.hasStart, budget, marginPct,
+    hasStart: win.hasStart, budget, marginPct, cogsPct, royaltiesPct, fixedCostsMonthly,
   };
 
   if (!win.endDate) return { ...base, status: 'no-date', metrics: null };
@@ -284,8 +305,38 @@ export function computeProjectROI(project, storeWeekly, controlsWeekly, opts = {
   const store = beforeAfterMultiWindow(storeWeekly, win.beforeEnd, win.afterStart, weeksBefore, weeksAfter, KEYS);
   const controls = (controlsWeekly || []).map((w) => beforeAfterMultiWindow(w, win.beforeEnd, win.afterStart, weeksBefore, weeksAfter, KEYS));
 
-  // No pre-remodel weeks in our data → can't compare. This is the Pulse-backfill case.
+  // No pre-open weeks in our data.
   if (store.sales.weeksBeforeUsed === 0) {
+    // New locations: if we have enough post-open weeks, compute absolute unit economics.
+    if (isNewLocation && store.sales.weeksAfterUsed >= minWeeksAfter) {
+      const fixedCostsAnnual = Math.round(fixedCostsMonthly * 12);
+      const annualRevenue = Math.round(store.sales.avgAfter * 52);
+      const cogsCost = Math.round(annualRevenue * cogsPct / 100);
+      const royaltyCost = Math.round(annualRevenue * royaltiesPct / 100);
+      const laborCost = store.laborPct.avgAfter != null
+        ? Math.round(annualRevenue * store.laborPct.avgAfter / 100)
+        : null;
+      const annualNetProfit = annualRevenue - cogsCost - royaltyCost - (laborCost ?? 0) - fixedCostsAnnual;
+      let paybackYears = null, paybackMonths = null;
+      if (budget != null && annualNetProfit > 0) {
+        paybackYears = round2(budget / annualNetProfit);
+        paybackMonths = Math.round((budget / annualNetProfit) * 12);
+      }
+      return {
+        ...base, status: 'ready-new',
+        weeksAfterUsed: store.sales.weeksAfterUsed, weeksBeforeUsed: 0,
+        store,
+        metrics: {
+          isNewStore: true,
+          annualRevenue, cogsCost, royaltyCost, laborCost,
+          laborPctAfter: store.laborPct.avgAfter,
+          fixedCostsAnnual,
+          annualNetProfit, paybackYears, paybackMonths,
+          payingBack: annualNetProfit > 0,
+          guestsAfter: store.guests.avgAfter,
+        },
+      };
+    }
     return { ...base, status: 'no-baseline', weeksAfterUsed: store.sales.weeksAfterUsed, store, metrics: null };
   }
 
@@ -314,7 +365,18 @@ export function computeProjectROI(project, storeWeekly, controlsWeekly, opts = {
   const weeklyLaborSaved = -(adjLaborPoints / 100) * store.sales.avgAfter;
   const annualLaborSaved = Math.round(weeklyLaborSaved * 52);
 
-  const incrementalAnnualProfit = Math.round(annualSalesLift * (marginPct / 100) + annualLaborSaved);
+  // Incremental profit: when marginPct is explicitly set use it (legacy callers);
+  // otherwise break out COGS and royalties explicitly for a transparent P&L.
+  let incrementalAnnualProfit, cogsCostOnLift, royaltyCostOnLift, contributionOnLift;
+  if (marginPct !== null) {
+    incrementalAnnualProfit = Math.round(annualSalesLift * (marginPct / 100) + annualLaborSaved);
+    cogsCostOnLift = null; royaltyCostOnLift = null; contributionOnLift = null;
+  } else {
+    cogsCostOnLift = Math.round(annualSalesLift * cogsPct / 100);
+    royaltyCostOnLift = Math.round(annualSalesLift * royaltiesPct / 100);
+    contributionOnLift = annualSalesLift - cogsCostOnLift - royaltyCostOnLift;
+    incrementalAnnualProfit = Math.round(contributionOnLift + annualLaborSaved);
+  }
 
   let paybackYears = null, paybackMonths = null;
   if (budget != null && incrementalAnnualProfit > 0) {
@@ -330,6 +392,7 @@ export function computeProjectROI(project, storeWeekly, controlsWeekly, opts = {
     store,
     metrics: {
       adjSalesPct, annualSalesLift,
+      cogsCostOnLift, royaltyCostOnLift, contributionOnLift,
       adjGuestsPct, guestsBefore: store.guests.avgBefore, guestsAfter: store.guests.avgAfter,
       adjLaborPoints, laborPctBefore: store.laborPct.avgBefore, laborPctAfter: store.laborPct.avgAfter, annualLaborSaved,
       incrementalAnnualProfit, paybackYears, paybackMonths,

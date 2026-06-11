@@ -324,7 +324,7 @@ const PROJECTS_SEED = [
 
 const EMPTY_PROJECT = {
   id: 0, priority: 0, pc: "", address: "", city: "", state: "", zip: "", district: null,
-  nickname: "", type: "Remodel", dueDate: "", completionDate: "", dunkinCompletionDate: "", notes: "", notifyEmails: "",
+  nickname: "", type: "Remodel", dueDate: "", startDate: "", completionDate: "", dunkinCompletionDate: "", notes: "", notifyEmails: "",
   // Zoning
   attorney: "", zoningClassification: false, zoningVarianceNeeded: false, zoningPermitFiled: false,
   zoningHearingDate: "", zoningApproved: false, zoningInfo: null,
@@ -13545,6 +13545,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Due Date</label><input type="date" style={inp(th)} value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} /></div>
             <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Target Completion</label><input type="date" style={inp(th)} value={form.completionDate} onChange={e => setForm(f => ({ ...f, completionDate: e.target.value }))} /></div>
             <div><label style={{ fontSize: "0.6875rem", color: "#ff6b00", fontWeight: 600 }}>Dunkin' Completion Date</label><input type="date" style={inp(th)} value={form.dunkinCompletionDate || ""} onChange={e => setForm(f => ({ ...f, dunkinCompletionDate: e.target.value }))} /></div>
+            <div><label style={{ fontSize: "0.6875rem", color: '#8b5cf6', fontWeight: 600 }}>Construction Start Date <span style={{ color: th.muted, fontWeight: 400 }}>(ROI Tracker)</span></label><input type="date" style={inp(th)} value={form.startDate || ""} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} /></div>
           </div>
           {(manualAddr || !stores.find(s => s.pc === form.pc)) && form.pc && (
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 0.5fr 0.75fr", gap: "0.75rem", marginBottom: "0.75rem" }} className="fade-in">
@@ -25007,20 +25008,56 @@ const COORDS_BLOB = 'pcg_store_coords_v1';
 
 // ── New Store / Remodel ROI Tracker (roadmap 10.4) ─────────────────────────
 // Control-adjusted pre/post performance + payback for capital projects.
-// All math from src/impact.mjs (computeProjectROI). Data: weekly scorecard
-// (sales=lwSale, guests=lwCC, labor%=laborDollar/lwSale) — fully synchronous.
-function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
-  const [marginPct, setMarginPct] = useState(() => {
-    const v = parseFloat(localStorage.getItem('pcg_roi_margin')); return Number.isFinite(v) ? v : 30;
+// Full P&L breakdown: COGS + royalties + labor + fixed costs (rent/utilities/other).
+// All math from src/impact.mjs (computeProjectROI). Data: weekly scorecard.
+function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark, setTab, deepLinkRef }) {
+  const [costProfiles, setCostProfiles] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('pcg_roi_costs') || '{}'); } catch { return {}; }
   });
+  const [showCostPanel, setShowCostPanel] = useState(false);
+  const [localCosts, setLocalCosts] = useState(null); // draft while panel open
+  const [costBusy, setCostBusy] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+  const [pulseHistory, setPulseHistory] = useState({});  // { [pc]: [{weekOf, sales}] }
+  const [pulseRoi, setPulseRoi] = useState({});           // { [pc]: computeProjectROI result }
+  const [pulseLoading, setPulseLoading] = useState(false);
   const chartCanvas = useRef(null);
   const chartRef = useRef(null);
 
-  const setMargin = (v) => {
-    const n = Math.max(0, Math.min(100, parseFloat(v) || 0));
-    setMarginPct(n); try { localStorage.setItem('pcg_roi_margin', String(n)); } catch {}
+  // Load cost profiles from blob on mount
+  useEffect(() => {
+    cloudLoad('pcg_roi_costs_v1').then(d => {
+      if (d && typeof d === 'object') {
+        setCostProfiles(d);
+        try { localStorage.setItem('pcg_roi_costs', JSON.stringify(d)); } catch {}
+      }
+    }).catch(() => {});
+  }, []);
+
+  const cogsPct      = costProfiles.cogsPct      ?? 28;
+  const royaltiesPct = costProfiles.royaltiesPct ?? 10.9;
+  const storeCosts   = costProfiles.stores        || {};
+
+  const openCostPanel = () => {
+    setLocalCosts({
+      cogsPct, royaltiesPct,
+      stores: { ...storeCosts },
+    });
+    setShowCostPanel(true);
   };
+
+  const saveCosts = async () => {
+    if (!localCosts) return;
+    setCostBusy(true);
+    const next = { ...localCosts };
+    setCostProfiles(next);
+    try { localStorage.setItem('pcg_roi_costs', JSON.stringify(next)); } catch {}
+    await cloudSave('pcg_roi_costs_v1', next);
+    setCostBusy(false);
+    setShowCostPanel(false);
+  };
+
+  const pname = (p) => p.nickname || (p.pc ? `Store ${p.pc}` : 'Project');
 
   // Compute ROI for every project that maps to a store. Controls = same-district peers.
   const rows = React.useMemo(() => {
@@ -25032,11 +25069,13 @@ function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
         .map(s => s.pc);
       const storeWeekly = weeklyMetricsFromScorecard(salesWeeks, p.pc);
       const controlsWeekly = peerPcs.map(pc => weeklyMetricsFromScorecard(salesWeeks, pc)).filter(w => w.length >= 4);
-      const roi = computeProjectROI(p, storeWeekly, controlsWeekly, { marginPct });
-      return { project: p, store, roi, storeWeekly, controlCount: controlsWeekly.length };
+      const sc = storeCosts[String(p.pc)] || {};
+      const fixedCostsMonthly = (sc.rentMonthly || 0) + (sc.utilitiesMonthly || 0) + (sc.otherMonthly || 0);
+      const roi = computeProjectROI(p, storeWeekly, controlsWeekly, { cogsPct, royaltiesPct, fixedCostsMonthly });
+      return { project: p, store, roi, storeWeekly, controlCount: controlsWeekly.length, storeCost: sc };
     });
-    // Rank: ready (fastest payback first, non-paying-back last) → maturing → no-date
-    const rank = (r) => r.roi.status === 'ready' ? 0 : r.roi.status === 'maturing' ? 1 : 2;
+    // Rank: ready* (fastest payback first) → maturing → no-date
+    const rank = (r) => (r.roi.status === 'ready' || r.roi.status === 'ready-new') ? 0 : r.roi.status === 'maturing' ? 1 : 2;
     return out.sort((a, b) => {
       if (rank(a) !== rank(b)) return rank(a) - rank(b);
       const pa = a.roi.metrics && a.roi.metrics.paybackMonths, pb = b.roi.metrics && b.roi.metrics.paybackMonths;
@@ -25044,69 +25083,184 @@ function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
       if (pa != null) return -1; if (pb != null) return 1;
       return 0;
     });
-  }, [projects, stores, salesWeeks, marginPct]);
+  }, [projects, stores, salesWeeks, costProfiles]);
 
   const selected = rows.find(r => r.project.id === selectedId) || null;
-  const pname = (p) => p.nickname || (p.pc ? `Store ${p.pc}` : 'Project');
+
+  // Fetch Pulse daily history for the selected store covering the full ROI window:
+  // 16 weeks before construction start through today (both before + after the event).
+  // Cached by pc — only fetches once per store per session.
+  useEffect(() => {
+    if (!selected) return;
+    const pc = String(selected.project.pc);
+    if (pulseHistory[pc] !== undefined) return;
+    const roi = selected.roi;
+    if (!roi.openDate) return;
+    const startB = roi.hasStart ? roi.startDate : roi.openDate;
+    // 13 weeks before construction start + up to 26 weeks after opening (capped at today)
+    const startDate = new Date(new Date(startB + 'T00:00:00Z').getTime() - 13 * 7 * 86400000).toISOString().slice(0, 10);
+    const latestMs = new Date(roi.openDate + 'T00:00:00Z').getTime() + 26 * 7 * 86400000;
+    const todayMs  = Date.now();
+    const endDate  = new Date(Math.min(latestMs, todayMs)).toISOString().slice(0, 10);
+    setPulseLoading(true);
+    fetch('/.netlify/functions/pulse-roi-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pc, startDate, endDate }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        setPulseHistory(prev => ({ ...prev, [pc]: data?.weeks || [] }));
+      })
+      .catch(() => {
+        setPulseHistory(prev => ({ ...prev, [pc]: [] }));
+      })
+      .finally(() => setPulseLoading(false));
+  }, [selectedId]);
+
+  // Re-run ROI computation using Pulse-only weekly data when it arrives.
+  // Uses no control stores (Pulse doesn't give us peer data) so metrics are raw, not peer-adjusted.
+  useEffect(() => {
+    if (!selected) return;
+    const pc = String(selected.project.pc);
+    const weeks = pulseHistory[pc];
+    if (!weeks?.length) return;
+    const sc = storeCosts[String(pc)] || {};
+    const fixedCostsMonthly = (sc.rentMonthly || 0) + (sc.utilitiesMonthly || 0) + (sc.otherMonthly || 0);
+    const roi = computeProjectROI(selected.project, weeks, [], { cogsPct, royaltiesPct, fixedCostsMonthly });
+    setPulseRoi(prev => ({ ...prev, [pc]: roi }));
+  }, [pulseHistory, selectedId, cogsPct, royaltiesPct, storeCosts]);
 
   const STATUS_META = {
     ready:        { color: '#22c55e', label: 'Ready' },
+    'ready-new':  { color: '#22c55e', label: 'New Location' },
     maturing:     { color: '#f59e0b', label: 'Maturing' },
     'no-baseline':{ color: '#ef4444', label: 'No pre-remodel data' },
     'no-date':    { color: '#94a3b8', label: 'No completion date' },
   };
 
-  // Drill chart — weekly net sales: before (≤ start) · construction gap · after (> completion)
+  // Drill chart — 4 named phases: 2 months before · construction gap · 8 wks after · current
   useEffect(() => {
     if (!selected || !chartCanvas.current || !window.Chart) return;
     if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
-    const w = selected.storeWeekly;
+    const ctx = chartCanvas.current.getContext('2d');
+    // Use Pulse-only data for the chart
+    const pulseWeeks = pulseHistory[String(selected.project.pc)] || [];
+    const w = pulseWeeks.slice().sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+    const hasPulse = pulseWeeks.length > 0;
     const roi = selected.roi;
-    const end = roi.openDate;                              // completion / reopen
-    const startB = roi.hasStart ? roi.startDate : end;     // "before" boundary
-    const labels = w.map(x => x.weekOf);
-    const beforeData = w.map(x => (end && x.weekOf <= startB ? x.sales : null));
-    const gapData = w.map(x => (end && roi.hasStart && x.weekOf > startB && x.weekOf <= end ? x.sales : null));
-    const afterData = w.map(x => (end && x.weekOf > end ? x.sales : null));
+    const end = roi.openDate;       // reopen / completion date
+    const startB = roi.hasStart ? roi.startDate : end;  // construction start (or same as end)
+
+    if (!end || (w.length === 0 && !pulseLoading)) return;
+
+    // Bucket weeks into phases
+    const beforeAll  = w.filter(x => x.weekOf <= startB);
+    const gapAll     = roi.hasStart ? w.filter(x => x.weekOf > startB && x.weekOf <= end) : [];
+    const afterAll   = w.filter(x => x.weekOf > end);
+    const after8     = afterAll.slice(0, 8);
+    const current    = afterAll.slice(7); // overlap at week-8 so lines connect
+
+    // Limit before to last 8 weeks (≈ 2 months); overlap first before week with gap start
+    const beforeWin = beforeAll.slice(-8);
+    // Pad x-axis back to a full 8-week "before" window even when data is sparse.
+    // Synthetic slots have no sales; salesAt() returns null for them so the line gaps correctly.
+    const TARGET_BEFORE = 8;
+    let extendedBefore = [...beforeWin];
+    if (beforeWin.length < TARGET_BEFORE) {
+      const anchor = beforeWin.length > 0
+        ? new Date(beforeWin[0].weekOf + 'T00:00:00Z')
+        : new Date(startB + 'T00:00:00Z');
+      const needed = TARGET_BEFORE - beforeWin.length;
+      const synthetic = [];
+      for (let i = needed; i >= 1; i--) {
+        const d = new Date(anchor.getTime() - i * 7 * 24 * 60 * 60 * 1000);
+        synthetic.push({ weekOf: d.toISOString().slice(0, 10) });
+      }
+      extendedBefore = [...synthetic, ...beforeWin];
+    }
+
+    // Include last before week at start of gap for visual continuity, and last gap week at start of after8
+    const gapWin = roi.hasStart ? [beforeWin[beforeWin.length - 1], ...gapAll, afterAll[0]].filter(Boolean) : [];
+
+    // Merge visible weeks for x-axis labels (deduplicated, sorted)
+    const allVisible = [...extendedBefore, ...gapAll, ...afterAll];
+    const seen = new Set();
+    const visWeeks = allVisible.filter(x => seen.has(x.weekOf) ? false : seen.add(x.weekOf)).sort((a,b) => a.weekOf.localeCompare(b.weekOf));
+    const labels = visWeeks.map(x => {
+      const d = new Date(x.weekOf + 'T00:00:00Z');
+      return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
+    });
+    const salesAt = (set) => visWeeks.map(x => set.find(s => s.weekOf === x.weekOf)?.sales ?? null);
+
+    // Gradient fills — built from canvas height after layout; approximate 300px
+    const chartH = chartCanvas.current.offsetHeight || 300;
+    const mkGrad = (hex) => {
+      const g = ctx.createLinearGradient(0, 0, 0, chartH);
+      g.addColorStop(0, hex + '44');
+      g.addColorStop(1, hex + '00');
+      return g;
+    };
+
     const ds = [
-      { label: 'Before remodel', data: beforeData, borderColor: '#94a3b8', backgroundColor: '#94a3b822', borderWidth: 2, tension: 0.25, pointRadius: 2, spanGaps: false },
-      { label: 'After remodel', data: afterData, borderColor: '#22c55e', backgroundColor: '#22c55e22', borderWidth: 2.5, tension: 0.25, pointRadius: 2, spanGaps: false },
+      { label: '2 mo before', data: salesAt(extendedBefore), borderColor: '#94a3b8', backgroundColor: mkGrad('#94a3b8'), fill: true, borderWidth: 2,   tension: 0.4, pointRadius: 4, pointHoverRadius: 6, spanGaps: false },
+      { label: '8 wks after', data: salesAt(after8),         borderColor: '#22c55e', backgroundColor: mkGrad('#22c55e'), fill: true, borderWidth: 2.5, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, spanGaps: false },
     ];
-    if (roi.hasStart) ds.splice(1, 0, { label: 'Construction (excluded)', data: gapData, borderColor: '#f59e0b', borderDash: [4, 3], borderWidth: 1.5, tension: 0.25, pointRadius: 1, spanGaps: false });
-    chartRef.current = new window.Chart(chartCanvas.current.getContext('2d'), {
-      type: 'line',
-      data: { labels, datasets: ds },
+    if (current.length > 1) {
+      ds.push({ label: 'Current', data: salesAt(current), borderColor: O, backgroundColor: mkGrad(O), fill: true, borderWidth: 2.5, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, spanGaps: false });
+    }
+    if (roi.hasStart && gapWin.length > 1) {
+      ds.splice(1, 0, { label: 'Construction', data: salesAt(gapWin), borderColor: '#f59e0b', backgroundColor: mkGrad('#f59e0b'), fill: true, borderDash: [5, 4], borderWidth: 1.5, tension: 0.4, pointRadius: 2, spanGaps: false });
+    }
+
+    chartRef.current = new window.Chart(ctx, {
+      type: 'line', data: { labels, datasets: ds },
       options: {
         responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { labels: { color: th.text } },
-          tooltip: { callbacks: { label: (c) => c.parsed.y == null ? '' : `${c.dataset.label}: ${fmtDollars(c.parsed.y)}` } },
+          legend: { labels: { color: th.text, boxWidth: 10, padding: 18, font: { size: 12 } } },
+          tooltip: {
+            backgroundColor: '#1e293b',
+            titleColor: '#94a3b8',
+            bodyColor: '#f1f5f9',
+            borderColor: '#334155',
+            borderWidth: 1,
+            padding: 12,
+            cornerRadius: 8,
+            callbacks: {
+              title: (items) => items[0]?.label ? `Week of ${items[0].label}` : '',
+              label: (c) => c.parsed.y == null ? '' : `  ${c.dataset.label}: ${fmtDollars(c.parsed.y)}`,
+            },
+          },
         },
         scales: {
-          x: { ticks: { color: th.muted, maxRotation: 60, minRotation: 60 }, grid: { color: th.sidebarBorder } },
-          y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) }, grid: { color: th.sidebarBorder } },
+          x: { ticks: { color: th.muted, maxRotation: 45, minRotation: 0, font: { size: 11 } }, grid: { color: dark ? '#ffffff0d' : '#0000000d' } },
+          y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v), font: { size: 11 } }, grid: { color: dark ? '#ffffff0d' : '#0000000d' } },
         },
       },
     });
     return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
-  }, [selectedId, dark, marginPct]);
+  }, [selectedId, dark, pulseHistory]);
 
   const exportCsv = () => {
-    const head = ['Project', 'Type', 'Store', 'Opening', 'Budget', 'Status', 'Sales Δ%', 'Labor Δpts', 'Guests Δ%', 'Annual profit', 'Payback (mo)'];
+    const head = ['Project', 'Type', 'Store', 'Opening', 'Budget', 'COGS%', 'Royalties%', 'Rent/mo', 'Utils/mo', 'Other/mo',
+                  'Status', 'Sales Δ%', 'Labor Δpts', 'Guests Δ%', 'Annual Net', 'Payback (mo)'];
     const lines = rows.map(r => {
-      const m = r.roi.metrics || {};
+      const m = r.roi.metrics || {}, sc = r.storeCost || {};
+      const net = m.isNewStore ? (m.annualNetProfit ?? '') : (m.incrementalAnnualProfit ?? '');
       return [pname(r.project), r.project.type || '', r.store ? r.store.name : r.project.pc, r.roi.openDate || '',
-        r.roi.budget || '', STATUS_META[r.roi.status]?.label || r.roi.status,
-        m.adjSalesPct ?? '', m.adjLaborPoints ?? '', m.adjGuestsPct ?? '', m.incrementalAnnualProfit ?? '', m.paybackMonths ?? '']
+        r.roi.budget || '', cogsPct, royaltiesPct, sc.rentMonthly || 0, sc.utilitiesMonthly || 0, sc.otherMonthly || 0,
+        STATUS_META[r.roi.status]?.label || r.roi.status,
+        m.adjSalesPct ?? '', m.adjLaborPoints ?? '', m.adjGuestsPct ?? '', net, m.paybackMonths ?? '']
         .map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
     });
     const blob = new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'roi_tracker.csv'; a.click(); URL.revokeObjectURL(a.href);
   };
 
-  const readyCount = rows.filter(r => r.roi.status === 'ready').length;
+  const readyCount = rows.filter(r => r.roi.status === 'ready' || r.roi.status === 'ready-new').length;
 
-  // ── Metric card ──
   const MetricCard = ({ label, big, sub, color }) => (
     <div style={card(th, { padding: '1rem', flex: 1, minWidth: 150 })}>
       <div style={{ ...microLabel(th), marginBottom: '0.35rem' }}>{label}</div>
@@ -25118,13 +25272,120 @@ function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
   const signPct = (n) => (n > 0 ? '+' : '') + fmtPct(n);
   const goodBad = (n, goodPositive = true) => n === 0 ? th.muted : (n > 0) === goodPositive ? '#22c55e' : '#ef4444';
 
+  // P&L waterfall row helper
+  const WfRow = ({ label, value, color, indent, divider, bold }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.28rem 0',
+      paddingLeft: (indent || 0) * 16, borderTop: divider ? `1px solid ${th.cardBorder}` : 'none',
+      marginTop: divider ? '0.2rem' : 0 }}>
+      <span style={{ color: bold ? th.text : th.muted, fontWeight: bold ? 700 : 400, fontSize: '0.82rem' }}>{label}</span>
+      <span style={{ color: color || th.text, fontWeight: bold ? 800 : 600, fontSize: '0.82rem' }}>{value}</span>
+    </div>
+  );
+
+  // ── COST SETTINGS PANEL ──
+  const CostPanel = () => {
+    if (!localCosts) return null;
+    const lc = localCosts;
+    const setDefault = (k, v) => setLocalCosts(c => ({ ...c, [k]: parseFloat(v) || 0 }));
+    const setStore = (pc, k, v) => setLocalCosts(c => ({
+      ...c, stores: { ...c.stores, [pc]: { ...(c.stores[pc] || {}), [k]: parseFloat(v) || 0 } }
+    }));
+    const fmtNum = (v) => v == null || v === 0 ? '' : String(v);
+    const projectPcs = [...new Set(rows.map(r => String(r.project.pc)).filter(Boolean))];
+    return (
+      <div style={card(th, { padding: '1.25rem', marginBottom: '1rem', border: `1px solid ${O}44` })} className="fade-in">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <div style={{ ...microLabel(th) }}>Cost Assumptions</div>
+          <button onClick={() => setShowCostPanel(false)} style={{ ...btn(th, { padding: '0.25rem 0.6rem', fontSize: '0.72rem' }) }}>✕</button>
+        </div>
+
+        {/* Network defaults */}
+        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1.25rem', alignItems: 'flex-end' }}>
+          <div>
+            <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 600, marginBottom: '0.3rem' }}>Food Cost % of Sales</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <input type="number" min="0" max="60" step="0.1" value={lc.cogsPct ?? 28} onChange={e => setDefault('cogsPct', e.target.value)}
+                style={{ ...inp(th), width: 72, padding: '0.35rem 0.5rem', fontSize: '0.85rem' }} />
+              <span style={{ color: th.muted, fontSize: '0.82rem' }}>%</span>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 600, marginBottom: '0.3rem' }}>Royalties + Ad Fund % of Sales</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <input type="number" min="0" max="30" step="0.1" value={lc.royaltiesPct ?? 10.9} onChange={e => setDefault('royaltiesPct', e.target.value)}
+                style={{ ...inp(th), width: 72, padding: '0.35rem 0.5rem', fontSize: '0.85rem' }} />
+              <span style={{ color: th.muted, fontSize: '0.82rem' }}>% (Dunkin': 5.9% royalty + 5% ad fund)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Per-store fixed costs */}
+        {projectPcs.length > 0 && <>
+          <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 600, marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Fixed Monthly Costs per Store (used for New Location payback)
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+              <thead><tr style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                <th style={{ ...thCell(th), fontWeight: 600, background: 'transparent' }}>Store</th>
+                <th style={{ ...thCell(th), textAlign: 'right', fontWeight: 600, background: 'transparent' }}>Rent / mo</th>
+                <th style={{ ...thCell(th), textAlign: 'right', fontWeight: 600, background: 'transparent' }}>Utilities / mo</th>
+                <th style={{ ...thCell(th), textAlign: 'right', fontWeight: 600, background: 'transparent' }}>Other / mo</th>
+                <th style={{ ...thCell(th), textAlign: 'right', fontWeight: 600, background: 'transparent' }}>Total / yr</th>
+              </tr></thead>
+              <tbody>
+                {projectPcs.map(pc => {
+                  const sc = lc.stores[pc] || {};
+                  const row = rows.find(r => String(r.project.pc) === pc);
+                  const annual = ((sc.rentMonthly || 0) + (sc.utilitiesMonthly || 0) + (sc.otherMonthly || 0)) * 12;
+                  return (
+                    <tr key={pc} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                      <td style={{ ...tdCell(th), fontWeight: 600 }}>{row ? pname(row.project) : `Store ${pc}`}</td>
+                      {['rentMonthly', 'utilitiesMonthly', 'otherMonthly'].map(k => (
+                        <td key={k} style={{ ...tdCell(th), textAlign: 'right', padding: '0.3rem 0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.25rem' }}>
+                            <span style={{ color: th.muted, fontSize: '0.75rem' }}>$</span>
+                            <input type="number" min="0" step="100" value={fmtNum(sc[k])} placeholder="0"
+                              onChange={e => setStore(pc, k, e.target.value)}
+                              style={{ ...inp(th), width: 90, padding: '0.25rem 0.4rem', fontSize: '0.8rem', textAlign: 'right' }} />
+                          </div>
+                        </td>
+                      ))}
+                      <td style={{ ...tdCell(th), textAlign: 'right', color: annual > 0 ? th.text : th.muted, fontWeight: annual > 0 ? 700 : 400 }}>
+                        {annual > 0 ? fmtDollars(annual) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>}
+
+        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+          <button onClick={saveCosts} disabled={costBusy} style={{ ...btn(th, { padding: '0.45rem 1rem', background: O, color: '#fff' }) }}>
+            {costBusy ? 'Saving…' : 'Save Cost Assumptions'}
+          </button>
+          <button onClick={() => setShowCostPanel(false)} style={{ ...btn(th, { padding: '0.45rem 1rem' }) }}>Cancel</button>
+        </div>
+      </div>
+    );
+  };
+
   // ── DRILL VIEW ──
   if (selected) {
-    const p = selected.project, roi = selected.roi, m = roi.metrics;
+    const p = selected.project;
+    // Use Pulse-computed ROI when available; fall back to scorecard-based while loading
+    const roi = pulseRoi[String(p.pc)] || selected.roi;
+    const m = roi.metrics;
     const st = STATUS_META[roi.status] || STATUS_META['no-date'];
+    const sc = selected.storeCost || {};
     return (
       <div className="fade-in">
-        <button onClick={() => setSelectedId(null)} style={{ ...btn(th, { padding: '0.4rem 0.85rem', fontSize: '0.78rem' }), marginBottom: '1rem' }}>← All projects</button>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+          <button onClick={() => setSelectedId(null)} style={{ ...btn(th, { padding: '0.4rem 0.85rem', fontSize: '0.78rem' }) }}>← All projects</button>
+          {setTab && <button onClick={() => { if (deepLinkRef) deepLinkRef.current = p.id; setTab('projects'); }} style={{ ...btn(th, { padding: '0.4rem 0.85rem', fontSize: '0.78rem', background: 'none', color: '#8b5cf6', border: `1px solid #8b5cf6` }) }}>View in Projects →</button>}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
           <h2 style={{ ...pageTitle(th), margin: 0 }}>{pname(p)}</h2>
           <span style={pill(st.color)}>{st.label}</span>
@@ -25134,17 +25395,27 @@ function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
           {selected.store ? `${selected.store.name} · D${selected.store.district}` : `Store ${p.pc}`}
           {roi.hasStart && roi.startDate
             ? ` · Before ≤ ${new Date(roi.startDate).toLocaleDateString()} vs After > ${roi.openDate ? new Date(roi.openDate).toLocaleDateString() : '—'} (${roi.openSource})`
-            : roi.openDate ? ` · Reopen ${new Date(roi.openDate).toLocaleDateString()} (${roi.openSource})` : ' · No completion/opening date set'}
+            : roi.openDate ? ` · Open ${new Date(roi.openDate).toLocaleDateString()} (${roi.openSource})` : ' · No completion/opening date set'}
           {roi.budget ? ` · Budget ${fmtDollars(roi.budget)}` : ' · No budget set'}
-          {` · ${selected.controlCount} control store${selected.controlCount !== 1 ? 's' : ''}`}
+          {roi.status !== 'ready-new' && ` · ${selected.controlCount} control store${selected.controlCount !== 1 ? 's' : ''}`}
         </div>
 
         {roi.status === 'no-date' && <div style={accentCard(th, '#94a3b8', { padding: '1rem' })}>Set a <strong>completion / grand-opening date</strong> on this project to compute ROI.</div>}
-        {roi.status === 'no-baseline' && <div style={accentCard(th, '#ef4444', { padding: '1rem' })}>We have <strong>no pre-remodel sales weeks</strong> for this store in the scorecard{roi.hasStart && roi.startDate ? ` before ${new Date(roi.startDate).toLocaleDateString()}` : ''}. The uploaded history doesn't reach back far enough — a <strong>Pulse backfill</strong> of the pre-remodel period is needed to compare before vs after.</div>}
-        {roi.status === 'maturing' && <div style={accentCard(th, '#f59e0b', { padding: '1rem' })}>Only <strong>{roi.weeksAfterUsed} week{roi.weeksAfterUsed !== 1 ? 's' : ''}</strong> of post-reopen data so far — needs {roi.minWeeksAfter}+ to judge ROI. Check back as more weeks land.</div>}
+        {roi.status === 'no-baseline' && <div style={accentCard(th, '#ef4444', { padding: '1rem' })}>No pre-remodel sales weeks in the scorecard{roi.hasStart && roi.startDate ? ` before ${new Date(roi.startDate).toLocaleDateString()}` : ''}. A <strong>Pulse backfill</strong> of the pre-remodel period is needed to compare before vs after.</div>}
+        {roi.status === 'maturing' && <div style={accentCard(th, '#f59e0b', { padding: '1rem' })}>Only <strong>{roi.weeksAfterUsed} week{roi.weeksAfterUsed !== 1 ? 's' : ''}</strong> of post-open data so far — needs {roi.minWeeksAfter}+ to judge ROI. Check back as more weeks land.</div>}
+        {/* Data quality warnings — shown on ready status */}
+        {m && !roi.hasStart && <div style={accentCard(th, '#f59e0b', { padding: '0.85rem', marginBottom: '0.75rem' })}>
+          <strong>No construction start date set.</strong> Without it, any slow weeks during the remodel are included in the "before" average, inflating the sales lift.{' '}
+          {setTab
+            ? <button onClick={() => { if (deepLinkRef) deepLinkRef.current = p.id; setTab('projects'); }} style={{ background: 'none', border: 'none', color: '#f59e0b', cursor: 'pointer', padding: 0, fontWeight: 700, textDecoration: 'underline', fontSize: 'inherit' }}>Set Construction Start Date in Projects →</button>
+            : <>Set a <strong>Start Date</strong> on this project to exclude the disruption period.</>}
+        </div>}
+        {m && Math.abs(m.adjLaborPoints ?? 0) > 20 && <div style={accentCard(th, '#ef4444', { padding: '0.85rem', marginBottom: '0.75rem' })}>
+          <strong>Unreliable labor adjustment ({(m.adjLaborPoints > 0 ? '+' : '') + m.adjLaborPoints} pts vs peers).</strong> A shift this large points to bad labor data in one or more control stores' scorecard — a bad paste or a week where labor dollars were entered against near-zero sales. The payback number is not trustworthy until the scorecard is corrected.
+        </div>}
 
+        {/* ── REMODEL ready ── */}
         {roi.status === 'ready' && m && <>
-          {/* Metric cards */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
             <MetricCard label="Sales lift (vs peers)" big={signPct(m.adjSalesPct)} sub={`${fmtDollars(m.annualSalesLift)}/yr incremental`} color={goodBad(m.adjSalesPct)} />
             <MetricCard label="Labor change (vs peers)" big={(m.adjLaborPoints > 0 ? '+' : '') + m.adjLaborPoints + ' pts'} sub={`${fmtDollars(m.annualLaborSaved)}/yr ${m.annualLaborSaved >= 0 ? 'saved' : 'added'}`} color={goodBad(m.adjLaborPoints, false)} />
@@ -25158,26 +25429,106 @@ function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
               <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2.2rem', color: m.payingBack ? '#22c55e' : '#ef4444', lineHeight: 1.1 }}>
                 {m.payingBack ? (m.paybackMonths != null ? `${m.paybackMonths} mo` : '—') : 'Not yet'}
               </div>
-              {m.payingBack && m.paybackYears != null && <div style={{ fontSize: '0.72rem', color: th.muted }}>≈ {m.paybackYears} years{roi.budget ? '' : ' · set budget for $ payback'}</div>}
+              {m.payingBack && m.paybackYears != null && <div style={{ fontSize: '0.72rem', color: th.muted }}>≈ {m.paybackYears} yrs{roi.budget ? '' : ' · set budget for $ payback'}</div>}
               {!m.payingBack && <div style={{ fontSize: '0.72rem', color: th.muted }}>Incremental profit isn't positive vs peers yet</div>}
             </div>
             <div style={{ height: 44, width: 1, background: th.cardBorder }} />
             <div>
-              <div style={{ ...microLabel(th) }}>Incremental annual profit</div>
+              <div style={{ ...microLabel(th) }}>Incremental annual net</div>
               <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.5rem', color: th.text }}>{fmtDollars(m.incrementalAnnualProfit)}</div>
-              <div style={{ fontSize: '0.72rem', color: th.muted }}>{fmtDollars(m.annualSalesLift)} sales × {marginPct}% margin + {fmtDollars(m.annualLaborSaved)} labor</div>
             </div>
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ ...microLabel(th) }}>Flow-through margin</span>
-              <input type="number" min="0" max="100" value={marginPct} onChange={e => setMargin(e.target.value)}
-                style={{ ...inp(th), width: 70, padding: '0.35rem 0.5rem', fontSize: '0.85rem' }} />
-              <span style={{ color: th.muted }}>%</span>
-            </div>
+          </div>
+
+          {/* P&L waterfall */}
+          <div style={card(th, { padding: '1rem', marginBottom: '1rem' })}>
+            <div style={{ ...sectionTitle(th), marginBottom: '0.6rem' }}>P&L Breakdown — incremental, annual</div>
+            <WfRow label="Revenue lift" value={`+${fmtDollars(m.annualSalesLift)}`} color="#22c55e" />
+            {m.cogsCostOnLift != null && <WfRow label={`− Food Cost (${cogsPct}%)`} value={`−${fmtDollars(m.cogsCostOnLift)}`} color="#ef4444" indent={1} />}
+            {m.royaltyCostOnLift != null && <WfRow label={`− Royalties + Ad Fund (${royaltiesPct}%)`} value={`−${fmtDollars(m.royaltyCostOnLift)}`} color="#ef4444" indent={1} />}
+            {m.contributionOnLift != null && <WfRow label="= Contribution on lift" value={fmtDollars(m.contributionOnLift)} color={m.contributionOnLift >= 0 ? '#22c55e' : '#ef4444'} />}
+            <WfRow label={`${m.annualLaborSaved >= 0 ? '+' : '−'} Labor ${m.annualLaborSaved >= 0 ? 'savings' : 'increase'} (${m.adjLaborPoints > 0 ? '+' : ''}${m.adjLaborPoints} pts vs peers)`}
+              value={`${m.annualLaborSaved >= 0 ? '+' : ''}${fmtDollars(m.annualLaborSaved)}`}
+              color={m.annualLaborSaved >= 0 ? '#22c55e' : '#ef4444'} />
+            <WfRow label="Net Annual Lift" value={`${m.incrementalAnnualProfit >= 0 ? '+' : ''}${fmtDollars(m.incrementalAnnualProfit)}`}
+              color={m.incrementalAnnualProfit >= 0 ? '#22c55e' : '#ef4444'} divider bold />
           </div>
 
           {/* Sales chart */}
           <div style={card(th, { padding: '1rem', marginBottom: '0.5rem' })}>
-            <div style={{ ...sectionTitle(th), marginBottom: '0.5rem' }}>Weekly net sales — {roi.weeksBeforeUsed} wk before vs {roi.weeksAfterUsed} wk after</div>
+            <div style={{ ...sectionTitle(th), marginBottom: '0.5rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
+              Weekly net sales
+              <span style={{ fontWeight: 400, color: th.muted, fontSize: '0.75rem' }}>
+                2 mo before · {roi.hasStart ? 'construction · ' : ''}8 wks after{roi.weeksAfterUsed > 8 ? ' · current' : ''}
+              </span>
+              {pulseLoading && <span style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400 }}>Loading Pulse data…</span>}
+              {!pulseLoading && pulseHistory[String(selected.project.pc)]?.length > 0 && (
+                <span style={{ fontSize: '0.68rem', color: '#22c55e', fontWeight: 600, background: '#22c55e18', borderRadius: 4, padding: '1px 6px' }}>
+                  Pulse POS
+                </span>
+              )}
+              {!pulseLoading && pulseHistory[String(selected.project.pc)]?.length === 0 && (
+                <span style={{ fontSize: '0.68rem', color: '#f59e0b', fontWeight: 500 }}>No Pulse history found</span>
+              )}
+            </div>
+            <div style={{ height: 300 }}><canvas ref={chartCanvas} /></div>
+          </div>
+        </>}
+
+        {/* ── NEW LOCATION ready-new ── */}
+        {roi.status === 'ready-new' && m && <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            <MetricCard label="Annual revenue" big={fmtDollars(m.annualRevenue)} sub={`${roi.weeksAfterUsed} wk avg × 52`} />
+            {m.guestsAfter != null && <MetricCard label="Guests / week" big={Math.round(m.guestsAfter)} sub="post-open average" />}
+            {m.laborPctAfter != null && <MetricCard label="Labor %" big={fmtPct(m.laborPctAfter)} sub="post-open average" color={m.laborPctAfter > 26 ? '#ef4444' : m.laborPctAfter > 23 ? '#f59e0b' : '#22c55e'} />}
+          </div>
+
+          {/* Payback hero */}
+          <div style={accentCard(th, m.payingBack ? '#22c55e' : '#ef4444', { padding: '1.25rem', marginBottom: '1.25rem', display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'center' })}>
+            <div>
+              <div style={{ ...microLabel(th) }}>Payback period</div>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2.2rem', color: m.payingBack ? '#22c55e' : '#ef4444', lineHeight: 1.1 }}>
+                {m.payingBack ? (m.paybackMonths != null ? `${m.paybackMonths} mo` : '—') : roi.budget ? 'Not paying back' : '—'}
+              </div>
+              {m.payingBack && m.paybackYears != null && <div style={{ fontSize: '0.72rem', color: th.muted }}>≈ {m.paybackYears} yrs</div>}
+              {!m.payingBack && roi.budget && <div style={{ fontSize: '0.72rem', color: th.muted }}>Net profit is negative — check costs</div>}
+              {!roi.budget && <div style={{ fontSize: '0.72rem', color: th.muted }}>Set budget on the project for payback</div>}
+            </div>
+            <div style={{ height: 44, width: 1, background: th.cardBorder }} />
+            <div>
+              <div style={{ ...microLabel(th) }}>Annual net profit</div>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.5rem', color: m.annualNetProfit >= 0 ? '#22c55e' : '#ef4444' }}>{fmtDollars(m.annualNetProfit)}</div>
+            </div>
+          </div>
+
+          {/* P&L waterfall */}
+          <div style={card(th, { padding: '1rem', marginBottom: '1rem' })}>
+            <div style={{ ...sectionTitle(th), marginBottom: '0.6rem' }}>Unit Economics — annual (absolute, new location)</div>
+            <WfRow label="Revenue" value={`+${fmtDollars(m.annualRevenue)}`} color="#22c55e" />
+            <WfRow label={`− Food Cost (${cogsPct}%)`} value={`−${fmtDollars(m.cogsCost)}`} color="#ef4444" indent={1} />
+            <WfRow label={`− Royalties + Ad Fund (${royaltiesPct}%)`} value={`−${fmtDollars(m.royaltyCost)}`} color="#ef4444" indent={1} />
+            {m.laborCost != null && <WfRow label={`− Labor (${m.laborPctAfter != null ? fmtPct(m.laborPctAfter) : '~'})`} value={`−${fmtDollars(m.laborCost)}`} color="#ef4444" indent={1} />}
+            {(sc.rentMonthly > 0) && <WfRow label="− Rent" value={`−${fmtDollars((sc.rentMonthly || 0) * 12)}/yr`} color="#f59e0b" indent={1} />}
+            {(sc.utilitiesMonthly > 0) && <WfRow label="− Utilities" value={`−${fmtDollars((sc.utilitiesMonthly || 0) * 12)}/yr`} color="#f59e0b" indent={1} />}
+            {(sc.otherMonthly > 0) && <WfRow label="− Other" value={`−${fmtDollars((sc.otherMonthly || 0) * 12)}/yr`} color="#f59e0b" indent={1} />}
+            {m.fixedCostsAnnual === 0 && <WfRow label="+ Fixed costs (rent, utils, other)" value="not set" color={th.muted} indent={1} />}
+            <WfRow label="Annual Net Profit" value={`${m.annualNetProfit >= 0 ? '+' : ''}${fmtDollars(m.annualNetProfit)}`}
+              color={m.annualNetProfit >= 0 ? '#22c55e' : '#ef4444'} divider bold />
+            {m.fixedCostsAnnual === 0 && (
+              <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '0.4rem' }}>
+                Fixed costs not set — enter rent + utilities in <button onClick={() => { setSelectedId(null); openCostPanel(); }}
+                  style={{ background: 'none', border: 'none', color: O, cursor: 'pointer', fontSize: '0.72rem', padding: 0, textDecoration: 'underline' }}>Cost Settings</button> for a complete payback.
+              </div>
+            )}
+          </div>
+
+          {/* Sales chart — after only */}
+          <div style={card(th, { padding: '1rem', marginBottom: '0.5rem' })}>
+            <div style={{ ...sectionTitle(th), marginBottom: '0.5rem' }}>
+              Weekly net sales
+              <span style={{ fontWeight: 400, color: th.muted, fontSize: '0.75rem', marginLeft: '0.5rem' }}>
+                8 wks after open{roi.weeksAfterUsed > 8 ? ' · current' : ''}
+              </span>
+            </div>
             <div style={{ height: 300 }}><canvas ref={chartCanvas} /></div>
           </div>
         </>}
@@ -25190,15 +25541,15 @@ function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
   const tdS = tdCell(th, { borderBottom: `1px solid ${th.cardBorder}` });
   return (
     <div className="fade-in">
+      {showCostPanel && <CostPanel />}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <MetricCard label="Capital projects" big={rows.length} sub={`${readyCount} ready to score`} />
-        </div>
+        <MetricCard label="Capital projects" big={rows.length} sub={`${readyCount} ready to score`} />
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ ...microLabel(th) }}>Flow-through margin</span>
-          <input type="number" min="0" max="100" value={marginPct} onChange={e => setMargin(e.target.value)}
-            style={{ ...inp(th), width: 70, padding: '0.35rem 0.5rem', fontSize: '0.85rem' }} />
-          <span style={{ color: th.muted, marginRight: '0.5rem' }}>%</span>
+          <button onClick={openCostPanel} style={{ ...btn(th, { padding: '0.4rem 0.85rem', fontSize: '0.78rem' }) }}>
+            ⚙ Cost Settings
+            <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', color: th.muted }}>COGS {cogsPct}% · Royalties {royaltiesPct}%</span>
+          </button>
           <button onClick={exportCsv} style={{ ...btn(th, { padding: '0.4rem 0.85rem', fontSize: '0.78rem' }) }}>↓ CSV</button>
         </div>
       </div>
@@ -25214,11 +25565,14 @@ function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
               <thead><tr>
                 <th style={thS}>Project</th><th style={thS}>Type</th><th style={{ ...thS, textAlign: 'right' }}>Budget</th>
                 <th style={{ ...thS, textAlign: 'right' }}>Sales Δ</th><th style={{ ...thS, textAlign: 'right' }}>Labor Δ</th>
-                <th style={{ ...thS, textAlign: 'right' }}>Guests Δ</th><th style={{ ...thS, textAlign: 'right' }}>Payback</th><th style={thS}>Status</th>
+                <th style={{ ...thS, textAlign: 'right' }}>Guests Δ</th><th style={{ ...thS, textAlign: 'right' }}>Annual Net</th>
+                <th style={{ ...thS, textAlign: 'right' }}>Payback</th><th style={thS}>Status</th>
               </tr></thead>
               <tbody>
                 {rows.map(r => {
                   const m = r.roi.metrics, st = STATUS_META[r.roi.status] || STATUS_META['no-date'];
+                  const isNew = m && m.isNewStore;
+                  const annualNet = isNew ? m.annualNetProfit : (m ? m.incrementalAnnualProfit : null);
                   return (
                     <tr key={r.project.id} onClick={() => setSelectedId(r.project.id)}
                       style={{ cursor: 'pointer', transition: 'background .12s' }}
@@ -25230,9 +25584,18 @@ function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
                       </td>
                       <td style={tdS}>{r.project.type || '—'}</td>
                       <td style={{ ...tdS, textAlign: 'right' }}>{r.roi.budget ? fmtDollars(r.roi.budget) : '—'}</td>
-                      <td style={{ ...tdS, textAlign: 'right', color: m ? goodBad(m.adjSalesPct) : th.muted, fontWeight: 700 }}>{m ? signPct(m.adjSalesPct) : '—'}</td>
-                      <td style={{ ...tdS, textAlign: 'right', color: m ? goodBad(m.adjLaborPoints, false) : th.muted, fontWeight: 700 }}>{m ? (m.adjLaborPoints > 0 ? '+' : '') + m.adjLaborPoints + ' pts' : '—'}</td>
-                      <td style={{ ...tdS, textAlign: 'right', color: m ? goodBad(m.adjGuestsPct) : th.muted }}>{m ? signPct(m.adjGuestsPct) : '—'}</td>
+                      <td style={{ ...tdS, textAlign: 'right', color: m && !isNew ? goodBad(m.adjSalesPct) : th.muted, fontWeight: 700 }}>
+                        {m && !isNew ? signPct(m.adjSalesPct) : isNew ? <span style={{ color: th.muted, fontSize: '0.72rem' }}>new</span> : '—'}
+                      </td>
+                      <td style={{ ...tdS, textAlign: 'right', color: m && !isNew ? goodBad(m.adjLaborPoints, false) : th.muted, fontWeight: 700 }}>
+                        {m && !isNew ? (m.adjLaborPoints > 0 ? '+' : '') + m.adjLaborPoints + ' pts' : isNew && m.laborPctAfter != null ? fmtPct(m.laborPctAfter) : '—'}
+                      </td>
+                      <td style={{ ...tdS, textAlign: 'right', color: m && !isNew ? goodBad(m.adjGuestsPct) : th.muted }}>
+                        {m && !isNew ? signPct(m.adjGuestsPct) : isNew && m.guestsAfter ? Math.round(m.guestsAfter) + '/wk' : '—'}
+                      </td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 700, color: annualNet != null ? goodBad(annualNet) : th.muted }}>
+                        {annualNet != null ? fmtDollars(annualNet) : '—'}
+                      </td>
                       <td style={{ ...tdS, textAlign: 'right', fontWeight: 800, color: th.text }}>{
                         !m ? '—'
                           : m.paybackMonths != null ? `${m.paybackMonths} mo`
@@ -34908,7 +35271,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v15.12
+            v15.20
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -35356,7 +35719,7 @@ function PCGPortal() {
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "expenses"  && isFullAdmin(user) && <ExpenseLogSection th={th} user={user} standalone />}
-          {tab === "roi"       && isFullAdmin(user) && <AdminRoiTracker th={th} user={user} stores={stores} salesWeeks={salesWeeks} projects={projects} dark={dark} />}
+          {tab === "roi"       && isFullAdmin(user) && <AdminRoiTracker th={th} user={user} stores={stores} salesWeeks={salesWeeks} projects={projects} dark={dark} setTab={setTab} deepLinkRef={deepLinkRef} />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version="v15.12" accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}

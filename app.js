@@ -426,7 +426,8 @@
       if (!weekOf || !Number.isFinite(sales) || sales <= 0) return null;
       const guests = row && Number.isFinite(Number(row.lwCC)) && Number(row.lwCC) > 0 ? Number(row.lwCC) : null;
       const laborDollar = row && Number.isFinite(Number(row.laborDollar)) ? Number(row.laborDollar) : null;
-      const laborPct = laborDollar != null && sales > 0 ? round2(laborDollar / sales * 100) : null;
+      const rawLaborPct = laborDollar != null && sales > 0 ? round2(laborDollar / sales * 100) : null;
+      const laborPct = rawLaborPct != null && rawLaborPct <= 60 ? rawLaborPct : null;
       return { weekOf, sales, guests, laborPct };
     }).filter(Boolean).sort((a, b) => a.weekOf.localeCompare(b.weekOf));
   }
@@ -487,10 +488,23 @@
     return out;
   }
   function computeProjectROI(project, storeWeekly, controlsWeekly, opts = {}) {
-    const { weeksBefore = 13, weeksAfter = null, minWeeksAfter = 6, marginPct = 30 } = opts;
+    const {
+      weeksBefore = 13,
+      weeksAfter = null,
+      minWeeksAfter = 6,
+      marginPct = null,
+      // legacy override: when set, skips cogsPct/royaltiesPct
+      cogsPct = 28,
+      // food cost % of sales
+      royaltiesPct = 10.9,
+      // Dunkin' royalty + ad fund % of sales
+      fixedCostsMonthly = 0
+      // rent + utilities + other (new locations only)
+    } = opts;
     const win = resolveProjectWindow(project);
     const budgetNum = project && project.totalBudget != null ? Number(String(project.totalBudget).replace(/[^0-9.]/g, "")) : NaN;
     const budget = Number.isFinite(budgetNum) && budgetNum > 0 ? budgetNum : null;
+    const isNewLocation = /new/i.test(String(project?.type || ""));
     const base = {
       pc: project ? project.pc || null : null,
       type: project ? project.type || null : null,
@@ -499,13 +513,50 @@
       startDate: win.hasStart ? win.startDate : null,
       hasStart: win.hasStart,
       budget,
-      marginPct
+      marginPct,
+      cogsPct,
+      royaltiesPct,
+      fixedCostsMonthly
     };
     if (!win.endDate) return { ...base, status: "no-date", metrics: null };
     const KEYS = ["sales", "guests", "laborPct"];
     const store = beforeAfterMultiWindow(storeWeekly, win.beforeEnd, win.afterStart, weeksBefore, weeksAfter, KEYS);
     const controls = (controlsWeekly || []).map((w) => beforeAfterMultiWindow(w, win.beforeEnd, win.afterStart, weeksBefore, weeksAfter, KEYS));
     if (store.sales.weeksBeforeUsed === 0) {
+      if (isNewLocation && store.sales.weeksAfterUsed >= minWeeksAfter) {
+        const fixedCostsAnnual = Math.round(fixedCostsMonthly * 12);
+        const annualRevenue = Math.round(store.sales.avgAfter * 52);
+        const cogsCost = Math.round(annualRevenue * cogsPct / 100);
+        const royaltyCost = Math.round(annualRevenue * royaltiesPct / 100);
+        const laborCost = store.laborPct.avgAfter != null ? Math.round(annualRevenue * store.laborPct.avgAfter / 100) : null;
+        const annualNetProfit = annualRevenue - cogsCost - royaltyCost - (laborCost ?? 0) - fixedCostsAnnual;
+        let paybackYears2 = null, paybackMonths2 = null;
+        if (budget != null && annualNetProfit > 0) {
+          paybackYears2 = round2(budget / annualNetProfit);
+          paybackMonths2 = Math.round(budget / annualNetProfit * 12);
+        }
+        return {
+          ...base,
+          status: "ready-new",
+          weeksAfterUsed: store.sales.weeksAfterUsed,
+          weeksBeforeUsed: 0,
+          store,
+          metrics: {
+            isNewStore: true,
+            annualRevenue,
+            cogsCost,
+            royaltyCost,
+            laborCost,
+            laborPctAfter: store.laborPct.avgAfter,
+            fixedCostsAnnual,
+            annualNetProfit,
+            paybackYears: paybackYears2,
+            paybackMonths: paybackMonths2,
+            payingBack: annualNetProfit > 0,
+            guestsAfter: store.guests.avgAfter
+          }
+        };
+      }
       return { ...base, status: "no-baseline", weeksAfterUsed: store.sales.weeksAfterUsed, store, metrics: null };
     }
     const ctrlAvg = (key, field) => {
@@ -523,7 +574,18 @@
     const adjLaborPoints = round2(store.laborPct.pointDelta - ctrlAvg("laborPct", "pointDelta"));
     const weeklyLaborSaved = -(adjLaborPoints / 100) * store.sales.avgAfter;
     const annualLaborSaved = Math.round(weeklyLaborSaved * 52);
-    const incrementalAnnualProfit = Math.round(annualSalesLift * (marginPct / 100) + annualLaborSaved);
+    let incrementalAnnualProfit, cogsCostOnLift, royaltyCostOnLift, contributionOnLift;
+    if (marginPct !== null) {
+      incrementalAnnualProfit = Math.round(annualSalesLift * (marginPct / 100) + annualLaborSaved);
+      cogsCostOnLift = null;
+      royaltyCostOnLift = null;
+      contributionOnLift = null;
+    } else {
+      cogsCostOnLift = Math.round(annualSalesLift * cogsPct / 100);
+      royaltyCostOnLift = Math.round(annualSalesLift * royaltiesPct / 100);
+      contributionOnLift = annualSalesLift - cogsCostOnLift - royaltyCostOnLift;
+      incrementalAnnualProfit = Math.round(contributionOnLift + annualLaborSaved);
+    }
     let paybackYears = null, paybackMonths = null;
     if (budget != null && incrementalAnnualProfit > 0) {
       paybackYears = round2(budget / incrementalAnnualProfit);
@@ -538,6 +600,9 @@
       metrics: {
         adjSalesPct,
         annualSalesLift,
+        cogsCostOnLift,
+        royaltyCostOnLift,
+        contributionOnLift,
         adjGuestsPct,
         guestsBefore: store.guests.avgBefore,
         guestsAfter: store.guests.avgAfter,
@@ -1336,6 +1401,7 @@
     nickname: "",
     type: "Remodel",
     dueDate: "",
+    startDate: "",
     completionDate: "",
     dunkinCompletionDate: "",
     notes: "",
@@ -11734,7 +11800,7 @@ ${t2.slice(0, 300)}`);
         /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.75rem", color: k.color, lineHeight: 0.95, letterSpacing: -0.5, textShadow: active ? `0 0 18px ${k.color}55` : "none" } }, k.value),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1, marginTop: "0.35rem" } }, k.label)
       );
-    })), addMode && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.5rem", border: `1px solid ${O}44` }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", fontWeight: 600, color: O, marginBottom: "1rem", textTransform: "uppercase", letterSpacing: 1 } }, editId ? "Edit Project" : "New Project"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "PC#"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. 342144", value: form.pc, onChange: (e) => setForm((f) => ({ ...f, pc: e.target.value })), onBlur: handlePcBlur })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Nickname"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Store name", value: form.nickname, onChange: (e) => setForm((f) => ({ ...f, nickname: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Type"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.type, onChange: (e) => setForm((f) => ({ ...f, type: e.target.value })) }, /* @__PURE__ */ React.createElement("option", null, "Remodel"), /* @__PURE__ */ React.createElement("option", null, "Relocation"), /* @__PURE__ */ React.createElement("option", null, "New Location"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Priority"), /* @__PURE__ */ React.createElement("input", { type: "number", style: inp(th), placeholder: "1", value: form.priority || "", onChange: (e) => setForm((f) => ({ ...f, priority: parseInt(e.target.value) || 0 })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Due Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.dueDate, onChange: (e) => setForm((f) => ({ ...f, dueDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Target Completion"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.completionDate, onChange: (e) => setForm((f) => ({ ...f, completionDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: "#ff6b00", fontWeight: 600 } }, "Dunkin' Completion Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.dunkinCompletionDate || "", onChange: (e) => setForm((f) => ({ ...f, dunkinCompletionDate: e.target.value })) }))), (manualAddr || !stores.find((s) => s.pc === form.pc)) && form.pc && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr 0.5fr 0.75fr", gap: "0.75rem", marginBottom: "0.75rem" }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Address"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Street address", value: form.address, onChange: (e) => setForm((f) => ({ ...f, address: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "City"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.city, onChange: (e) => setForm((f) => ({ ...f, city: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "State"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.state, onChange: (e) => setForm((f) => ({ ...f, state: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Zip"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.zip, onChange: (e) => setForm((f) => ({ ...f, zip: e.target.value })) }))), stores.find((s) => s.pc === form.pc) && form.pc && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#22c55e", marginBottom: "0.75rem", fontWeight: 600 } }, "\u2713 Linked to store: ", stores.find((s) => s.pc === form.pc)?.address), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Attorney"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.attorney || "", onChange: (e) => setForm((f) => ({ ...f, attorney: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.attorneys || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Architect"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.architect || "", onChange: (e) => setForm((f) => ({ ...f, architect: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.architects || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Engineer"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.engineer || "", onChange: (e) => setForm((f) => ({ ...f, engineer: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.engineers || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name))))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Notify Emails (comma-separated)"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "user@example.com", value: form.notifyEmails, onChange: (e) => setForm((f) => ({ ...f, notifyEmails: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Google Drive Folder URL"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "https://drive.google.com/drive/folders/...", value: form.driveFolder || "", onChange: (e) => setForm((f) => ({ ...f, driveFolder: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Notes"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Optional notes", value: form.notes, onChange: (e) => setForm((f) => ({ ...f, notes: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.8125rem", color: th.text, fontWeight: 600, padding: "0.55rem 0" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!form.landDevSkip, onChange: (e) => setForm((f) => ({ ...f, landDevSkip: e.target.checked })), style: { accentColor: "#14b8a6", width: 16, height: 16 } }), "Skip Land Development Phase"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr", gap: "0.75rem", marginBottom: "0.75rem", padding: "0.75rem", background: th.card2, borderRadius: "0.5rem", border: `1px dashed ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Phase Override ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, opacity: 0.75, textTransform: "none" } }, "(optional \u2014 force the project into a specific phase regardless of checklist progress)")), /* @__PURE__ */ React.createElement(
+    })), addMode && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.5rem", border: `1px solid ${O}44` }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", fontWeight: 600, color: O, marginBottom: "1rem", textTransform: "uppercase", letterSpacing: 1 } }, editId ? "Edit Project" : "New Project"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "PC#"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. 342144", value: form.pc, onChange: (e) => setForm((f) => ({ ...f, pc: e.target.value })), onBlur: handlePcBlur })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Nickname"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Store name", value: form.nickname, onChange: (e) => setForm((f) => ({ ...f, nickname: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Type"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.type, onChange: (e) => setForm((f) => ({ ...f, type: e.target.value })) }, /* @__PURE__ */ React.createElement("option", null, "Remodel"), /* @__PURE__ */ React.createElement("option", null, "Relocation"), /* @__PURE__ */ React.createElement("option", null, "New Location"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Priority"), /* @__PURE__ */ React.createElement("input", { type: "number", style: inp(th), placeholder: "1", value: form.priority || "", onChange: (e) => setForm((f) => ({ ...f, priority: parseInt(e.target.value) || 0 })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Due Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.dueDate, onChange: (e) => setForm((f) => ({ ...f, dueDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Target Completion"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.completionDate, onChange: (e) => setForm((f) => ({ ...f, completionDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: "#ff6b00", fontWeight: 600 } }, "Dunkin' Completion Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.dunkinCompletionDate || "", onChange: (e) => setForm((f) => ({ ...f, dunkinCompletionDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: "#8b5cf6", fontWeight: 600 } }, "Construction Start Date ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400 } }, "(ROI Tracker)")), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.startDate || "", onChange: (e) => setForm((f) => ({ ...f, startDate: e.target.value })) }))), (manualAddr || !stores.find((s) => s.pc === form.pc)) && form.pc && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr 0.5fr 0.75fr", gap: "0.75rem", marginBottom: "0.75rem" }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Address"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Street address", value: form.address, onChange: (e) => setForm((f) => ({ ...f, address: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "City"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.city, onChange: (e) => setForm((f) => ({ ...f, city: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "State"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.state, onChange: (e) => setForm((f) => ({ ...f, state: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Zip"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.zip, onChange: (e) => setForm((f) => ({ ...f, zip: e.target.value })) }))), stores.find((s) => s.pc === form.pc) && form.pc && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#22c55e", marginBottom: "0.75rem", fontWeight: 600 } }, "\u2713 Linked to store: ", stores.find((s) => s.pc === form.pc)?.address), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Attorney"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.attorney || "", onChange: (e) => setForm((f) => ({ ...f, attorney: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.attorneys || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Architect"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.architect || "", onChange: (e) => setForm((f) => ({ ...f, architect: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.architects || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Engineer"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.engineer || "", onChange: (e) => setForm((f) => ({ ...f, engineer: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.engineers || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name))))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Notify Emails (comma-separated)"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "user@example.com", value: form.notifyEmails, onChange: (e) => setForm((f) => ({ ...f, notifyEmails: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Google Drive Folder URL"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "https://drive.google.com/drive/folders/...", value: form.driveFolder || "", onChange: (e) => setForm((f) => ({ ...f, driveFolder: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Notes"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Optional notes", value: form.notes, onChange: (e) => setForm((f) => ({ ...f, notes: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.8125rem", color: th.text, fontWeight: 600, padding: "0.55rem 0" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!form.landDevSkip, onChange: (e) => setForm((f) => ({ ...f, landDevSkip: e.target.checked })), style: { accentColor: "#14b8a6", width: 16, height: 16 } }), "Skip Land Development Phase"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr", gap: "0.75rem", marginBottom: "0.75rem", padding: "0.75rem", background: th.card2, borderRadius: "0.5rem", border: `1px dashed ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Phase Override ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, opacity: 0.75, textTransform: "none" } }, "(optional \u2014 force the project into a specific phase regardless of checklist progress)")), /* @__PURE__ */ React.createElement(
       "select",
       {
         style: inp(th),
@@ -19168,22 +19234,60 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 1e3 }, onClick: onClose }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), width: "min(540px, 92vw)", height: "100%", overflowY: "auto", borderRadius: 0, padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text } }, store.name), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { ...btn(th), padding: "0.3rem 0.7rem" } }, "Close")), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, waterfall.map((w) => /* @__PURE__ */ React.createElement("div", { key: w.label, style: { display: "flex", justifyContent: "space-between", padding: "0.4rem 0", borderBottom: `1px solid ${th.cardBorder}`, color: th.text } }, /* @__PURE__ */ React.createElement("span", null, w.label), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: w.color } }, fmtDollars(w.value))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.5rem", textTransform: "uppercase" } }, "Margin % Trend"), /* @__PURE__ */ React.createElement("canvas", { ref: canvasRef, style: { maxHeight: "180px" } })), [["Weekly", rollups.weekly], ["Monthly", rollups.monthly]].map(([title, rows]) => /* @__PURE__ */ React.createElement("div", { key: title, style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.4rem", textTransform: "uppercase" } }, title), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem", color: th.text } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { color: th.muted, textAlign: "left" } }, ["Period", "Revenue", "Contribution", "Margin %"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "0.3rem" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.key, style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem" } }, r.key), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem" } }, fmtDollars(r.revenue)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem" } }, fmtDollars(r.contribution)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem", color: r.marginPct >= 30 ? "#22c55e" : "#ef4444" } }, fmtPct(r.marginPct))))))))));
   }
   var COORDS_BLOB = "pcg_store_coords_v1";
-  function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
-    const [marginPct, setMarginPct] = useState(() => {
-      const v = parseFloat(localStorage.getItem("pcg_roi_margin"));
-      return Number.isFinite(v) ? v : 30;
+  function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark, setTab, deepLinkRef }) {
+    const [costProfiles, setCostProfiles] = useState(() => {
+      try {
+        return JSON.parse(localStorage.getItem("pcg_roi_costs") || "{}");
+      } catch {
+        return {};
+      }
     });
+    const [showCostPanel, setShowCostPanel] = useState(false);
+    const [localCosts, setLocalCosts] = useState(null);
+    const [costBusy, setCostBusy] = useState(false);
     const [selectedId, setSelectedId] = useState(null);
+    const [pulseHistory, setPulseHistory] = useState({});
+    const [pulseRoi, setPulseRoi] = useState({});
+    const [pulseLoading, setPulseLoading] = useState(false);
     const chartCanvas = useRef(null);
     const chartRef = useRef(null);
-    const setMargin = (v) => {
-      const n = Math.max(0, Math.min(100, parseFloat(v) || 0));
-      setMarginPct(n);
+    useEffect(() => {
+      cloudLoad("pcg_roi_costs_v1").then((d) => {
+        if (d && typeof d === "object") {
+          setCostProfiles(d);
+          try {
+            localStorage.setItem("pcg_roi_costs", JSON.stringify(d));
+          } catch {
+          }
+        }
+      }).catch(() => {
+      });
+    }, []);
+    const cogsPct = costProfiles.cogsPct ?? 28;
+    const royaltiesPct = costProfiles.royaltiesPct ?? 10.9;
+    const storeCosts = costProfiles.stores || {};
+    const openCostPanel = () => {
+      setLocalCosts({
+        cogsPct,
+        royaltiesPct,
+        stores: { ...storeCosts }
+      });
+      setShowCostPanel(true);
+    };
+    const saveCosts = async () => {
+      if (!localCosts) return;
+      setCostBusy(true);
+      const next = { ...localCosts };
+      setCostProfiles(next);
       try {
-        localStorage.setItem("pcg_roi_margin", String(n));
+        localStorage.setItem("pcg_roi_costs", JSON.stringify(next));
       } catch {
       }
+      await cloudSave("pcg_roi_costs_v1", next);
+      setCostBusy(false);
+      setShowCostPanel(false);
     };
+    const pname = (p) => p.nickname || (p.pc ? `Store ${p.pc}` : "Project");
     const rows = React.useMemo(() => {
       const out = (projects || []).filter((p) => p && p.pc).map((p) => {
         const store = (stores || []).find((s) => String(s.pc) === String(p.pc));
@@ -19191,10 +19295,12 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         const peerPcs = (stores || []).filter((s) => district != null && String(s.district) === String(district) && String(s.pc) !== String(p.pc)).map((s) => s.pc);
         const storeWeekly = weeklyMetricsFromScorecard(salesWeeks, p.pc);
         const controlsWeekly = peerPcs.map((pc) => weeklyMetricsFromScorecard(salesWeeks, pc)).filter((w) => w.length >= 4);
-        const roi = computeProjectROI(p, storeWeekly, controlsWeekly, { marginPct });
-        return { project: p, store, roi, storeWeekly, controlCount: controlsWeekly.length };
+        const sc = storeCosts[String(p.pc)] || {};
+        const fixedCostsMonthly = (sc.rentMonthly || 0) + (sc.utilitiesMonthly || 0) + (sc.otherMonthly || 0);
+        const roi = computeProjectROI(p, storeWeekly, controlsWeekly, { cogsPct, royaltiesPct, fixedCostsMonthly });
+        return { project: p, store, roi, storeWeekly, controlCount: controlsWeekly.length, storeCost: sc };
       });
-      const rank = (r) => r.roi.status === "ready" ? 0 : r.roi.status === "maturing" ? 1 : 2;
+      const rank = (r) => r.roi.status === "ready" || r.roi.status === "ready-new" ? 0 : r.roi.status === "maturing" ? 1 : 2;
       return out.sort((a, b) => {
         if (rank(a) !== rank(b)) return rank(a) - rank(b);
         const pa = a.roi.metrics && a.roi.metrics.paybackMonths, pb = b.roi.metrics && b.roi.metrics.paybackMonths;
@@ -19203,11 +19309,43 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         if (pb != null) return 1;
         return 0;
       });
-    }, [projects, stores, salesWeeks, marginPct]);
+    }, [projects, stores, salesWeeks, costProfiles]);
     const selected = rows.find((r) => r.project.id === selectedId) || null;
-    const pname = (p) => p.nickname || (p.pc ? `Store ${p.pc}` : "Project");
+    useEffect(() => {
+      if (!selected) return;
+      const pc = String(selected.project.pc);
+      if (pulseHistory[pc] !== void 0) return;
+      const roi = selected.roi;
+      if (!roi.openDate) return;
+      const startB = roi.hasStart ? roi.startDate : roi.openDate;
+      const startDate = new Date((/* @__PURE__ */ new Date(startB + "T00:00:00Z")).getTime() - 13 * 7 * 864e5).toISOString().slice(0, 10);
+      const latestMs = (/* @__PURE__ */ new Date(roi.openDate + "T00:00:00Z")).getTime() + 26 * 7 * 864e5;
+      const todayMs = Date.now();
+      const endDate = new Date(Math.min(latestMs, todayMs)).toISOString().slice(0, 10);
+      setPulseLoading(true);
+      fetch("/.netlify/functions/pulse-roi-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pc, startDate, endDate })
+      }).then((r) => r.ok ? r.json() : null).then((data) => {
+        setPulseHistory((prev) => ({ ...prev, [pc]: data?.weeks || [] }));
+      }).catch(() => {
+        setPulseHistory((prev) => ({ ...prev, [pc]: [] }));
+      }).finally(() => setPulseLoading(false));
+    }, [selectedId]);
+    useEffect(() => {
+      if (!selected) return;
+      const pc = String(selected.project.pc);
+      const weeks = pulseHistory[pc];
+      if (!weeks?.length) return;
+      const sc = storeCosts[String(pc)] || {};
+      const fixedCostsMonthly = (sc.rentMonthly || 0) + (sc.utilitiesMonthly || 0) + (sc.otherMonthly || 0);
+      const roi = computeProjectROI(selected.project, weeks, [], { cogsPct, royaltiesPct, fixedCostsMonthly });
+      setPulseRoi((prev) => ({ ...prev, [pc]: roi }));
+    }, [pulseHistory, selectedId, cogsPct, royaltiesPct, storeCosts]);
     const STATUS_META = {
       ready: { color: "#22c55e", label: "Ready" },
+      "ready-new": { color: "#22c55e", label: "New Location" },
       maturing: { color: "#f59e0b", label: "Maturing" },
       "no-baseline": { color: "#ef4444", label: "No pre-remodel data" },
       "no-date": { color: "#94a3b8", label: "No completion date" }
@@ -19218,32 +19356,84 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         chartRef.current.destroy();
         chartRef.current = null;
       }
-      const w = selected.storeWeekly;
+      const ctx = chartCanvas.current.getContext("2d");
+      const pulseWeeks = pulseHistory[String(selected.project.pc)] || [];
+      const w = pulseWeeks.slice().sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+      const hasPulse = pulseWeeks.length > 0;
       const roi = selected.roi;
       const end = roi.openDate;
       const startB = roi.hasStart ? roi.startDate : end;
-      const labels = w.map((x) => x.weekOf);
-      const beforeData = w.map((x) => end && x.weekOf <= startB ? x.sales : null);
-      const gapData = w.map((x) => end && roi.hasStart && x.weekOf > startB && x.weekOf <= end ? x.sales : null);
-      const afterData = w.map((x) => end && x.weekOf > end ? x.sales : null);
+      if (!end || w.length === 0 && !pulseLoading) return;
+      const beforeAll = w.filter((x) => x.weekOf <= startB);
+      const gapAll = roi.hasStart ? w.filter((x) => x.weekOf > startB && x.weekOf <= end) : [];
+      const afterAll = w.filter((x) => x.weekOf > end);
+      const after8 = afterAll.slice(0, 8);
+      const current = afterAll.slice(7);
+      const beforeWin = beforeAll.slice(-8);
+      const TARGET_BEFORE = 8;
+      let extendedBefore = [...beforeWin];
+      if (beforeWin.length < TARGET_BEFORE) {
+        const anchor = beforeWin.length > 0 ? /* @__PURE__ */ new Date(beforeWin[0].weekOf + "T00:00:00Z") : /* @__PURE__ */ new Date(startB + "T00:00:00Z");
+        const needed = TARGET_BEFORE - beforeWin.length;
+        const synthetic = [];
+        for (let i = needed; i >= 1; i--) {
+          const d = new Date(anchor.getTime() - i * 7 * 24 * 60 * 60 * 1e3);
+          synthetic.push({ weekOf: d.toISOString().slice(0, 10) });
+        }
+        extendedBefore = [...synthetic, ...beforeWin];
+      }
+      const gapWin = roi.hasStart ? [beforeWin[beforeWin.length - 1], ...gapAll, afterAll[0]].filter(Boolean) : [];
+      const allVisible = [...extendedBefore, ...gapAll, ...afterAll];
+      const seen = /* @__PURE__ */ new Set();
+      const visWeeks = allVisible.filter((x) => seen.has(x.weekOf) ? false : seen.add(x.weekOf)).sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+      const labels = visWeeks.map((x) => {
+        const d = /* @__PURE__ */ new Date(x.weekOf + "T00:00:00Z");
+        return d.getUTCMonth() + 1 + "/" + d.getUTCDate();
+      });
+      const salesAt = (set) => visWeeks.map((x) => set.find((s) => s.weekOf === x.weekOf)?.sales ?? null);
+      const chartH = chartCanvas.current.offsetHeight || 300;
+      const mkGrad = (hex) => {
+        const g = ctx.createLinearGradient(0, 0, 0, chartH);
+        g.addColorStop(0, hex + "44");
+        g.addColorStop(1, hex + "00");
+        return g;
+      };
       const ds = [
-        { label: "Before remodel", data: beforeData, borderColor: "#94a3b8", backgroundColor: "#94a3b822", borderWidth: 2, tension: 0.25, pointRadius: 2, spanGaps: false },
-        { label: "After remodel", data: afterData, borderColor: "#22c55e", backgroundColor: "#22c55e22", borderWidth: 2.5, tension: 0.25, pointRadius: 2, spanGaps: false }
+        { label: "2 mo before", data: salesAt(extendedBefore), borderColor: "#94a3b8", backgroundColor: mkGrad("#94a3b8"), fill: true, borderWidth: 2, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, spanGaps: false },
+        { label: "8 wks after", data: salesAt(after8), borderColor: "#22c55e", backgroundColor: mkGrad("#22c55e"), fill: true, borderWidth: 2.5, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, spanGaps: false }
       ];
-      if (roi.hasStart) ds.splice(1, 0, { label: "Construction (excluded)", data: gapData, borderColor: "#f59e0b", borderDash: [4, 3], borderWidth: 1.5, tension: 0.25, pointRadius: 1, spanGaps: false });
-      chartRef.current = new window.Chart(chartCanvas.current.getContext("2d"), {
+      if (current.length > 1) {
+        ds.push({ label: "Current", data: salesAt(current), borderColor: O, backgroundColor: mkGrad(O), fill: true, borderWidth: 2.5, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, spanGaps: false });
+      }
+      if (roi.hasStart && gapWin.length > 1) {
+        ds.splice(1, 0, { label: "Construction", data: salesAt(gapWin), borderColor: "#f59e0b", backgroundColor: mkGrad("#f59e0b"), fill: true, borderDash: [5, 4], borderWidth: 1.5, tension: 0.4, pointRadius: 2, spanGaps: false });
+      }
+      chartRef.current = new window.Chart(ctx, {
         type: "line",
         data: { labels, datasets: ds },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
           plugins: {
-            legend: { labels: { color: th.text } },
-            tooltip: { callbacks: { label: (c) => c.parsed.y == null ? "" : `${c.dataset.label}: ${fmtDollars(c.parsed.y)}` } }
+            legend: { labels: { color: th.text, boxWidth: 10, padding: 18, font: { size: 12 } } },
+            tooltip: {
+              backgroundColor: "#1e293b",
+              titleColor: "#94a3b8",
+              bodyColor: "#f1f5f9",
+              borderColor: "#334155",
+              borderWidth: 1,
+              padding: 12,
+              cornerRadius: 8,
+              callbacks: {
+                title: (items) => items[0]?.label ? `Week of ${items[0].label}` : "",
+                label: (c) => c.parsed.y == null ? "" : `  ${c.dataset.label}: ${fmtDollars(c.parsed.y)}`
+              }
+            }
           },
           scales: {
-            x: { ticks: { color: th.muted, maxRotation: 60, minRotation: 60 }, grid: { color: th.sidebarBorder } },
-            y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) }, grid: { color: th.sidebarBorder } }
+            x: { ticks: { color: th.muted, maxRotation: 45, minRotation: 0, font: { size: 11 } }, grid: { color: dark ? "#ffffff0d" : "#0000000d" } },
+            y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v), font: { size: 11 } }, grid: { color: dark ? "#ffffff0d" : "#0000000d" } }
           }
         }
       });
@@ -19253,22 +19443,45 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           chartRef.current = null;
         }
       };
-    }, [selectedId, dark, marginPct]);
+    }, [selectedId, dark, pulseHistory]);
     const exportCsv = () => {
-      const head = ["Project", "Type", "Store", "Opening", "Budget", "Status", "Sales \u0394%", "Labor \u0394pts", "Guests \u0394%", "Annual profit", "Payback (mo)"];
+      const head = [
+        "Project",
+        "Type",
+        "Store",
+        "Opening",
+        "Budget",
+        "COGS%",
+        "Royalties%",
+        "Rent/mo",
+        "Utils/mo",
+        "Other/mo",
+        "Status",
+        "Sales \u0394%",
+        "Labor \u0394pts",
+        "Guests \u0394%",
+        "Annual Net",
+        "Payback (mo)"
+      ];
       const lines = rows.map((r) => {
-        const m = r.roi.metrics || {};
+        const m = r.roi.metrics || {}, sc = r.storeCost || {};
+        const net = m.isNewStore ? m.annualNetProfit ?? "" : m.incrementalAnnualProfit ?? "";
         return [
           pname(r.project),
           r.project.type || "",
           r.store ? r.store.name : r.project.pc,
           r.roi.openDate || "",
           r.roi.budget || "",
+          cogsPct,
+          royaltiesPct,
+          sc.rentMonthly || 0,
+          sc.utilitiesMonthly || 0,
+          sc.otherMonthly || 0,
           STATUS_META[r.roi.status]?.label || r.roi.status,
           m.adjSalesPct ?? "",
           m.adjLaborPoints ?? "",
           m.adjGuestsPct ?? "",
-          m.incrementalAnnualProfit ?? "",
+          net,
           m.paybackMonths ?? ""
         ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",");
       });
@@ -19279,39 +19492,123 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       a.click();
       URL.revokeObjectURL(a.href);
     };
-    const readyCount = rows.filter((r) => r.roi.status === "ready").length;
+    const readyCount = rows.filter((r) => r.roi.status === "ready" || r.roi.status === "ready-new").length;
     const MetricCard = ({ label, big, sub, color }) => /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: "1rem", flex: 1, minWidth: 150 }) }, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.35rem" } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: color || th.text, lineHeight: 1 } }, big), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.3rem" } }, sub));
     const signPct = (n) => (n > 0 ? "+" : "") + fmtPct(n);
     const goodBad = (n, goodPositive = true) => n === 0 ? th.muted : n > 0 === goodPositive ? "#22c55e" : "#ef4444";
-    if (selected) {
-      const p = selected.project, roi = selected.roi, m = roi.metrics;
-      const st = STATUS_META[roi.status] || STATUS_META["no-date"];
-      return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedId(null), style: { ...btn(th, { padding: "0.4rem 0.85rem", fontSize: "0.78rem" }), marginBottom: "1rem" } }, "\u2190 All projects"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.25rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, pname(p)), /* @__PURE__ */ React.createElement("span", { style: pill(st.color) }, st.label), p.type && /* @__PURE__ */ React.createElement("span", { style: pill("#6366f1") }, p.type)), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", marginBottom: "1.25rem" } }, selected.store ? `${selected.store.name} \xB7 D${selected.store.district}` : `Store ${p.pc}`, roi.hasStart && roi.startDate ? ` \xB7 Before \u2264 ${new Date(roi.startDate).toLocaleDateString()} vs After > ${roi.openDate ? new Date(roi.openDate).toLocaleDateString() : "\u2014"} (${roi.openSource})` : roi.openDate ? ` \xB7 Reopen ${new Date(roi.openDate).toLocaleDateString()} (${roi.openSource})` : " \xB7 No completion/opening date set", roi.budget ? ` \xB7 Budget ${fmtDollars(roi.budget)}` : " \xB7 No budget set", ` \xB7 ${selected.controlCount} control store${selected.controlCount !== 1 ? "s" : ""}`), roi.status === "no-date" && /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#94a3b8", { padding: "1rem" }) }, "Set a ", /* @__PURE__ */ React.createElement("strong", null, "completion / grand-opening date"), " on this project to compute ROI."), roi.status === "no-baseline" && /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#ef4444", { padding: "1rem" }) }, "We have ", /* @__PURE__ */ React.createElement("strong", null, "no pre-remodel sales weeks"), " for this store in the scorecard", roi.hasStart && roi.startDate ? ` before ${new Date(roi.startDate).toLocaleDateString()}` : "", ". The uploaded history doesn't reach back far enough \u2014 a ", /* @__PURE__ */ React.createElement("strong", null, "Pulse backfill"), " of the pre-remodel period is needed to compare before vs after."), roi.status === "maturing" && /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#f59e0b", { padding: "1rem" }) }, "Only ", /* @__PURE__ */ React.createElement("strong", null, roi.weeksAfterUsed, " week", roi.weeksAfterUsed !== 1 ? "s" : ""), " of post-reopen data so far \u2014 needs ", roi.minWeeksAfter, "+ to judge ROI. Check back as more weeks land."), roi.status === "ready" && m && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement(MetricCard, { label: "Sales lift (vs peers)", big: signPct(m.adjSalesPct), sub: `${fmtDollars(m.annualSalesLift)}/yr incremental`, color: goodBad(m.adjSalesPct) }), /* @__PURE__ */ React.createElement(MetricCard, { label: "Labor change (vs peers)", big: (m.adjLaborPoints > 0 ? "+" : "") + m.adjLaborPoints + " pts", sub: `${fmtDollars(m.annualLaborSaved)}/yr ${m.annualLaborSaved >= 0 ? "saved" : "added"}`, color: goodBad(m.adjLaborPoints, false) }), /* @__PURE__ */ React.createElement(MetricCard, { label: "Guest count (vs peers)", big: signPct(m.adjGuestsPct), sub: `${Math.round(m.guestsBefore)} \u2192 ${Math.round(m.guestsAfter)}/wk`, color: goodBad(m.adjGuestsPct) })), /* @__PURE__ */ React.createElement("div", { style: accentCard(th, m.payingBack ? "#22c55e" : "#ef4444", { padding: "1.25rem", marginBottom: "1.25rem", display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center" }) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Payback period"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.2rem", color: m.payingBack ? "#22c55e" : "#ef4444", lineHeight: 1.1 } }, m.payingBack ? m.paybackMonths != null ? `${m.paybackMonths} mo` : "\u2014" : "Not yet"), m.payingBack && m.paybackYears != null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "\u2248 ", m.paybackYears, " years", roi.budget ? "" : " \xB7 set budget for $ payback"), !m.payingBack && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "Incremental profit isn't positive vs peers yet")), /* @__PURE__ */ React.createElement("div", { style: { height: 44, width: 1, background: th.cardBorder } }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Incremental annual profit"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: th.text } }, fmtDollars(m.incrementalAnnualProfit)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, fmtDollars(m.annualSalesLift), " sales \xD7 ", marginPct, "% margin + ", fmtDollars(m.annualLaborSaved), " labor")), /* @__PURE__ */ React.createElement("div", { style: { marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { ...microLabel(th) } }, "Flow-through margin"), /* @__PURE__ */ React.createElement(
+    const WfRow = ({ label, value, color, indent, divider, bold }) => /* @__PURE__ */ React.createElement("div", { style: {
+      display: "flex",
+      justifyContent: "space-between",
+      padding: "0.28rem 0",
+      paddingLeft: (indent || 0) * 16,
+      borderTop: divider ? `1px solid ${th.cardBorder}` : "none",
+      marginTop: divider ? "0.2rem" : 0
+    } }, /* @__PURE__ */ React.createElement("span", { style: { color: bold ? th.text : th.muted, fontWeight: bold ? 700 : 400, fontSize: "0.82rem" } }, label), /* @__PURE__ */ React.createElement("span", { style: { color: color || th.text, fontWeight: bold ? 800 : 600, fontSize: "0.82rem" } }, value));
+    const CostPanel = () => {
+      if (!localCosts) return null;
+      const lc = localCosts;
+      const setDefault = (k, v) => setLocalCosts((c) => ({ ...c, [k]: parseFloat(v) || 0 }));
+      const setStore = (pc, k, v) => setLocalCosts((c) => ({
+        ...c,
+        stores: { ...c.stores, [pc]: { ...c.stores[pc] || {}, [k]: parseFloat(v) || 0 } }
+      }));
+      const fmtNum = (v) => v == null || v === 0 ? "" : String(v);
+      const projectPcs = [...new Set(rows.map((r) => String(r.project.pc)).filter(Boolean))];
+      return /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: "1.25rem", marginBottom: "1rem", border: `1px solid ${O}44` }), className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Cost Assumptions"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCostPanel(false), style: { ...btn(th, { padding: "0.25rem 0.6rem", fontSize: "0.72rem" }) } }, "\u2715")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.5rem", flexWrap: "wrap", marginBottom: "1.25rem", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 600, marginBottom: "0.3rem" } }, "Food Cost % of Sales"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement(
         "input",
         {
           type: "number",
           min: "0",
-          max: "100",
-          value: marginPct,
-          onChange: (e) => setMargin(e.target.value),
-          style: { ...inp(th), width: 70, padding: "0.35rem 0.5rem", fontSize: "0.85rem" }
+          max: "60",
+          step: "0.1",
+          value: lc.cogsPct ?? 28,
+          onChange: (e) => setDefault("cogsPct", e.target.value),
+          style: { ...inp(th), width: 72, padding: "0.35rem 0.5rem", fontSize: "0.85rem" }
         }
-      ), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "%"))), /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: "1rem", marginBottom: "0.5rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem" } }, "Weekly net sales \u2014 ", roi.weeksBeforeUsed, " wk before vs ", roi.weeksAfterUsed, " wk after"), /* @__PURE__ */ React.createElement("div", { style: { height: 300 } }, /* @__PURE__ */ React.createElement("canvas", { ref: chartCanvas })))));
+      ), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "%"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 600, marginBottom: "0.3rem" } }, "Royalties + Ad Fund % of Sales"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "number",
+          min: "0",
+          max: "30",
+          step: "0.1",
+          value: lc.royaltiesPct ?? 10.9,
+          onChange: (e) => setDefault("royaltiesPct", e.target.value),
+          style: { ...inp(th), width: 72, padding: "0.35rem 0.5rem", fontSize: "0.85rem" }
+        }
+      ), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "% (Dunkin': 5.9% royalty + 5% ad fund)")))), projectPcs.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 600, marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: 1 } }, "Fixed Monthly Costs per Store (used for New Location payback)"), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), fontWeight: 600, background: "transparent" } }, "Store"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right", fontWeight: 600, background: "transparent" } }, "Rent / mo"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right", fontWeight: 600, background: "transparent" } }, "Utilities / mo"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right", fontWeight: 600, background: "transparent" } }, "Other / mo"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right", fontWeight: 600, background: "transparent" } }, "Total / yr"))), /* @__PURE__ */ React.createElement("tbody", null, projectPcs.map((pc) => {
+        const sc = lc.stores[pc] || {};
+        const row = rows.find((r) => String(r.project.pc) === pc);
+        const annual = ((sc.rentMonthly || 0) + (sc.utilitiesMonthly || 0) + (sc.otherMonthly || 0)) * 12;
+        return /* @__PURE__ */ React.createElement("tr", { key: pc, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 600 } }, row ? pname(row.project) : `Store ${pc}`), ["rentMonthly", "utilitiesMonthly", "otherMonthly"].map((k) => /* @__PURE__ */ React.createElement("td", { key: k, style: { ...tdCell(th), textAlign: "right", padding: "0.3rem 0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.75rem" } }, "$"), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            type: "number",
+            min: "0",
+            step: "100",
+            value: fmtNum(sc[k]),
+            placeholder: "0",
+            onChange: (e) => setStore(pc, k, e.target.value),
+            style: { ...inp(th), width: 90, padding: "0.25rem 0.4rem", fontSize: "0.8rem", textAlign: "right" }
+          }
+        )))), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", color: annual > 0 ? th.text : th.muted, fontWeight: annual > 0 ? 700 : 400 } }, annual > 0 ? fmtDollars(annual) : "\u2014"));
+      }))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: saveCosts, disabled: costBusy, style: { ...btn(th, { padding: "0.45rem 1rem", background: O, color: "#fff" }) } }, costBusy ? "Saving\u2026" : "Save Cost Assumptions"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCostPanel(false), style: { ...btn(th, { padding: "0.45rem 1rem" }) } }, "Cancel")));
+    };
+    if (selected) {
+      const p = selected.project;
+      const roi = pulseRoi[String(p.pc)] || selected.roi;
+      const m = roi.metrics;
+      const st = STATUS_META[roi.status] || STATUS_META["no-date"];
+      const sc = selected.storeCost || {};
+      return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedId(null), style: { ...btn(th, { padding: "0.4rem 0.85rem", fontSize: "0.78rem" }) } }, "\u2190 All projects"), setTab && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+        if (deepLinkRef) deepLinkRef.current = p.id;
+        setTab("projects");
+      }, style: { ...btn(th, { padding: "0.4rem 0.85rem", fontSize: "0.78rem", background: "none", color: "#8b5cf6", border: `1px solid #8b5cf6` }) } }, "View in Projects \u2192")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.25rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, pname(p)), /* @__PURE__ */ React.createElement("span", { style: pill(st.color) }, st.label), p.type && /* @__PURE__ */ React.createElement("span", { style: pill("#6366f1") }, p.type)), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", marginBottom: "1.25rem" } }, selected.store ? `${selected.store.name} \xB7 D${selected.store.district}` : `Store ${p.pc}`, roi.hasStart && roi.startDate ? ` \xB7 Before \u2264 ${new Date(roi.startDate).toLocaleDateString()} vs After > ${roi.openDate ? new Date(roi.openDate).toLocaleDateString() : "\u2014"} (${roi.openSource})` : roi.openDate ? ` \xB7 Open ${new Date(roi.openDate).toLocaleDateString()} (${roi.openSource})` : " \xB7 No completion/opening date set", roi.budget ? ` \xB7 Budget ${fmtDollars(roi.budget)}` : " \xB7 No budget set", roi.status !== "ready-new" && ` \xB7 ${selected.controlCount} control store${selected.controlCount !== 1 ? "s" : ""}`), roi.status === "no-date" && /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#94a3b8", { padding: "1rem" }) }, "Set a ", /* @__PURE__ */ React.createElement("strong", null, "completion / grand-opening date"), " on this project to compute ROI."), roi.status === "no-baseline" && /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#ef4444", { padding: "1rem" }) }, "No pre-remodel sales weeks in the scorecard", roi.hasStart && roi.startDate ? ` before ${new Date(roi.startDate).toLocaleDateString()}` : "", ". A ", /* @__PURE__ */ React.createElement("strong", null, "Pulse backfill"), " of the pre-remodel period is needed to compare before vs after."), roi.status === "maturing" && /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#f59e0b", { padding: "1rem" }) }, "Only ", /* @__PURE__ */ React.createElement("strong", null, roi.weeksAfterUsed, " week", roi.weeksAfterUsed !== 1 ? "s" : ""), " of post-open data so far \u2014 needs ", roi.minWeeksAfter, "+ to judge ROI. Check back as more weeks land."), m && !roi.hasStart && /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#f59e0b", { padding: "0.85rem", marginBottom: "0.75rem" }) }, /* @__PURE__ */ React.createElement("strong", null, "No construction start date set."), ' Without it, any slow weeks during the remodel are included in the "before" average, inflating the sales lift.', " ", setTab ? /* @__PURE__ */ React.createElement("button", { onClick: () => {
+        if (deepLinkRef) deepLinkRef.current = p.id;
+        setTab("projects");
+      }, style: { background: "none", border: "none", color: "#f59e0b", cursor: "pointer", padding: 0, fontWeight: 700, textDecoration: "underline", fontSize: "inherit" } }, "Set Construction Start Date in Projects \u2192") : /* @__PURE__ */ React.createElement(React.Fragment, null, "Set a ", /* @__PURE__ */ React.createElement("strong", null, "Start Date"), " on this project to exclude the disruption period.")), m && Math.abs(m.adjLaborPoints ?? 0) > 20 && /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#ef4444", { padding: "0.85rem", marginBottom: "0.75rem" }) }, /* @__PURE__ */ React.createElement("strong", null, "Unreliable labor adjustment (", (m.adjLaborPoints > 0 ? "+" : "") + m.adjLaborPoints, " pts vs peers)."), " A shift this large points to bad labor data in one or more control stores' scorecard \u2014 a bad paste or a week where labor dollars were entered against near-zero sales. The payback number is not trustworthy until the scorecard is corrected."), roi.status === "ready" && m && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement(MetricCard, { label: "Sales lift (vs peers)", big: signPct(m.adjSalesPct), sub: `${fmtDollars(m.annualSalesLift)}/yr incremental`, color: goodBad(m.adjSalesPct) }), /* @__PURE__ */ React.createElement(MetricCard, { label: "Labor change (vs peers)", big: (m.adjLaborPoints > 0 ? "+" : "") + m.adjLaborPoints + " pts", sub: `${fmtDollars(m.annualLaborSaved)}/yr ${m.annualLaborSaved >= 0 ? "saved" : "added"}`, color: goodBad(m.adjLaborPoints, false) }), /* @__PURE__ */ React.createElement(MetricCard, { label: "Guest count (vs peers)", big: signPct(m.adjGuestsPct), sub: `${Math.round(m.guestsBefore)} \u2192 ${Math.round(m.guestsAfter)}/wk`, color: goodBad(m.adjGuestsPct) })), /* @__PURE__ */ React.createElement("div", { style: accentCard(th, m.payingBack ? "#22c55e" : "#ef4444", { padding: "1.25rem", marginBottom: "1.25rem", display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center" }) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Payback period"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.2rem", color: m.payingBack ? "#22c55e" : "#ef4444", lineHeight: 1.1 } }, m.payingBack ? m.paybackMonths != null ? `${m.paybackMonths} mo` : "\u2014" : "Not yet"), m.payingBack && m.paybackYears != null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "\u2248 ", m.paybackYears, " yrs", roi.budget ? "" : " \xB7 set budget for $ payback"), !m.payingBack && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "Incremental profit isn't positive vs peers yet")), /* @__PURE__ */ React.createElement("div", { style: { height: 44, width: 1, background: th.cardBorder } }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Incremental annual net"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: th.text } }, fmtDollars(m.incrementalAnnualProfit)))), /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: "1rem", marginBottom: "1rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.6rem" } }, "P&L Breakdown \u2014 incremental, annual"), /* @__PURE__ */ React.createElement(WfRow, { label: "Revenue lift", value: `+${fmtDollars(m.annualSalesLift)}`, color: "#22c55e" }), m.cogsCostOnLift != null && /* @__PURE__ */ React.createElement(WfRow, { label: `\u2212 Food Cost (${cogsPct}%)`, value: `\u2212${fmtDollars(m.cogsCostOnLift)}`, color: "#ef4444", indent: 1 }), m.royaltyCostOnLift != null && /* @__PURE__ */ React.createElement(WfRow, { label: `\u2212 Royalties + Ad Fund (${royaltiesPct}%)`, value: `\u2212${fmtDollars(m.royaltyCostOnLift)}`, color: "#ef4444", indent: 1 }), m.contributionOnLift != null && /* @__PURE__ */ React.createElement(WfRow, { label: "= Contribution on lift", value: fmtDollars(m.contributionOnLift), color: m.contributionOnLift >= 0 ? "#22c55e" : "#ef4444" }), /* @__PURE__ */ React.createElement(
+        WfRow,
+        {
+          label: `${m.annualLaborSaved >= 0 ? "+" : "\u2212"} Labor ${m.annualLaborSaved >= 0 ? "savings" : "increase"} (${m.adjLaborPoints > 0 ? "+" : ""}${m.adjLaborPoints} pts vs peers)`,
+          value: `${m.annualLaborSaved >= 0 ? "+" : ""}${fmtDollars(m.annualLaborSaved)}`,
+          color: m.annualLaborSaved >= 0 ? "#22c55e" : "#ef4444"
+        }
+      ), /* @__PURE__ */ React.createElement(
+        WfRow,
+        {
+          label: "Net Annual Lift",
+          value: `${m.incrementalAnnualProfit >= 0 ? "+" : ""}${fmtDollars(m.incrementalAnnualProfit)}`,
+          color: m.incrementalAnnualProfit >= 0 ? "#22c55e" : "#ef4444",
+          divider: true,
+          bold: true
+        }
+      )), /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: "1rem", marginBottom: "0.5rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem", display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.4rem" } }, "Weekly net sales", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: th.muted, fontSize: "0.75rem" } }, "2 mo before \xB7 ", roi.hasStart ? "construction \xB7 " : "", "8 wks after", roi.weeksAfterUsed > 8 ? " \xB7 current" : ""), pulseLoading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 400 } }, "Loading Pulse data\u2026"), !pulseLoading && pulseHistory[String(selected.project.pc)]?.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#22c55e", fontWeight: 600, background: "#22c55e18", borderRadius: 4, padding: "1px 6px" } }, "Pulse POS"), !pulseLoading && pulseHistory[String(selected.project.pc)]?.length === 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#f59e0b", fontWeight: 500 } }, "No Pulse history found")), /* @__PURE__ */ React.createElement("div", { style: { height: 300 } }, /* @__PURE__ */ React.createElement("canvas", { ref: chartCanvas })))), roi.status === "ready-new" && m && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement(MetricCard, { label: "Annual revenue", big: fmtDollars(m.annualRevenue), sub: `${roi.weeksAfterUsed} wk avg \xD7 52` }), m.guestsAfter != null && /* @__PURE__ */ React.createElement(MetricCard, { label: "Guests / week", big: Math.round(m.guestsAfter), sub: "post-open average" }), m.laborPctAfter != null && /* @__PURE__ */ React.createElement(MetricCard, { label: "Labor %", big: fmtPct(m.laborPctAfter), sub: "post-open average", color: m.laborPctAfter > 26 ? "#ef4444" : m.laborPctAfter > 23 ? "#f59e0b" : "#22c55e" })), /* @__PURE__ */ React.createElement("div", { style: accentCard(th, m.payingBack ? "#22c55e" : "#ef4444", { padding: "1.25rem", marginBottom: "1.25rem", display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center" }) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Payback period"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.2rem", color: m.payingBack ? "#22c55e" : "#ef4444", lineHeight: 1.1 } }, m.payingBack ? m.paybackMonths != null ? `${m.paybackMonths} mo` : "\u2014" : roi.budget ? "Not paying back" : "\u2014"), m.payingBack && m.paybackYears != null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "\u2248 ", m.paybackYears, " yrs"), !m.payingBack && roi.budget && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "Net profit is negative \u2014 check costs"), !roi.budget && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "Set budget on the project for payback")), /* @__PURE__ */ React.createElement("div", { style: { height: 44, width: 1, background: th.cardBorder } }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Annual net profit"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: m.annualNetProfit >= 0 ? "#22c55e" : "#ef4444" } }, fmtDollars(m.annualNetProfit)))), /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: "1rem", marginBottom: "1rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.6rem" } }, "Unit Economics \u2014 annual (absolute, new location)"), /* @__PURE__ */ React.createElement(WfRow, { label: "Revenue", value: `+${fmtDollars(m.annualRevenue)}`, color: "#22c55e" }), /* @__PURE__ */ React.createElement(WfRow, { label: `\u2212 Food Cost (${cogsPct}%)`, value: `\u2212${fmtDollars(m.cogsCost)}`, color: "#ef4444", indent: 1 }), /* @__PURE__ */ React.createElement(WfRow, { label: `\u2212 Royalties + Ad Fund (${royaltiesPct}%)`, value: `\u2212${fmtDollars(m.royaltyCost)}`, color: "#ef4444", indent: 1 }), m.laborCost != null && /* @__PURE__ */ React.createElement(WfRow, { label: `\u2212 Labor (${m.laborPctAfter != null ? fmtPct(m.laborPctAfter) : "~"})`, value: `\u2212${fmtDollars(m.laborCost)}`, color: "#ef4444", indent: 1 }), sc.rentMonthly > 0 && /* @__PURE__ */ React.createElement(WfRow, { label: "\u2212 Rent", value: `\u2212${fmtDollars((sc.rentMonthly || 0) * 12)}/yr`, color: "#f59e0b", indent: 1 }), sc.utilitiesMonthly > 0 && /* @__PURE__ */ React.createElement(WfRow, { label: "\u2212 Utilities", value: `\u2212${fmtDollars((sc.utilitiesMonthly || 0) * 12)}/yr`, color: "#f59e0b", indent: 1 }), sc.otherMonthly > 0 && /* @__PURE__ */ React.createElement(WfRow, { label: "\u2212 Other", value: `\u2212${fmtDollars((sc.otherMonthly || 0) * 12)}/yr`, color: "#f59e0b", indent: 1 }), m.fixedCostsAnnual === 0 && /* @__PURE__ */ React.createElement(WfRow, { label: "+ Fixed costs (rent, utils, other)", value: "not set", color: th.muted, indent: 1 }), /* @__PURE__ */ React.createElement(
+        WfRow,
+        {
+          label: "Annual Net Profit",
+          value: `${m.annualNetProfit >= 0 ? "+" : ""}${fmtDollars(m.annualNetProfit)}`,
+          color: m.annualNetProfit >= 0 ? "#22c55e" : "#ef4444",
+          divider: true,
+          bold: true
+        }
+      ), m.fixedCostsAnnual === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#f59e0b", marginTop: "0.4rem" } }, "Fixed costs not set \u2014 enter rent + utilities in ", /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            setSelectedId(null);
+            openCostPanel();
+          },
+          style: { background: "none", border: "none", color: O, cursor: "pointer", fontSize: "0.72rem", padding: 0, textDecoration: "underline" }
+        },
+        "Cost Settings"
+      ), " for a complete payback.")), /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: "1rem", marginBottom: "0.5rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem" } }, "Weekly net sales", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: th.muted, fontSize: "0.75rem", marginLeft: "0.5rem" } }, "8 wks after open", roi.weeksAfterUsed > 8 ? " \xB7 current" : "")), /* @__PURE__ */ React.createElement("div", { style: { height: 300 } }, /* @__PURE__ */ React.createElement("canvas", { ref: chartCanvas })))));
     }
     const thS = thCell(th, { borderBottom: `2px solid ${th.cardBorder}`, position: "sticky", top: 0, background: th.card });
     const tdS = tdCell(th, { borderBottom: `1px solid ${th.cardBorder}` });
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(MetricCard, { label: "Capital projects", big: rows.length, sub: `${readyCount} ready to score` })), /* @__PURE__ */ React.createElement("div", { style: { marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { ...microLabel(th) } }, "Flow-through margin"), /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        type: "number",
-        min: "0",
-        max: "100",
-        value: marginPct,
-        onChange: (e) => setMargin(e.target.value),
-        style: { ...inp(th), width: 70, padding: "0.35rem 0.5rem", fontSize: "0.85rem" }
-      }
-    ), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, marginRight: "0.5rem" } }, "%"), /* @__PURE__ */ React.createElement("button", { onClick: exportCsv, style: { ...btn(th, { padding: "0.4rem 0.85rem", fontSize: "0.78rem" }) } }, "\u2193 CSV"))), rows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: "2rem", textAlign: "center", color: th.muted }) }, "No projects linked to a store yet. Add a ", /* @__PURE__ */ React.createElement("strong", null, "PC#"), " to a project to track its ROI.") : /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: 0, overflow: "hidden" }) }, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", maxHeight: 560, overflowY: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: thS }, "Project"), /* @__PURE__ */ React.createElement("th", { style: thS }, "Type"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Budget"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Sales \u0394"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Labor \u0394"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Guests \u0394"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Payback"), /* @__PURE__ */ React.createElement("th", { style: thS }, "Status"))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((r) => {
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, showCostPanel && /* @__PURE__ */ React.createElement(CostPanel, null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(MetricCard, { label: "Capital projects", big: rows.length, sub: `${readyCount} ready to score` }), /* @__PURE__ */ React.createElement("div", { style: { marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: openCostPanel, style: { ...btn(th, { padding: "0.4rem 0.85rem", fontSize: "0.78rem" }) } }, "\u2699 Cost Settings", /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.4rem", fontSize: "0.68rem", color: th.muted } }, "COGS ", cogsPct, "% \xB7 Royalties ", royaltiesPct, "%")), /* @__PURE__ */ React.createElement("button", { onClick: exportCsv, style: { ...btn(th, { padding: "0.4rem 0.85rem", fontSize: "0.78rem" }) } }, "\u2193 CSV"))), rows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: "2rem", textAlign: "center", color: th.muted }) }, "No projects linked to a store yet. Add a ", /* @__PURE__ */ React.createElement("strong", null, "PC#"), " to a project to track its ROI.") : /* @__PURE__ */ React.createElement("div", { style: card(th, { padding: 0, overflow: "hidden" }) }, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", maxHeight: 560, overflowY: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: thS }, "Project"), /* @__PURE__ */ React.createElement("th", { style: thS }, "Type"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Budget"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Sales \u0394"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Labor \u0394"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Guests \u0394"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Annual Net"), /* @__PURE__ */ React.createElement("th", { style: { ...thS, textAlign: "right" } }, "Payback"), /* @__PURE__ */ React.createElement("th", { style: thS }, "Status"))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((r) => {
       const m = r.roi.metrics, st = STATUS_META[r.roi.status] || STATUS_META["no-date"];
+      const isNew = m && m.isNewStore;
+      const annualNet = isNew ? m.annualNetProfit : m ? m.incrementalAnnualProfit : null;
       return /* @__PURE__ */ React.createElement(
         "tr",
         {
@@ -19324,9 +19621,10 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         /* @__PURE__ */ React.createElement("td", { style: tdS }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, pname(r.project)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted } }, r.store ? `${r.store.name} \xB7 D${r.store.district}` : `Store ${r.project.pc}`)),
         /* @__PURE__ */ React.createElement("td", { style: tdS }, r.project.type || "\u2014"),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right" } }, r.roi.budget ? fmtDollars(r.roi.budget) : "\u2014"),
-        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: m ? goodBad(m.adjSalesPct) : th.muted, fontWeight: 700 } }, m ? signPct(m.adjSalesPct) : "\u2014"),
-        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: m ? goodBad(m.adjLaborPoints, false) : th.muted, fontWeight: 700 } }, m ? (m.adjLaborPoints > 0 ? "+" : "") + m.adjLaborPoints + " pts" : "\u2014"),
-        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: m ? goodBad(m.adjGuestsPct) : th.muted } }, m ? signPct(m.adjGuestsPct) : "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: m && !isNew ? goodBad(m.adjSalesPct) : th.muted, fontWeight: 700 } }, m && !isNew ? signPct(m.adjSalesPct) : isNew ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem" } }, "new") : "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: m && !isNew ? goodBad(m.adjLaborPoints, false) : th.muted, fontWeight: 700 } }, m && !isNew ? (m.adjLaborPoints > 0 ? "+" : "") + m.adjLaborPoints + " pts" : isNew && m.laborPctAfter != null ? fmtPct(m.laborPctAfter) : "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: m && !isNew ? goodBad(m.adjGuestsPct) : th.muted } }, m && !isNew ? signPct(m.adjGuestsPct) : isNew && m.guestsAfter ? Math.round(m.guestsAfter) + "/wk" : "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", fontWeight: 700, color: annualNet != null ? goodBad(annualNet) : th.muted } }, annualNet != null ? fmtDollars(annualNet) : "\u2014"),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", fontWeight: 800, color: th.text } }, !m ? "\u2014" : m.paybackMonths != null ? `${m.paybackMonths} mo` : m.payingBack ? /* @__PURE__ */ React.createElement("span", { style: { color: "#f59e0b", fontWeight: 700 } }, "Set budget") : "Not yet"),
         /* @__PURE__ */ React.createElement("td", { style: tdS }, /* @__PURE__ */ React.createElement("span", { style: pill(st.color) }, st.label))
       );
@@ -26615,7 +26913,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v15.12", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v15.20", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
@@ -26911,7 +27209,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" } }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "roi" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminRoiTracker, { th, user, stores, salesWeeks, projects, dark }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: "v15.12", accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
+    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "roi" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminRoiTracker, { th, user, stores, salesWeeks, projects, dark, setTab, deepLinkRef }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: "v15.12", accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
       const ut = user?.userType;
       const pinnedIds = ut === "executive" || ut === "it" ? ["dashboard", "pulse", "labor", "chat"] : ut === "office_staff" ? ["dashboard", "pulse", "labor", "chat"] : ut === "dm" ? ["dashboard", "labor", "chat", "tickets"] : ut === "manager" ? ["dashboard", "labor", "chat", "tickets"] : ["dashboard", "chat", "announcements", "tickets"];
       const pinnedTabs = pinnedIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);

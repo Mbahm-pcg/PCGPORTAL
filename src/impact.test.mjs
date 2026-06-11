@@ -346,7 +346,9 @@ describe('computeProjectROI — budget parsing tolerance', () => {
   test('"$250,000" with currency formatting still computes payback', () => {
     const r = computeProjectROI({ pc: '1', grandOpeningDate: open, totalBudget: '$250,000' }, storeWeekly, controls, {});
     assert.strictEqual(r.budget, 250000);
-    assert.strictEqual(r.metrics.paybackMonths, 109);
+    // default cogsPct=28, royaltiesPct=10.9 → contributionOnLift = 62400*(1-0.28-0.109)=38126
+    // incrementalAnnualProfit = 38126 + 8736 = 46862 → paybackMonths ≈ 64
+    assert.strictEqual(r.metrics.paybackMonths, 64);
   });
   test('paying back but no budget → payback null, payingBack true', () => {
     const r = computeProjectROI({ pc: '1', grandOpeningDate: open }, storeWeekly, controls, {});
