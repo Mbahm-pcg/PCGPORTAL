@@ -113,6 +113,232 @@ export function weeklyFromScorecard(salesWeeks, pc) {
 }
 
 /**
+ * Build a store's MULTI-metric weekly series from the uploaded scorecard.
+ * Pulls sales (lwSale), guests (lwCC = customer count), and labor % (laborDollar
+ * / lwSale × 100) for one store, shaped for beforeAfterMulti().
+ *
+ * @param {{weekEnd:string, stores:object[]}[]} salesWeeks
+ * @param {string} pc  store pulse-cloud number
+ * @returns {{weekOf:string, sales:number, guests:number|null, laborPct:number|null}[]}
+ *          ascending by weekOf, weeks with sales>0 only
+ */
+export function weeklyMetricsFromScorecard(salesWeeks, pc) {
+  return (salesWeeks || [])
+    .map((w) => {
+      const weekOf = isoWeekStartFromEnd(w && w.weekEnd);
+      const row = w && w.stores && w.stores.find((s) => String(s.pc) === String(pc));
+      const sales = row ? Number(row.lwSale) : NaN;
+      if (!weekOf || !Number.isFinite(sales) || sales <= 0) return null;
+      const guests = row && Number.isFinite(Number(row.lwCC)) && Number(row.lwCC) > 0 ? Number(row.lwCC) : null;
+      const laborDollar = row && Number.isFinite(Number(row.laborDollar)) ? Number(row.laborDollar) : null;
+      const laborPct = laborDollar != null && sales > 0 ? round2((laborDollar / sales) * 100) : null;
+      return { weekOf, sales, guests, laborPct };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+}
+
+/**
+ * Generalized before/after for ANY numeric metric key (e.g. 'sales', 'guests',
+ * 'laborPct'). Same windowing convention as beforeAfter(): the event week is the
+ * last "before" week. Rows missing/non-numeric for `key` are ignored for that metric.
+ *
+ * @param {object[]} weekly  records with {weekOf} + numeric [key]
+ * @param {string} eventDate  ISO Monday/Sunday of the event week
+ * @param {number} weeksBefore  max pre-event weeks (most recent N)
+ * @param {number|null} weeksAfter  max post-event weeks; null = through now
+ * @param {string} key  metric field name
+ * @returns {{avgBefore:number, avgAfter:number, deltaPct:number, pointDelta:number,
+ *            weeksBeforeUsed:number, weeksAfterUsed:number}}
+ */
+export function beforeAfterMetric(weekly, eventDate, weeksBefore, weeksAfter, key) {
+  const rows = (weekly || [])
+    .filter((w) => w && w.weekOf && Number.isFinite(Number(w[key])))
+    .map((w) => ({ weekOf: w.weekOf, value: Number(w[key]), side: w.weekOf <= eventDate ? 'before' : 'after' }))
+    .sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+
+  const beforeAll = rows.filter((s) => s.side === 'before');
+  const afterAll = rows.filter((s) => s.side === 'after');
+  const beforeUsed = beforeAll.slice(Math.max(0, beforeAll.length - weeksBefore));
+  const afterUsed = weeksAfter == null ? afterAll : afterAll.slice(0, weeksAfter);
+
+  const mean = (arr) => (arr.length ? arr.reduce((s, x) => s + x.value, 0) / arr.length : 0);
+  const avgBefore = mean(beforeUsed);
+  const avgAfter = mean(afterUsed);
+  const has = beforeUsed.length && afterUsed.length;
+  const deltaPct = has && avgBefore ? ((avgAfter - avgBefore) / avgBefore) * 100 : 0;
+  const pointDelta = has ? avgAfter - avgBefore : 0;
+
+  return {
+    avgBefore: round2(avgBefore),
+    avgAfter: round2(avgAfter),
+    deltaPct: round2(deltaPct),
+    pointDelta: round2(pointDelta),
+    weeksBeforeUsed: beforeUsed.length,
+    weeksAfterUsed: afterUsed.length,
+  };
+}
+
+/**
+ * Run beforeAfterMetric for several keys at once.
+ * @returns {Object<string, ReturnType<typeof beforeAfterMetric>>} keyed by metric
+ */
+export function beforeAfterMulti(weekly, eventDate, weeksBefore, weeksAfter, keys) {
+  const out = {};
+  (keys || []).forEach((k) => { out[k] = beforeAfterMetric(weekly, eventDate, weeksBefore, weeksAfter, k); });
+  return out;
+}
+
+/**
+ * Capital-project ROI: control-adjusted sales lift, labor savings, guest lift,
+ * incremental annual profit, and payback period — anchored to grand opening.
+ *
+ * Control adjustment nets out peer movement over the same window so a remodel
+ * isn't credited (or blamed) for a market-wide trend. Sales/guests adjust by
+ * % change; labor adjusts by percentage-POINT change (labor% is already a ratio).
+ *
+ * @param {{pc:string, grandOpeningDate:string, totalBudget:number, type?:string}} project
+ * @param {object[]} storeWeekly  the project store's multi-metric weekly[]
+ * @param {object[][]} controlsWeekly  peer stores' multi-metric weekly[]
+ * @param {{weeksBefore?:number, weeksAfter?:number|null, minWeeksAfter?:number, marginPct?:number}} [opts]
+ * @returns {object} { status, ...inputs, metrics? }  status ∈ no-date|maturing|ready
+ */
+// Resolve a project's before/after window. END (reopen/done) walks a fallback
+// chain so remodels — which carry completionDate, not grandOpeningDate — work.
+// START (construction kickoff) becomes the "before" boundary so the disruption
+// period between start and reopen is excluded from both averages.
+const END_CHAIN = [
+  ['grandOpeningDate', 'Grand opening'],
+  ['dunkinCompletionDate', "Dunkin' completion"],
+  ['constructionCompleteBy', 'Construction complete'],
+  ['completionDate', 'Completion'],
+  ['completedAt', 'Marked complete'],
+];
+export function resolveProjectWindow(project) {
+  if (!project) return { beforeEnd: null, afterStart: null, endDate: null, startDate: null, endSource: null, hasStart: false };
+  let endDate = null, endSource = null;
+  for (const [k, label] of END_CHAIN) {
+    if (project[k]) { endDate = String(project[k]).slice(0, 10); endSource = label; break; }
+  }
+  const startDate = project.startDate ? String(project.startDate).slice(0, 10) : null;
+  const hasStart = !!(startDate && endDate && startDate < endDate);
+  return {
+    beforeEnd: hasStart ? startDate : endDate, // "before" weeks are those on/before this
+    afterStart: endDate,                       // "after" weeks are those strictly after this
+    endDate, startDate, endSource, hasStart,
+  };
+}
+
+/**
+ * Two-boundary before/after for one metric. "Before" = weeks ≤ beforeEnd (most
+ * recent N). "After" = weeks > afterStart (earliest N, or all). Weeks in the gap
+ * (beforeEnd, afterStart] are excluded — the construction/closure period.
+ * When beforeEnd === afterStart this is identical to a single-anchor split.
+ */
+export function beforeAfterMetricWindow(weekly, beforeEnd, afterStart, weeksBefore, weeksAfter, key) {
+  const rows = (weekly || [])
+    .filter((w) => w && w.weekOf && Number.isFinite(Number(w[key])))
+    .map((w) => ({ weekOf: w.weekOf, value: Number(w[key]) }))
+    .sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+
+  const beforeAll = rows.filter((r) => r.weekOf <= beforeEnd);
+  const afterAll = rows.filter((r) => r.weekOf > afterStart);
+  const beforeUsed = beforeAll.slice(Math.max(0, beforeAll.length - weeksBefore));
+  const afterUsed = weeksAfter == null ? afterAll : afterAll.slice(0, weeksAfter);
+
+  const mean = (arr) => (arr.length ? arr.reduce((s, x) => s + x.value, 0) / arr.length : 0);
+  const avgBefore = mean(beforeUsed);
+  const avgAfter = mean(afterUsed);
+  const has = beforeUsed.length && afterUsed.length;
+  return {
+    avgBefore: round2(avgBefore),
+    avgAfter: round2(avgAfter),
+    deltaPct: round2(has && avgBefore ? ((avgAfter - avgBefore) / avgBefore) * 100 : 0),
+    pointDelta: round2(has ? avgAfter - avgBefore : 0),
+    weeksBeforeUsed: beforeUsed.length,
+    weeksAfterUsed: afterUsed.length,
+  };
+}
+
+export function beforeAfterMultiWindow(weekly, beforeEnd, afterStart, weeksBefore, weeksAfter, keys) {
+  const out = {};
+  (keys || []).forEach((k) => { out[k] = beforeAfterMetricWindow(weekly, beforeEnd, afterStart, weeksBefore, weeksAfter, k); });
+  return out;
+}
+
+export function computeProjectROI(project, storeWeekly, controlsWeekly, opts = {}) {
+  const { weeksBefore = 13, weeksAfter = null, minWeeksAfter = 6, marginPct = 30 } = opts;
+  const win = resolveProjectWindow(project);
+  // totalBudget is free-text in the form — tolerate "$250,000", "250000", etc.
+  const budgetNum = project && project.totalBudget != null ? Number(String(project.totalBudget).replace(/[^0-9.]/g, '')) : NaN;
+  const budget = Number.isFinite(budgetNum) && budgetNum > 0 ? budgetNum : null;
+  const base = {
+    pc: project ? project.pc || null : null, type: project ? project.type || null : null,
+    openDate: win.endDate, openSource: win.endSource, startDate: win.hasStart ? win.startDate : null,
+    hasStart: win.hasStart, budget, marginPct,
+  };
+
+  if (!win.endDate) return { ...base, status: 'no-date', metrics: null };
+
+  const KEYS = ['sales', 'guests', 'laborPct'];
+  const store = beforeAfterMultiWindow(storeWeekly, win.beforeEnd, win.afterStart, weeksBefore, weeksAfter, KEYS);
+  const controls = (controlsWeekly || []).map((w) => beforeAfterMultiWindow(w, win.beforeEnd, win.afterStart, weeksBefore, weeksAfter, KEYS));
+
+  // No pre-remodel weeks in our data → can't compare. This is the Pulse-backfill case.
+  if (store.sales.weeksBeforeUsed === 0) {
+    return { ...base, status: 'no-baseline', weeksAfterUsed: store.sales.weeksAfterUsed, store, metrics: null };
+  }
+
+  // Average control change per metric — % for sales/guests, points for laborPct.
+  const ctrlAvg = (key, field) => {
+    const vals = controls.map((c) => c[key]).filter((m) => m && m.weeksAfterUsed > 0).map((m) => m[field]);
+    return vals.length ? vals.reduce((s, x) => s + x, 0) / vals.length : 0;
+  };
+
+  const weeksAfterUsed = store.sales.weeksAfterUsed;
+  if (weeksAfterUsed < minWeeksAfter) {
+    return { ...base, status: 'maturing', weeksAfterUsed, minWeeksAfter, store, metrics: null };
+  }
+
+  // Sales — control-adjusted % lift applied to the pre-opening weekly average
+  const adjSalesPct = round2(store.sales.deltaPct - ctrlAvg('sales', 'deltaPct'));
+  const weeklySalesLift = store.sales.avgBefore * (adjSalesPct / 100);
+  const annualSalesLift = Math.round(weeklySalesLift * 52);
+
+  // Guests — context metric, control-adjusted %
+  const adjGuestsPct = round2(store.guests.deltaPct - ctrlAvg('guests', 'deltaPct'));
+
+  // Labor — control-adjusted percentage-POINT change; negative = improved vs peers
+  const adjLaborPoints = round2(store.laborPct.pointDelta - ctrlAvg('laborPct', 'pointDelta'));
+  // $ saved/week = -(points/100) × post-opening weekly sales (drop in labor% saves money)
+  const weeklyLaborSaved = -(adjLaborPoints / 100) * store.sales.avgAfter;
+  const annualLaborSaved = Math.round(weeklyLaborSaved * 52);
+
+  const incrementalAnnualProfit = Math.round(annualSalesLift * (marginPct / 100) + annualLaborSaved);
+
+  let paybackYears = null, paybackMonths = null;
+  if (budget != null && incrementalAnnualProfit > 0) {
+    paybackYears = round2(budget / incrementalAnnualProfit);
+    paybackMonths = Math.round((budget / incrementalAnnualProfit) * 12);
+  }
+
+  return {
+    ...base,
+    status: 'ready',
+    weeksAfterUsed,
+    weeksBeforeUsed: store.sales.weeksBeforeUsed,
+    store,
+    metrics: {
+      adjSalesPct, annualSalesLift,
+      adjGuestsPct, guestsBefore: store.guests.avgBefore, guestsAfter: store.guests.avgAfter,
+      adjLaborPoints, laborPctBefore: store.laborPct.avgBefore, laborPctAfter: store.laborPct.avgAfter, annualLaborSaved,
+      incrementalAnnualProfit, paybackYears, paybackMonths,
+      payingBack: incrementalAnnualProfit > 0,
+    },
+  };
+}
+
+/**
  * Choose representative near/mid/far control stores from a distance-ranked list,
  * excluding the impacted store. Picks an even spread across the available range:
  * always the nearest and farthest, then evenly-indexed picks in between.

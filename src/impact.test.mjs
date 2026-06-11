@@ -1,6 +1,18 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { haversineMiles } from './impact.mjs';
+import { weeklyMetricsFromScorecard, beforeAfterMetric, beforeAfterMulti, computeProjectROI } from './impact.mjs';
+
+// Helper: generate N consecutive weekly records ending at (or starting from) a Monday.
+function mkWeeks(startISO, n, step, fields) {
+  const out = [];
+  let t = Date.parse(startISO + 'T00:00:00Z');
+  for (let i = 0; i < n; i++) {
+    out.push({ weekOf: new Date(t).toISOString().slice(0, 10), ...fields(i) });
+    t += step * 7 * 86400000;
+  }
+  return out;
+}
 
 describe('haversineMiles', () => {
   test('identical points → 0', () => {
@@ -194,5 +206,152 @@ describe('weeklyFromScorecard', () => {
   test('empty / missing input → []', () => {
     assert.deepStrictEqual(weeklyFromScorecard(null, '304863'), []);
     assert.deepStrictEqual(weeklyFromScorecard([], '304863'), []);
+  });
+});
+
+describe('weeklyMetricsFromScorecard', () => {
+  const salesWeeks = [
+    { weekEnd: '01/03/2026', stores: [{ pc: '304863', lwSale: 10000, lwCC: 1000, laborDollar: 2500 }] },
+    { weekEnd: '01/10/2026', stores: [{ pc: '304863', lwSale: 11200, lwCC: 1080, laborDollar: 2632 }] },
+    { weekEnd: '01/17/2026', stores: [{ pc: '304863', lwSale: 0,     lwCC: 0,    laborDollar: 0 }] }, // dropped
+  ];
+  test('extracts sales, guests, and computed laborPct', () => {
+    const s = weeklyMetricsFromScorecard(salesWeeks, '304863');
+    assert.strictEqual(s.length, 2);
+    assert.deepStrictEqual(s[0], { weekOf: '2025-12-28', sales: 10000, guests: 1000, laborPct: 25 });
+    assert.strictEqual(s[1].laborPct, 23.5); // 2632/11200*100
+  });
+  test('null guests/labor when columns absent', () => {
+    const s = weeklyMetricsFromScorecard([{ weekEnd: '01/03/2026', stores: [{ pc: '1', lwSale: 5000 }] }], '1');
+    assert.strictEqual(s[0].guests, null);
+    assert.strictEqual(s[0].laborPct, null);
+  });
+});
+
+describe('beforeAfterMetric / beforeAfterMulti', () => {
+  const weekly = [
+    { weekOf: '2025-12-29', sales: 100, guests: 10 },
+    { weekOf: '2026-01-05', sales: 100, guests: 10 }, // event week = last before
+    { weekOf: '2026-01-12', sales: 120, guests: 11 },
+    { weekOf: '2026-01-19', sales: 120, guests: 11 },
+  ];
+  test('event week counts as before; deltaPct + pointDelta correct', () => {
+    const r = beforeAfterMetric(weekly, '2026-01-05', 13, null, 'sales');
+    assert.strictEqual(r.weeksBeforeUsed, 2);
+    assert.strictEqual(r.weeksAfterUsed, 2);
+    assert.strictEqual(r.avgBefore, 100);
+    assert.strictEqual(r.avgAfter, 120);
+    assert.strictEqual(r.deltaPct, 20);
+    assert.strictEqual(r.pointDelta, 20);
+  });
+  test('multi returns one result per key', () => {
+    const m = beforeAfterMulti(weekly, '2026-01-05', 13, null, ['sales', 'guests']);
+    assert.strictEqual(m.sales.deltaPct, 20);
+    assert.strictEqual(m.guests.deltaPct, 10);
+  });
+});
+
+describe('computeProjectROI', () => {
+  const open = '2026-01-05';
+  // store: +12% sales, +8% guests, labor 25% → 23.5% (−1.5 pts)
+  const before = (i) => ({ sales: 10000, guests: 1000, laborPct: 25 });
+  const after  = (i) => ({ sales: 11200, guests: 1080, laborPct: 23.5 });
+  const storeWeekly = [
+    ...mkWeeks('2025-10-06', 13, 1, before).map((w, i, a) => ({ ...w })), // 13 before, last is event week-ish
+    ...mkWeeks('2026-01-12', 8, 1, after),
+  ];
+  // ensure the event week (<= open) boundary: rebuild before to end on/before open
+  const storeWeekly2 = [
+    ...mkWeeks('2025-10-13', 13, 1, before), // 13 Mondays; some <= open
+    ...mkWeeks('2026-01-12', 8, 1, after),
+  ];
+  // flat controls → no peer movement
+  const flat = (i) => ({ sales: 8000, guests: 800, laborPct: 26 });
+  const controls = [
+    [...mkWeeks('2025-10-13', 13, 1, flat), ...mkWeeks('2026-01-12', 8, 1, flat)],
+    [...mkWeeks('2025-10-13', 13, 1, flat), ...mkWeeks('2026-01-12', 8, 1, flat)],
+  ];
+
+  test('no grand-opening date → status no-date', () => {
+    const r = computeProjectROI({ pc: '1', totalBudget: 250000 }, storeWeekly2, controls, {});
+    assert.strictEqual(r.status, 'no-date');
+  });
+
+  test('too few post weeks → maturing', () => {
+    const short = [...mkWeeks('2025-10-13', 13, 1, before), ...mkWeeks('2026-01-12', 3, 1, after)];
+    const r = computeProjectROI({ pc: '1', grandOpeningDate: open, totalBudget: 250000 }, short, controls, { minWeeksAfter: 6 });
+    assert.strictEqual(r.status, 'maturing');
+    assert.strictEqual(r.weeksAfterUsed, 3);
+  });
+
+  test('ready: control-adjusted lift + payback math', () => {
+    const r = computeProjectROI({ pc: '1', grandOpeningDate: open, totalBudget: 250000 }, storeWeekly2, controls, { marginPct: 30 });
+    assert.strictEqual(r.status, 'ready');
+    assert.strictEqual(r.metrics.adjSalesPct, 12);
+    assert.strictEqual(r.metrics.annualSalesLift, 62400);   // 10000*0.12*52
+    assert.strictEqual(r.metrics.adjGuestsPct, 8);
+    assert.strictEqual(r.metrics.adjLaborPoints, -1.5);
+    assert.strictEqual(r.metrics.annualLaborSaved, 8736);   // 0.015*11200*52
+    assert.strictEqual(r.metrics.incrementalAnnualProfit, 27456); // 62400*0.3 + 8736
+    assert.strictEqual(r.metrics.paybackMonths, 109);       // 250000/27456*12
+    assert.strictEqual(r.metrics.payingBack, true);
+  });
+});
+
+describe('computeProjectROI — remodel two-window (start vs completion)', () => {
+  // Remodel: construction 2026-01-05 → reopen 2026-03-30. Compare pre-start vs post-reopen.
+  const project = { pc: '330338', startDate: '2026-01-05', completionDate: '2026-03-30', totalBudget: 250000, type: 'Remodel' };
+  const before = () => ({ sales: 10000, guests: 1000, laborPct: 25 });
+  const after  = () => ({ sales: 11200, guests: 1080, laborPct: 23.5 });
+  const junk   = () => ({ sales: 1, guests: 1, laborPct: 99 }); // construction-period weeks (must be excluded)
+  const storeWeekly = [
+    ...mkWeeks('2025-10-06', 13, 1, before),  // all ≤ start (2026-01-05)
+    ...mkWeeks('2026-01-12', 6, 1, junk),      // in the gap → excluded
+    ...mkWeeks('2026-04-06', 8, 1, after),     // > completion
+  ];
+  const flat = () => ({ sales: 8000, guests: 800, laborPct: 26 });
+  const controls = [
+    [...mkWeeks('2025-10-06', 13, 1, flat), ...mkWeeks('2026-04-06', 8, 1, flat)],
+  ];
+
+  test('excludes the construction gap; resolves start+completion window', () => {
+    const r = computeProjectROI(project, storeWeekly, controls, { marginPct: 30 });
+    assert.strictEqual(r.status, 'ready');
+    assert.strictEqual(r.hasStart, true);
+    assert.strictEqual(r.startDate, '2026-01-05');
+    assert.strictEqual(r.openDate, '2026-03-30');
+    assert.strictEqual(r.openSource, 'Completion');
+    assert.strictEqual(r.weeksBeforeUsed, 13);       // gap weeks NOT counted
+    assert.strictEqual(r.weeksAfterUsed, 8);
+    assert.strictEqual(r.store.sales.avgBefore, 10000); // junk weeks didn't drag it
+    assert.strictEqual(r.metrics.adjSalesPct, 12);
+  });
+
+  test('no pre-remodel weeks in data → no-baseline (the Pulse-backfill case)', () => {
+    const onlyAfter = [...mkWeeks('2026-04-06', 8, 1, after)];
+    const r = computeProjectROI(project, onlyAfter, controls, {});
+    assert.strictEqual(r.status, 'no-baseline');
+    assert.strictEqual(r.weeksAfterUsed, 8);
+  });
+});
+
+describe('computeProjectROI — budget parsing tolerance', () => {
+  const open = '2026-01-05';
+  const before = () => ({ sales: 10000, guests: 1000, laborPct: 25 });
+  const after  = () => ({ sales: 11200, guests: 1080, laborPct: 23.5 });
+  const storeWeekly = [...mkWeeks('2025-10-13', 13, 1, before), ...mkWeeks('2026-01-12', 8, 1, after)];
+  const flat = () => ({ sales: 8000, guests: 800, laborPct: 26 });
+  const controls = [[...mkWeeks('2025-10-13', 13, 1, flat), ...mkWeeks('2026-01-12', 8, 1, flat)]];
+
+  test('"$250,000" with currency formatting still computes payback', () => {
+    const r = computeProjectROI({ pc: '1', grandOpeningDate: open, totalBudget: '$250,000' }, storeWeekly, controls, {});
+    assert.strictEqual(r.budget, 250000);
+    assert.strictEqual(r.metrics.paybackMonths, 109);
+  });
+  test('paying back but no budget → payback null, payingBack true', () => {
+    const r = computeProjectROI({ pc: '1', grandOpeningDate: open }, storeWeekly, controls, {});
+    assert.strictEqual(r.budget, null);
+    assert.strictEqual(r.metrics.paybackMonths, null);
+    assert.strictEqual(r.metrics.payingBack, true);
   });
 });

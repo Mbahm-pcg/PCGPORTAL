@@ -5,7 +5,7 @@ import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, authHeader, clearSessionToken } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
-import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard } from './src/impact.mjs';
+import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, weeklyMetricsFromScorecard, computeProjectROI } from './src/impact.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -17251,6 +17251,7 @@ const getTabs = (user) => {
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
     { id: "expenses",  label: "Expense Log",    icon: (c) => ICONS.dollar(c) },
+    { id: "roi",       label: "ROI Tracker",    icon: (c) => ICONS.analytics(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
@@ -25003,6 +25004,253 @@ function PnLStoreDetail({ store, th, onClose }) {
 // latest version of each order with a revision badge + dollar delta; click through
 // for the full version history and line items. Read-only (data from ndcp.js).
 const COORDS_BLOB = 'pcg_store_coords_v1';
+
+// ── New Store / Remodel ROI Tracker (roadmap 10.4) ─────────────────────────
+// Control-adjusted pre/post performance + payback for capital projects.
+// All math from src/impact.mjs (computeProjectROI). Data: weekly scorecard
+// (sales=lwSale, guests=lwCC, labor%=laborDollar/lwSale) — fully synchronous.
+function AdminRoiTracker({ th, user, stores, salesWeeks, projects, dark }) {
+  const [marginPct, setMarginPct] = useState(() => {
+    const v = parseFloat(localStorage.getItem('pcg_roi_margin')); return Number.isFinite(v) ? v : 30;
+  });
+  const [selectedId, setSelectedId] = useState(null);
+  const chartCanvas = useRef(null);
+  const chartRef = useRef(null);
+
+  const setMargin = (v) => {
+    const n = Math.max(0, Math.min(100, parseFloat(v) || 0));
+    setMarginPct(n); try { localStorage.setItem('pcg_roi_margin', String(n)); } catch {}
+  };
+
+  // Compute ROI for every project that maps to a store. Controls = same-district peers.
+  const rows = React.useMemo(() => {
+    const out = (projects || []).filter(p => p && p.pc).map(p => {
+      const store = (stores || []).find(s => String(s.pc) === String(p.pc));
+      const district = store ? store.district : null;
+      const peerPcs = (stores || [])
+        .filter(s => district != null && String(s.district) === String(district) && String(s.pc) !== String(p.pc))
+        .map(s => s.pc);
+      const storeWeekly = weeklyMetricsFromScorecard(salesWeeks, p.pc);
+      const controlsWeekly = peerPcs.map(pc => weeklyMetricsFromScorecard(salesWeeks, pc)).filter(w => w.length >= 4);
+      const roi = computeProjectROI(p, storeWeekly, controlsWeekly, { marginPct });
+      return { project: p, store, roi, storeWeekly, controlCount: controlsWeekly.length };
+    });
+    // Rank: ready (fastest payback first, non-paying-back last) → maturing → no-date
+    const rank = (r) => r.roi.status === 'ready' ? 0 : r.roi.status === 'maturing' ? 1 : 2;
+    return out.sort((a, b) => {
+      if (rank(a) !== rank(b)) return rank(a) - rank(b);
+      const pa = a.roi.metrics && a.roi.metrics.paybackMonths, pb = b.roi.metrics && b.roi.metrics.paybackMonths;
+      if (pa != null && pb != null) return pa - pb;
+      if (pa != null) return -1; if (pb != null) return 1;
+      return 0;
+    });
+  }, [projects, stores, salesWeeks, marginPct]);
+
+  const selected = rows.find(r => r.project.id === selectedId) || null;
+  const pname = (p) => p.nickname || (p.pc ? `Store ${p.pc}` : 'Project');
+
+  const STATUS_META = {
+    ready:        { color: '#22c55e', label: 'Ready' },
+    maturing:     { color: '#f59e0b', label: 'Maturing' },
+    'no-baseline':{ color: '#ef4444', label: 'No pre-remodel data' },
+    'no-date':    { color: '#94a3b8', label: 'No completion date' },
+  };
+
+  // Drill chart — weekly net sales: before (≤ start) · construction gap · after (> completion)
+  useEffect(() => {
+    if (!selected || !chartCanvas.current || !window.Chart) return;
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+    const w = selected.storeWeekly;
+    const roi = selected.roi;
+    const end = roi.openDate;                              // completion / reopen
+    const startB = roi.hasStart ? roi.startDate : end;     // "before" boundary
+    const labels = w.map(x => x.weekOf);
+    const beforeData = w.map(x => (end && x.weekOf <= startB ? x.sales : null));
+    const gapData = w.map(x => (end && roi.hasStart && x.weekOf > startB && x.weekOf <= end ? x.sales : null));
+    const afterData = w.map(x => (end && x.weekOf > end ? x.sales : null));
+    const ds = [
+      { label: 'Before remodel', data: beforeData, borderColor: '#94a3b8', backgroundColor: '#94a3b822', borderWidth: 2, tension: 0.25, pointRadius: 2, spanGaps: false },
+      { label: 'After remodel', data: afterData, borderColor: '#22c55e', backgroundColor: '#22c55e22', borderWidth: 2.5, tension: 0.25, pointRadius: 2, spanGaps: false },
+    ];
+    if (roi.hasStart) ds.splice(1, 0, { label: 'Construction (excluded)', data: gapData, borderColor: '#f59e0b', borderDash: [4, 3], borderWidth: 1.5, tension: 0.25, pointRadius: 1, spanGaps: false });
+    chartRef.current = new window.Chart(chartCanvas.current.getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets: ds },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: th.text } },
+          tooltip: { callbacks: { label: (c) => c.parsed.y == null ? '' : `${c.dataset.label}: ${fmtDollars(c.parsed.y)}` } },
+        },
+        scales: {
+          x: { ticks: { color: th.muted, maxRotation: 60, minRotation: 60 }, grid: { color: th.sidebarBorder } },
+          y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) }, grid: { color: th.sidebarBorder } },
+        },
+      },
+    });
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [selectedId, dark, marginPct]);
+
+  const exportCsv = () => {
+    const head = ['Project', 'Type', 'Store', 'Opening', 'Budget', 'Status', 'Sales Δ%', 'Labor Δpts', 'Guests Δ%', 'Annual profit', 'Payback (mo)'];
+    const lines = rows.map(r => {
+      const m = r.roi.metrics || {};
+      return [pname(r.project), r.project.type || '', r.store ? r.store.name : r.project.pc, r.roi.openDate || '',
+        r.roi.budget || '', STATUS_META[r.roi.status]?.label || r.roi.status,
+        m.adjSalesPct ?? '', m.adjLaborPoints ?? '', m.adjGuestsPct ?? '', m.incrementalAnnualProfit ?? '', m.paybackMonths ?? '']
+        .map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+    });
+    const blob = new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'roi_tracker.csv'; a.click(); URL.revokeObjectURL(a.href);
+  };
+
+  const readyCount = rows.filter(r => r.roi.status === 'ready').length;
+
+  // ── Metric card ──
+  const MetricCard = ({ label, big, sub, color }) => (
+    <div style={card(th, { padding: '1rem', flex: 1, minWidth: 150 })}>
+      <div style={{ ...microLabel(th), marginBottom: '0.35rem' }}>{label}</div>
+      <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.5rem', color: color || th.text, lineHeight: 1 }}>{big}</div>
+      {sub && <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.3rem' }}>{sub}</div>}
+    </div>
+  );
+
+  const signPct = (n) => (n > 0 ? '+' : '') + fmtPct(n);
+  const goodBad = (n, goodPositive = true) => n === 0 ? th.muted : (n > 0) === goodPositive ? '#22c55e' : '#ef4444';
+
+  // ── DRILL VIEW ──
+  if (selected) {
+    const p = selected.project, roi = selected.roi, m = roi.metrics;
+    const st = STATUS_META[roi.status] || STATUS_META['no-date'];
+    return (
+      <div className="fade-in">
+        <button onClick={() => setSelectedId(null)} style={{ ...btn(th, { padding: '0.4rem 0.85rem', fontSize: '0.78rem' }), marginBottom: '1rem' }}>← All projects</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
+          <h2 style={{ ...pageTitle(th), margin: 0 }}>{pname(p)}</h2>
+          <span style={pill(st.color)}>{st.label}</span>
+          {p.type && <span style={pill('#6366f1')}>{p.type}</span>}
+        </div>
+        <div style={{ color: th.muted, fontSize: '0.8rem', marginBottom: '1.25rem' }}>
+          {selected.store ? `${selected.store.name} · D${selected.store.district}` : `Store ${p.pc}`}
+          {roi.hasStart && roi.startDate
+            ? ` · Before ≤ ${new Date(roi.startDate).toLocaleDateString()} vs After > ${roi.openDate ? new Date(roi.openDate).toLocaleDateString() : '—'} (${roi.openSource})`
+            : roi.openDate ? ` · Reopen ${new Date(roi.openDate).toLocaleDateString()} (${roi.openSource})` : ' · No completion/opening date set'}
+          {roi.budget ? ` · Budget ${fmtDollars(roi.budget)}` : ' · No budget set'}
+          {` · ${selected.controlCount} control store${selected.controlCount !== 1 ? 's' : ''}`}
+        </div>
+
+        {roi.status === 'no-date' && <div style={accentCard(th, '#94a3b8', { padding: '1rem' })}>Set a <strong>completion / grand-opening date</strong> on this project to compute ROI.</div>}
+        {roi.status === 'no-baseline' && <div style={accentCard(th, '#ef4444', { padding: '1rem' })}>We have <strong>no pre-remodel sales weeks</strong> for this store in the scorecard{roi.hasStart && roi.startDate ? ` before ${new Date(roi.startDate).toLocaleDateString()}` : ''}. The uploaded history doesn't reach back far enough — a <strong>Pulse backfill</strong> of the pre-remodel period is needed to compare before vs after.</div>}
+        {roi.status === 'maturing' && <div style={accentCard(th, '#f59e0b', { padding: '1rem' })}>Only <strong>{roi.weeksAfterUsed} week{roi.weeksAfterUsed !== 1 ? 's' : ''}</strong> of post-reopen data so far — needs {roi.minWeeksAfter}+ to judge ROI. Check back as more weeks land.</div>}
+
+        {roi.status === 'ready' && m && <>
+          {/* Metric cards */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            <MetricCard label="Sales lift (vs peers)" big={signPct(m.adjSalesPct)} sub={`${fmtDollars(m.annualSalesLift)}/yr incremental`} color={goodBad(m.adjSalesPct)} />
+            <MetricCard label="Labor change (vs peers)" big={(m.adjLaborPoints > 0 ? '+' : '') + m.adjLaborPoints + ' pts'} sub={`${fmtDollars(m.annualLaborSaved)}/yr ${m.annualLaborSaved >= 0 ? 'saved' : 'added'}`} color={goodBad(m.adjLaborPoints, false)} />
+            <MetricCard label="Guest count (vs peers)" big={signPct(m.adjGuestsPct)} sub={`${Math.round(m.guestsBefore)} → ${Math.round(m.guestsAfter)}/wk`} color={goodBad(m.adjGuestsPct)} />
+          </div>
+
+          {/* Payback hero */}
+          <div style={accentCard(th, m.payingBack ? '#22c55e' : '#ef4444', { padding: '1.25rem', marginBottom: '1.25rem', display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'center' })}>
+            <div>
+              <div style={{ ...microLabel(th) }}>Payback period</div>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2.2rem', color: m.payingBack ? '#22c55e' : '#ef4444', lineHeight: 1.1 }}>
+                {m.payingBack ? (m.paybackMonths != null ? `${m.paybackMonths} mo` : '—') : 'Not yet'}
+              </div>
+              {m.payingBack && m.paybackYears != null && <div style={{ fontSize: '0.72rem', color: th.muted }}>≈ {m.paybackYears} years{roi.budget ? '' : ' · set budget for $ payback'}</div>}
+              {!m.payingBack && <div style={{ fontSize: '0.72rem', color: th.muted }}>Incremental profit isn't positive vs peers yet</div>}
+            </div>
+            <div style={{ height: 44, width: 1, background: th.cardBorder }} />
+            <div>
+              <div style={{ ...microLabel(th) }}>Incremental annual profit</div>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.5rem', color: th.text }}>{fmtDollars(m.incrementalAnnualProfit)}</div>
+              <div style={{ fontSize: '0.72rem', color: th.muted }}>{fmtDollars(m.annualSalesLift)} sales × {marginPct}% margin + {fmtDollars(m.annualLaborSaved)} labor</div>
+            </div>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ ...microLabel(th) }}>Flow-through margin</span>
+              <input type="number" min="0" max="100" value={marginPct} onChange={e => setMargin(e.target.value)}
+                style={{ ...inp(th), width: 70, padding: '0.35rem 0.5rem', fontSize: '0.85rem' }} />
+              <span style={{ color: th.muted }}>%</span>
+            </div>
+          </div>
+
+          {/* Sales chart */}
+          <div style={card(th, { padding: '1rem', marginBottom: '0.5rem' })}>
+            <div style={{ ...sectionTitle(th), marginBottom: '0.5rem' }}>Weekly net sales — {roi.weeksBeforeUsed} wk before vs {roi.weeksAfterUsed} wk after</div>
+            <div style={{ height: 300 }}><canvas ref={chartCanvas} /></div>
+          </div>
+        </>}
+      </div>
+    );
+  }
+
+  // ── PORTFOLIO VIEW ──
+  const thS = thCell(th, { borderBottom: `2px solid ${th.cardBorder}`, position: 'sticky', top: 0, background: th.card });
+  const tdS = tdCell(th, { borderBottom: `1px solid ${th.cardBorder}` });
+  return (
+    <div className="fade-in">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <MetricCard label="Capital projects" big={rows.length} sub={`${readyCount} ready to score`} />
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ ...microLabel(th) }}>Flow-through margin</span>
+          <input type="number" min="0" max="100" value={marginPct} onChange={e => setMargin(e.target.value)}
+            style={{ ...inp(th), width: 70, padding: '0.35rem 0.5rem', fontSize: '0.85rem' }} />
+          <span style={{ color: th.muted, marginRight: '0.5rem' }}>%</span>
+          <button onClick={exportCsv} style={{ ...btn(th, { padding: '0.4rem 0.85rem', fontSize: '0.78rem' }) }}>↓ CSV</button>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div style={card(th, { padding: '2rem', textAlign: 'center', color: th.muted })}>
+          No projects linked to a store yet. Add a <strong>PC#</strong> to a project to track its ROI.
+        </div>
+      ) : (
+        <div style={card(th, { padding: 0, overflow: 'hidden' })}>
+          <div style={{ overflowX: 'auto', maxHeight: 560, overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+              <thead><tr>
+                <th style={thS}>Project</th><th style={thS}>Type</th><th style={{ ...thS, textAlign: 'right' }}>Budget</th>
+                <th style={{ ...thS, textAlign: 'right' }}>Sales Δ</th><th style={{ ...thS, textAlign: 'right' }}>Labor Δ</th>
+                <th style={{ ...thS, textAlign: 'right' }}>Guests Δ</th><th style={{ ...thS, textAlign: 'right' }}>Payback</th><th style={thS}>Status</th>
+              </tr></thead>
+              <tbody>
+                {rows.map(r => {
+                  const m = r.roi.metrics, st = STATUS_META[r.roi.status] || STATUS_META['no-date'];
+                  return (
+                    <tr key={r.project.id} onClick={() => setSelectedId(r.project.id)}
+                      style={{ cursor: 'pointer', transition: 'background .12s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = th.card2 || 'transparent'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <td style={tdS}>
+                        <div style={{ fontWeight: 700, color: th.text }}>{pname(r.project)}</div>
+                        <div style={{ fontSize: '0.68rem', color: th.muted }}>{r.store ? `${r.store.name} · D${r.store.district}` : `Store ${r.project.pc}`}</div>
+                      </td>
+                      <td style={tdS}>{r.project.type || '—'}</td>
+                      <td style={{ ...tdS, textAlign: 'right' }}>{r.roi.budget ? fmtDollars(r.roi.budget) : '—'}</td>
+                      <td style={{ ...tdS, textAlign: 'right', color: m ? goodBad(m.adjSalesPct) : th.muted, fontWeight: 700 }}>{m ? signPct(m.adjSalesPct) : '—'}</td>
+                      <td style={{ ...tdS, textAlign: 'right', color: m ? goodBad(m.adjLaborPoints, false) : th.muted, fontWeight: 700 }}>{m ? (m.adjLaborPoints > 0 ? '+' : '') + m.adjLaborPoints + ' pts' : '—'}</td>
+                      <td style={{ ...tdS, textAlign: 'right', color: m ? goodBad(m.adjGuestsPct) : th.muted }}>{m ? signPct(m.adjGuestsPct) : '—'}</td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 800, color: th.text }}>{
+                        !m ? '—'
+                          : m.paybackMonths != null ? `${m.paybackMonths} mo`
+                          : m.payingBack ? <span style={{ color: '#f59e0b', fontWeight: 700 }}>Set budget</span>
+                          : 'Not yet'
+                      }</td>
+                      <td style={tdS}><span style={pill(st.color)}>{st.label}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ImpactRadar({ th, user, dark, salesWeeks }) {
   const [eventAddr, setEventAddr] = useState('2310 W Passyunk Ave, Philadelphia, PA 19145');
@@ -34202,7 +34450,7 @@ function PCGPortal() {
   // ─── Admin groups config ──────────────────────────────────────────────────
   const ADMIN_GROUPS = [
     { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics', 'anomalies', 'scorecard'] },
-    { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon', 'expenses'] },
+    { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon', 'expenses', 'roi'] },
     { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'impact', 'projects', 'deals', 'users'] },
     { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'admin'] },
   ];
@@ -34660,7 +34908,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v15.05
+            v15.12
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -34793,6 +35041,7 @@ function PCGPortal() {
                 {tab === "users" && "User accounts and access management."}
                 {tab === "kb" && "Company guides, SOPs, training materials, and reference articles."}
                 {tab === "expenses" && "All maintenance expenses across tickets — review, filter, and approve."}
+                {tab === "roi" && "Pre/post performance + payback for new-store and remodel capital projects."}
                 {tab === "admin" && "Users, configuration, audit log, and system data."}
                 {tab === "email" && "Shared inbox and outbound email from the portal."}
                 {tab === "tickets"  && "Submit and track maintenance & service tickets."}
@@ -35107,9 +35356,10 @@ function PCGPortal() {
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "expenses"  && isFullAdmin(user) && <ExpenseLogSection th={th} user={user} standalone />}
+          {tab === "roi"       && isFullAdmin(user) && <AdminRoiTracker th={th} user={user} stores={stores} salesWeeks={salesWeeks} projects={projects} dark={dark} />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
-          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version="v15.05" accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version="v15.12" accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}

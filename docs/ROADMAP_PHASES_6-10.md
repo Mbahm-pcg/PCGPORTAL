@@ -158,7 +158,7 @@
 - Percentile rankings: "Store 345 is in the 85th percentile for labor efficiency"
 - "If your bottom 10 stores improved to median, your network would gain $X/year"
 
-### 10.4 New Store / Remodel ROI Tracker
+### 10.4 New Store / Remodel ROI Tracker ✅
 - Track pre/post performance for every capital project
 - "Remodel completed 3 months ago: sales up 12%, labor down 1.5%, guest count up 8%"
 - Calculate payback period on capital investments
