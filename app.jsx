@@ -3604,6 +3604,136 @@ function StoreMap({ stores, th, setTab }) {
   );
 }
 
+// ─── Locations → Tools registry ──────────────────────────────────────────────
+// Extensible: add a tool by appending an entry; AdminLocations maps the dropdown
+// over this list and renders the matching popover by id.
+const LOCATION_TOOLS = [
+  { id: 'closest', label: 'Closest to an address', icon: '📍' },
+];
+
+// Popover: enter an address → rank the 10 nearest stores (straight-line, instant)
+// on a Leaflet map, with real driving distance/time fetched per store on click.
+function ClosestToFinder({ th, onClose }) {
+  const [addr, setAddr] = useState('');
+  const [origin, setOrigin] = useState(null);   // { lat, lng, label }
+  const [ranked, setRanked] = useState([]);      // [{ pc, name, address, miles }]
+  const [drive, setDrive] = useState({});         // { [pc]: {miles,minutes} | '…' | 'err' }
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const [hoverPc, setHoverPc] = useState(null);
+  const mapDiv = useRef(null);
+  const mapRef = useRef(null);
+  const markersRef = useRef({});
+
+  async function find() {
+    const q = addr.trim();
+    if (!q) return;
+    setBusy(true); setStatus('Locating address…'); setDrive({});
+    try {
+      const r = await fetch('/.netlify/functions/geocode', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: q }),
+      }).then((x) => x.json());
+      if (r && r.matched) {
+        const o = { lat: r.lat, lng: r.lng, label: q };
+        const rows = STORES_SEED
+          .filter((s) => STORE_COORDS[s.pc])
+          .map((s) => ({ pc: s.pc, name: s.name, address: `${s.address}, ${s.city}, ${s.state} ${s.zip}`,
+                          miles: haversineMiles(o, STORE_COORDS[s.pc]) }))
+          .sort((a, b) => a.miles - b.miles).slice(0, 10);
+        setOrigin(o); setRanked(rows); setStatus('');
+      } else { setOrigin(null); setRanked([]); setStatus("Couldn't find that address — try adding city/ZIP."); }
+    } catch { setStatus('Lookup failed — check your connection and retry.'); }
+    setBusy(false);
+  }
+
+  async function getDrive(row) {
+    if (!origin) return;
+    setDrive((d) => ({ ...d, [row.pc]: '…' }));
+    try {
+      const r = await fetch('/.netlify/functions/drive-time', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: { lat: origin.lat, lng: origin.lng }, to: STORE_COORDS[row.pc] }),
+      }).then((x) => x.json());
+      if (r && isFinite(r.miles) && isFinite(r.minutes)) setDrive((d) => ({ ...d, [row.pc]: { miles: r.miles, minutes: r.minutes } }));
+      else setDrive((d) => ({ ...d, [row.pc]: 'err' }));
+    } catch { setDrive((d) => ({ ...d, [row.pc]: 'err' })); }
+  }
+
+  // Build / refresh the Leaflet map when the ranking or origin changes.
+  useEffect(() => {
+    if (!mapDiv.current || !window.L) return;
+    const L = window.L;
+    if (!mapRef.current) {
+      mapRef.current = L.map(mapDiv.current, { attributionControl: false }).setView([40.0, -75.18], 9);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapRef.current);
+    }
+    const map = mapRef.current;
+    map.eachLayer((l) => { if (!(l instanceof L.TileLayer)) map.removeLayer(l); });
+    markersRef.current = {};
+    const top = new Set(ranked.map((r) => r.pc));
+    STORES_SEED.forEach((s) => {
+      const c = STORE_COORDS[s.pc]; if (!c) return;
+      const hot = top.has(s.pc);
+      markersRef.current[s.pc] = L.circleMarker([c.lat, c.lng], {
+        radius: hot ? 7 : 5, color: hot ? O : '#888', weight: 2,
+        fillColor: hot ? O : '#aaa', fillOpacity: hot ? 0.9 : 0.45,
+      }).addTo(map).bindPopup(`<b>${s.name}</b><br>${s.address}, ${s.city}`);
+    });
+    if (origin) {
+      L.marker([origin.lat, origin.lng]).addTo(map).bindPopup(`<b>Your address</b><br>${origin.label}`);
+      const pts = [[origin.lat, origin.lng], ...ranked.map((r) => [STORE_COORDS[r.pc].lat, STORE_COORDS[r.pc].lng])];
+      if (pts.length > 1) map.fitBounds(pts, { padding: [40, 40] }); else map.setView([origin.lat, origin.lng], 12);
+    }
+    setTimeout(() => map.invalidateSize(), 60);
+  }, [ranked, origin]);
+
+  useEffect(() => { const m = hoverPc && markersRef.current[hoverPc]; if (m && m.openPopup) m.openPopup(); }, [hoverPc]);
+  useEffect(() => () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } }, []);
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '1rem', width: 'min(1100px, 96vw)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+          <div style={{ fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: '1.05rem' }}>📍 Closest stores to an address</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '1.4rem', lineHeight: 1, cursor: 'pointer' }}>×</button>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', padding: '0.85rem 1.25rem', borderBottom: `1px solid ${th.cardBorder}`, flexWrap: 'wrap' }}>
+          <input style={{ ...inp(th), flex: '1 1 320px' }} placeholder="Enter an address, city, or ZIP…" value={addr}
+            onChange={(e) => setAddr(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') find(); }} autoFocus />
+          <button onClick={find} disabled={busy} style={{ ...btn(th), background: `linear-gradient(135deg, ${O}, #ff8040)`, color: '#fff', fontWeight: 800, border: 'none' }}>{busy ? '…' : 'Find'}</button>
+        </div>
+        {status && <div style={{ padding: '0.5rem 1.25rem', color: th.muted, fontSize: '0.8rem' }}>{status}</div>}
+        <div style={{ display: 'flex', flex: 1, minHeight: 0, flexWrap: 'wrap' }}>
+          <div ref={mapDiv} style={{ flex: '1 1 420px', minHeight: 360, minWidth: 280, background: th.card2 }} />
+          <div style={{ flex: '1 1 320px', maxWidth: '100%', overflowY: 'auto', borderLeft: `1px solid ${th.cardBorder}` }}>
+            {ranked.length === 0 && <div style={{ padding: '1.5rem', color: th.muted, fontSize: '0.85rem' }}>Enter an address to see the 10 nearest stores.</div>}
+            {ranked.map((r, i) => {
+              const dv = drive[r.pc];
+              return (
+                <div key={r.pc} onMouseEnter={() => setHoverPc(r.pc)} onMouseLeave={() => setHoverPc(null)}
+                  style={{ padding: '0.7rem 1rem', borderBottom: `1px solid ${th.cardBorder}`, background: hoverPc === r.pc ? th.card2 : 'transparent', cursor: 'default' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                    <span style={{ fontWeight: 800, color: th.text }}>{i + 1}. {r.name}</span>
+                    <span style={{ fontWeight: 800, color: O, whiteSpace: 'nowrap' }}>{r.miles.toFixed(1)} mi</span>
+                  </div>
+                  <div style={{ color: th.muted, fontSize: '0.78rem', marginTop: 2 }}>{r.address}</div>
+                  <div style={{ marginTop: 5 }}>
+                    {dv === undefined && <button onClick={() => getDrive(r)} style={{ ...btn(th), padding: '0.25rem 0.6rem', fontSize: '0.72rem' }}>Drive time</button>}
+                    {dv === '…' && <span style={{ fontSize: '0.72rem', color: th.muted }}>routing…</span>}
+                    {dv === 'err' && <span style={{ fontSize: '0.72rem', color: th.muted }}>drive time unavailable</span>}
+                    {dv && typeof dv === 'object' && <span style={{ fontSize: '0.76rem', color: th.text }}>🚗 {dv.miles.toFixed(1)} mi · ~{Math.round(dv.minutes)} min driving</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
   const [filterState,  setFilterState]  = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
@@ -3619,6 +3749,8 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
   const [copiedId,     setCopiedId]     = useState(null);
   const [cityData,     setCityData]     = useState(null);
   const [cityLoading,  setCityLoading]  = useState(false);
+  const [toolsOpen,    setToolsOpen]    = useState(false);
+  const [activeTool,   setActiveTool]   = useState(null);
 
   // Copy PC# / address / city-state-zip / Google Maps URL to clipboard.
   // Each field on its own line so users can paste into any text field.
@@ -3793,6 +3925,35 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
+        {/* Tools dropdown (extensible: LOCATION_TOOLS) */}
+        <div style={{ position: "relative" }}>
+          <button onClick={() => setToolsOpen(o => !o)} style={{
+            ...btn(th), padding: "0.55rem 0.9rem", fontSize: "0.78rem", fontWeight: 800,
+            display: "inline-flex", alignItems: "center", gap: "0.35rem",
+          }}>🧰 Tools <span style={{ fontSize: "0.6rem" }}>▾</span></button>
+          {toolsOpen && (
+            <>
+              <div onClick={() => setToolsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{
+                position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 41,
+                background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.25)", minWidth: 220, overflow: "hidden",
+              }}>
+                {LOCATION_TOOLS.map(t => (
+                  <button key={t.id} onClick={() => { setActiveTool(t.id); setToolsOpen(false); }}
+                    onMouseEnter={e => e.currentTarget.style.background = th.card2}
+                    onMouseLeave={e => e.currentTarget.style.background = "none"}
+                    style={{
+                      display: "flex", alignItems: "center", gap: "0.55rem", width: "100%",
+                      padding: "0.7rem 0.9rem", background: "none", border: "none", cursor: "pointer",
+                      color: th.text, fontFamily: "'Source Sans 3'", fontSize: "0.82rem", textAlign: "left",
+                    }}><span>{t.icon}</span> {t.label}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        {activeTool === 'closest' && <ClosestToFinder th={th} onClose={() => setActiveTool(null)} />}
         {/* State pills */}
         {!isDM && !isManager && (
           <div style={{
@@ -34212,7 +34373,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.77
+            v14.78
             <SyncStatus dark={dark} />
           </div>
         )}

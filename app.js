@@ -3970,6 +3970,139 @@
       return /* @__PURE__ */ React.createElement("div", { key: t.id || i, style: { padding: "0.5rem 0.625rem", borderRadius: "0.5rem", background: th.card2, marginBottom: "0.3rem", border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.text, fontWeight: 600, lineHeight: 1.3, flex: 1 } }, tTitle), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.4rem", borderRadius: "0.3rem", background: pColor + "22", color: pColor, flexShrink: 0 } }, tPriority)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, tStatus), t.createdAt && /* @__PURE__ */ React.createElement("span", null, "\xB7 ", new Date(t.createdAt).toLocaleDateString())));
     }))), setTab && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 1.25rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", gap: "0.5rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("labor"), style: { flex: 1, ...btn(th, { fontSize: "0.73rem", padding: "0.4rem", background: th.card2 }) } }, "\u{1F4CA} Labor"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("pulse"), style: { flex: 1, ...btn(th, { fontSize: "0.73rem", padding: "0.4rem", background: th.card2 }) } }, "\u26A1 Pulse"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("tickets"), style: { flex: 1, ...btn(th, { fontSize: "0.73rem", padding: "0.4rem", background: th.card2 }) } }, "\u{1F527} Tickets")))));
   }
+  var LOCATION_TOOLS = [
+    { id: "closest", label: "Closest to an address", icon: "\u{1F4CD}" }
+  ];
+  function ClosestToFinder({ th, onClose }) {
+    const [addr, setAddr] = useState("");
+    const [origin, setOrigin] = useState(null);
+    const [ranked, setRanked] = useState([]);
+    const [drive, setDrive] = useState({});
+    const [busy, setBusy] = useState(false);
+    const [status, setStatus] = useState("");
+    const [hoverPc, setHoverPc] = useState(null);
+    const mapDiv = useRef(null);
+    const mapRef = useRef(null);
+    const markersRef = useRef({});
+    async function find() {
+      const q = addr.trim();
+      if (!q) return;
+      setBusy(true);
+      setStatus("Locating address\u2026");
+      setDrive({});
+      try {
+        const r = await fetch("/.netlify/functions/geocode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: q })
+        }).then((x) => x.json());
+        if (r && r.matched) {
+          const o = { lat: r.lat, lng: r.lng, label: q };
+          const rows = STORES_SEED.filter((s) => STORE_COORDS[s.pc]).map((s) => ({
+            pc: s.pc,
+            name: s.name,
+            address: `${s.address}, ${s.city}, ${s.state} ${s.zip}`,
+            miles: haversineMiles(o, STORE_COORDS[s.pc])
+          })).sort((a, b) => a.miles - b.miles).slice(0, 10);
+          setOrigin(o);
+          setRanked(rows);
+          setStatus("");
+        } else {
+          setOrigin(null);
+          setRanked([]);
+          setStatus("Couldn't find that address \u2014 try adding city/ZIP.");
+        }
+      } catch {
+        setStatus("Lookup failed \u2014 check your connection and retry.");
+      }
+      setBusy(false);
+    }
+    async function getDrive(row) {
+      if (!origin) return;
+      setDrive((d) => ({ ...d, [row.pc]: "\u2026" }));
+      try {
+        const r = await fetch("/.netlify/functions/drive-time", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ from: { lat: origin.lat, lng: origin.lng }, to: STORE_COORDS[row.pc] })
+        }).then((x) => x.json());
+        if (r && isFinite(r.miles) && isFinite(r.minutes)) setDrive((d) => ({ ...d, [row.pc]: { miles: r.miles, minutes: r.minutes } }));
+        else setDrive((d) => ({ ...d, [row.pc]: "err" }));
+      } catch {
+        setDrive((d) => ({ ...d, [row.pc]: "err" }));
+      }
+    }
+    useEffect(() => {
+      if (!mapDiv.current || !window.L) return;
+      const L = window.L;
+      if (!mapRef.current) {
+        mapRef.current = L.map(mapDiv.current, { attributionControl: false }).setView([40, -75.18], 9);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(mapRef.current);
+      }
+      const map = mapRef.current;
+      map.eachLayer((l) => {
+        if (!(l instanceof L.TileLayer)) map.removeLayer(l);
+      });
+      markersRef.current = {};
+      const top = new Set(ranked.map((r) => r.pc));
+      STORES_SEED.forEach((s) => {
+        const c = STORE_COORDS[s.pc];
+        if (!c) return;
+        const hot = top.has(s.pc);
+        markersRef.current[s.pc] = L.circleMarker([c.lat, c.lng], {
+          radius: hot ? 7 : 5,
+          color: hot ? O : "#888",
+          weight: 2,
+          fillColor: hot ? O : "#aaa",
+          fillOpacity: hot ? 0.9 : 0.45
+        }).addTo(map).bindPopup(`<b>${s.name}</b><br>${s.address}, ${s.city}`);
+      });
+      if (origin) {
+        L.marker([origin.lat, origin.lng]).addTo(map).bindPopup(`<b>Your address</b><br>${origin.label}`);
+        const pts = [[origin.lat, origin.lng], ...ranked.map((r) => [STORE_COORDS[r.pc].lat, STORE_COORDS[r.pc].lng])];
+        if (pts.length > 1) map.fitBounds(pts, { padding: [40, 40] });
+        else map.setView([origin.lat, origin.lng], 12);
+      }
+      setTimeout(() => map.invalidateSize(), 60);
+    }, [ranked, origin]);
+    useEffect(() => {
+      const m = hoverPc && markersRef.current[hoverPc];
+      if (m && m.openPopup) m.openPopup();
+    }, [hoverPc]);
+    useEffect(() => () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    }, []);
+    return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "1rem", width: "min(1100px, 96vw)", maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: "1.05rem" } }, "\u{1F4CD} Closest stores to an address"), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { background: "none", border: "none", color: th.muted, fontSize: "1.4rem", lineHeight: 1, cursor: "pointer" } }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", padding: "0.85rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}`, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        style: { ...inp(th), flex: "1 1 320px" },
+        placeholder: "Enter an address, city, or ZIP\u2026",
+        value: addr,
+        onChange: (e) => setAddr(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") find();
+        },
+        autoFocus: true
+      }
+    ), /* @__PURE__ */ React.createElement("button", { onClick: find, disabled: busy, style: { ...btn(th), background: `linear-gradient(135deg, ${O}, #ff8040)`, color: "#fff", fontWeight: 800, border: "none" } }, busy ? "\u2026" : "Find")), status && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 1.25rem", color: th.muted, fontSize: "0.8rem" } }, status), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flex: 1, minHeight: 0, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { ref: mapDiv, style: { flex: "1 1 420px", minHeight: 360, minWidth: 280, background: th.card2 } }), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 320px", maxWidth: "100%", overflowY: "auto", borderLeft: `1px solid ${th.cardBorder}` } }, ranked.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1.5rem", color: th.muted, fontSize: "0.85rem" } }, "Enter an address to see the 10 nearest stores."), ranked.map((r, i) => {
+      const dv = drive[r.pc];
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: r.pc,
+          onMouseEnter: () => setHoverPc(r.pc),
+          onMouseLeave: () => setHoverPc(null),
+          style: { padding: "0.7rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, background: hoverPc === r.pc ? th.card2 : "transparent", cursor: "default" }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, color: th.text } }, i + 1, ". ", r.name), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, color: O, whiteSpace: "nowrap" } }, r.miles.toFixed(1), " mi")),
+        /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.78rem", marginTop: 2 } }, r.address),
+        /* @__PURE__ */ React.createElement("div", { style: { marginTop: 5 } }, dv === void 0 && /* @__PURE__ */ React.createElement("button", { onClick: () => getDrive(r), style: { ...btn(th), padding: "0.25rem 0.6rem", fontSize: "0.72rem" } }, "Drive time"), dv === "\u2026" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "routing\u2026"), dv === "err" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "drive time unavailable"), dv && typeof dv === "object" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.76rem", color: th.text } }, "\u{1F697} ", dv.miles.toFixed(1), " mi \xB7 ~", Math.round(dv.minutes), " min driving"))
+      );
+    })))));
+  }
   function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
     const [filterState, setFilterState] = useState("All");
     const [filterStatus, setFilterStatus] = useState("All");
@@ -3985,6 +4118,8 @@
     const [copiedId, setCopiedId] = useState(null);
     const [cityData, setCityData] = useState(null);
     const [cityLoading, setCityLoading] = useState(false);
+    const [toolsOpen, setToolsOpen] = useState(false);
+    const [activeTool, setActiveTool] = useState(null);
     const copyStoreInfo = async (s, e) => {
       if (e) {
         e.stopPropagation();
@@ -4116,7 +4251,54 @@
         value: search,
         onChange: (e) => setSearch(e.target.value)
       }
-    )), !isDM && !isManager && /* @__PURE__ */ React.createElement("div", { style: {
+    )), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setToolsOpen((o) => !o), style: {
+      ...btn(th),
+      padding: "0.55rem 0.9rem",
+      fontSize: "0.78rem",
+      fontWeight: 800,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "0.35rem"
+    } }, "\u{1F9F0} Tools ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem" } }, "\u25BE")), toolsOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { onClick: () => setToolsOpen(false), style: { position: "fixed", inset: 0, zIndex: 40 } }), /* @__PURE__ */ React.createElement("div", { style: {
+      position: "absolute",
+      top: "calc(100% + 6px)",
+      left: 0,
+      zIndex: 41,
+      background: th.card,
+      border: `1px solid ${th.cardBorder}`,
+      borderRadius: "0.6rem",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+      minWidth: 220,
+      overflow: "hidden"
+    } }, LOCATION_TOOLS.map((t) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: t.id,
+        onClick: () => {
+          setActiveTool(t.id);
+          setToolsOpen(false);
+        },
+        onMouseEnter: (e) => e.currentTarget.style.background = th.card2,
+        onMouseLeave: (e) => e.currentTarget.style.background = "none",
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: "0.55rem",
+          width: "100%",
+          padding: "0.7rem 0.9rem",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          color: th.text,
+          fontFamily: "'Source Sans 3'",
+          fontSize: "0.82rem",
+          textAlign: "left"
+        }
+      },
+      /* @__PURE__ */ React.createElement("span", null, t.icon),
+      " ",
+      t.label
+    ))))), activeTool === "closest" && /* @__PURE__ */ React.createElement(ClosestToFinder, { th, onClose: () => setActiveTool(null) }), !isDM && !isManager && /* @__PURE__ */ React.createElement("div", { style: {
       display: "inline-flex",
       gap: "0.2rem",
       background: th.card2,
@@ -25980,7 +26162,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.77", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.78", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
