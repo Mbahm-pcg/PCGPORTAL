@@ -14409,6 +14409,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
+  var APP_VERSION = "v15.32";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -24274,10 +24275,26 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [sidebarGroupsOpen, setSidebarGroupsOpen] = useState(() => {
       try {
         const saved = localStorage.getItem("pcg_sidebar_groups");
-        return saved ? JSON.parse(saved) : { ops: true, fin: true, team: false, system: false };
+        return saved ? JSON.parse(saved) : { ops: true, fin: true, team: false, system: false, workspace: false };
       } catch {
-        return { ops: true, fin: true, team: false, system: false };
+        return { ops: true, fin: true, team: false, system: false, workspace: false };
       }
+    });
+    const [pinnedTabIds, setPinnedTabIds] = useState(() => {
+      try {
+        const saved = localStorage.getItem("pcg_sidebar_pinned");
+        if (saved) return JSON.parse(saved);
+      } catch {
+      }
+      return null;
+    });
+    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState(() => {
+      try {
+        const s = localStorage.getItem("pcg_sidebar_sections");
+        if (s) return JSON.parse(s);
+      } catch {
+      }
+      return {};
     });
     const [links, setLinks] = useState(() => {
       const s = loadFromStorage();
@@ -24444,6 +24461,56 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       return t;
     };
     const TABS = tabsForUser(user);
+    const PINNED_DEFAULTS = {
+      executive: ["pulse", "labor", "pnl", "projects"],
+      it: ["pulse", "labor", "pnl", "projects"],
+      office_staff: ["pulse", "labor", "reports", "projects"],
+      dm: ["pulse", "labor", "reports"],
+      manager: ["labor", "reports"]
+    };
+    const pinnedNavIds = (pinnedTabIds ?? (PINNED_DEFAULTS[user?.userType] || [])).filter((id) => TABS.some((t) => t.id === id));
+    const togglePinNav = (id) => {
+      setPinnedTabIds((prev) => {
+        const base = prev ?? (PINNED_DEFAULTS[user?.userType] || []);
+        const next = base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
+        try {
+          localStorage.setItem("pcg_sidebar_pinned", JSON.stringify(next));
+        } catch {
+        }
+        return next;
+      });
+    };
+    const toggleSidebarSection = (key) => {
+      setSidebarSectionsOpen((prev) => {
+        const next = { ...prev, [key]: !prev[key] };
+        try {
+          localStorage.setItem("pcg_sidebar_sections", JSON.stringify(next));
+        } catch {
+        }
+        return next;
+      });
+    };
+    const ESSENTIAL_BASE_IDS = ["dashboard", "chat", "announcements", "tickets"];
+    const WORKSPACE_BASE_IDS = ["calendar", "todos", "notes", "contacts", "links", "kb"];
+    const navBadge = (t) => {
+      if (!t) return null;
+      if (t.id === "chat" && chatUnreadCount > 0) return chatUnreadCount;
+      if (t.id === "reports" && reportsUnreadCount > 0) return reportsUnreadCount;
+      if (t.id === "cash" && cashMissingCount > 0) return cashMissingCount;
+      if (t.id === "announcements" && user) {
+        const myDist = user.district ? Number(user.district) : null;
+        const unread = announcements.filter((a) => {
+          if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
+          if (!a.targets) return true;
+          const { roles, districts: districts2 } = a.targets;
+          if (roles?.includes(user.userType)) return true;
+          if (myDist && districts2?.includes(myDist)) return true;
+          return false;
+        }).length;
+        if (unread > 0) return unread;
+      }
+      return null;
+    };
     useEffect(() => {
       if (!user || !tab) return;
       const ids = tabsForUser(user).map((t) => t.id);
@@ -25717,13 +25784,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const isConstruction = user?.userType === "construction";
-    const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor }) => {
+    const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin }) => {
       const C = accent;
       const inactiveColor = th.muted;
       return /* @__PURE__ */ React.createElement(
         "button",
         {
           key: tabDef.id,
+          className: "nav-row",
           onClick,
           title: collapsed ? tabDef.label : void 0,
           style: {
@@ -25785,6 +25853,30 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           transition: "filter .2s"
         } }, typeof tabDef.icon === "function" ? tabDef.icon(isActive ? C : inactiveColor) : tabDef.icon),
         !collapsed && /* @__PURE__ */ React.createElement("span", { style: { flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, tabDef.label),
+        !collapsed && onTogglePin && /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            className: "nav-pin" + (pinned ? " pinned" : ""),
+            role: "button",
+            title: pinned ? "Unpin from top" : "Pin to top",
+            onClick: (e) => {
+              e.stopPropagation();
+              onTogglePin(tabDef.id);
+            },
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              marginLeft: 2,
+              width: 18,
+              height: 18,
+              borderRadius: 5,
+              color: pinned ? C : th.muted
+            }
+          },
+          /* @__PURE__ */ React.createElement("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: pinned ? C : "none", stroke: pinned ? C : "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" }))
+        ),
         badge != null && badge > 0 && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 4, minWidth: 8, height: 8, borderRadius: "50%", background: C, boxShadow: `0 0 6px ${C}` } }) : /* @__PURE__ */ React.createElement("span", { style: {
           minWidth: 20,
           height: 18,
@@ -25803,22 +25895,42 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         glow && !isActive && badge == null && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 4, width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite", flexShrink: 0 } }))
       );
     };
-    const SectionHeader = ({ label, accent, collapsed }) => {
+    const SectionHeader = ({ label, accent, collapsed, onToggle, open }) => {
       if (collapsed) return /* @__PURE__ */ React.createElement("div", { style: { height: 1, margin: "0.85rem 0.65rem", background: `linear-gradient(90deg, transparent, ${th.sidebarBorder}, transparent)` } });
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0.5rem 0.55rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` } }), /* @__PURE__ */ React.createElement("span", { style: {
-        fontSize: "0.55rem",
-        fontWeight: 800,
-        color: accent,
-        letterSpacing: 1.6,
-        textTransform: "uppercase",
-        padding: "0.15rem 0.5rem",
-        background: `${accent}12`,
-        borderTop: `1px solid ${accent}33`,
-        borderLeft: `1px solid ${accent}33`,
-        borderRight: `1px solid ${accent}33`,
-        borderBottom: `2px solid ${accent}66`,
-        borderRadius: 999
-      } }, label), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` } }));
+      const clickable = typeof onToggle === "function";
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          onClick: onToggle,
+          title: clickable ? open ? "Collapse section" : "Expand section" : void 0,
+          style: { display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0.5rem 0.55rem", cursor: clickable ? "pointer" : "default", userSelect: "none" }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` } }),
+        /* @__PURE__ */ React.createElement("span", { style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.3rem",
+          fontSize: "0.55rem",
+          fontWeight: 800,
+          color: accent,
+          letterSpacing: 1.6,
+          textTransform: "uppercase",
+          padding: "0.15rem 0.5rem",
+          background: `${accent}12`,
+          borderTop: `1px solid ${accent}33`,
+          borderLeft: `1px solid ${accent}33`,
+          borderRight: `1px solid ${accent}33`,
+          borderBottom: `2px solid ${accent}66`,
+          borderRadius: 999
+        } }, label, clickable && /* @__PURE__ */ React.createElement("span", { style: {
+          fontSize: "0.45rem",
+          opacity: 0.7,
+          transition: "transform 0.22s",
+          display: "inline-block",
+          transform: open ? "rotate(90deg)" : "none"
+        } }, "\u25B6")),
+        /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` } })
+      );
     };
     const ADMIN_GROUPS = [
       { key: "ops", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polyline", { points: "23 6 13.5 15.5 8.5 10.5 1 18" }), /* @__PURE__ */ React.createElement("polyline", { points: "17 6 23 6 23 12" })) }), label: "Operations", color: "#38bdf8", ids: ["pulse", "labor", "analytics", "anomalies", "scorecard"] },
@@ -25949,6 +26061,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             badge,
             glow,
             dotColor: C,
+            pinned: pinnedNavIds.includes(t.id),
+            onTogglePin: togglePinNav,
             onClick: () => {
               setTab(t.id);
               nav && nav();
@@ -26185,47 +26299,82 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       },
       "Out"
-    ))), /* @__PURE__ */ React.createElement("div", { ref: navRef2, onScroll: onNavScroll, style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, BASE_TABS.map((t) => {
-      const isActive = tab === t.id;
-      let badge = null;
-      if (t.id === "chat" && chatUnreadCount > 0) badge = chatUnreadCount;
-      if (t.id === "reports" && reportsUnreadCount > 0) badge = reportsUnreadCount;
-      if (t.id === "announcements") {
-        const myDist = user.district ? Number(user.district) : null;
-        const unread = announcements.filter((a) => {
-          if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
-          if (!a.targets) return true;
-          const { roles, districts: districts2 } = a.targets;
-          if (roles?.includes(user.userType)) return true;
-          if (myDist && districts2?.includes(myDist)) return true;
-          return false;
-        }).length;
-        if (unread > 0) badge = unread;
-      }
-      return /* @__PURE__ */ React.createElement(
-        NavButton,
-        {
-          key: t.id,
-          tabDef: t,
-          accent: O,
-          isActive,
-          collapsed,
-          badge,
-          onClick: () => {
-            setTab(t.id);
-            onNav && onNav();
+    ))), /* @__PURE__ */ React.createElement("div", { ref: navRef2, onScroll: onNavScroll, style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, (() => {
+      const pinnedTabs = pinnedNavIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);
+      if (pinnedTabs.length === 0) return null;
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Pinned", accent: O, collapsed }), pinnedTabs.map((t) => {
+        const C = t.cash ? cashMissingCount > 0 ? "#ef4444" : "#00d084" : t.green ? "#00d084" : O;
+        return /* @__PURE__ */ React.createElement(
+          NavButton,
+          {
+            key: "pin_" + t.id,
+            tabDef: t,
+            accent: C,
+            isActive: tab === t.id,
+            collapsed,
+            badge: navBadge(t),
+            glow: t.green || t.cash,
+            dotColor: C,
+            pinned: true,
+            onTogglePin: togglePinNav,
+            onClick: () => {
+              setTab(t.id);
+              onNav && onNav();
+            }
           }
+        );
+      }));
+    })(), BASE_TABS.filter((t) => ESSENTIAL_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id)).map((t) => /* @__PURE__ */ React.createElement(
+      NavButton,
+      {
+        key: t.id,
+        tabDef: t,
+        accent: O,
+        isActive: tab === t.id,
+        collapsed,
+        badge: navBadge(t),
+        onTogglePin: togglePinNav,
+        onClick: () => {
+          setTab(t.id);
+          onNav && onNav();
+        }
+      }
+    )), (() => {
+      const wsTabs = BASE_TABS.filter((t) => WORKSPACE_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      if (wsTabs.length === 0) return null;
+      const wsIcon = (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7" })) });
+      return /* @__PURE__ */ React.createElement(
+        AdminGroup,
+        {
+          groupKey: "workspace",
+          icon: wsIcon,
+          label: "Workspace",
+          color: "#94a3b8",
+          tabs: wsTabs,
+          collapsed,
+          onNav
         }
       );
-    }), user?.userType === "dm" && (() => {
+    })(), user?.userType === "dm" && (() => {
       const dmTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
       const DM_GROUPS = [
         { key: "dm_loc", label: "Locations & Map", color: "#74c0fc", icon: (c) => ICONS.locations(c), ids: ["map", "locations"] },
         { key: "dm_ops", label: "Operations", color: "#74c0fc", icon: (c) => ICONS.analytics(c), ids: ["pulse", "labor", "pnl", "analytics", "anomalies"] },
         { key: "dm_biz", label: "District", color: "#74c0fc", icon: (c) => ICONS.dollar(c), ids: ["cash", "reports", "projects", "deals", "scorecard"] }
       ];
-      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "My District", accent: "#74c0fc", collapsed }), DM_GROUPS.map((grp) => {
-        const grpTabs = grp.ids.map((id) => dmTabs.find((t) => t.id === id)).filter(Boolean);
+      const sectionHasActive = dmTabs.some((t) => t.id === tab) && !pinnedNavIds.includes(tab);
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_dm"] || sectionHasActive;
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: "My District",
+          accent: "#74c0fc",
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_dm")
+        }
+      ), sectionOpen && DM_GROUPS.map((grp) => {
+        const grpTabs = grp.ids.map((id) => dmTabs.find((t) => t.id === id)).filter((t) => t && !pinnedNavIds.includes(t.id));
         if (grpTabs.length === 0) return null;
         return /* @__PURE__ */ React.createElement(
           AdminGroup,
@@ -26241,66 +26390,124 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           }
         );
       }));
-    })(), user?.userType === "manager" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "My Store", accent: "#22c55e", collapsed }), tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id)).map((t) => /* @__PURE__ */ React.createElement(
-      NavButton,
-      {
-        key: t.id,
-        tabDef: t,
-        accent: "#22c55e",
-        isActive: tab === t.id,
-        collapsed,
-        badge: t.id === "reports" && reportsUnreadCount > 0 ? reportsUnreadCount : null,
-        onClick: () => {
-          setTab(t.id);
-          onNav && onNav();
+    })(), user?.userType === "manager" && (() => {
+      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_manager"] || secTabs.some((t) => t.id === tab);
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: "My Store",
+          accent: "#22c55e",
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_manager")
         }
-      }
-    ))), user?.userType === "construction" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Construction", accent: "#fb923c", collapsed }), tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id)).map((t) => /* @__PURE__ */ React.createElement(
-      NavButton,
-      {
-        key: t.id,
-        tabDef: t,
-        accent: "#fb923c",
-        isActive: tab === t.id,
-        collapsed,
-        onClick: () => {
-          setTab(t.id);
-          onNav && onNav();
-        }
-      }
-    ))), user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Maintenance", accent: "#a78bfa", collapsed }), tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id)).map((t) => /* @__PURE__ */ React.createElement(
-      NavButton,
-      {
-        key: t.id,
-        tabDef: t,
-        accent: "#a78bfa",
-        isActive: tab === t.id,
-        collapsed,
-        onClick: () => {
-          setTab(t.id);
-          onNav && onNav();
-        }
-      }
-    ))), (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: isFullAdmin(user) ? "Admin" : "Operations", accent: O, collapsed }), (() => {
-      const adminTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
-      return ADMIN_GROUPS.map((grp) => {
-        const grpTabs = grp.ids.map((id) => adminTabs.find((t) => t.id === id)).filter(Boolean);
-        if (grpTabs.length === 0) return null;
-        return /* @__PURE__ */ React.createElement(
-          AdminGroup,
-          {
-            key: grp.key,
-            groupKey: grp.key,
-            icon: grp.icon,
-            label: grp.label,
-            color: grp.color,
-            tabs: grpTabs,
-            collapsed,
-            onNav
+      ), sectionOpen && secTabs.map((t) => /* @__PURE__ */ React.createElement(
+        NavButton,
+        {
+          key: t.id,
+          tabDef: t,
+          accent: "#22c55e",
+          isActive: tab === t.id,
+          collapsed,
+          badge: t.id === "reports" && reportsUnreadCount > 0 ? reportsUnreadCount : null,
+          pinned: pinnedNavIds.includes(t.id),
+          onTogglePin: togglePinNav,
+          onClick: () => {
+            setTab(t.id);
+            onNav && onNav();
           }
-        );
-      });
-    })())), /* @__PURE__ */ React.createElement("div", { style: {
+        }
+      )));
+    })(), user?.userType === "construction" && (() => {
+      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_construction"] || secTabs.some((t) => t.id === tab);
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: "Construction",
+          accent: "#fb923c",
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_construction")
+        }
+      ), sectionOpen && secTabs.map((t) => /* @__PURE__ */ React.createElement(
+        NavButton,
+        {
+          key: t.id,
+          tabDef: t,
+          accent: "#fb923c",
+          isActive: tab === t.id,
+          collapsed,
+          pinned: pinnedNavIds.includes(t.id),
+          onTogglePin: togglePinNav,
+          onClick: () => {
+            setTab(t.id);
+            onNav && onNav();
+          }
+        }
+      )));
+    })(), user?.userType === "maintenance" && (() => {
+      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_maintenance"] || secTabs.some((t) => t.id === tab);
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: "Maintenance",
+          accent: "#a78bfa",
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_maintenance")
+        }
+      ), sectionOpen && secTabs.map((t) => /* @__PURE__ */ React.createElement(
+        NavButton,
+        {
+          key: t.id,
+          tabDef: t,
+          accent: "#a78bfa",
+          isActive: tab === t.id,
+          collapsed,
+          pinned: pinnedNavIds.includes(t.id),
+          onTogglePin: togglePinNav,
+          onClick: () => {
+            setTab(t.id);
+            onNav && onNav();
+          }
+        }
+      )));
+    })(), (isFullAdmin(user) || user?.userType === "office_staff") && (() => {
+      const adminTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
+      const sectionHasActive = adminTabs.some((t) => t.id === tab) && !pinnedNavIds.includes(tab);
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_admin"] || sectionHasActive;
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: isFullAdmin(user) ? "Admin" : "Operations",
+          accent: O,
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_admin")
+        }
+      ), sectionOpen && (() => {
+        return ADMIN_GROUPS.map((grp) => {
+          const grpTabs = grp.ids.map((id) => adminTabs.find((t) => t.id === id)).filter((t) => t && !pinnedNavIds.includes(t.id));
+          if (grpTabs.length === 0) return null;
+          return /* @__PURE__ */ React.createElement(
+            AdminGroup,
+            {
+              key: grp.key,
+              groupKey: grp.key,
+              icon: grp.icon,
+              label: grp.label,
+              color: grp.color,
+              tabs: grpTabs,
+              collapsed,
+              onNav
+            }
+          );
+        });
+      })());
+    })()), /* @__PURE__ */ React.createElement("div", { style: {
       borderTop: `1px solid ${th.sidebarBorder}`,
       padding: collapsed ? "0.6rem 0.4rem" : "0.6rem 1rem",
       display: "flex",
@@ -26317,7 +26524,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v15.21", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), APP_VERSION, /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
@@ -26613,7 +26820,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" } }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: "v15.12", accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
+    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
       const ut = user?.userType;
       const pinnedIds = ut === "executive" || ut === "it" ? ["dashboard", "pulse", "labor", "chat"] : ut === "office_staff" ? ["dashboard", "pulse", "labor", "chat"] : ut === "dm" ? ["dashboard", "labor", "chat", "tickets"] : ut === "manager" ? ["dashboard", "labor", "chat", "tickets"] : ["dashboard", "chat", "announcements", "tickets"];
       const pinnedTabs = pinnedIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);

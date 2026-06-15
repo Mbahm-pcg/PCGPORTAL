@@ -18069,6 +18069,11 @@ const canManageUser = (actor, target) => {
 };
 
 
+// ─── App version (single source of truth) ────────────────────────────────────
+// Bump this on every code change. Rendered in the sidebar footer AND the
+// Admin · System "Portal version / live build" field so they always match.
+const APP_VERSION = "v15.32";
+
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
 const DATA_VERSION = 9;
@@ -32683,8 +32688,19 @@ function PCGPortal() {
   const [sidebarGroupsOpen, setSidebarGroupsOpen] = useState(() => {
     try {
       const saved = localStorage.getItem('pcg_sidebar_groups');
-      return saved ? JSON.parse(saved) : { ops: true, fin: true, team: false, system: false };
-    } catch { return { ops: true, fin: true, team: false, system: false }; }
+      return saved ? JSON.parse(saved) : { ops: true, fin: true, team: false, system: false, workspace: false };
+    } catch { return { ops: true, fin: true, team: false, system: false, workspace: false }; }
+  });
+  // Pinned sidebar tabs (user favorites surfaced at the very top). null = use role default.
+  const [pinnedTabIds, setPinnedTabIds] = useState(() => {
+    try { const saved = localStorage.getItem('pcg_sidebar_pinned'); if (saved) return JSON.parse(saved); } catch {}
+    return null;
+  });
+  // Whole-section collapse state (e.g. the Admin / Operations block below the base tabs).
+  // Default {} = every section collapsed on first open until the user clicks it.
+  const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState(() => {
+    try { const s = localStorage.getItem('pcg_sidebar_sections'); if (s) return JSON.parse(s); } catch {}
+    return {};
   });
   const [links, setLinks]       = useState(() => { const s=loadFromStorage(); return s?.links    || INIT_LINKS; });
   const [notes, setNotes]       = useState(() => { const s=loadFromStorage(); return s?.notes    || {}; });
@@ -32805,6 +32821,55 @@ function PCGPortal() {
     return t;
   };
   const TABS = tabsForUser(user);
+  // ── Sidebar pinning + base-tab grouping ──────────────────────────────
+  // Default favorites per role (frequently-used tabs surfaced at top).
+  const PINNED_DEFAULTS = {
+    executive: ['pulse', 'labor', 'pnl', 'projects'],
+    it:        ['pulse', 'labor', 'pnl', 'projects'],
+    office_staff: ['pulse', 'labor', 'reports', 'projects'],
+    dm:        ['pulse', 'labor', 'reports'],
+    manager:   ['labor', 'reports'],
+  };
+  const pinnedNavIds = (pinnedTabIds ?? (PINNED_DEFAULTS[user?.userType] || []))
+    .filter(id => TABS.some(t => t.id === id));
+  const togglePinNav = (id) => {
+    setPinnedTabIds(prev => {
+      const base = prev ?? (PINNED_DEFAULTS[user?.userType] || []);
+      const next = base.includes(id) ? base.filter(x => x !== id) : [...base, id];
+      try { localStorage.setItem('pcg_sidebar_pinned', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  const toggleSidebarSection = (key) => {
+    setSidebarSectionsOpen(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem('pcg_sidebar_sections', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  // Split the 10 universal BASE_TABS into flat essentials + a "Workspace" group.
+  const ESSENTIAL_BASE_IDS = ['dashboard', 'chat', 'announcements', 'tickets'];
+  const WORKSPACE_BASE_IDS = ['calendar', 'todos', 'notes', 'contacts', 'links', 'kb'];
+  // Badge count for a tab (chat unread, reports unread, cash missing, announcements unread).
+  const navBadge = (t) => {
+    if (!t) return null;
+    if (t.id === "chat" && chatUnreadCount > 0) return chatUnreadCount;
+    if (t.id === "reports" && reportsUnreadCount > 0) return reportsUnreadCount;
+    if (t.id === "cash" && cashMissingCount > 0) return cashMissingCount;
+    if (t.id === "announcements" && user) {
+      const myDist = user.district ? Number(user.district) : null;
+      const unread = announcements.filter(a => {
+        if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
+        if (!a.targets) return true;
+        const { roles, districts } = a.targets;
+        if (roles?.includes(user.userType)) return true;
+        if (myDist && districts?.includes(myDist)) return true;
+        return false;
+      }).length;
+      if (unread > 0) return unread;
+    }
+    return null;
+  };
   // If the active tab just got hidden for this user's role, bounce to a visible one
   useEffect(() => {
     if (!user || !tab) return;
@@ -34089,12 +34154,13 @@ function PCGPortal() {
   const isConstruction = user?.userType === "construction";
 
   // ─── Reusable nav button — same shape for all sections, just different color ───
-  const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor }) => {
+  const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin }) => {
     const C = accent;
     const inactiveColor = th.muted;
     return (
       <button
         key={tabDef.id}
+        className="nav-row"
         onClick={onClick}
         title={collapsed ? tabDef.label : undefined}
         style={{
@@ -34146,6 +34212,24 @@ function PCGPortal() {
           {typeof tabDef.icon === "function" ? tabDef.icon(isActive ? C : inactiveColor) : tabDef.icon}
         </span>
         {!collapsed && <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tabDef.label}</span>}
+        {/* Pin / unpin toggle — appears on row hover, stays lit when pinned */}
+        {!collapsed && onTogglePin && (
+          <span
+            className={"nav-pin" + (pinned ? " pinned" : "")}
+            role="button"
+            title={pinned ? "Unpin from top" : "Pin to top"}
+            onClick={(e) => { e.stopPropagation(); onTogglePin(tabDef.id); }}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flexShrink: 0, marginLeft: 2, width: 18, height: 18, borderRadius: 5,
+              color: pinned ? C : th.muted,
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill={pinned ? C : "none"} stroke={pinned ? C : "currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" />
+            </svg>
+          </span>
+        )}
         {/* Number badge */}
         {badge != null && badge > 0 && (
           collapsed ? (
@@ -34177,14 +34261,20 @@ function PCGPortal() {
   };
 
   // ─── Section header divider with optional label ───
-  const SectionHeader = ({ label, accent, collapsed }) => {
+  const SectionHeader = ({ label, accent, collapsed, onToggle, open }) => {
     if (collapsed) return (
       <div style={{ height: 1, margin: "0.85rem 0.65rem", background: `linear-gradient(90deg, transparent, ${th.sidebarBorder}, transparent)` }} />
     );
+    const clickable = typeof onToggle === "function";
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0.5rem 0.55rem" }}>
+      <div
+        onClick={onToggle}
+        title={clickable ? (open ? "Collapse section" : "Expand section") : undefined}
+        style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0.5rem 0.55rem", cursor: clickable ? "pointer" : "default", userSelect: "none" }}
+      >
         <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` }} />
         <span style={{
+          display: "inline-flex", alignItems: "center", gap: "0.3rem",
           fontSize: "0.55rem", fontWeight: 800,
           color: accent, letterSpacing: 1.6, textTransform: "uppercase",
           padding: "0.15rem 0.5rem",
@@ -34194,7 +34284,16 @@ function PCGPortal() {
           borderRight: `1px solid ${accent}33`,
           borderBottom: `2px solid ${accent}66`,
           borderRadius: 999,
-        }}>{label}</span>
+        }}>
+          {label}
+          {clickable && (
+            <span style={{
+              fontSize: "0.45rem", opacity: 0.7,
+              transition: "transform 0.22s", display: "inline-block",
+              transform: open ? "rotate(90deg)" : "none",
+            }}>▶</span>
+          )}
+        </span>
         <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` }} />
       </div>
     );
@@ -34317,6 +34416,7 @@ function PCGPortal() {
               return (
                 <NavButton key={t.id} tabDef={t} accent={C} isActive={isActive} collapsed={false}
                   badge={badge} glow={glow} dotColor={C}
+                  pinned={pinnedNavIds.includes(t.id)} onTogglePin={togglePinNav}
                   onClick={() => { setTab(t.id); nav && nav(); }} />
               );
             })}
@@ -34503,36 +34603,66 @@ function PCGPortal() {
 
       {/* ─── Nav body ─────────────────────────────────────────────────── */}
       <div ref={navRef} onScroll={onNavScroll} style={{ padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
-        {/* Universal tabs — always visible (not managed by Admin · Access) */}
-        {BASE_TABS.map(t => {
-          const isActive = tab === t.id;
-          let badge = null;
-          if (t.id === "chat" && chatUnreadCount > 0) badge = chatUnreadCount;
-          if (t.id === "reports" && reportsUnreadCount > 0) badge = reportsUnreadCount;
-          if (t.id === "announcements") {
-            const myDist = user.district ? Number(user.district) : null;
-            const unread = announcements.filter(a => {
-              if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
-              if (!a.targets) return true;
-              const { roles, districts } = a.targets;
-              if (roles?.includes(user.userType)) return true;
-              if (myDist && districts?.includes(myDist)) return true;
-              return false;
-            }).length;
-            if (unread > 0) badge = unread;
-          }
+        {/* ── Pinned favorites — surfaced at the very top, user-customizable ── */}
+        {(() => {
+          const pinnedTabs = pinnedNavIds.map(id => TABS.find(t => t.id === id)).filter(Boolean);
+          if (pinnedTabs.length === 0) return null;
           return (
-            <NavButton
-              key={t.id}
-              tabDef={t}
-              accent={O}
-              isActive={isActive}
+            <>
+              <SectionHeader label="Pinned" accent={O} collapsed={collapsed} />
+              {pinnedTabs.map(t => {
+                const C = t.cash ? (cashMissingCount > 0 ? "#ef4444" : "#00d084") : (t.green ? "#00d084" : O);
+                return (
+                  <NavButton
+                    key={"pin_" + t.id}
+                    tabDef={t}
+                    accent={C}
+                    isActive={tab === t.id}
+                    collapsed={collapsed}
+                    badge={navBadge(t)}
+                    glow={t.green || t.cash}
+                    dotColor={C}
+                    pinned
+                    onTogglePin={togglePinNav}
+                    onClick={() => { setTab(t.id); onNav && onNav(); }}
+                  />
+                );
+              })}
+            </>
+          );
+        })()}
+
+        {/* ── Essential universal tabs (flat, always visible) ── */}
+        {BASE_TABS.filter(t => ESSENTIAL_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id)).map(t => (
+          <NavButton
+            key={t.id}
+            tabDef={t}
+            accent={O}
+            isActive={tab === t.id}
+            collapsed={collapsed}
+            badge={navBadge(t)}
+            onTogglePin={togglePinNav}
+            onClick={() => { setTab(t.id); onNav && onNav(); }}
+          />
+        ))}
+
+        {/* ── Workspace — utility universal tabs, grouped to save space ── */}
+        {(() => {
+          const wsTabs = BASE_TABS.filter(t => WORKSPACE_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          if (wsTabs.length === 0) return null;
+          const wsIcon = (c) => <Icon color={c} d={<><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></>} />;
+          return (
+            <AdminGroup
+              groupKey="workspace"
+              icon={wsIcon}
+              label="Workspace"
+              color="#94a3b8"
+              tabs={wsTabs}
               collapsed={collapsed}
-              badge={badge}
-              onClick={() => { setTab(t.id); onNav && onNav(); }}
+              onNav={onNav}
             />
           );
-        })}
+        })()}
 
         {/* DM section — grouped accordion */}
         {user?.userType === "dm" && (() => {
@@ -34542,11 +34672,14 @@ function PCGPortal() {
             { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['pulse','labor','pnl','analytics','anomalies'] },
             { key:'dm_biz',  label:'District',        color:'#74c0fc', icon:(c)=>ICONS.dollar(c),    ids:['cash','reports','projects','deals','scorecard'] },
           ];
+          const sectionHasActive = dmTabs.some(t => t.id === tab) && !pinnedNavIds.includes(tab);
+          const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_dm'] || sectionHasActive;
           return (
             <>
-              <SectionHeader label="My District" accent="#74c0fc" collapsed={collapsed} />
-              {DM_GROUPS.map(grp => {
-                const grpTabs = grp.ids.map(id => dmTabs.find(t => t.id === id)).filter(Boolean);
+              <SectionHeader label="My District" accent="#74c0fc" collapsed={collapsed}
+                open={sectionOpen} onToggle={() => toggleSidebarSection('sec_dm')} />
+              {sectionOpen && DM_GROUPS.map(grp => {
+                const grpTabs = grp.ids.map(id => dmTabs.find(t => t.id === id)).filter(t => t && !pinnedNavIds.includes(t.id));
                 if (grpTabs.length === 0) return null;
                 return (
                   <AdminGroup
@@ -34566,10 +34699,14 @@ function PCGPortal() {
         })()}
 
         {/* Manager section */}
-        {user?.userType === "manager" && (
+        {user?.userType === "manager" && (() => {
+          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_manager'] || secTabs.some(t => t.id === tab);
+          return (
           <>
-            <SectionHeader label="My Store" accent="#22c55e" collapsed={collapsed} />
-            {tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
+            <SectionHeader label="My Store" accent="#22c55e" collapsed={collapsed}
+              open={sectionOpen} onToggle={() => toggleSidebarSection('sec_manager')} />
+            {sectionOpen && secTabs.map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
@@ -34577,54 +34714,75 @@ function PCGPortal() {
                 isActive={tab === t.id}
                 collapsed={collapsed}
                 badge={t.id === "reports" && reportsUnreadCount > 0 ? reportsUnreadCount : null}
+                pinned={pinnedNavIds.includes(t.id)}
+                onTogglePin={togglePinNav}
                 onClick={() => { setTab(t.id); onNav && onNav(); }}
               />
             ))}
           </>
-        )}
+          );
+        })()}
 
         {/* Construction section */}
-        {user?.userType === "construction" && (
+        {user?.userType === "construction" && (() => {
+          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_construction'] || secTabs.some(t => t.id === tab);
+          return (
           <>
-            <SectionHeader label="Construction" accent="#fb923c" collapsed={collapsed} />
-            {tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
+            <SectionHeader label="Construction" accent="#fb923c" collapsed={collapsed}
+              open={sectionOpen} onToggle={() => toggleSidebarSection('sec_construction')} />
+            {sectionOpen && secTabs.map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
                 accent="#fb923c"
                 isActive={tab === t.id}
                 collapsed={collapsed}
+                pinned={pinnedNavIds.includes(t.id)}
+                onTogglePin={togglePinNav}
                 onClick={() => { setTab(t.id); onNav && onNav(); }}
               />
             ))}
           </>
-        )}
+          );
+        })()}
 
         {/* Maintenance section */}
-        {user?.userType === "maintenance" && (
+        {user?.userType === "maintenance" && (() => {
+          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_maintenance'] || secTabs.some(t => t.id === tab);
+          return (
           <>
-            <SectionHeader label="Maintenance" accent="#a78bfa" collapsed={collapsed} />
-            {tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
+            <SectionHeader label="Maintenance" accent="#a78bfa" collapsed={collapsed}
+              open={sectionOpen} onToggle={() => toggleSidebarSection('sec_maintenance')} />
+            {sectionOpen && secTabs.map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
                 accent="#a78bfa"
                 isActive={tab === t.id}
                 collapsed={collapsed}
+                pinned={pinnedNavIds.includes(t.id)}
+                onTogglePin={togglePinNav}
                 onClick={() => { setTab(t.id); onNav && onNav(); }}
               />
             ))}
           </>
-        )}
+          );
+        })()}
 
         {/* Admin / Operations section — grouped accordion */}
-        {(isFullAdmin(user) || user?.userType === "office_staff") && (
+        {(isFullAdmin(user) || user?.userType === "office_staff") && (() => {
+          const adminTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
+          const sectionHasActive = adminTabs.some(t => t.id === tab) && !pinnedNavIds.includes(tab);
+          const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_admin'] || sectionHasActive;
+          return (
           <>
-            <SectionHeader label={isFullAdmin(user) ? "Admin" : "Operations"} accent={O} collapsed={collapsed} />
-            {(() => {
-              const adminTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
+            <SectionHeader label={isFullAdmin(user) ? "Admin" : "Operations"} accent={O} collapsed={collapsed}
+              open={sectionOpen} onToggle={() => toggleSidebarSection('sec_admin')} />
+            {sectionOpen && (() => {
               return ADMIN_GROUPS.map(grp => {
-                const grpTabs = grp.ids.map(id => adminTabs.find(t => t.id === id)).filter(Boolean);
+                const grpTabs = grp.ids.map(id => adminTabs.find(t => t.id === id)).filter(t => t && !pinnedNavIds.includes(t.id));
                 if (grpTabs.length === 0) return null;
                 return (
                   <AdminGroup
@@ -34641,7 +34799,8 @@ function PCGPortal() {
               });
             })()}
           </>
-        )}
+          );
+        })()}
       </div>
 
       {/* ─── Footer: version + collapse toggle ──────────────────────────── */}
@@ -34661,7 +34820,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v15.21
+            {APP_VERSION}
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -35110,7 +35269,7 @@ function PCGPortal() {
           {tab === "expenses"  && isFullAdmin(user) && <ExpenseLogSection th={th} user={user} standalone />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
-          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version="v15.12" accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
