@@ -411,6 +411,53 @@
     const seen = /* @__PURE__ */ new Set();
     return picks.filter((s) => seen.has(s.pc) ? false : seen.add(s.pc));
   }
+  function isoToUtc(iso) {
+    const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null;
+  }
+  var utcToIso = (ms) => new Date(ms).toISOString().slice(0, 10);
+  var DAY_MS = 864e5;
+  function isoWeekStart(iso) {
+    const ms = isoToUtc(iso);
+    if (ms == null) return null;
+    return utcToIso(ms - new Date(ms).getUTCDay() * DAY_MS);
+  }
+  function beforeWindowWeeks(eventDate, weeksBefore) {
+    const start = isoWeekStart(eventDate);
+    if (!start || !(weeksBefore > 0)) return [];
+    const endMs = isoToUtc(start);
+    const out = [];
+    for (let i = weeksBefore - 1; i >= 0; i--) out.push(utcToIso(endMs - i * 7 * DAY_MS));
+    return out;
+  }
+  function weekDates(weekStartISO) {
+    const ms = isoToUtc(weekStartISO);
+    if (ms == null) return [];
+    return Array.from({ length: 7 }, (_, i) => utcToIso(ms + i * DAY_MS));
+  }
+  function dailyToWeekly(dailyRows) {
+    const byWeek = /* @__PURE__ */ new Map();
+    for (const r of dailyRows || []) {
+      const wk = r && isoWeekStart(r.busDt);
+      const sales = r ? Number(r.netSales) : NaN;
+      if (!wk || !Number.isFinite(sales)) continue;
+      const cur = byWeek.get(wk) || { weekOf: wk, sales: 0, days: 0 };
+      cur.sales += sales;
+      cur.days += 1;
+      byWeek.set(wk, cur);
+    }
+    return [...byWeek.values()].sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+  }
+  function mergeWeekly(...series) {
+    const byWeek = /* @__PURE__ */ new Map();
+    for (const s of series) {
+      for (const w of s || []) {
+        if (!w || !w.weekOf || !Number.isFinite(Number(w.sales))) continue;
+        if (!byWeek.has(w.weekOf)) byWeek.set(w.weekOf, { weekOf: w.weekOf, sales: Number(w.sales) });
+      }
+    }
+    return [...byWeek.values()].sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+  }
 
   // app.jsx
   var { useState, useRef, useCallback, useEffect } = React;
@@ -8182,14 +8229,14 @@ ${t2.slice(0, 300)}`);
       })();
     }, []);
     const WEATHER_ICONS2 = { clear: "\u2600\uFE0F", cloudy: "\u26C5", fog: "\u{1F32B}\uFE0F", rain: "\u{1F327}\uFE0F", snow: "\u2744\uFE0F", storm: "\u26C8\uFE0F" };
-    const weekDates = getWeekDates(busDt);
-    const wtdTotals = weekDates.filter((d) => dateCache[d]).reduce((a, d) => ({
+    const weekDates2 = getWeekDates(busDt);
+    const wtdTotals = weekDates2.filter((d) => dateCache[d]).reduce((a, d) => ({
       netSales: a.netSales + (dateCache[d]?.netSales || 0),
       guests: a.guests + (dateCache[d]?.guests || 0),
       voids: a.voids + (dateCache[d]?.voids || 0),
       discounts: a.discounts + (dateCache[d]?.discounts || 0)
     }), { netSales: 0, guests: 0, voids: 0, discounts: 0 });
-    const wtdLoaded = weekDates.filter((d) => dateCache[d]).length;
+    const wtdLoaded = weekDates2.filter((d) => dateCache[d]).length;
     const hasWTD = wtdLoaded > 0;
     const lyWeekDates = (() => {
       const dt = /* @__PURE__ */ new Date(busDt + "T12:00:00");
@@ -8210,7 +8257,7 @@ ${t2.slice(0, 300)}`);
     const weeklyForecastLY = lyWeekSales * 1.02;
     const hasLYWeek = lyDaysLoaded > 0;
     const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const trendData = weekDates.map((date, i) => ({
+    const trendData = weekDates2.map((date, i) => ({
       date: date.slice(5),
       dateKey: date,
       dayLabel: DAY_LABELS[i] || "",
@@ -15210,9 +15257,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           setTotals(dayTotals);
           setLoading(false);
         }
-        const weekDates = getWeekDates(todayStr);
+        const weekDates2 = getWeekDates(todayStr);
         const cache = { [todayStr]: dayTotals };
-        for (const date of weekDates) {
+        for (const date of weekDates2) {
           if (date === todayStr) continue;
           const dayRes = {};
           for (let i = 0; i < activePCs.length; i += 8) {
@@ -15232,14 +15279,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             discounts: a.discounts + d.data.discounts
           }), { netSales: 0, guests: 0, discounts: 0 });
         }
-        const wtd = weekDates.reduce((a, d) => ({
+        const wtd = weekDates2.reduce((a, d) => ({
           netSales: a.netSales + (cache[d]?.netSales || 0),
           guests: a.guests + (cache[d]?.guests || 0),
           discounts: a.discounts + (cache[d]?.discounts || 0)
         }), { netSales: 0, guests: 0, discounts: 0 });
         wtd.avgCheck = wtd.guests > 0 ? wtd.netSales / wtd.guests : 0;
         const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        const trend = weekDates.map((date, i) => ({
+        const trend = weekDates2.map((date, i) => ({
           date: date.slice(5),
           dayLabel: DAY_LABELS[i] || "",
           netSales: cache[date]?.netSales || 0,
@@ -18650,19 +18697,60 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const mapDiv = useRef(null);
     const mapRef = useRef(null);
     const [radiusMi, setRadiusMi] = useState(1);
+    const histCache = useRef(/* @__PURE__ */ new Map());
     async function compute() {
       if (!impactedPc) return;
       setBusy(true);
       setStatus("Loading sales history\u2026");
       const wa = weeksAfter === "" ? null : +weeksAfter || null;
       const cards = Array.isArray(salesWeeks) ? salesWeeks : [];
+      const backfillWeeksFromPulse = async (pc, weekStarts) => {
+        const cache = histCache.current;
+        const jobs = [];
+        for (const wk of weekStarts) for (const date of weekDates(wk)) {
+          const key = `${pc}:${date}`;
+          if (!cache.has(key)) jobs.push({ date, key });
+        }
+        let done = 0;
+        const total = jobs.length, CONC = 6;
+        let idx = 0;
+        const worker = async () => {
+          while (idx < jobs.length) {
+            const job = jobs[idx++];
+            try {
+              const ops = await fetchOpsTotals(pc, job.date);
+              const net = sumRVC(ops?.revenueCenters || []).netSales;
+              cache.set(job.key, Number.isFinite(net) ? net : null);
+            } catch {
+              cache.set(job.key, null);
+            }
+            done++;
+            if (done % 5 === 0 || done === total) setStatus(`Backfilling pre-event sales\u2026 ${done}/${total}`);
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(CONC, jobs.length) }, worker));
+        const daily = [];
+        for (const wk of weekStarts) for (const date of weekDates(wk)) {
+          const v = cache.get(`${pc}:${date}`);
+          if (Number.isFinite(v)) daily.push({ busDt: date, netSales: v });
+        }
+        return dailyToWeekly(daily).filter((w) => w.days === 7 && w.sales > 0).map((w) => ({ weekOf: w.weekOf, sales: w.sales }));
+      };
       const loadOne = async (pc) => {
         const blob = await cloudLoad(`pcg_labor_store_${pc}`);
         const laborWeekly = blob && blob.weekly || [];
         const cardWeekly = weeklyFromScorecard(cards, pc);
-        const useCard = cardWeekly.length > laborWeekly.length;
-        const weekly = useCard ? cardWeekly : laborWeekly;
-        const source = useCard ? "scorecard" : "labor";
+        let weekly = mergeWeekly(cardWeekly, laborWeekly);
+        let source = cardWeekly.length && laborWeekly.length ? "scorecard+labor" : cardWeekly.length ? "scorecard" : laborWeekly.length ? "labor" : "none";
+        const have = new Set(weekly.map((w) => w.weekOf));
+        const needWeeks = beforeWindowWeeks(eventDate, weeksBefore).filter((wk) => !have.has(wk));
+        if (needWeeks.length) {
+          const fetched = await backfillWeeksFromPulse(pc, needWeeks);
+          if (fetched.length) {
+            weekly = mergeWeekly(weekly, fetched);
+            source += "+pulse";
+          }
+        }
         const store = STORES_SEED.find((s) => s.pc === pc);
         const ba = beforeAfter(weekly, eventDate, weeksBefore, wa);
         const rankRow = ranked.find((r) => r.pc === pc);
@@ -22346,18 +22434,18 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const d = /* @__PURE__ */ new Date(date + "T12:00:00");
       const sun = new Date(d);
       sun.setDate(d.getDate() - d.getDay());
-      const weekDates = [];
+      const weekDates2 = [];
       for (let i = 0; i < 7; i++) {
         const dd = new Date(sun);
         dd.setDate(sun.getDate() + i);
         const ds = `${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, "0")}-${String(dd.getDate()).padStart(2, "0")}`;
-        if (ds <= today) weekDates.push(ds);
+        if (ds <= today) weekDates2.push(ds);
       }
       const sums = {};
       districtStores.forEach((s) => {
         sums[s.pc] = { netSales: 0, guests: 0, forecast: 0, voids: 0, voidCnt: 0, errCor: 0, discounts: 0, tax: 0 };
       });
-      for (const dayDate of weekDates) {
+      for (const dayDate of weekDates2) {
         const batchSize = 4;
         for (let i = 0; i < districtStores.length; i += batchSize) {
           await Promise.all(districtStores.slice(i, i + batchSize).map(async (s) => {
@@ -24235,17 +24323,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const dt = /* @__PURE__ */ new Date(todayStr + "T12:00:00");
       const sun = new Date(dt);
       sun.setDate(dt.getDate() - dt.getDay());
-      const weekDates = [];
+      const weekDates2 = [];
       for (let i = 0; i < 7; i++) {
         const d = new Date(sun);
         d.setDate(sun.getDate() + i);
-        weekDates.push(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"));
+        weekDates2.push(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"));
       }
       const now = /* @__PURE__ */ new Date(todayStr + "T12:00:00");
       let missing = 0;
       for (const store of visible) {
         const storeDeps = cashDeposits.filter((d) => d.pc === store.pc);
-        for (const bizDate of weekDates) {
+        for (const bizDate of weekDates2) {
           if (/* @__PURE__ */ new Date(bizDate + "T12:00:00") > now) continue;
           const bd = /* @__PURE__ */ new Date(bizDate + "T12:00:00");
           const next = new Date(bd);
@@ -25892,7 +25980,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.76", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.77", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

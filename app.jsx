@@ -5,7 +5,7 @@ import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, authHeader, clearSessionToken } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
-import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard } from './src/impact.mjs';
+import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -24563,22 +24563,58 @@ function ImpactRadar({ th, user, dark, salesWeeks }) {
   const mapDiv = useRef(null);
   const mapRef = useRef(null);
   const [radiusMi, setRadiusMi] = useState(1.0);
+  const histCache = useRef(new Map()); // `${pc}:${busDt}` → daily netSales | null, reused across Compute runs
 
   async function compute() {
     if (!impactedPc) return;
     setBusy(true); setStatus('Loading sales history…');
     const wa = weeksAfter === '' ? null : (+weeksAfter || null);
     const cards = Array.isArray(salesWeeks) ? salesWeeks : [];
+    // Pull any pre-event weeks missing from the cache straight from Pulse daily totals.
+    // Only complete (7-day) weeks with real sales are kept, so we never understate avgBefore.
+    const backfillWeeksFromPulse = async (pc, weekStarts) => {
+      const cache = histCache.current;
+      const jobs = [];
+      for (const wk of weekStarts) for (const date of weekDates(wk)) {
+        const key = `${pc}:${date}`;
+        if (!cache.has(key)) jobs.push({ date, key });
+      }
+      let done = 0; const total = jobs.length, CONC = 6; let idx = 0;
+      const worker = async () => {
+        while (idx < jobs.length) {
+          const job = jobs[idx++];
+          try {
+            const ops = await fetchOpsTotals(pc, job.date);
+            const net = sumRVC(ops?.revenueCenters || []).netSales;
+            cache.set(job.key, Number.isFinite(net) ? net : null);
+          } catch { cache.set(job.key, null); }
+          done++;
+          if (done % 5 === 0 || done === total) setStatus(`Backfilling pre-event sales… ${done}/${total}`);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONC, jobs.length) }, worker));
+      const daily = [];
+      for (const wk of weekStarts) for (const date of weekDates(wk)) {
+        const v = cache.get(`${pc}:${date}`);
+        if (Number.isFinite(v)) daily.push({ busDt: date, netSales: v });
+      }
+      return dailyToWeekly(daily).filter((w) => w.days === 7 && w.sales > 0).map((w) => ({ weekOf: w.weekOf, sales: w.sales }));
+    };
+
     const loadOne = async (pc) => {
       const blob = await cloudLoad(`pcg_labor_store_${pc}`);
       const laborWeekly = (blob && blob.weekly) || [];
       const cardWeekly = weeklyFromScorecard(cards, pc);
-      // Prefer whichever source carries more weeks of history. The uploaded weekly
-      // scorecard (pcg_sales_v1) usually goes back further than the labor blob, which
-      // labor-cron caps at ~13 weeks — so this lets the full claim window compute on live data.
-      const useCard = cardWeekly.length > laborWeekly.length;
-      const weekly = useCard ? cardWeekly : laborWeekly;
-      const source = useCard ? 'scorecard' : 'labor';
+      // Merge both cached sources (scorecard preferred on conflict) so neither is discarded.
+      let weekly = mergeWeekly(cardWeekly, laborWeekly);
+      let source = cardWeekly.length && laborWeekly.length ? 'scorecard+labor' : (cardWeekly.length ? 'scorecard' : (laborWeekly.length ? 'labor' : 'none'));
+      // Fill any gaps in the requested before-window from live Pulse data.
+      const have = new Set(weekly.map((w) => w.weekOf));
+      const needWeeks = beforeWindowWeeks(eventDate, weeksBefore).filter((wk) => !have.has(wk));
+      if (needWeeks.length) {
+        const fetched = await backfillWeeksFromPulse(pc, needWeeks);
+        if (fetched.length) { weekly = mergeWeekly(weekly, fetched); source += '+pulse'; }
+      }
       const store = STORES_SEED.find((s) => s.pc === pc);
       const ba = beforeAfter(weekly, eventDate, weeksBefore, wa);
       const rankRow = ranked.find((r) => r.pc === pc);
@@ -34176,7 +34212,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.76
+            v14.77
             <SyncStatus dark={dark} />
           </div>
         )}
