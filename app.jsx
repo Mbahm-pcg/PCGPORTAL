@@ -1,6 +1,6 @@
 
 import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
-import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard } from './src/theme.js';
+import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, authHeader, clearSessionToken } from './src/portal-auth.mjs';
@@ -324,7 +324,7 @@ const PROJECTS_SEED = [
 
 const EMPTY_PROJECT = {
   id: 0, priority: 0, pc: "", address: "", city: "", state: "", zip: "", district: null,
-  nickname: "", type: "Remodel", dueDate: "", completionDate: "", dunkinCompletionDate: "", notes: "", notifyEmails: "",
+  nickname: "", type: "Remodel", dueDate: "", startDate: "", completionDate: "", dunkinCompletionDate: "", notes: "", notifyEmails: "",
   // Zoning
   attorney: "", zoningClassification: false, zoningVarianceNeeded: false, zoningPermitFiled: false,
   zoningHearingDate: "", zoningApproved: false, zoningInfo: null,
@@ -3271,6 +3271,7 @@ function dmFirstName(districts, num) {
 }
 
 function StoreMap({ stores, th, setTab }) {
+  const O = '#FF671F';
   const [selectedStore,    setSelectedStore]    = React.useState(null);
   const [laborData,        setLaborData]        = React.useState(null);
   const [allTickets,       setAllTickets]       = React.useState([]);
@@ -3278,9 +3279,17 @@ function StoreMap({ stores, th, setTab }) {
   const [filterPerf,       setFilterPerf]       = React.useState(null);
   const [storeEmps,        setStoreEmps]        = React.useState(null);
   const [storeEmpsLoading, setStoreEmpsLoading] = React.useState(false);
+  const [teamExpanded,     setTeamExpanded]     = React.useState(false);
+  const [storeHourly,        setStoreHourly]        = React.useState(null);
+  const [storeHourlyLoading, setStoreHourlyLoading] = React.useState(false);
+  const [storeSched,         setStoreSched]         = React.useState(null);  // Paycor shifts for selected store (this week)
+  const [peerHourly,         setPeerHourly]         = React.useState(null);  // district mates' 7-day hourly histories
+  const [liveHeat,           setLiveHeat]           = React.useState({});   // pc → [24] sales by ET hour, today
+  const [heatLoading,        setHeatLoading]        = React.useState(true);
   const containerRef  = React.useRef(null);
   const mapRef        = React.useRef(null);
   const markersRef    = React.useRef([]);
+  const heatRef       = React.useRef([]);
   const tileRef       = React.useRef(null);
   const selectRef     = React.useRef(null);
   const tileSwapReady = React.useRef(false);
@@ -3300,6 +3309,7 @@ function StoreMap({ stores, th, setTab }) {
   React.useEffect(() => {
     if (!selectedStore) { setStoreEmps(null); return; }
     setStoreEmps(null);
+    setTeamExpanded(false);
     setStoreEmpsLoading(true);
     const todayStr = new Date().toISOString().slice(0, 10);
     cloudLoad(`pcg_labor_store_${selectedStore.pc}`).then(d => {
@@ -3310,6 +3320,182 @@ function StoreMap({ stores, th, setTab }) {
       setStoreEmpsLoading(false);
     }).catch(() => { setStoreEmps([]); setStoreEmpsLoading(false); });
   }, [selectedStore?.pc]);
+
+  // Live heat clouds — today's sales by hour, fetched from Pulse POS per store,
+  // refreshed every 15 minutes while the map is open
+  React.useEffect(() => {
+    let cancelled = false;
+    const fetchLiveHeat = async () => {
+      const now = new Date();
+      const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const today = `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, '0')}-${String(et.getDate()).padStart(2, '0')}`;
+      const pcs = stores.filter(s => s.status === 'Open').map(s => String(s.pc));
+      const BATCH = 6;
+      for (let i = 0; i < pcs.length; i += BATCH) {
+        if (cancelled) return;
+        const results = {};
+        await Promise.all(pcs.slice(i, i + BATCH).map(async pc => {
+          try {
+            const res = await fetch('/.netlify/functions/pulse', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ api: pc === '345986' ? 'p227' : 'p228', endpoint: 'getGuestChecks', locRef: pc, busDt: today, include: 'guestChecks.opnUTC,guestChecks.chkTtl' }),
+            });
+            if (!res.ok) return;
+            const j = await res.json();
+            const hours = Array(24).fill(0);
+            for (const c of (j.guestChecks || [])) {
+              const raw = c.opnUTC || '';
+              if (!raw) continue;
+              const dt = new Date(raw.endsWith('Z') ? raw : raw + 'Z');
+              if (isNaN(dt.getTime())) continue;
+              const h = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', hour12: false }).format(dt), 10) % 24;
+              hours[h] += c.chkTtl || 0;
+            }
+            results[pc] = hours;
+          } catch {}
+        }));
+        if (cancelled) return;
+        setLiveHeat(prev => ({ ...prev, ...results })); // progressive — clouds appear as batches land
+      }
+      if (!cancelled) setHeatLoading(false);
+    };
+    fetchLiveHeat();
+    const id = setInterval(fetchLiveHeat, 15 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [stores]);
+
+  // Load hourly sales history when a pin is selected (for daypart heatmap)
+  React.useEffect(() => {
+    if (!selectedStore) { setStoreHourly(null); return; }
+    setStoreHourly(null);
+    setStoreHourlyLoading(true);
+    cloudLoad(`pcg_hourly_history_${selectedStore.pc}`).then(d => {
+      setStoreHourly(Array.isArray(d) ? d.slice(0, 7) : []);
+      setStoreHourlyLoading(false);
+    }).catch(() => { setStoreHourly([]); setStoreHourlyLoading(false); });
+  }, [selectedStore?.pc]);
+
+  // Load this week's Paycor schedule (staffing overlay) + district peers' hourly histories (dead-zone comparison)
+  React.useEffect(() => {
+    if (!selectedStore) { setStoreSched(null); setPeerHourly(null); return; }
+    setStoreSched(null);
+    setPeerHourly(null);
+    cloudLoad(`pcg_schedule_${selectedStore.pc}`).then(d => setStoreSched(d?.shifts || [])).catch(() => setStoreSched([]));
+    const mates = stores.filter(s => s.district === selectedStore.district && s.pc !== selectedStore.pc && s.status === 'Open').slice(0, 8);
+    Promise.all(mates.map(m =>
+      cloudLoad(`pcg_hourly_history_${m.pc}`).then(d => (Array.isArray(d) && d.length ? d.slice(0, 7) : null)).catch(() => null)
+    )).then(all => setPeerHourly(all.filter(Boolean)));
+  }, [selectedStore?.pc]);
+
+  // Build a 7-day x hour grid of sales for the daypart heatmap
+  const hourLabel = h => h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
+  const heatmap = React.useMemo(() => {
+    if (!storeHourly || storeHourly.length === 0) return null;
+    // Only span hours that actually saw sales across the week (trim dead early/late columns)
+    const sums = {};
+    storeHourly.forEach(d => (d.hours || []).forEach(h => { sums[h.h] = (sums[h.h] || 0) + (h.sales || 0); }));
+    const active = Object.keys(sums).map(Number).filter(h => sums[h] > 0);
+    if (!active.length) return null;
+    const minH = Math.min(...active), maxH = Math.max(...active);
+    const hours = [];
+    for (let h = minH; h <= maxH; h++) hours.push(h);
+    let max = 0;
+    const days = storeHourly.map(d => {
+      const byHour = {};
+      (d.hours || []).forEach(h => { byHour[h.h] = h.sales || 0; if ((h.sales || 0) > max) max = h.sales; });
+      const values = hours.map(h => byHour[h] ?? 0);
+      return { date: d.date, values, total: values.reduce((a, b) => a + b, 0) };
+    }).reverse(); // oldest → newest, top to bottom
+    let peakHour = hours[0];
+    hours.forEach(h => { if ((sums[h] || 0) > (sums[peakHour] || 0)) peakHour = h; });
+    return { hours, days, max, peakHour };
+  }, [storeHourly]);
+
+  // Staffing-fit thresholds — sales per scheduled labor hour
+  const SPLH_OVER = 35, SPLH_UNDER = 110;
+
+  // Staffing fit — the schedule blob covers the CURRENT week (today forward), while the sales
+  // heatmap is the PAST 7 days. So compare the upcoming schedule against typical traffic for
+  // that weekday/hour, flagging mismatches before the shift happens.
+  const schedFit = React.useMemo(() => {
+    if (!storeSched?.length || !storeHourly?.length || !heatmap) return null;
+    // Expected sales per hour, by weekday, from the 7-day history (fallback: all-day average)
+    const byDow = {};
+    const avg = Array(24).fill(0);
+    let nDays = 0;
+    storeHourly.forEach(d => {
+      if (!d.date) return;
+      const a = Array(24).fill(0);
+      (d.hours || []).forEach(h => { a[h.h] = h.sales || 0; });
+      byDow[new Date(d.date + 'T12:00:00').getDay()] = a;
+      a.forEach((v, h) => { avg[h] += v; });
+      nDays++;
+    });
+    if (!nDays) return null;
+    for (let h = 0; h < 24; h++) avg[h] /= nDays;
+    const now = new Date();
+    const tStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const dates = [...new Set(storeSched.map(s => s.date).filter(d => d && d >= tStr))].sort().slice(0, 7);
+    if (!dates.length) return null;
+    const hours = heatmap.hours;
+    const rows = dates.map(date => {
+      const exp = byDow[new Date(date + 'T12:00:00').getDay()] || avg;
+      const heads = hours.map(() => 0);
+      storeSched.forEach(sh => {
+        if (sh.date !== date || !sh.startDateTime || !sh.endDateTime) return;
+        const st = new Date(sh.startDateTime), en = new Date(sh.endDateTime);
+        if (isNaN(st.getTime()) || isNaN(en.getTime()) || en <= st) return;
+        const sH = st.getHours() + st.getMinutes() / 60;
+        const eH = en.getHours() + en.getMinutes() / 60 + (en.getDate() !== st.getDate() ? 24 : 0);
+        hours.forEach((h, i) => { if (sH <= h + 0.5 && h + 0.5 < eH) heads[i]++; });
+      });
+      const cells = hours.map((h, i) => {
+        const n = heads[i], expSales = exp[h] || 0;
+        let fit = 'ok';
+        if (n === 0) fit = expSales > 50 ? 'under' : 'off';
+        else {
+          const splh = expSales / n;
+          if (n >= 2 && splh < SPLH_OVER) fit = 'over';
+          else if (splh > SPLH_UNDER) fit = 'under';
+        }
+        return { n, exp: expSales, fit };
+      });
+      return { date, isToday: date === tStr, cells };
+    });
+    return { hours, rows };
+  }, [storeSched, storeHourly, heatmap]);
+
+  // Dead-zone detection: this store's share of daily sales per daypart vs district peers (7-day)
+  const deadZone = React.useMemo(() => {
+    if (!storeHourly?.length || !peerHourly?.length) return null;
+    const DAYPARTS = [
+      { label: '5–8a',   hs: [5, 6, 7] },
+      { label: '8–11a',  hs: [8, 9, 10] },
+      { label: '11a–2p', hs: [11, 12, 13] },
+      { label: '2–5p',   hs: [14, 15, 16] },
+      { label: '5–9p',   hs: [17, 18, 19, 20] },
+    ];
+    const sumHours = days => { const a = Array(24).fill(0); days.forEach(d => (d.hours || []).forEach(h => { a[h.h] += h.sales || 0; })); return a; };
+    const mine = sumHours(storeHourly);
+    const myTotal = mine.reduce((x, y) => x + y, 0);
+    if (myTotal <= 0) return null;
+    const peerShare = Array(24).fill(0);
+    let peers = 0;
+    peerHourly.forEach(hist => {
+      const a = sumHours(hist);
+      const t = a.reduce((x, y) => x + y, 0);
+      if (t > 0) { a.forEach((v, h) => { peerShare[h] += v / t; }); peers++; }
+    });
+    if (!peers) return null;
+    let worst = null;
+    for (const dp of DAYPARTS) {
+      const mineShare = dp.hs.reduce((x, h) => x + mine[h], 0) / myTotal * 100;
+      const theirs = dp.hs.reduce((x, h) => x + peerShare[h], 0) / peers * 100;
+      const gap = mineShare - theirs;
+      if (!worst || gap < worst.gap) worst = { label: dp.label, mine: mineShare, peers: theirs, gap };
+    }
+    return { ...worst, peerCount: peers };
+  }, [storeHourly, peerHourly]);
 
   // Ticket counts for pin alert dots (derived from allTickets)
   const ticketCounts = React.useMemo(() => {
@@ -3361,6 +3547,11 @@ function StoreMap({ stores, th, setTab }) {
     if (!L || !mapRef.current) return;
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
+    heatRef.current.forEach(m => m.remove());
+    heatRef.current = [];
+    // Current ET hour for the live heat clouds
+    const etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const curHr = etNow.getHours(), curMin = etNow.getMinutes();
     stores.forEach(s => {
       const c = STORE_COORDS[s.pc];
       if (!c) return;
@@ -3370,6 +3561,29 @@ function StoreMap({ stores, th, setTab }) {
         if (filterPerf === 'green'  && !(lPct !== null && lPct < 23)) return;
         if (filterPerf === 'yellow' && !(lPct !== null && lPct >= 23 && lPct < 26)) return;
         if (filterPerf === 'red'    && !(lPct !== null && lPct >= 26)) return;
+      }
+      // Live heat cloud — this hour's sales vs the store's own peak hour today
+      const heatHours = liveHeat[String(s.pc)];
+      if (heatHours && s.status === 'Open') {
+        const useHr = (curMin < 15 && curHr > 0) ? curHr - 1 : curHr;   // first 15 min → show last full hour
+        let raw = heatHours[useHr] || 0;
+        if (useHr === curHr && curMin >= 15) raw = raw / (curMin / 60); // prorate the partial hour
+        const peak = Math.max(...heatHours);
+        const intensity = peak > 0 ? Math.min(raw / peak, 1) : 0;
+        // Uber-surge style tiers: red = slammed, orange = steady, grey = dead
+        let rgb, a1, a2, size;
+        if (intensity >= 0.65) {
+          rgb = '239,68,68';    a1 = 0.55; a2 = 0.26; size = Math.round(80 + intensity * 30);  // red surge
+        } else if (intensity >= 0.3) {
+          rgb = '255,103,31';   a1 = 0.42; a2 = 0.18; size = Math.round(64 + intensity * 30);  // orange steady
+        } else {
+          rgb = '148,163,184';  a1 = 0.30; a2 = 0.12; size = 52;                               // grey dead/slow
+        }
+        const pulse = intensity >= 0.3 ? `animation:heatCloudPulse 3.4s ease-in-out infinite;` : '';
+        const cloudHtml = `<div style="width:${size}px;height:${size}px;border-radius:50%;pointer-events:none;background:radial-gradient(circle, rgba(${rgb},${a1}) 0%, rgba(${rgb},${a2}) 45%, rgba(${rgb},0) 72%);${pulse}"></div>`;
+        const cloudIcon = L.divIcon({ className: '', html: cloudHtml, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+        const cloud = L.marker([c.lat, c.lng], { icon: cloudIcon, interactive: false, keyboard: false, zIndexOffset: -1000 }).addTo(mapRef.current);
+        heatRef.current.push(cloud);
       }
       let color;
       if (s.status !== 'Open' && s.status !== 'Remodel') {
@@ -3397,7 +3611,7 @@ function StoreMap({ stores, th, setTab }) {
         });
       markersRef.current.push(marker);
     });
-  }, [stores, ticketCounts, laborData, filterPerf]);
+  }, [stores, ticketCounts, laborData, filterPerf, liveHeat]);
 
 
   // Style zoom controls to match theme
@@ -3409,6 +3623,7 @@ function StoreMap({ stores, th, setTab }) {
       .leaflet-bar { border: 1px solid ${th.cardBorder} !important; box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important; border-radius: 0.5rem !important; overflow: hidden; }
       .leaflet-control-zoom-in, .leaflet-control-zoom-out { background: ${th.card} !important; color: ${th.text} !important; border-bottom: 1px solid ${th.cardBorder} !important; }
       .leaflet-control-zoom-in:hover, .leaflet-control-zoom-out:hover { background: ${th.card2} !important; color: #FF671F !important; }
+      @keyframes heatCloudPulse { 0%, 100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.12); opacity: 1; } }
     `;
   }, [th.dark]);
 
@@ -3463,6 +3678,20 @@ function StoreMap({ stores, th, setTab }) {
         {filterPerf && (
           <button onClick={() => setFilterPerf(null)} style={{ fontSize:'0.68rem', color:th.muted, background:'none', border:`1px solid ${th.cardBorder}`, borderRadius:'2rem', padding:'0.22rem 0.65rem', cursor:'pointer', fontFamily:"'Source Sans 3'" }}>✕ Show all</button>
         )}
+        <span style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:'0.55rem', fontSize:'0.68rem', color:th.muted, fontFamily:"'Source Sans 3'" }}>
+          {heatLoading ? 'loading live heat…' : <>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
+              <span style={{ width:15, height:15, borderRadius:'50%', flexShrink:0, background:'radial-gradient(circle, rgba(239,68,68,0.8) 0%, rgba(239,68,68,0.35) 45%, rgba(239,68,68,0) 72%)' }} />Busy
+            </span>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
+              <span style={{ width:15, height:15, borderRadius:'50%', flexShrink:0, background:'radial-gradient(circle, rgba(255,103,31,0.7) 0%, rgba(255,103,31,0.3) 45%, rgba(255,103,31,0) 72%)' }} />Steady
+            </span>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
+              <span style={{ width:15, height:15, borderRadius:'50%', flexShrink:0, background:'radial-gradient(circle, rgba(148,163,184,0.6) 0%, rgba(148,163,184,0.25) 45%, rgba(148,163,184,0) 72%)' }} />Slow
+            </span>
+            <span style={{ opacity:0.75 }}>· this hour, live</span>
+          </>}
+        </span>
       </div>
 
       {/* ── Map + detail panel row ── */}
@@ -3536,29 +3765,138 @@ function StoreMap({ stores, th, setTab }) {
                 {storeEmpsLoading && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>Fetching team data…</div>}
                 {storeEmps && storeEmps.length===0 && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>No data available for today</div>}
                 {storeEmps && storeEmps.length>0 && (
-                  <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
-                    {storeEmps.map((e, i) => {
+                  <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                    {(teamExpanded ? storeEmps : storeEmps.slice(0, 5)).map((e, i) => {
                       const eName = typeof e.name === 'string' ? e.name : 'Unknown';
                       const eRole = typeof e.role === 'string' ? e.role : 'Crew';
                       const eHours = typeof e.hoursToday === 'number' ? e.hoursToday.toFixed(1)+'h' : '—';
                       const initials = eName.split(' ').map(n=>n[0]||'').join('').slice(0,2).toUpperCase() || '?';
                       return (
-                        <div key={i} style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.35rem 0.5rem', borderRadius:'0.5rem', background:th.card2 }}>
-                          <div style={{ width:30, height:30, borderRadius:'50%', background:'#FF671F22', color:'#FF671F', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:'0.6rem', flexShrink:0 }}>{initials}</div>
-                          <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontSize:'0.78rem', color:th.text, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{eName}</div>
-                            <div style={{ fontSize:'0.64rem', color:th.muted }}>{eRole}</div>
-                          </div>
-                          <div style={{ textAlign:'right', flexShrink:0 }}>
-                            <div style={{ fontSize:'0.75rem', fontWeight:600, color:th.text }}>{eHours}</div>
-                            {e.overtime==='ot' && <span style={{ fontSize:'0.55rem', color:'#ef4444', fontWeight:700 }}>OT</span>}
-                            {e.overtime==='approaching' && <span style={{ fontSize:'0.55rem', color:'#f59e0b', fontWeight:700 }}>~OT</span>}
-                          </div>
+                        <div key={i} style={{ display:'flex', alignItems:'center', gap:'0.45rem', padding:'0.2rem 0.4rem', borderRadius:'0.4rem', background:th.card2 }}>
+                          <div style={{ width:20, height:20, borderRadius:'50%', background:'#FF671F22', color:'#FF671F', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:'0.52rem', flexShrink:0 }}>{initials}</div>
+                          <span style={{ flex:1, minWidth:0, fontSize:'0.74rem', color:th.text, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                            {eName} <span style={{ color:th.muted, fontWeight:400, fontSize:'0.62rem' }}>· {eRole}</span>
+                          </span>
+                          {e.overtime==='ot' && <span style={{ fontSize:'0.52rem', color:'#ef4444', fontWeight:700, flexShrink:0 }}>OT</span>}
+                          {e.overtime==='approaching' && <span style={{ fontSize:'0.52rem', color:'#f59e0b', fontWeight:700, flexShrink:0 }}>~OT</span>}
+                          <span style={{ fontSize:'0.7rem', fontWeight:600, color:th.text, flexShrink:0 }}>{eHours}</span>
                         </div>
                       );
                     })}
+                    {storeEmps.length > 5 && (
+                      <button onClick={() => setTeamExpanded(x => !x)}
+                        style={{ background:'none', border:'none', color:th.muted, fontSize:'0.66rem', fontWeight:600, cursor:'pointer', padding:'0.25rem 0', fontFamily:"'Source Sans 3'" }}>
+                        {teamExpanded ? '▲ Show less' : `▼ Show all ${storeEmps.length}`}
+                      </button>
+                    )}
                   </div>
                 )}
+              </div>
+
+              {/* Daypart Heatmap */}
+              <div style={{ padding:'0.875rem 1.25rem', borderBottom:`1px solid ${th.cardBorder}` }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:'0.65rem' }}>
+                  <span style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.8rem', color:th.text }}>Hourly Traffic</span>
+                  <span style={{ fontSize:'0.62rem', color:th.muted }}>
+                    last 7 days{heatmap ? <> · peak <span style={{ color:O, fontWeight:700 }}>{hourLabel(heatmap.peakHour)}</span></> : ''}
+                  </span>
+                </div>
+                {storeHourlyLoading && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>Loading…</div>}
+                {storeHourly && storeHourly.length === 0 && <div style={{ fontSize:'0.78rem', color:th.muted, fontStyle:'italic' }}>No history available yet</div>}
+                {heatmap && (() => {
+                  // Quantized 5-step scale (GitHub-style) — calmer than a continuous gradient
+                  const cellColor = v => {
+                    const t = heatmap.max > 0 ? v / heatmap.max : 0;
+                    if (t <= 0) return th.card2;
+                    const alpha = t <= 0.15 ? '26' : t <= 0.35 ? '59' : t <= 0.6 ? '8c' : t <= 0.85 ? 'bf' : 'ff';
+                    return `${O}${alpha}`;
+                  };
+                  const fmtTotal = t => t >= 1000 ? `$${(t / 1000).toFixed(1)}k` : `$${Math.round(t)}`;
+                  const cols = `32px repeat(${heatmap.hours.length}, 1fr) 42px`;
+                  const lastIdx = heatmap.days.length - 1;
+                  return (
+                    <div>
+                      {/* Hour labels — every 3 hours */}
+                      <div style={{ display:'grid', gridTemplateColumns:cols, gap:3, marginBottom:3 }}>
+                        <span />
+                        {heatmap.hours.map(h => (
+                          <span key={h} style={{ fontSize:'0.56rem', color:th.muted, textAlign:'center', whiteSpace:'nowrap' }}>
+                            {h % 3 === 0 ? hourLabel(h) : ''}
+                          </span>
+                        ))}
+                        <span />
+                      </div>
+                      {/* Day rows — weekday | cells | day total */}
+                      {heatmap.days.map((d, di) => (
+                        <div key={d.date} style={{ display:'grid', gridTemplateColumns:cols, gap:3, alignItems:'center', marginBottom:3 }}>
+                          <span style={{ fontSize:'0.6rem', fontWeight: di === lastIdx ? 700 : 500, color: di === lastIdx ? th.text : th.muted }}>
+                            {new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
+                          </span>
+                          {d.values.map((v, i) => (
+                            <div key={i} title={`${hourLabel(heatmap.hours[i])} — ${fmtDollars(v)}`}
+                              style={{ height:16, borderRadius:4, background:cellColor(v) }} />
+                          ))}
+                          <span style={{ fontSize:'0.58rem', color:th.muted, textAlign:'right', whiteSpace:'nowrap' }}>{fmtTotal(d.total)}</span>
+                        </div>
+                      ))}
+                      {/* Dead-zone insight vs district peers */}
+                      {deadZone && (deadZone.gap < -2.5 ? (
+                        <div style={{ display:'flex', alignItems:'flex-start', gap:'0.4rem', marginTop:'0.55rem', padding:'0.4rem 0.6rem', borderRadius:'0.5rem', background:'#ef444412', border:'1px solid #ef444433', fontSize:'0.66rem', color:th.text, lineHeight:1.45 }}>
+                          <span style={{ flexShrink:0 }}>⚠️</span>
+                          <span><strong>Dead zone {deadZone.label}</strong> — {deadZone.mine.toFixed(1)}% of daily sales vs {deadZone.peers.toFixed(1)}% for {deadZone.peerCount} district peers. Market issue or ops issue?</span>
+                        </div>
+                      ) : (
+                        <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginTop:'0.55rem', fontSize:'0.64rem', color:'#22c55e' }}>
+                          ✓ Daypart mix tracks district peers
+                        </div>
+                      ))}
+                      {/* Legend */}
+                      <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', gap:4, marginTop:'0.5rem', fontSize:'0.58rem', color:th.muted }}>
+                        <span>Less</span>
+                        {['26', '59', '8c', 'bf', 'ff'].map(a => (
+                          <div key={a} style={{ width:11, height:11, borderRadius:3, background:`${O}${a}` }} />
+                        ))}
+                        <span style={{ marginRight:2 }}>More</span>
+                      </div>
+
+                      {/* ── Staffing Fit — upcoming schedule vs typical traffic ── */}
+                      {schedFit && (
+                        <div style={{ marginTop:'0.85rem', paddingTop:'0.75rem', borderTop:`1px solid ${th.cardBorder}` }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:'0.45rem' }}>
+                            <span style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.74rem', color:th.text }}>Staffing Fit</span>
+                            <span style={{ fontSize:'0.58rem', color:th.muted }}>scheduled heads vs typical traffic</span>
+                          </div>
+                          {schedFit.rows.map(r => (
+                            <div key={r.date} style={{ display:'grid', gridTemplateColumns:cols, gap:3, alignItems:'center', marginBottom:3 }}>
+                              <span style={{ fontSize:'0.6rem', fontWeight: r.isToday ? 700 : 500, color: r.isToday ? th.text : th.muted }}>
+                                {new Date(r.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
+                              </span>
+                              {r.cells.map((cell, i) => {
+                                const c = cell.fit === 'over' ? '#ef4444' : cell.fit === 'under' ? '#f59e0b' : null;
+                                let tip = `${hourLabel(schedFit.hours[i])} — ${cell.n} scheduled · typical ${fmtDollars(cell.exp)}`;
+                                if (cell.fit === 'over') tip += ' · OVERSTAFFED';
+                                if (cell.fit === 'under') tip += cell.n === 0 ? ' · NO COVERAGE' : ' · UNDERSTAFFED';
+                                return (
+                                  <div key={i} title={tip}
+                                    style={{ height:16, borderRadius:4, display:'flex', alignItems:'center', justifyContent:'center',
+                                      background: c ? `${c}22` : th.card2,
+                                      color: c || th.muted, fontSize:'0.55rem', fontWeight:700 }}>
+                                    {cell.fit === 'off' ? '' : cell.n}
+                                  </div>
+                                );
+                              })}
+                              <span />
+                            </div>
+                          ))}
+                          <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', gap:'0.6rem', marginTop:'0.4rem', fontSize:'0.58rem', color:th.muted }}>
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:3 }}><span style={{ width:11, height:11, borderRadius:3, background:'#ef444422', border:'1px solid #ef444455' }} /> overstaffed</span>
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:3 }}><span style={{ width:11, height:11, borderRadius:3, background:'#f59e0b22', border:'1px solid #f59e0b55' }} /> understaffed</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Open Tickets */}
@@ -5308,8 +5646,8 @@ function AdminAnalytics({ stores, users, districts, th, salesWeeks, setSalesWeek
     </span>
   );
 
-  const thS = { padding: '0.4rem 0.5rem', color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, fontSize: '0.72rem', whiteSpace: 'nowrap' };
-  const tdS = { padding: '0.45rem 0.5rem' };
+  const thS = thCell(th, { padding: '0.4rem 0.5rem' });
+  const tdS = tdCell(th, { padding: '0.45rem 0.5rem' });
 
   return (
     <div className="fade-in">
@@ -6579,7 +6917,7 @@ function TrendChart({ data, G, th, onBarClick }) {
 }
 
 // ─── Store Detail Component ──────────────────────────────────────────────────
-function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
+function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user }) {
   const s = stores.find(st => st.pc === pc);
 
   const fmtUSD = v => '$' + Math.round(v).toLocaleString();
@@ -6638,6 +6976,13 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
   const [txnMenuMap, setTxnMenuMap] = React.useState(null);
   const [dtSchedule, setDtSchedule] = React.useState(null);
   const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
+  const [upsellHistory, setUpsellHistory] = React.useState(null);
+
+  // Most recent upsell-rate entry on or before localDate
+  const upsellEntry = React.useMemo(() => {
+    if (!Array.isArray(upsellHistory)) return null;
+    return upsellHistory.find(e => e.date <= localDate && typeof e.upsellRate === 'number') || null;
+  }, [upsellHistory, localDate]);
 
   React.useEffect(() => {
     if (storeTab !== 'driveThru') return;
@@ -6650,6 +6995,15 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
       try {
         const res = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: `pcg_reviews_${pc}` }) });
         if (res.ok) { const j = await res.json(); setStoreReviews(j.data || j); }
+      } catch {}
+    })();
+  }, [pc]);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: `pcg_hourly_history_${pc}` }) });
+        if (res.ok) { const j = await res.json(); setUpsellHistory(Array.isArray(j.data) ? j.data : []); }
       } catch {}
     })();
   }, [pc]);
@@ -7074,6 +7428,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
             { label:'Err Cor',   value: fmtUSD(d.errCor),    color: '#868e96' },
             { label: viewMode==='week'?'Wk Total':'WTD', value: weekTotals ? fmtUSD(viewMode==='week'?weekTotals.wtdSales:wtdTotalSales) : '—', color: '#4dabf7', sub: weekTotals?(viewMode==='week'?weekTotals.daysLoaded+'d':(weekTotals.daysLoaded+1)+'d'):null },
             { label:'Forecast', value: weeklyForecast>0 ? fmtUSD(weeklyForecast) : (weekTotals?'—':'…'), color: '#cc5de8', sub: weekTotals?.lyWeekSales>0?'LY+2%':null },
+            ...(upsellEntry ? [{ label:'Upsell Rate', value: upsellEntry.upsellRate.toFixed(1)+'%', color: '#22d3ee', sub: upsellEntry.date }] : []),
           ].map(k => (
             <div key={k.label} style={{ display:'flex', flexDirection:'column', alignItems:'center', background: k.color+'12', border:`1px solid ${k.color}30`, borderRadius:'999px', padding:'0.28rem 0.75rem', minWidth:64 }}>
               <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.8rem', color:k.color, lineHeight:1.1, whiteSpace:'nowrap' }}>{k.value}</span>
@@ -7086,8 +7441,8 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
 
 
       {/* ── Tab Navigation ── */}
-      <div style={{ display:'flex', marginBottom:'1.25rem', background:th.card, borderRadius:'0.75rem', border:`1px solid ${th.cardBorder}`, overflow:'hidden' }}>
-        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t,i,arr) => (
+      <div style={{ display:'flex', alignItems:'center', gap:'0.3rem', marginBottom:'1.25rem', background:th.card, borderRadius:'999px', border:`1px solid ${th.cardBorder}`, padding:'0.3rem' }}>
+        {[{id:'sales',label:'📊 Sales'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
           <button key={t.id} onClick={() => {
               setStoreTab(t.id);
               if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
@@ -7095,7 +7450,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
               if(t.id==='driveThru' && !dtSchedule){ cloudLoad(`pcg_schedule_${pc}`).then(d => setDtSchedule(d?.shifts || [])).catch(() => setDtSchedule([])); }
               if(t.id==='foodcost' && !foodCostT && !foodCostLoading){ setFoodCostLoading(true); fetch('/.netlify/functions/food-cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'store',pc,date:localDate})}).then(r=>r.ok?r.json():null).then(j=>{if(j)setFoodCostT(j);}).catch(()=>{}).finally(()=>setFoodCostLoading(false)); }
             }}
-            style={{ flex:1, padding:'0.7rem 0.5rem', border:'none', borderRight:i<arr.length-1?`1px solid ${th.cardBorder}`:'none', background:storeTab===t.id?O+'18':'transparent', color:storeTab===t.id?O:th.muted, fontWeight:storeTab===t.id?700:400, fontSize:'0.78rem', cursor:'pointer', transition:'all .15s', borderBottom:storeTab===t.id?`2px solid ${O}`:'2px solid transparent', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
+            style={{ flex:1, padding:'0.6rem 0.5rem', border:'none', borderRadius:'999px', background:storeTab===t.id?O:'transparent', color:storeTab===t.id?'#fff':th.muted, fontWeight:storeTab===t.id?800:500, fontSize:'0.78rem', cursor:'pointer', transition:'all .15s', boxShadow:storeTab===t.id?`0 2px 10px ${O}55`:'none', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
         ))}
       </div>
 
@@ -7919,7 +8274,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
           const f = txnFilters;
           if (f.otCat !== 'all' && otCat(chk.otNum) !== f.otCat) return false;
           if (f.voids && !(chk.vdTtl && Math.abs(chk.vdTtl) > 0)) return false;
-          if (f.refunds && !((chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
+          if (f.refunds && !(Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
           if (f.discounts && !(chk.dscTtl && Math.abs(chk.dscTtl) > 0)) return false;
           if (f.timeStart) {
             const chkT = toETHHMM(chk.opnUTC || '');
@@ -8005,7 +8360,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
                       const t = chk.opnUTC ? toET(chk.opnUTC) : '--';
                       const hasDisc = Math.abs(chk.dscTtl || 0) > 0;
                       const hasVoid = Math.abs(chk.vdTtl || 0) > 0;
-                      const hasRefund = (chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0;
+                      const hasRefund = Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0;
                       const otName = txnOTMap[chk.otNum] || '';
                       const cat = otCat(chk.otNum);
                       const otColor = cat === 'drive_thru' ? '#2563eb' : cat === 'eat_in' ? '#059669' : cat === 'uber' ? '#d97706' : cat === 'doordash' ? '#dc2626' : cat === 'mobile' ? '#7c3aed' : cat === 'delivery' ? '#0891b2' : '#64748b';
@@ -8242,7 +8597,6 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
   const [weatherForecast, setWeatherForecast] = React.useState(null);
   const [weatherCorrelations, setWeatherCorrelations] = React.useState(null);
   const [networkReviews, setNetworkReviews] = React.useState(null);
-
   React.useEffect(() => {
     (async () => {
       try {
@@ -9346,7 +9700,6 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const [collapsed,   setCollapsed]  = useState(new Set());
   const [pulseView,   setPulseView]  = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
   const [weatherForecast, setWeatherForecast] = useState(null);
-  const [weatherCorrelations, setWeatherCorrelations] = useState(null);
   const [networkReviews, setNetworkReviews] = useState(null);
   const cdRef = useRef(null);
 
@@ -9543,12 +9896,8 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   useEffect(() => {
     (async () => {
       try {
-        const [fRes, cRes] = await Promise.all([
-          fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_weather_forecast' }) }),
-          fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_weather_correlations' }) }),
-        ]);
+        const fRes = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_weather_forecast' }) });
         if (fRes.ok) { const j = await fRes.json(); setWeatherForecast(j.data || j); }
-        if (cRes.ok) { const j = await cRes.json(); setWeatherCorrelations(j.data || j); }
         const rRes = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_reviews_network' }) });
         if (rRes.ok) { const j = await rRes.json(); setNetworkReviews(j.data || j); }
       } catch {}
@@ -9627,15 +9976,10 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const fmtNum  = v => Math.round(v).toLocaleString();
   const fmtAvg  = v => v > 0 ? '$' + v.toFixed(2) : '—';
 
-  const thS = { padding:'0.45rem 0.65rem', fontFamily:"'Raleway'", fontWeight:700,
-    fontSize:'0.68rem', textTransform:'uppercase', letterSpacing:0.8,
-    color:th.muted, whiteSpace:'nowrap', background:th.card };
-  const tdS = { padding:'0.5rem 0.65rem', fontSize:'0.78rem', color:th.text, verticalAlign:'middle' };
+  const thS = thCell(th, { background: th.card });
+  const tdS = tdCell(th);
 
   const distList = Object.values(districts||{}).sort((a,b)=>a.num-b.num);
-
-  const cardS = { background:th.card2, borderRadius:'0.75rem', padding:'1rem 1.25rem',
-    borderLeft:`3px solid ${G}`, flex:'1 1 150px', minWidth:130 };
 
   const toggleCollapse = d => setCollapsed(prev => {
     const next = new Set(prev);
@@ -9757,12 +10101,6 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                   fontWeight:700, padding:'0.4rem 1rem', fontSize:'0.78rem' }) }}>
                 {loading ? '⏳ Loading…' : '⚡ Refresh'}
               </button>
-              <button onClick={loadWTD} disabled={wtdLoading || loading}
-                style={{ ...btn(th, { background: hasWTD ? `${G}33` : '#1a3a2a',
-                  color: hasWTD ? G : `${G}88`, border:`1px solid ${G}33`,
-                  fontWeight:700, padding:'0.4rem 1rem', fontSize:'0.78rem' }) }}>
-                {wtdLoading ? '⏳ WTD…' : hasWTD ? `✅ WTD (${wtdLoaded}d)` : '📅 Load WTD'}
-              </button>
               <button onClick={()=>setAutoRefresh(a=>!a)}
                 style={{ ...btn(th, { background: autoRefresh ? `${G}33` : th.card3,
                   color: autoRefresh ? G : th.muted, border: autoRefresh ? `1px solid ${G}55` : 'none',
@@ -9810,6 +10148,62 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
             <span style={{ fontSize:'0.65rem', color:`${G}88` }}>Loading WTD data…</span>
           </div>
         )}
+        {/* ── Today + WTD summary, inline in the Pulse monitor ── */}
+        {pulseView === "network" && loaded.length > 0 && (() => {
+          const vRate  = t => t.netSales > 0 ? (t.voids / t.netSales * 100) : null;
+          const vCell  = t => { const r = vRate(t); return r == null ? '—' : r.toFixed(2) + '%'; };
+          const vColor = t => { const r = vRate(t); return r != null && r > 1 ? '#ff6b6b' : '#69db7c'; };
+          const lblS2 = { padding:'0.15rem 1.1rem 0.15rem 0', fontSize:'0.65rem', color:`${G}99`, textTransform:'uppercase', letterSpacing:0.8, fontWeight:700, textAlign:'left', whiteSpace:'nowrap' };
+          const valS2 = { padding:'0.2rem 1.1rem 0.2rem 0', fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.15rem', whiteSpace:'nowrap' };
+          const divL  = { borderLeft:`1px solid ${G}33`, paddingLeft:'1.1rem' };
+          const onPace = hasLYWeek && lyDaysLoaded === 7 && weeklyForecastLY > 0;
+          return (
+            <div style={{ marginTop:'1rem', paddingTop:'0.85rem', borderTop:`1px solid ${G}33`, overflowX:'auto' }}>
+              <table style={{ borderCollapse:'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={lblS2}></th>
+                    <th style={lblS2}>Net Sales</th>
+                    <th style={lblS2}>Guests</th>
+                    <th style={lblS2}>Avg Check</th>
+                    <th style={lblS2}>Discounts</th>
+                    <th style={lblS2}>Void Rate</th>
+                    <th style={{ ...lblS2, ...divL }}>Weekly Forecast <span style={{ opacity:0.7, textTransform:'none' }}>(LY + 2%)</span></th>
+                    <th style={lblS2}>Pace</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ ...lblS2, fontSize:'0.7rem', color:'#e9fff4' }}>Today</td>
+                    <td style={{ ...valS2, color:G, textShadow:`0 0 12px ${G}66` }}>{fmtUSD(totals.netSales)}</td>
+                    <td style={{ ...valS2, color:'#74c0fc' }}>{fmtNum(totals.guests)}</td>
+                    <td style={{ ...valS2, color:'#ffd43b' }}>{fmtAvg(totals.avgCheck)}</td>
+                    <td style={{ ...valS2, color:'#f06595' }}>{fmtUSD(totals.discounts)}</td>
+                    <td style={{ ...valS2, color:vColor(totals) }}>{vCell(totals)}</td>
+                    <td style={{ ...valS2, ...divL, color:`${G}66`, fontSize:'0.8rem', fontWeight:600 }}>—</td>
+                    <td style={{ ...valS2, color:`${G}66`, fontSize:'0.8rem', fontWeight:600 }}>—</td>
+                  </tr>
+                  {hasWTD && (
+                    <tr>
+                      <td style={{ ...lblS2, fontSize:'0.7rem', color:'#e9fff4' }}>WTD ({wtdLoaded}d)</td>
+                      <td style={{ ...valS2, color:G }}>{fmtUSD(wtdTotals.netSales)}</td>
+                      <td style={{ ...valS2, color:'#74c0fc' }}>{fmtNum(wtdTotals.guests)}</td>
+                      <td style={{ ...valS2, color:'#ffd43b' }}>{wtdTotals.guests > 0 ? fmtAvg(wtdTotals.netSales / wtdTotals.guests) : '—'}</td>
+                      <td style={{ ...valS2, color:'#f06595' }}>{fmtUSD(wtdTotals.discounts)}</td>
+                      <td style={{ ...valS2, color:vColor(wtdTotals) }}>{vCell(wtdTotals)}</td>
+                      <td style={{ ...valS2, ...divL, color:'#cc5de8' }}>
+                        {hasLYWeek && lyDaysLoaded === 7 ? fmtUSD(weeklyForecastLY) : (hasLYWeek ? `${lyDaysLoaded}/7…` : 'Loading…')}
+                      </td>
+                      <td style={{ ...valS2, color: wtdTotals.netSales >= (weeklyForecastLY * wtdLoaded / 7) ? '#69db7c' : '#ff6b6b' }}>
+                        {onPace ? ((wtdTotals.netSales / (weeklyForecastLY * wtdLoaded / 7)) * 100).toFixed(0) + '%' : '—'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>}
 
       {/* ── Non-Open Stores Banner ── */}
@@ -9825,172 +10219,9 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
         );
       })()}
 
-      {/* ── KPI Cards ── */}
-      {pulseView === "network" && loaded.length > 0 && (
-        <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'1rem' }}>
-          {/* Net Sales */}
-          <div style={{ ...cardS }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:G,
-              textShadow:`0 0 12px ${G}66` }}>{fmtUSD(totals.netSales)}</div>
-            <div style={{ fontSize:'0.75rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.7, fontWeight:600, marginTop:'0.25rem' }}>Net Sales — {busDt}</div>
-          </div>
-          {/* Guests */}
-          <div style={{ ...cardS, borderColor:'#74c0fc' }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:'#74c0fc' }}>{fmtNum(totals.guests)}</div>
-            <div style={{ fontSize:'0.75rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.7, fontWeight:600, marginTop:'0.25rem' }}>Guests / Checks</div>
-          </div>
-          {/* Avg Check */}
-          <div style={{ ...cardS, borderColor:'#ffd43b' }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:'#ffd43b' }}>{fmtAvg(totals.avgCheck)}</div>
-            <div style={{ fontSize:'0.75rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.7, fontWeight:600, marginTop:'0.25rem' }}>Avg Check</div>
-          </div>
-          {/* Discounts */}
-          <div style={{ ...cardS, borderColor:'#f06595' }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color:'#f06595' }}>{fmtUSD(totals.discounts)}</div>
-            <div style={{ fontSize:'0.75rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.7, fontWeight:600, marginTop:'0.25rem' }}>Discounts</div>
-          </div>
-          {/* Void Rate */}
-          <div style={{ ...cardS, borderColor:'#ff8787' }}>
-            <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.5rem', color: totals.netSales > 0 && (totals.voids / totals.netSales * 100) > 1 ? '#ff6b6b' : '#69db7c' }}>
-              {totals.netSales > 0 ? (totals.voids / totals.netSales * 100).toFixed(2) + '%' : '—'}
-            </div>
-            <div style={{ fontSize:'0.75rem', color:th.muted, textTransform:'uppercase', letterSpacing:0.7, fontWeight:600, marginTop:'0.25rem' }}>Void Rate</div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Week-to-Date + Weekly Forecast Card ── */}
-      {pulseView === "network" && hasWTD && (
-        <div style={{ ...card(th), padding:'1rem', marginBottom:'1rem', borderLeft:`3px solid ${G}` }}>
-          <div style={{ fontSize:'0.85rem', fontWeight:700, color:th.text, marginBottom:'0.75rem' }}>
-            Week to Date <span style={{ fontSize:'0.75rem', fontWeight:400, color:th.muted }}>({wtdLoaded} days)</span>
-          </div>
-          <div style={{ display:'flex', gap:'1.25rem', flexWrap:'wrap', alignItems:'flex-end' }}>
-            <div>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem', color:G }}>{fmtUSD(wtdTotals.netSales)}</div>
-              <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Net Sales</div>
-            </div>
-            <div>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem', color:'#74c0fc' }}>{fmtNum(wtdTotals.guests)}</div>
-              <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Guests</div>
-            </div>
-            <div>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem', color:'#ffd43b' }}>{wtdTotals.guests > 0 ? fmtAvg(wtdTotals.netSales / wtdTotals.guests) : '—'}</div>
-              <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Avg Check</div>
-            </div>
-            <div>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem', color:'#f06595' }}>{fmtUSD(wtdTotals.discounts)}</div>
-              <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Discounts</div>
-            </div>
-            {/* Vertical divider */}
-            <div style={{ borderLeft:`1px solid ${th.cardBorder}`, paddingLeft:'1.25rem', marginLeft:'0.25rem' }}>
-              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem', color:'#cc5de8' }}>
-                {hasLYWeek && lyDaysLoaded === 7 ? fmtUSD(weeklyForecastLY) : (hasLYWeek ? `${lyDaysLoaded}/7…` : 'Loading…')}
-              </div>
-              <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Weekly Forecast <span style={{ opacity:0.7 }}>(LY + 2%)</span></div>
-            </div>
-            {hasLYWeek && lyDaysLoaded === 7 && weeklyForecastLY > 0 && (
-              <div>
-                <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.4rem',
-                  color: wtdTotals.netSales >= (weeklyForecastLY * wtdLoaded / 7) ? '#69db7c' : '#ff6b6b' }}>
-                  {((wtdTotals.netSales / (weeklyForecastLY * wtdLoaded / 7)) * 100).toFixed(0)}%
-                </div>
-                <div style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, marginTop:'0.15rem' }}>Pace vs Forecast</div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* ── Trend Chart ── */}
       {pulseView === "network" && hasWTD && trendData.some(d => d.hasData) && (
         <TrendChart data={trendData} G={G} th={th} onBarClick={(dateKey) => setBusDt(dateKey)} />
-      )}
-
-      {/* ── District Overview Cards ── */}
-      {pulseView === "network" && loaded.length > 0 && (
-        <div style={{ ...card(th), padding:'1.125rem', marginBottom:'1rem' }}>
-          <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.9rem', color:th.text, marginBottom:'0.875rem' }}>
-            📊 District Performance — {busDt}
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:'0.75rem' }}>
-            {distNums.map(distNum => {
-              const distStores = allRows.filter(s => s.district === distNum);
-              const distOk = distStores.filter(s => s.live?.status === 'ok');
-              const distTotals = distOk.reduce((a,s) => ({
-                netSales: a.netSales + s.live.data.netSales,
-                guests: a.guests + s.live.data.guests,
-                voids: a.voids + (s.live.data.voids || 0),
-                forecast: a.forecast + (s.live.data.forecast || 0),
-              }), { netSales:0, guests:0, voids:0, forecast:0 });
-              distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
-              const fcPct = distTotals.forecast > 0 ? (distTotals.netSales / distTotals.forecast * 100) : 0;
-              const fcColor = fcPct <= 0 ? th.muted : fcPct >= 100 ? '#22c55e' : fcPct >= 90 ? '#ff9800' : '#f44336';
-              return (
-                <div key={distNum} onClick={() => setPulseView({ level:"district", num:distNum })}
-                  className="card-hover" style={{
-                  background:th.card2, borderRadius:'0.625rem', padding:'1rem',
-                  paddingTop:'0.85rem',
-                  borderTop:`3px solid ${G}`,
-                  cursor:'pointer', transition:'all .2s', overflow:'hidden',
-                }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.35rem' }}>
-                    <div style={{ fontWeight:700, fontSize:'0.85rem', color:G }}>District {distNum}</div>
-                    <div style={{ display:'flex', alignItems:'center', gap:'0.35rem' }}>
-                      {fcPct > 0 && (
-                        <span style={{ fontSize:'0.62rem', fontWeight:800, color:fcColor, background:`${fcColor}18`, border:`1px solid ${fcColor}33`, padding:'0.1rem 0.4rem', borderRadius:999 }}>
-                          {fcPct.toFixed(0)}% fc
-                        </span>
-                      )}
-                      <div style={{ fontSize:'0.65rem', color:th.muted }}>{dmName(distNum)} · {distStores.length}</div>
-                    </div>
-                  </div>
-                  <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.3rem', color:th.text }}>{fmtUSD(distTotals.netSales)}</div>
-                  {/* Forecast attainment bar */}
-                  {fcPct > 0 && (
-                    <div style={{ height:3, background:`${G}22`, borderRadius:999, margin:'0.4rem 0', overflow:'hidden' }}>
-                      <div style={{ height:'100%', width:`${Math.min(fcPct, 100)}%`, background: fcColor, borderRadius:999, boxShadow:`0 0 6px ${fcColor}88`, transition:'width .5s ease' }} />
-                    </div>
-                  )}
-                  <div style={{ display:'flex', gap:'0.75rem', marginTop:'0.25rem', fontSize:'0.72rem' }}>
-                    <span style={{ color:'#74c0fc' }}>{fmtNum(distTotals.guests)} guests</span>
-                    <span style={{ color:'#ffd43b' }}>{fmtAvg(distTotals.avgCheck)} avg</span>
-                  </div>
-                  {weatherForecast?.[distNum] && (() => {
-                    const todayForecast = (weatherForecast[distNum]?.days || []).find(d => d.date === busDt);
-                    if (!todayForecast) return null;
-                    const impact = weatherCorrelations?.[distNum]?.[todayForecast.condition];
-                    const hasNegImpact = impact && impact < 0.90;
-                    return (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.3rem', fontSize: '0.68rem' }}>
-                        <span>{WEATHER_ICONS[todayForecast.condition] || '🌡️'}</span>
-                        <span style={{ color: th.muted }}>{todayForecast.tempHighF}°F</span>
-                        {hasNegImpact && (
-                          <span style={{ color: '#f44336', fontWeight: 700, fontSize: '0.62rem' }}>
-                            {Math.round((impact - 1) * 100)}% impact
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  {networkReviews?.storeRatings && (() => {
-                    const distPCs = allRows.filter(s => s.district === distNum).map(s => s.pc);
-                    const ratings = distPCs.map(pc => networkReviews.storeRatings[pc]).filter(r => r > 0);
-                    if (ratings.length === 0) return null;
-                    const avgRating = Math.round((ratings.reduce((s, r) => s + r, 0) / ratings.length) * 10) / 10;
-                    const color = avgRating >= 4.0 ? '#4caf50' : avgRating >= 3.5 ? '#ff9800' : '#f44336';
-                    return (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.68rem', marginTop: '0.15rem' }}>
-                        <span style={{ color }}>★ {avgRating}</span>
-                        <span style={{ color: th.muted, fontSize: '0.6rem' }}>({ratings.length} stores)</span>
-                      </div>
-                    );
-                  })()}
-                </div>
-              );
-            })}
-          </div>
-        </div>
       )}
 
       {/* ── District Detail View ── */}
@@ -10000,7 +10231,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
 
       {/* ── Store Detail View ── */}
       {pulseView?.level === "store" && loaded.length > 0 && (
-        <StoreDetail pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} />
+        <StoreDetail pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} />
       )}
 
       {/* ── Loading Overlay ── */}
@@ -10050,11 +10281,10 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
           <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'1.1rem', color:G, marginBottom:'0.5rem' }}>Ready to Monitor</div>
           <div style={{ color:th.muted, fontSize:'0.875rem', marginBottom:'1.25rem' }}>
             Select a date and click <strong style={{color:G}}>⚡ Refresh</strong> to pull live data for all {activePCs.length} active stores.
-            Use <strong style={{color:G}}>📅 Load WTD</strong> to fetch the full week trend.
+            The full week trend loads automatically afterward.
           </div>
           <div style={{ display:'flex', gap:'0.75rem', justifyContent:'center' }}>
             <button onClick={loadAll} style={{ ...btn(th, { background:`${G}22`, color:G, border:`1px solid ${G}55`, fontWeight:700, padding:'0.6rem 2rem', fontSize:'0.9rem' }) }}>⚡ Load Today</button>
-            <button onClick={loadWTD} style={{ ...btn(th, { background:'#1a3a2a', color:`${G}88`, border:`1px solid ${G}33`, fontWeight:700, padding:'0.6rem 2rem', fontSize:'0.9rem' }) }}>📅 Load Full Week</button>
           </div>
         </div>
       )}
@@ -10095,8 +10325,15 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                   const distTotals = distOk.reduce((a,s) => ({
                     netSales: a.netSales + s.live.data.netSales,
                     guests:   a.guests   + s.live.data.guests,
-                  }), { netSales:0, guests:0 });
+                    forecast: a.forecast + (s.live.data.forecast || 0),
+                  }), { netSales:0, guests:0, forecast:0 });
                   distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
+                  const fcPct = distTotals.forecast > 0 ? (distTotals.netSales / distTotals.forecast * 100) : 0;
+                  const fcColor = fcPct <= 0 ? th.muted : fcPct >= 100 ? '#22c55e' : fcPct >= 90 ? '#ff9800' : '#f44336';
+                  const todayForecast = (weatherForecast?.[distNum]?.days || []).find(d => d.date === busDt);
+                  const distRatings = networkReviews?.storeRatings ? distRows.map(s => networkReviews.storeRatings[s.pc]).filter(r => r > 0) : [];
+                  const avgRating = distRatings.length ? Math.round((distRatings.reduce((s, r) => s + r, 0) / distRatings.length) * 10) / 10 : 0;
+                  const ratingColor = avgRating >= 4.0 ? '#4caf50' : avgRating >= 3.5 ? '#ff9800' : '#f44336';
                   const isCollapsed = collapsed.has(distNum);
                   return (
                     <React.Fragment key={distNum}>
@@ -10107,12 +10344,26 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                           colSpan={1}>
                           <span style={{ marginRight:'0.4rem', fontSize:'0.65rem' }}>{isCollapsed ? '▶' : '▼'}</span>
                           District {distNum} — {dmName(distNum)}
+                          <button onClick={e => { e.stopPropagation(); setPulseView({ level:'district', num:distNum }); }}
+                            style={{ marginLeft:'0.6rem', background:'none', border:`1px solid ${G}44`, color:G, cursor:'pointer',
+                              fontSize:'0.62rem', fontWeight:700, padding:'0.1rem 0.45rem', borderRadius:999 }}>
+                            View →
+                          </button>
                         </td>
-                        <td style={{ ...tdS, color:th.muted, fontSize:'0.7rem' }}>{distRows.length} stores</td>
-                        <td style={{ ...tdS }}>
+                        <td style={{ ...tdS, color:th.muted, fontSize:'0.7rem', whiteSpace:'nowrap' }}>
+                          {distRows.length} stores
+                          {todayForecast && <span style={{ marginLeft:6 }}>{WEATHER_ICONS[todayForecast.condition] || '🌡️'} {todayForecast.tempHighF}°</span>}
+                          {avgRating > 0 && <span style={{ marginLeft:6, color:ratingColor, fontWeight:700 }}>★ {avgRating}</span>}
+                        </td>
+                        <td style={{ ...tdS, whiteSpace:'nowrap' }}>
                           <span style={{ fontSize:'0.68rem', color:G, fontWeight:600 }}>
                             {distOk.length}/{distRows.length} live
                           </span>
+                          {fcPct > 0 && (
+                            <span style={{ marginLeft:6, fontSize:'0.62rem', fontWeight:800, color:fcColor, background:`${fcColor}18`, border:`1px solid ${fcColor}33`, padding:'0.1rem 0.4rem', borderRadius:999 }}>
+                              {fcPct.toFixed(0)}% fc
+                            </span>
+                          )}
                         </td>
                         <td style={{ ...tdS, textAlign:'right', fontWeight:800, color:G }}>{fmtUSD(distTotals.netSales)}</td>
                         <td style={{ ...tdS, textAlign:'right', color:'#74c0fc', fontWeight:700 }}>{fmtNum(distTotals.guests)}</td>
@@ -13455,6 +13706,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Due Date</label><input type="date" style={inp(th)} value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} /></div>
             <div><label style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 600 }}>Target Completion</label><input type="date" style={inp(th)} value={form.completionDate} onChange={e => setForm(f => ({ ...f, completionDate: e.target.value }))} /></div>
             <div><label style={{ fontSize: "0.6875rem", color: "#ff6b00", fontWeight: 600 }}>Dunkin' Completion Date</label><input type="date" style={inp(th)} value={form.dunkinCompletionDate || ""} onChange={e => setForm(f => ({ ...f, dunkinCompletionDate: e.target.value }))} /></div>
+            <div><label style={{ fontSize: "0.6875rem", color: '#8b5cf6', fontWeight: 600 }}>Construction Start Date</label><input type="date" style={inp(th)} value={form.startDate || ""} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} /></div>
           </div>
           {(manualAddr || !stores.find(s => s.pc === form.pc)) && form.pc && (
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 0.5fr 0.75fr", gap: "0.75rem", marginBottom: "0.75rem" }} className="fade-in">
@@ -14049,7 +14301,7 @@ function PnlAccessPanel({ th, user, users, showAlert }) {
   );
 }
 
-function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals }) {
+function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
   const [notifyLog, setNotifyLog] = useState(null);
@@ -14132,7 +14384,11 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
     showAlert("success", "Email removed from ticket list");
   };
 
-  const [settingsTab, setSettingsTab] = React.useState('notifications');
+  const [innerTab, setInnerTab] = React.useState('notifications');
+  // When embedded inside AdminConsole, the active section is driven externally
+  // (single flat tab bar) — otherwise this component owns its own tab bar.
+  const settingsTab = embedSection || innerTab;
+  const setSettingsTab = setInnerTab;
 
   const settingsTabs = [
     { id: 'notifications', label: '📬 Notifications', color: O },
@@ -14143,6 +14399,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
   return (
     <div className="fade-in">
+      {!embedSection && <>
       <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: th.text, marginBottom: "0.25rem" }}>⚙️ Settings</div>
       <div style={{ color: th.muted, fontSize: "0.8125rem", marginBottom: "1.25rem" }}>System configuration and notification settings.</div>
 
@@ -14159,9 +14416,9 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           }}>{t.icon ? <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}>{t.icon}{t.label}</span> : t.label}</button>
         ))}
       </div>
+      </>}
 
-      {/* P&L Access — managers (Mike & Ahmed) only; shows on all settings sub-tabs */}
-      {canManagePnlAccess(user) && <PnlAccessPanel th={th} user={user} users={users} showAlert={showAlert} />}
+      {/* P&L Access moved → Admin · Access tab */}
 
       {/* ── Tab: Notifications ── */}
       {settingsTab === 'notifications' && <>
@@ -14971,10 +15228,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         <AuditLogSection th={th} user={user} users={users || []} accent="#0EA5E9" />
       </div>
 
-      {/* Expense Log */}
-      <div style={{ marginTop: "1.25rem" }}>
-        <ExpenseLogSection th={th} user={user} />
-      </div>
+      {/* Expense Log moved → Finance group, its own tab (exec/IT only) */}
 
       </> /* end admin tab */}
     </div>
@@ -15035,11 +15289,11 @@ async function compressImageToBase64(file, maxPx = 600, quality = 0.72) {
   });
 }
 
-function ExpenseLogSection({ th, user }) {
+function ExpenseLogSection({ th, user, standalone }) {
   const O = '#FF671F';
   const GOLD = '#f59e0b';
   const isVP = user?.userType === 'executive' || user?.userType === 'it';
-  const [open, setOpen] = React.useState(false);
+  const [open, setOpen] = React.useState(!!standalone);
   const [search, setSearch] = React.useState('');
   const [filterCat, setFilterCat] = React.useState('All');
   const [filterUser, setFilterUser] = React.useState('All');
@@ -15457,6 +15711,206 @@ function NotificationLogSection({ th, notifyLog, pushSubs, logLoading, logOpen, 
       {logOpen && !logLoading && (!notifyLog || notifyLog.length === 0) && (
         <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0', textAlign: 'center' }}>No notification history yet. Run a manual pulse notification to start logging.</div>
       )}
+    </div>
+  );
+}
+
+// ── Admin · System overview — safe, read-only counts + role breakdown ──────
+function AdminDataPanel({ th, user, users, stores, districts, version }) {
+  const activeUsers = (users || []).filter(u => u.active !== false);
+  const roleCounts = {};
+  (users || []).forEach(u => { const t = u.userType || 'unknown'; roleCounts[t] = (roleCounts[t] || 0) + 1; });
+
+  const cards = [
+    { label: 'Users', value: (users || []).length, sub: `${activeUsers.length} active` },
+    { label: 'Stores', value: (stores || []).length, sub: `${(districts || []).length} districts` },
+    { label: 'Roles in use', value: Object.keys(roleCounts).length, sub: 'distinct types' },
+    { label: 'Portal version', value: version || '—', sub: 'live build' },
+  ];
+
+  return (
+    <div>
+      {/* System overview cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        {cards.map(c => (
+          <div key={c.label} style={card(th, { padding: '1rem' })}>
+            <div style={{ ...microLabel(th), marginBottom: '0.35rem' }}>{c.label}</div>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.5rem', color: th.text, lineHeight: 1 }}>{c.value}</div>
+            <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.3rem' }}>{c.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Role breakdown */}
+      <div style={accentCard(th, '#a78bfa', { padding: '1.25rem' })}>
+        <div style={{ ...sectionTitle(th), marginBottom: '0.75rem' }}>Role Breakdown</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          {Object.entries(roleCounts).sort((a, b) => b[1] - a[1]).map(([t, n]) => (
+            <span key={t} style={pill('#a78bfa', { fontSize: '0.72rem', padding: '0.3rem 0.7rem' })}>
+              {ROLE_META[t]?.label || t} · {n}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Role metadata — labels + scope notes for the Access matrix ─────────────
+const ROLE_META = {
+  executive:    { label: 'VP / Executive', admin: true,  scope: 'Full access to every section, network-wide.' },
+  it:           { label: 'IT / HR Admin',  admin: true,  scope: 'Full access + user management & this Admin console.' },
+  office_staff: { label: 'Office Staff',   admin: false, scope: 'All operational tabs, network-wide. No destructive admin powers.' },
+  dm:           { label: 'District Manager',admin: false, scope: 'Tabs filtered to their own district only.' },
+  manager:      { label: 'Store Manager',  admin: false, scope: 'Their assigned store(s) only; My Store mobile mode.' },
+  construction: { label: 'Construction',   admin: false, scope: 'Projects / Construction (incl. mobile construction view).' },
+  maintenance:  { label: 'Maintenance',    admin: false, scope: 'Tickets, calendar, expense tracking/approvals.' },
+  vendor:       { label: 'Vendor',         admin: false, scope: 'Projects tab only (+ chat).' },
+  kiosk_pulse:  { label: 'Kiosk TV',       admin: false, scope: 'Pulse TV display only — no portal access.' },
+  kiosk_upload: { label: 'Kiosk Upload',   admin: false, scope: 'Upload-only kiosk — no portal access.' },
+};
+
+// ── Access Matrix — who can see what + per-role visibility toggles ──────────
+function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, showAlert }) {
+  const roles = Object.keys(ROLE_META);
+  const userCounts = {};
+  (users || []).forEach(u => { const t = u.userType || 'unknown'; userCounts[t] = (userCounts[t] || 0) + 1; });
+  const KIOSK = new Set(['kiosk_pulse', 'kiosk_upload']);
+  const ov = accessOverrides || {};
+
+  // A section is locked-on (cannot be toggled off) if it's the Admin tab for a full-admin role.
+  const isLocked = (rt, tabId) => tabId === 'admin' && (rt === 'executive' || rt === 'it');
+  const isOn = (rt, tabId) => ov[rt]?.[tabId] !== false;
+
+  const toggle = (rt, tabId) => {
+    if (isLocked(rt, tabId)) { showAlert && showAlert('error', 'The Admin console stays visible for IT/Executive — lockout guard.'); return; }
+    setAccessOverrides(prev => {
+      const next = { ...prev, [rt]: { ...(prev[rt] || {}) } };
+      if (next[rt][tabId] === false) delete next[rt][tabId];   // turn back ON (default)
+      else next[rt][tabId] = false;                            // turn OFF
+      if (Object.keys(next[rt]).length === 0) delete next[rt];
+      return next;
+    });
+  };
+
+  const hiddenCount = Object.values(ov).reduce((n, m) => n + Object.values(m || {}).filter(v => v === false).length, 0);
+
+  return (
+    <div>
+      <div style={accentCard(th, '#0ea5e9', { padding: '0.85rem 1rem', marginBottom: '1.1rem', display: 'flex', gap: '0.6rem', alignItems: 'flex-start' })}>
+        <span style={{ fontSize: '1.1rem' }}>🔐</span>
+        <span style={{ fontSize: '0.82rem', color: th.text }}>
+          Tap any section chip to <strong>show / hide</strong> it for that role. Changes save automatically and
+          apply to everyone in that role network-wide. Hidden sections (<span style={{ textDecoration: 'line-through', opacity: 0.6 }}>dimmed</span>) disappear
+          from their sidebar on next refresh. Universal tabs (Dashboard, Chat, Notes…) are always available and aren't listed here.
+          {hiddenCount > 0 && <> <strong>{hiddenCount} section{hiddenCount !== 1 ? 's' : ''} currently hidden.</strong></>}
+        </span>
+      </div>
+
+      {/* P&L data access — managers only */}
+      {canManagePnlAccess(user) && <div style={{ marginBottom: '1.1rem' }}><PnlAccessPanel th={th} user={user} users={users} showAlert={showAlert} /></div>}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+        {roles.map(rt => {
+          const meta = ROLE_META[rt];
+          // Dedupe tabs by id; exclude universal base tabs (always visible, not toggleable)
+          const seen = new Set();
+          const tabs = (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: '000000' }))
+            .filter(t => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
+          const visibleN = tabs.filter(t => isOn(rt, t.id)).length;
+          return (
+            <div key={rt} style={card(th, { padding: '1rem 1.15rem' })}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                <span style={{ ...sectionTitle(th) }}>{meta.label}</span>
+                {meta.admin && <span style={pill('#ef4444')}>ADMIN</span>}
+                <span style={pill('#94a3b8')}>{userCounts[rt] || 0} user{(userCounts[rt] || 0) !== 1 ? 's' : ''}</span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: th.muted }}>
+                  {KIOSK.has(rt) ? '—' : `${visibleN}/${tabs.length} visible`}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.74rem', color: th.muted, marginBottom: tabs.length ? '0.6rem' : 0 }}>{meta.scope}</div>
+              {tabs.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                  {tabs.map(t => {
+                    const on = isOn(rt, t.id);
+                    const locked = isLocked(rt, t.id);
+                    return (
+                      <button key={t.id} onClick={() => toggle(rt, t.id)} title={locked ? 'Locked — always visible for this role' : on ? 'Click to hide' : 'Click to show'} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                        fontSize: '0.68rem', fontWeight: 600, fontFamily: "'Source Sans 3'",
+                        cursor: locked ? 'default' : 'pointer',
+                        color: on ? th.text : th.muted,
+                        textDecoration: on ? 'none' : 'line-through',
+                        opacity: on ? 1 : 0.55,
+                        background: on ? (th.card2 || th.card) : 'transparent',
+                        border: `1px solid ${on ? th.cardBorder : `${th.muted}55`}`,
+                        borderRadius: RADIUS.chip, padding: '0.18rem 0.5rem', transition: 'all .12s',
+                      }}>
+                        <span style={{ fontSize: '0.6rem' }}>{locked ? '🔒' : on ? '●' : '○'}</span>{t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Admin Console — one flat tab bar, no nested settings page ───────────────
+function AdminConsole(props) {
+  const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
+  const SUBS = [
+    { id: 'notifications', label: 'Notifications', icon: '📬', accent: O },
+    { id: 'users',         label: 'Users',         icon: '👥', accent: '#a78bfa' },
+    { id: 'access',        label: 'Access',        icon: '🔐', accent: '#ef4444' },
+    { id: 'orion',         label: 'Orion',         icon: '🟣', accent: '#7C3AED' },
+    { id: 'vendors',       label: 'Vendors',       icon: '🏗️', accent: '#14b8a6' },
+    { id: 'system',        label: 'System & Logs', icon: '🗄️', accent: '#94a3b8' },
+  ];
+  // Map our flat tabs onto AdminSettings' internal section ids
+  const SETTINGS_SECTION = { notifications: 'notifications', orion: 'orion', vendors: 'vendors' };
+
+  const VALID = SUBS.map(s => s.id);
+  const [sub, setSub] = React.useState(() => {
+    try { const s = localStorage.getItem('pcg_admin_sub'); return VALID.includes(s) ? s : 'notifications'; } catch { return 'notifications'; }
+  });
+  const go = (id) => { setSub(id); try { localStorage.setItem('pcg_admin_sub', id); } catch {} };
+
+  return (
+    <div>
+      {/* Single flat tab bar */}
+      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1.25rem', borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: '0.6rem' }}>
+        {SUBS.map(s => {
+          const on = sub === s.id;
+          return (
+            <button key={s.id} onClick={() => go(s.id)} style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.5rem 1rem', fontSize: '0.82rem', fontWeight: 700,
+              fontFamily: "'Source Sans 3'", cursor: 'pointer',
+              borderRadius: RADIUS.control,
+              border: `1px solid ${on ? s.accent : th.cardBorder}`,
+              background: on ? `${s.accent}1a` : 'transparent',
+              color: on ? s.accent : th.muted, transition: 'all .15s',
+            }}>
+              <span>{s.icon}</span>{s.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {sub === 'users' && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
+      {sub === 'access' && <AccessMatrix th={th} user={user} users={users} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} showAlert={showAlert} />}
+      {SETTINGS_SECTION[sub] && <AdminSettings {...props} embedSection={SETTINGS_SECTION[sub]} />}
+      {sub === 'system' && <>
+        <AdminDataPanel th={th} user={user} users={users} stores={stores} districts={districts} version={version} />
+        <div style={{ marginTop: '1.25rem' }}>
+          <AdminSettings {...props} embedSection="admin" />
+        </div>
+      </>}
     </div>
   );
 }
@@ -16958,12 +17412,12 @@ const getTabs = (user) => {
     { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.map(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
+    { id: "expenses",  label: "Expense Log",    icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
-    { id: "users",     label: "Users",        icon: (c) => ICONS.users(c) },
     { id: "email",     label: "Email",        icon: '📧' },
-    { id: "settings",  label: "Settings",     icon: (c) => ICONS.settings(c) },
+    { id: "admin",     label: "Admin",        icon: (c) => ICONS.settings(c) },
   ];
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
@@ -17775,6 +18229,11 @@ const canManageUser = (actor, target) => {
   return false;
 };
 
+
+// ─── App version (single source of truth) ────────────────────────────────────
+// Bump this on every code change. Rendered in the sidebar footer AND the
+// Admin · System "Portal version / live build" field so they always match.
+const APP_VERSION = "v15.33";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -21701,8 +22160,8 @@ function SalesReconciliation({ th, user, showAlert }) {
 
   const fmtD = v => '$' + Math.abs(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtDate = d => d ? new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
-  const thS = { padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 };
-  const tdS = { padding: '0.4rem 0.75rem', borderBottom: `1px solid ${th.cardBorder}`, fontSize: '0.8rem', color: th.text };
+  const thS = thCell(th, { padding: '0.5rem 0.75rem', borderBottom: `2px solid ${O}44` });
+  const tdS = tdCell(th, { padding: '0.4rem 0.75rem', borderBottom: `1px solid ${th.cardBorder}` });
 
   // WTD Detail view
   if (view === 'wtdDetail' && wtdDetail) {
@@ -23665,8 +24124,8 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
     }}>{label}</button>
   );
 
-  const thS = { fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5, padding: '0.4rem 0.6rem', textAlign: 'left', borderBottom: `1px solid ${th.cardBorder}` };
-  const tdS = { fontSize: '0.8125rem', color: th.text, padding: '0.4rem 0.6rem', borderBottom: `1px solid ${th.cardBorder}22` };
+  const thS = thCell(th, { padding: '0.4rem 0.6rem', borderBottom: `1px solid ${th.cardBorder}` });
+  const tdS = tdCell(th, { padding: '0.4rem 0.6rem', borderBottom: `1px solid ${th.cardBorder}22` });
 
   return (
     <div style={{ fontFamily: "'Source Sans 3'" }}>
@@ -24220,10 +24679,10 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
                     </td>
                     <td style={{ ...tdS, color: th.muted }}>{emp.role}</td>
                     <td style={tdS}>
-                      <span style={{ fontSize: '0.65rem', fontWeight: 700, color: statusColor, background: statusColor + '20', padding: '0.15rem 0.4rem', borderRadius: '0.3rem' }}>{emp.liveStatus}</span>
-                      {emp.otStatus === 'OT'      && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#f44336', background: '#f4433620', padding: '0.15rem 0.4rem', borderRadius: '0.3rem', marginLeft: 4 }}>OT</span>}
-                      {emp.otStatus === 'Approaching OT' && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#ff9800', background: '#ff980020', padding: '0.15rem 0.4rem', borderRadius: '0.3rem', marginLeft: 4 }}>~OT</span>}
-                      {emp.isSalary               && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2196f3', background: '#2196f320', padding: '0.15rem 0.4rem', borderRadius: '0.3rem', marginLeft: 4 }}>SAL</span>}
+                      <span style={pill(statusColor)}>{emp.liveStatus}</span>
+                      {emp.otStatus === 'OT'      && <span style={pill('#f44336', { marginLeft: 4 })}>OT</span>}
+                      {emp.otStatus === 'Approaching OT' && <span style={pill('#ff9800', { marginLeft: 4 })}>~OT</span>}
+                      {emp.isSalary               && <span style={pill('#2196f3', { marginLeft: 4 })}>SAL</span>}
                     </td>
                     <td style={{ ...tdS, fontSize: '0.75rem', color: th.muted }}>
                       {emp.clockedInAt ? `In ${emp.clockedInAt}` : emp.scheduledStart ? `${emp.scheduledStart} - ${emp.scheduledEnd}` : '—'}
@@ -24323,6 +24782,12 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
   }, []);
 
   useEffect(() => { fetchLaborData(); }, [fetchLaborData]);
+
+  // Auto-refresh: re-pull the labor blob every hour (labor-cron refreshes it hourly)
+  useEffect(() => {
+    const id = setInterval(fetchLaborData, 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [fetchLaborData]);
 
   const managerStorePCs = React.useMemo(() => {
     if (!isManager) return new Set();
@@ -24472,7 +24937,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
       </div>}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-        <h2 style={{ margin: 0, fontFamily: "'Raleway'", fontWeight: 700, color: th.text }}>Labor</h2>
+        <h2 style={{ ...pageTitle(th), margin: 0 }}>Labor</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <span style={{ fontSize: '0.75rem', color: th.muted }}>Updated {timeAgo(laborData?.lastUpdated)}</span>
           <button onClick={handleRefresh} disabled={refreshing} style={{ ...btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem', opacity: refreshing ? 0.5 : 1 }) }}>
@@ -24484,8 +24949,8 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
         {kpiCards.map((k, i) => (
           <div key={i} style={{ ...card(th), padding: '0.85rem 1rem', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: k.color, borderRadius: '0.625rem 0.625rem 0 0', opacity: 0.85 }} />
-            <div style={{ fontSize: '0.58rem', color: th.muted, textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.8 }}>{k.label}</div>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: k.color, opacity: 0.85 }} />
+            <div style={{ ...microLabel(th, { fontSize: '0.6rem' }) }}>{k.label}</div>
             <div style={{ fontSize: '1.4rem', fontWeight: 700, color: k.color, marginTop: '0.15rem', fontFamily: "'Source Sans 3'" }}>{k.value}</div>
             <div style={{ fontSize: '0.58rem', color: th.muted, marginTop: '0.1rem', fontWeight: 600 }}>{k.sub}</div>
           </div>
@@ -24512,7 +24977,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
           </select>
         )}
         {summary.overtimeCount > 0 && (
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#f44336', padding: '0.3rem 0.6rem', background: '#f4433615', borderRadius: '0.4rem' }}>
+          <span style={pill('#f44336', { fontSize: '0.75rem', padding: '0.3rem 0.6rem' })}>
             {summary.overtimeCount} OT
           </span>
         )}
@@ -24544,7 +25009,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
                 <span style={{ fontWeight: 700, fontSize: '0.875rem', color: th.text }}>{s.name}</span>
                 <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
                   {t.sales > 0 && (
-                    <span style={{ fontSize: '0.65rem', fontWeight: 800, color: clr, background: `${clr}18`, padding: '0.1rem 0.4rem', borderRadius: 999 }}>
+                    <span style={pill(clr, { fontWeight: 800 })}>
                       {fmtPct(pct)}
                     </span>
                   )}
@@ -24561,17 +25026,17 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
               {timeFilter === 'today' && (
                 <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                   {(t.scheduledNow || t.employeesOnClock || 0) > 0 && (
-                    <span style={{ fontSize: '0.58rem', fontWeight: 800, color: '#22c55e', background: '#22c55e18', border: '1px solid #22c55e33', padding: '0.12rem 0.4rem', borderRadius: 999 }}>
+                    <span style={pill('#22c55e', { fontSize: '0.58rem', fontWeight: 800 })}>
                       {t.scheduledNow || t.employeesOnClock} clocked in
                     </span>
                   )}
                   {(t.scheduledToday || t.employees || 0) > 0 && (
-                    <span style={{ fontSize: '0.58rem', fontWeight: 800, color: '#74c0fc', background: '#74c0fc18', border: '1px solid #74c0fc33', padding: '0.12rem 0.4rem', borderRadius: 999 }}>
+                    <span style={pill('#74c0fc', { fontSize: '0.58rem', fontWeight: 800 })}>
                       {t.scheduledToday || t.employees} today
                     </span>
                   )}
                   {(t.overtimeCount || 0) > 0 && (
-                    <span style={{ fontSize: '0.58rem', fontWeight: 800, color: '#f44336', background: '#f4433618', border: '1px solid #f4433633', padding: '0.12rem 0.4rem', borderRadius: 999 }}>
+                    <span style={pill('#f44336', { fontSize: '0.58rem', fontWeight: 800 })}>
                       {t.overtimeCount} OT
                     </span>
                   )}
@@ -32420,8 +32885,19 @@ function PCGPortal() {
   const [sidebarGroupsOpen, setSidebarGroupsOpen] = useState(() => {
     try {
       const saved = localStorage.getItem('pcg_sidebar_groups');
-      return saved ? JSON.parse(saved) : { ops: true, fin: true, team: false, system: false };
-    } catch { return { ops: true, fin: true, team: false, system: false }; }
+      return saved ? JSON.parse(saved) : { ops: true, fin: true, team: false, system: false, workspace: false };
+    } catch { return { ops: true, fin: true, team: false, system: false, workspace: false }; }
+  });
+  // Pinned sidebar tabs (user favorites surfaced at the very top). null = use role default.
+  const [pinnedTabIds, setPinnedTabIds] = useState(() => {
+    try { const saved = localStorage.getItem('pcg_sidebar_pinned'); if (saved) return JSON.parse(saved); } catch {}
+    return null;
+  });
+  // Whole-section collapse state (e.g. the Admin / Operations block below the base tabs).
+  // Default {} = every section collapsed on first open until the user clicks it.
+  const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState(() => {
+    try { const s = localStorage.getItem('pcg_sidebar_sections'); if (s) return JSON.parse(s); } catch {}
+    return {};
   });
   const [links, setLinks]       = useState(() => { const s=loadFromStorage(); return s?.links    || INIT_LINKS; });
   const [notes, setNotes]       = useState(() => { const s=loadFromStorage(); return s?.notes    || {}; });
@@ -32444,6 +32920,9 @@ function PCGPortal() {
   const [chatReadState, setChatReadState] = useState({});
   const [announcements, setAnnouncements] = useState([]);
   const [announcementsDismissed, setAnnouncementsDismissed] = useState({});
+  // IT/exec-managed per-role tab visibility overrides: { [userType]: { [tabId]: false } }
+  const [accessOverrides, setAccessOverrides] = useState({});
+  const cloudAccessLoaded = useRef(false);
 
   // Flags to prevent cloud save effects from firing before initial cloud load completes
   const cloudProjectsLoaded = useRef(false);
@@ -32531,9 +33010,69 @@ function PCGPortal() {
     let t = getTabs(u);
     if (!canPnl) t = t.filter(x => x.id !== 'pnl');
     if (!canDeals) t = t.filter(x => x.id !== 'deals');
+    // Per-role visibility toggles (IT/exec managed). Base/universal tabs are
+    // never filtered (always visible). Lockout guard: full admins can never
+    // lose the Admin tab, even if it's toggled off for their role.
+    const ov = accessOverrides[u?.userType];
+    if (ov) t = t.filter(x => BASE_TAB_IDS.includes(x.id) || ov[x.id] !== false || (x.id === 'admin' && isFullAdmin(u)));
     return t;
   };
   const TABS = tabsForUser(user);
+  // ── Sidebar pinning + base-tab grouping ──────────────────────────────
+  // Default favorites per role (frequently-used tabs surfaced at top).
+  const PINNED_DEFAULTS = {
+    executive: ['pulse', 'labor', 'pnl', 'projects'],
+    it:        ['pulse', 'labor', 'pnl', 'projects'],
+    office_staff: ['pulse', 'labor', 'reports', 'projects'],
+    dm:        ['pulse', 'labor', 'reports'],
+    manager:   ['labor', 'reports'],
+  };
+  const pinnedNavIds = (pinnedTabIds ?? (PINNED_DEFAULTS[user?.userType] || []))
+    .filter(id => TABS.some(t => t.id === id));
+  const togglePinNav = (id) => {
+    setPinnedTabIds(prev => {
+      const base = prev ?? (PINNED_DEFAULTS[user?.userType] || []);
+      const next = base.includes(id) ? base.filter(x => x !== id) : [...base, id];
+      try { localStorage.setItem('pcg_sidebar_pinned', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  const toggleSidebarSection = (key) => {
+    setSidebarSectionsOpen(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem('pcg_sidebar_sections', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  // Split the 10 universal BASE_TABS into flat essentials + a "Workspace" group.
+  const ESSENTIAL_BASE_IDS = ['dashboard', 'chat', 'announcements', 'tickets'];
+  const WORKSPACE_BASE_IDS = ['calendar', 'todos', 'notes', 'contacts', 'links', 'kb'];
+  // Badge count for a tab (chat unread, reports unread, cash missing, announcements unread).
+  const navBadge = (t) => {
+    if (!t) return null;
+    if (t.id === "chat" && chatUnreadCount > 0) return chatUnreadCount;
+    if (t.id === "reports" && reportsUnreadCount > 0) return reportsUnreadCount;
+    if (t.id === "cash" && cashMissingCount > 0) return cashMissingCount;
+    if (t.id === "announcements" && user) {
+      const myDist = user.district ? Number(user.district) : null;
+      const unread = announcements.filter(a => {
+        if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
+        if (!a.targets) return true;
+        const { roles, districts } = a.targets;
+        if (roles?.includes(user.userType)) return true;
+        if (myDist && districts?.includes(myDist)) return true;
+        return false;
+      }).length;
+      if (unread > 0) return unread;
+    }
+    return null;
+  };
+  // If the active tab just got hidden for this user's role, bounce to a visible one
+  useEffect(() => {
+    if (!user || !tab) return;
+    const ids = tabsForUser(user).map(t => t.id);
+    if (!ids.includes(tab)) setTab(ids[0] || 'dashboard');
+  }, [accessOverrides, tab, user?.userType]);
 
   // Lock body scroll while mobile drawer is open
   useEffect(() => {
@@ -33417,6 +33956,15 @@ function PCGPortal() {
   useEffect(() => { if (chatPollActive.current || !cloudAnnouncementsLoaded.current) return; cloudSave('pcg_announcements_v1', announcements); }, [announcements]);
   useEffect(() => { if (chatPollActive.current || !cloudAnnouncementsLoaded.current || Object.keys(announcementsDismissed).length === 0) return; cloudSave('pcg_announcements_dismissed_v1', announcementsDismissed); }, [announcementsDismissed]);
 
+  // Cloud sync role access overrides (IT/exec manage which tabs each role sees)
+  useEffect(() => {
+    cloudLoad('pcg_access_overrides_v1').then(ov => {
+      cloudAccessLoaded.current = true;
+      if (ov && typeof ov === 'object' && !Array.isArray(ov)) setAccessOverrides(ov);
+    }).catch(() => { cloudAccessLoaded.current = true; });
+  }, []);
+  useEffect(() => { if (chatPollActive.current || !cloudAccessLoaded.current) return; cloudSave('pcg_access_overrides_v1', accessOverrides); }, [accessOverrides]);
+
   // Register service worker for PWA push notifications
   useEffect(() => { registerServiceWorker(); }, []);
   // Re-subscribe to push if user already has pushNotify enabled (handles expired subs / new devices)
@@ -33429,12 +33977,13 @@ function PCGPortal() {
     if (!user) return;
     chatPollRef.current = setInterval(async () => {
       try {
-        const [ch, ms, rd, ann, dis] = await Promise.all([
+        const [ch, ms, rd, ann, dis, acc] = await Promise.all([
           cloudLoad('pcg_chat_channels_v1'),
           cloudLoad('pcg_chat_messages_v1'),
           cloudLoad('pcg_chat_read_v1'),
           cloudLoad('pcg_announcements_v1'),
           cloudLoad('pcg_announcements_dismissed_v1'),
+          cloudLoad('pcg_access_overrides_v1'),
         ]);
         chatPollActive.current = true;
         if (ch && Array.isArray(ch)) setChatChannels(ch);
@@ -33442,6 +33991,7 @@ function PCGPortal() {
         if (rd && typeof rd === 'object' && rd !== null) setChatReadState(rd);
         if (ann && Array.isArray(ann)) setAnnouncements(ann);
         if (dis && typeof dis === 'object' && dis !== null) setAnnouncementsDismissed(dis);
+        if (acc && typeof acc === 'object' && !Array.isArray(acc)) setAccessOverrides(acc);
         // Reset after effects have flushed (setTimeout runs after useEffect)
         setTimeout(() => { chatPollActive.current = false; }, 0);
       } catch {}
@@ -33801,12 +34351,13 @@ function PCGPortal() {
   const isConstruction = user?.userType === "construction";
 
   // ─── Reusable nav button — same shape for all sections, just different color ───
-  const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor }) => {
+  const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin }) => {
     const C = accent;
     const inactiveColor = th.muted;
     return (
       <button
         key={tabDef.id}
+        className="nav-row"
         onClick={onClick}
         title={collapsed ? tabDef.label : undefined}
         style={{
@@ -33858,6 +34409,24 @@ function PCGPortal() {
           {typeof tabDef.icon === "function" ? tabDef.icon(isActive ? C : inactiveColor) : tabDef.icon}
         </span>
         {!collapsed && <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tabDef.label}</span>}
+        {/* Pin / unpin toggle — appears on row hover, stays lit when pinned */}
+        {!collapsed && onTogglePin && (
+          <span
+            className={"nav-pin" + (pinned ? " pinned" : "")}
+            role="button"
+            title={pinned ? "Unpin from top" : "Pin to top"}
+            onClick={(e) => { e.stopPropagation(); onTogglePin(tabDef.id); }}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flexShrink: 0, marginLeft: 2, width: 18, height: 18, borderRadius: 5,
+              color: pinned ? C : th.muted,
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill={pinned ? C : "none"} stroke={pinned ? C : "currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" />
+            </svg>
+          </span>
+        )}
         {/* Number badge */}
         {badge != null && badge > 0 && (
           collapsed ? (
@@ -33889,14 +34458,20 @@ function PCGPortal() {
   };
 
   // ─── Section header divider with optional label ───
-  const SectionHeader = ({ label, accent, collapsed }) => {
+  const SectionHeader = ({ label, accent, collapsed, onToggle, open }) => {
     if (collapsed) return (
       <div style={{ height: 1, margin: "0.85rem 0.65rem", background: `linear-gradient(90deg, transparent, ${th.sidebarBorder}, transparent)` }} />
     );
+    const clickable = typeof onToggle === "function";
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0.5rem 0.55rem" }}>
+      <div
+        onClick={onToggle}
+        title={clickable ? (open ? "Collapse section" : "Expand section") : undefined}
+        style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0.5rem 0.55rem", cursor: clickable ? "pointer" : "default", userSelect: "none" }}
+      >
         <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` }} />
         <span style={{
+          display: "inline-flex", alignItems: "center", gap: "0.3rem",
           fontSize: "0.55rem", fontWeight: 800,
           color: accent, letterSpacing: 1.6, textTransform: "uppercase",
           padding: "0.15rem 0.5rem",
@@ -33906,7 +34481,16 @@ function PCGPortal() {
           borderRight: `1px solid ${accent}33`,
           borderBottom: `2px solid ${accent}66`,
           borderRadius: 999,
-        }}>{label}</span>
+        }}>
+          {label}
+          {clickable && (
+            <span style={{
+              fontSize: "0.45rem", opacity: 0.7,
+              transition: "transform 0.22s", display: "inline-block",
+              transform: open ? "rotate(90deg)" : "none",
+            }}>▶</span>
+          )}
+        </span>
         <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` }} />
       </div>
     );
@@ -33915,9 +34499,9 @@ function PCGPortal() {
   // ─── Admin groups config ──────────────────────────────────────────────────
   const ADMIN_GROUPS = [
     { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics', 'anomalies', 'scorecard'] },
-    { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon'] },
+    { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon', 'expenses'] },
     { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'impact', 'projects', 'deals', 'users'] },
-    { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'settings'] },
+    { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'admin'] },
   ];
 
   // ─── Collapsible admin group — Doclines-style accordion ──────────────────
@@ -34029,6 +34613,7 @@ function PCGPortal() {
               return (
                 <NavButton key={t.id} tabDef={t} accent={C} isActive={isActive} collapsed={false}
                   badge={badge} glow={glow} dotColor={C}
+                  pinned={pinnedNavIds.includes(t.id)} onTogglePin={togglePinNav}
                   onClick={() => { setTab(t.id); nav && nav(); }} />
               );
             })}
@@ -34215,36 +34800,66 @@ function PCGPortal() {
 
       {/* ─── Nav body ─────────────────────────────────────────────────── */}
       <div ref={navRef} onScroll={onNavScroll} style={{ padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
-        {/* Universal tabs */}
-        {BASE_TABS.map(t => {
-          const isActive = tab === t.id;
-          let badge = null;
-          if (t.id === "chat" && chatUnreadCount > 0) badge = chatUnreadCount;
-          if (t.id === "reports" && reportsUnreadCount > 0) badge = reportsUnreadCount;
-          if (t.id === "announcements") {
-            const myDist = user.district ? Number(user.district) : null;
-            const unread = announcements.filter(a => {
-              if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
-              if (!a.targets) return true;
-              const { roles, districts } = a.targets;
-              if (roles?.includes(user.userType)) return true;
-              if (myDist && districts?.includes(myDist)) return true;
-              return false;
-            }).length;
-            if (unread > 0) badge = unread;
-          }
+        {/* ── Pinned favorites — surfaced at the very top, user-customizable ── */}
+        {(() => {
+          const pinnedTabs = pinnedNavIds.map(id => TABS.find(t => t.id === id)).filter(Boolean);
+          if (pinnedTabs.length === 0) return null;
           return (
-            <NavButton
-              key={t.id}
-              tabDef={t}
-              accent={O}
-              isActive={isActive}
+            <>
+              <SectionHeader label="Pinned" accent={O} collapsed={collapsed} />
+              {pinnedTabs.map(t => {
+                const C = t.cash ? (cashMissingCount > 0 ? "#ef4444" : "#00d084") : (t.green ? "#00d084" : O);
+                return (
+                  <NavButton
+                    key={"pin_" + t.id}
+                    tabDef={t}
+                    accent={C}
+                    isActive={tab === t.id}
+                    collapsed={collapsed}
+                    badge={navBadge(t)}
+                    glow={t.green || t.cash}
+                    dotColor={C}
+                    pinned
+                    onTogglePin={togglePinNav}
+                    onClick={() => { setTab(t.id); onNav && onNav(); }}
+                  />
+                );
+              })}
+            </>
+          );
+        })()}
+
+        {/* ── Essential universal tabs (flat, always visible) ── */}
+        {BASE_TABS.filter(t => ESSENTIAL_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id)).map(t => (
+          <NavButton
+            key={t.id}
+            tabDef={t}
+            accent={O}
+            isActive={tab === t.id}
+            collapsed={collapsed}
+            badge={navBadge(t)}
+            onTogglePin={togglePinNav}
+            onClick={() => { setTab(t.id); onNav && onNav(); }}
+          />
+        ))}
+
+        {/* ── Workspace — utility universal tabs, grouped to save space ── */}
+        {(() => {
+          const wsTabs = BASE_TABS.filter(t => WORKSPACE_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          if (wsTabs.length === 0) return null;
+          const wsIcon = (c) => <Icon color={c} d={<><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></>} />;
+          return (
+            <AdminGroup
+              groupKey="workspace"
+              icon={wsIcon}
+              label="Workspace"
+              color="#94a3b8"
+              tabs={wsTabs}
               collapsed={collapsed}
-              badge={badge}
-              onClick={() => { setTab(t.id); onNav && onNav(); }}
+              onNav={onNav}
             />
           );
-        })}
+        })()}
 
         {/* DM section — grouped accordion */}
         {user?.userType === "dm" && (() => {
@@ -34254,11 +34869,14 @@ function PCGPortal() {
             { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['pulse','labor','pnl','analytics','anomalies'] },
             { key:'dm_biz',  label:'District',        color:'#74c0fc', icon:(c)=>ICONS.dollar(c),    ids:['cash','reports','projects','deals','scorecard'] },
           ];
+          const sectionHasActive = dmTabs.some(t => t.id === tab) && !pinnedNavIds.includes(tab);
+          const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_dm'] || sectionHasActive;
           return (
             <>
-              <SectionHeader label="My District" accent="#74c0fc" collapsed={collapsed} />
-              {DM_GROUPS.map(grp => {
-                const grpTabs = grp.ids.map(id => dmTabs.find(t => t.id === id)).filter(Boolean);
+              <SectionHeader label="My District" accent="#74c0fc" collapsed={collapsed}
+                open={sectionOpen} onToggle={() => toggleSidebarSection('sec_dm')} />
+              {sectionOpen && DM_GROUPS.map(grp => {
+                const grpTabs = grp.ids.map(id => dmTabs.find(t => t.id === id)).filter(t => t && !pinnedNavIds.includes(t.id));
                 if (grpTabs.length === 0) return null;
                 return (
                   <AdminGroup
@@ -34278,10 +34896,14 @@ function PCGPortal() {
         })()}
 
         {/* Manager section */}
-        {user?.userType === "manager" && (
+        {user?.userType === "manager" && (() => {
+          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_manager'] || secTabs.some(t => t.id === tab);
+          return (
           <>
-            <SectionHeader label="My Store" accent="#22c55e" collapsed={collapsed} />
-            {tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
+            <SectionHeader label="My Store" accent="#22c55e" collapsed={collapsed}
+              open={sectionOpen} onToggle={() => toggleSidebarSection('sec_manager')} />
+            {sectionOpen && secTabs.map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
@@ -34289,54 +34911,75 @@ function PCGPortal() {
                 isActive={tab === t.id}
                 collapsed={collapsed}
                 badge={t.id === "reports" && reportsUnreadCount > 0 ? reportsUnreadCount : null}
+                pinned={pinnedNavIds.includes(t.id)}
+                onTogglePin={togglePinNav}
                 onClick={() => { setTab(t.id); onNav && onNav(); }}
               />
             ))}
           </>
-        )}
+          );
+        })()}
 
         {/* Construction section */}
-        {user?.userType === "construction" && (
+        {user?.userType === "construction" && (() => {
+          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_construction'] || secTabs.some(t => t.id === tab);
+          return (
           <>
-            <SectionHeader label="Construction" accent="#fb923c" collapsed={collapsed} />
-            {tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
+            <SectionHeader label="Construction" accent="#fb923c" collapsed={collapsed}
+              open={sectionOpen} onToggle={() => toggleSidebarSection('sec_construction')} />
+            {sectionOpen && secTabs.map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
                 accent="#fb923c"
                 isActive={tab === t.id}
                 collapsed={collapsed}
+                pinned={pinnedNavIds.includes(t.id)}
+                onTogglePin={togglePinNav}
                 onClick={() => { setTab(t.id); onNav && onNav(); }}
               />
             ))}
           </>
-        )}
+          );
+        })()}
 
         {/* Maintenance section */}
-        {user?.userType === "maintenance" && (
+        {user?.userType === "maintenance" && (() => {
+          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_maintenance'] || secTabs.some(t => t.id === tab);
+          return (
           <>
-            <SectionHeader label="Maintenance" accent="#a78bfa" collapsed={collapsed} />
-            {tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id)).map(t => (
+            <SectionHeader label="Maintenance" accent="#a78bfa" collapsed={collapsed}
+              open={sectionOpen} onToggle={() => toggleSidebarSection('sec_maintenance')} />
+            {sectionOpen && secTabs.map(t => (
               <NavButton
                 key={t.id}
                 tabDef={t}
                 accent="#a78bfa"
                 isActive={tab === t.id}
                 collapsed={collapsed}
+                pinned={pinnedNavIds.includes(t.id)}
+                onTogglePin={togglePinNav}
                 onClick={() => { setTab(t.id); onNav && onNav(); }}
               />
             ))}
           </>
-        )}
+          );
+        })()}
 
         {/* Admin / Operations section — grouped accordion */}
-        {(isFullAdmin(user) || user?.userType === "office_staff") && (
+        {(isFullAdmin(user) || user?.userType === "office_staff") && (() => {
+          const adminTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
+          const sectionHasActive = adminTabs.some(t => t.id === tab) && !pinnedNavIds.includes(tab);
+          const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_admin'] || sectionHasActive;
+          return (
           <>
-            <SectionHeader label={isFullAdmin(user) ? "Admin" : "Operations"} accent={O} collapsed={collapsed} />
-            {(() => {
-              const adminTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
+            <SectionHeader label={isFullAdmin(user) ? "Admin" : "Operations"} accent={O} collapsed={collapsed}
+              open={sectionOpen} onToggle={() => toggleSidebarSection('sec_admin')} />
+            {sectionOpen && (() => {
               return ADMIN_GROUPS.map(grp => {
-                const grpTabs = grp.ids.map(id => adminTabs.find(t => t.id === id)).filter(Boolean);
+                const grpTabs = grp.ids.map(id => adminTabs.find(t => t.id === id)).filter(t => t && !pinnedNavIds.includes(t.id));
                 if (grpTabs.length === 0) return null;
                 return (
                   <AdminGroup
@@ -34353,7 +34996,8 @@ function PCGPortal() {
               });
             })()}
           </>
-        )}
+          );
+        })()}
       </div>
 
       {/* ─── Footer: version + collapse toggle ──────────────────────────── */}
@@ -34373,7 +35017,7 @@ function PCGPortal() {
             opacity: 0.55,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            v14.78
+            {APP_VERSION}
             <SyncStatus dark={dark} />
           </div>
         )}
@@ -34505,7 +35149,8 @@ function PCGPortal() {
                 {tab === "projects" && "Track construction, remodels, and new store builds."}
                 {tab === "users" && "User accounts and access management."}
                 {tab === "kb" && "Company guides, SOPs, training materials, and reference articles."}
-                {tab === "settings" && "Portal configuration and preferences."}
+                {tab === "expenses" && "All maintenance expenses across tickets — review, filter, and approve."}
+                {tab === "admin" && "Users, configuration, audit log, and system data."}
                 {tab === "email" && "Shared inbox and outbound email from the portal."}
                 {tab === "tickets"  && "Submit and track maintenance & service tickets."}
               </p>
@@ -34818,9 +35463,10 @@ function PCGPortal() {
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
+          {tab === "expenses"  && isFullAdmin(user) && <ExpenseLogSection th={th} user={user} standalone />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
-          {tab === "settings"  && isFullAdmin(user) && <AdminSettings globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}

@@ -5,7 +5,7 @@
 
 **Live URL:** https://pcg-ops.netlify.app
 **Hosting:** Netlify (Pro plan) — bundled static SPA + serverless functions + Netlify Blobs + Neon Postgres
-**Version:** Track in sidebar footer (currently **v14.00**). **Increment on every code change.**
+**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v15.32**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
 
 ---
 
@@ -258,12 +258,12 @@ Two themes: **DARK** and **LIGHT** (defined in `src/theme.js`). Toggled via `The
 ### Workflow (build before commit!)
 1. Edit `app.jsx` (or `src/icons.jsx` / `src/theme.js`)
 2. `npm run build` (or run `npm run watch` while developing)
-3. Bump the version in the sidebar footer (search `v14.` near the end of `app.jsx`)
+3. Bump the `APP_VERSION` constant in `app.jsx` (search `const APP_VERSION =`)
 4. Commit **both** the JSX source and the regenerated `app.js`
 5. `npx netlify deploy --prod`
 
 ### Version Bumping
-**Always increment the version** in the sidebar footer on every code change.
+**Always increment `APP_VERSION`** (in `app.jsx`) on every code change. It feeds both the sidebar footer and the Admin · System "Portal version / live build" field, so they stay in sync.
 
 ### Code Style
 - React components are plain functions; use `useState`/`useEffect` (destructured from `React` at top of `app.jsx`)

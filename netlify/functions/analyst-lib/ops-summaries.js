@@ -3,7 +3,7 @@
 // analyst-data.js load blobs and call these. All list lengths are capped for token control.
 
 const DAY_MS = 86400000;
-const LIST_CAPS = { projects: 20, tickets: 15, deposits: 25, missingDeposits: 20, foodItems: 15, critical: 10 };
+const LIST_CAPS = { projects: 20, tickets: 15, deposits: 25, missingDeposits: 20, foodItems: 15, critical: 10, upsellStores: 5 };
 
 function storesByPc(stores) {
   const m = new Map();
@@ -230,6 +230,25 @@ function summarizeFoodCost(tables, computed) {
   return out;
 }
 
+// entries: [{ pc, name, district, upsellRate, avgCheck, days }] — 7-day avg upsell rate + avg check per store
+function summarizeUpsell(entries) {
+  const valid = (entries || []).filter(e => typeof e.upsellRate === 'number');
+  if (valid.length === 0) return { available: false };
+  const networkAvg = Math.round((valid.reduce((s, e) => s + e.upsellRate, 0) / valid.length) * 10) / 10;
+  const withCheck = valid.filter(e => typeof e.avgCheck === 'number');
+  const networkAvgCheck = withCheck.length
+    ? Math.round((withCheck.reduce((s, e) => s + e.avgCheck, 0) / withCheck.length) * 100) / 100
+    : null;
+  const sorted = [...valid].sort((a, b) => b.upsellRate - a.upsellRate);
+  return {
+    available: true,
+    networkAvg,
+    networkAvgCheck,
+    top: sorted.slice(0, LIST_CAPS.upsellStores),
+    bottom: sorted.slice(-LIST_CAPS.upsellStores).reverse(),
+  };
+}
+
 /** Defensive trim of an unknown blob: top-level scalars only (strings ≤200 chars), arrays/objects → size markers */
 function compactComputed(blob) {
   if (!blob || typeof blob !== 'object' || Array.isArray(blob)) return null;
@@ -243,7 +262,7 @@ function compactComputed(blob) {
   return Object.keys(out).length > 0 ? out : null; // null when nothing survived the trim
 }
 
-function renderOpsContext({ projects, tickets, cash, foodCost } = {}) {
+function renderOpsContext({ projects, tickets, cash, foodCost, upsell } = {}) {
   const L = [];
 
   L.push('\n\nCONSTRUCTION & PROJECTS:');
@@ -301,7 +320,29 @@ function renderOpsContext({ projects, tickets, cash, foodCost } = {}) {
     if (foodCost.computed) L.push(`  computed overlay: ${JSON.stringify(foodCost.computed)}`);
   }
 
+  L.push('\nUPSELL & AVG CHECK (7-day avg; upsell = % of checks with 2+ items, proxy metric):');
+  if (!upsell || !upsell.available) L.push('  No upsell data yet.');
+  else {
+    const fmtS = s => `${s.name} ${s.upsellRate}%${typeof s.avgCheck === 'number' ? ` ($${s.avgCheck.toFixed(2)})` : ''}`;
+    L.push(`  Network avg: ${upsell.networkAvg}% upsell${upsell.networkAvgCheck != null ? `, $${upsell.networkAvgCheck.toFixed(2)} avg check` : ''}`);
+    L.push(`  Network top 5 upsell: ${upsell.top.map(fmtS).join(', ')}`);
+    L.push(`  Network bottom 5 upsell: ${upsell.bottom.map(fmtS).join(', ')}`);
+    if (upsell.district?.stores?.length) {
+      L.push(`  District ${upsell.district.num} stores vs network (frame as "Store X averages $Y/check vs network $${upsell.networkAvgCheck != null ? upsell.networkAvgCheck.toFixed(2) : '?'} — what are they doing differently?"):`);
+      for (const s of upsell.district.stores) {
+        L.push(`    ${s.name}: ${s.upsellRate}% upsell, ${typeof s.avgCheck === 'number' ? `$${s.avgCheck.toFixed(2)} avg check` : 'avg check n/a'}`);
+      }
+    }
+    if (upsell.itemDiff?.items?.length) {
+      L.push(`  ITEM MIX — what the top-5 upsell stores sell more/less of than the bottom-5 (avg units per 100 checks, ${upsell.itemDiff.asOf}):`);
+      L.push(`    Top stores: ${upsell.itemDiff.topStores.join(', ')} | Bottom stores: ${upsell.itemDiff.bottomStores.join(', ')}`);
+      for (const r of upsell.itemDiff.items) {
+        L.push(`    ${r.item}: ${r.topPer100}/100 checks at top stores vs ${r.bottomPer100}/100 at bottom stores`);
+      }
+    }
+  }
+
   return L.join('\n');
 }
 
-module.exports = { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, LIST_CAPS, renderOpsContext };
+module.exports = { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, LIST_CAPS, renderOpsContext };

@@ -124,14 +124,14 @@
 
 ### 9.4 Guest Check Analytics
 ✅ - Average check size trending, items per transaction (avgCheck computed per store; full transaction detail modal with itemized line items via getGuestChecks)
-- Upsell rate (combo vs individual) — not yet done
-- Identify top upselling stores and extract their practices
-- "Store 345 averages $8.20/check vs network $7.10 — what are they doing differently?"
+✅ - Upsell rate (proxy: % of checks with 2+ real items, tracked daily per store in pcg_hourly_history, surfaced in Pulse store detail + Orion ops context)
+✅ - Identify top upselling stores (network top/bottom 5 surfaced to Orion); item-level "what they're doing differently" via daily-cached item-mix diff — top-5 vs bottom-5 upsell stores, units per 100 checks, cited in DM/exec briefs (v14.90)
+✅ - "Store X averages $Y/check vs network $Z — what are they doing differently?" (district-neighbor avg check + upsell rate comparison in Orion store brief)
 
-### 9.5 Daypart Performance Matrix
-- Heat map: every store's performance by hour of day × day of week
-- Identify "dead zones" where staffing doesn't match traffic
-- Spot opportunities: "Store 410 has almost no late-afternoon business — market issue or ops issue?"
+### 9.5 Daypart Performance Matrix ✅ shipped v14.91–14.96
+✅ - Heat map: every store's performance by hour of day × day of week (7-day hour×day sales heatmap in the Map pin popup — quantized intensity scale, per-day totals, peak-hour callout; plus live Uber-surge-style heat clouds on the map itself: red = busy / orange = steady / grey = dead, today's actual sales vs own peak, refreshed every 15 min)
+✅ - Identify "dead zones" where staffing doesn't match traffic (Staffing Fit grid: upcoming Paycor schedule vs typical traffic per weekday-hour — red = overstaffed (<$35 sales/labor-hr), amber = understaffed/no coverage (>$110), flagged before the shift happens)
+✅ - Spot opportunities: "Store 410 has almost no late-afternoon business — market issue or ops issue?" (dead-zone callout: store's share-of-day by daypart vs district peers' 7-day curve, worst gap surfaced verbatim with the "market issue or ops issue?" prompt)
 
 ---
 
@@ -158,7 +158,7 @@
 - Percentile rankings: "Store 345 is in the 85th percentile for labor efficiency"
 - "If your bottom 10 stores improved to median, your network would gain $X/year"
 
-### 10.4 New Store / Remodel ROI Tracker
+### 10.4 New Store / Remodel ROI Tracker ✅
 - Track pre/post performance for every capital project
 - "Remodel completed 3 months ago: sales up 12%, labor down 1.5%, guest count up 8%"
 - Calculate payback period on capital investments
@@ -172,6 +172,13 @@
 - Abstract platform to support any franchise brand, not just Dunkin'
 - Data model is already mostly brand-agnostic: stores, districts, labor, sales, projects
 - Potential to license to other multi-unit operators
+
+### 10.7 Admin Console & Access Governance ✅ shipped v14.98–v15.05
+✅ - Unified **Admin** console (replaces Settings) — one flat tab bar: Notifications · Users · Access · Orion · Vendors · System & Logs (IT/Exec only)
+✅ - **Access** tab: live "who-can-see-what" matrix derived from the real `getTabs()` logic, per role, with user counts + scope notes
+✅ - **Per-role tab visibility toggles** — IT/Exec show/hide any role-specific section network-wide (Netlify Blob `pcg_access_overrides_v1`, 12s live propagation), with a lockout guard that keeps Admin visible for IT/Exec
+✅ - System overview (users/stores/roles/version) + role breakdown; audit log + notification log consolidated under System & Logs
+✅ - Expense Log promoted to its own Finance tab (IT/Exec only); P&L data-access management relocated to the Access tab
 
 ---
 

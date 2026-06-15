@@ -116,8 +116,27 @@
   function getTheme(dark) {
     return dark ? DARK : LIGHT;
   }
+  var RADIUS = { card: "1rem", inner: "0.625rem", control: "0.6rem", chip: "0.375rem", pill: 999 };
+  function pageTitle(th, extra = {}) {
+    return { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: th.text, letterSpacing: -0.5, ...extra };
+  }
+  function sectionTitle(th, extra = {}) {
+    return { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text, ...extra };
+  }
+  function microLabel(th, extra = {}) {
+    return { fontSize: "0.68rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, ...extra };
+  }
+  function thCell(th, extra = {}) {
+    return { padding: "0.45rem 0.65rem", fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: 0.8, color: th.muted, whiteSpace: "nowrap", textAlign: "left", ...extra };
+  }
+  function tdCell(th, extra = {}) {
+    return { padding: "0.5rem 0.65rem", fontSize: "0.78rem", color: th.text, verticalAlign: "middle", ...extra };
+  }
+  function pill(color, extra = {}) {
+    return { display: "inline-flex", alignItems: "center", gap: "0.25rem", fontSize: "0.65rem", fontWeight: 700, color, background: `${color}18`, border: `1px solid ${color}33`, borderRadius: RADIUS.pill, padding: "0.15rem 0.5rem", whiteSpace: "nowrap", ...extra };
+  }
   function btn(th, extra = {}) {
-    return { background: O, color: W, border: "none", borderRadius: "0.6rem", padding: "0.7rem 1.4rem", cursor: "pointer", fontFamily: "'Source Sans 3'", fontWeight: 600, fontSize: "1rem", transition: "all .15s", ...extra };
+    return { background: O, color: W, border: "none", borderRadius: RADIUS.control, padding: "0.7rem 1.4rem", cursor: "pointer", fontFamily: "'Source Sans 3'", fontWeight: 600, fontSize: "1rem", transition: "all .15s", ...extra };
   }
   function inp(th, extra = {}) {
     return { background: th.inputBg, border: "1px solid " + th.inputBorder, borderRadius: "0.6rem", padding: "0.72rem 1rem", color: th.text, fontSize: "1rem", outline: "none", width: "100%", fontFamily: "'Source Sans 3'", ...extra };
@@ -1230,6 +1249,7 @@
     nickname: "",
     type: "Remodel",
     dueDate: "",
+    startDate: "",
     completionDate: "",
     dunkinCompletionDate: "",
     notes: "",
@@ -3759,6 +3779,7 @@
     "Coming Soon": { color: "#b197fc", bg: "#b197fc18" }
   };
   function StoreMap({ stores, th, setTab }) {
+    const O2 = "#FF671F";
     const [selectedStore, setSelectedStore] = React.useState(null);
     const [laborData, setLaborData] = React.useState(null);
     const [allTickets, setAllTickets] = React.useState([]);
@@ -3766,9 +3787,17 @@
     const [filterPerf, setFilterPerf] = React.useState(null);
     const [storeEmps, setStoreEmps] = React.useState(null);
     const [storeEmpsLoading, setStoreEmpsLoading] = React.useState(false);
+    const [teamExpanded, setTeamExpanded] = React.useState(false);
+    const [storeHourly, setStoreHourly] = React.useState(null);
+    const [storeHourlyLoading, setStoreHourlyLoading] = React.useState(false);
+    const [storeSched, setStoreSched] = React.useState(null);
+    const [peerHourly, setPeerHourly] = React.useState(null);
+    const [liveHeat, setLiveHeat] = React.useState({});
+    const [heatLoading, setHeatLoading] = React.useState(true);
     const containerRef = React.useRef(null);
     const mapRef = React.useRef(null);
     const markersRef = React.useRef([]);
+    const heatRef = React.useRef([]);
     const tileRef = React.useRef(null);
     const selectRef = React.useRef(null);
     const tileSwapReady = React.useRef(false);
@@ -3796,6 +3825,7 @@
         return;
       }
       setStoreEmps(null);
+      setTeamExpanded(false);
       setStoreEmpsLoading(true);
       const todayStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       cloudLoad(`pcg_labor_store_${selectedStore.pc}`).then((d) => {
@@ -3809,6 +3839,202 @@
         setStoreEmpsLoading(false);
       });
     }, [selectedStore?.pc]);
+    React.useEffect(() => {
+      let cancelled = false;
+      const fetchLiveHeat = async () => {
+        const now = /* @__PURE__ */ new Date();
+        const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+        const today = `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-${String(et.getDate()).padStart(2, "0")}`;
+        const pcs = stores.filter((s) => s.status === "Open").map((s) => String(s.pc));
+        const BATCH = 6;
+        for (let i = 0; i < pcs.length; i += BATCH) {
+          if (cancelled) return;
+          const results = {};
+          await Promise.all(pcs.slice(i, i + BATCH).map(async (pc) => {
+            try {
+              const res = await fetch("/.netlify/functions/pulse", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ api: pc === "345986" ? "p227" : "p228", endpoint: "getGuestChecks", locRef: pc, busDt: today, include: "guestChecks.opnUTC,guestChecks.chkTtl" })
+              });
+              if (!res.ok) return;
+              const j = await res.json();
+              const hours = Array(24).fill(0);
+              for (const c of j.guestChecks || []) {
+                const raw = c.opnUTC || "";
+                if (!raw) continue;
+                const dt = new Date(raw.endsWith("Z") ? raw : raw + "Z");
+                if (isNaN(dt.getTime())) continue;
+                const h = parseInt(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }).format(dt), 10) % 24;
+                hours[h] += c.chkTtl || 0;
+              }
+              results[pc] = hours;
+            } catch {
+            }
+          }));
+          if (cancelled) return;
+          setLiveHeat((prev) => ({ ...prev, ...results }));
+        }
+        if (!cancelled) setHeatLoading(false);
+      };
+      fetchLiveHeat();
+      const id = setInterval(fetchLiveHeat, 15 * 60 * 1e3);
+      return () => {
+        cancelled = true;
+        clearInterval(id);
+      };
+    }, [stores]);
+    React.useEffect(() => {
+      if (!selectedStore) {
+        setStoreHourly(null);
+        return;
+      }
+      setStoreHourly(null);
+      setStoreHourlyLoading(true);
+      cloudLoad(`pcg_hourly_history_${selectedStore.pc}`).then((d) => {
+        setStoreHourly(Array.isArray(d) ? d.slice(0, 7) : []);
+        setStoreHourlyLoading(false);
+      }).catch(() => {
+        setStoreHourly([]);
+        setStoreHourlyLoading(false);
+      });
+    }, [selectedStore?.pc]);
+    React.useEffect(() => {
+      if (!selectedStore) {
+        setStoreSched(null);
+        setPeerHourly(null);
+        return;
+      }
+      setStoreSched(null);
+      setPeerHourly(null);
+      cloudLoad(`pcg_schedule_${selectedStore.pc}`).then((d) => setStoreSched(d?.shifts || [])).catch(() => setStoreSched([]));
+      const mates = stores.filter((s) => s.district === selectedStore.district && s.pc !== selectedStore.pc && s.status === "Open").slice(0, 8);
+      Promise.all(mates.map(
+        (m) => cloudLoad(`pcg_hourly_history_${m.pc}`).then((d) => Array.isArray(d) && d.length ? d.slice(0, 7) : null).catch(() => null)
+      )).then((all) => setPeerHourly(all.filter(Boolean)));
+    }, [selectedStore?.pc]);
+    const hourLabel = (h) => h === 0 ? "12a" : h < 12 ? h + "a" : h === 12 ? "12p" : h - 12 + "p";
+    const heatmap = React.useMemo(() => {
+      if (!storeHourly || storeHourly.length === 0) return null;
+      const sums = {};
+      storeHourly.forEach((d) => (d.hours || []).forEach((h) => {
+        sums[h.h] = (sums[h.h] || 0) + (h.sales || 0);
+      }));
+      const active = Object.keys(sums).map(Number).filter((h) => sums[h] > 0);
+      if (!active.length) return null;
+      const minH = Math.min(...active), maxH = Math.max(...active);
+      const hours = [];
+      for (let h = minH; h <= maxH; h++) hours.push(h);
+      let max = 0;
+      const days = storeHourly.map((d) => {
+        const byHour = {};
+        (d.hours || []).forEach((h) => {
+          byHour[h.h] = h.sales || 0;
+          if ((h.sales || 0) > max) max = h.sales;
+        });
+        const values = hours.map((h) => byHour[h] ?? 0);
+        return { date: d.date, values, total: values.reduce((a, b) => a + b, 0) };
+      }).reverse();
+      let peakHour = hours[0];
+      hours.forEach((h) => {
+        if ((sums[h] || 0) > (sums[peakHour] || 0)) peakHour = h;
+      });
+      return { hours, days, max, peakHour };
+    }, [storeHourly]);
+    const SPLH_OVER = 35, SPLH_UNDER = 110;
+    const schedFit = React.useMemo(() => {
+      if (!storeSched?.length || !storeHourly?.length || !heatmap) return null;
+      const byDow = {};
+      const avg = Array(24).fill(0);
+      let nDays = 0;
+      storeHourly.forEach((d) => {
+        if (!d.date) return;
+        const a = Array(24).fill(0);
+        (d.hours || []).forEach((h) => {
+          a[h.h] = h.sales || 0;
+        });
+        byDow[(/* @__PURE__ */ new Date(d.date + "T12:00:00")).getDay()] = a;
+        a.forEach((v, h) => {
+          avg[h] += v;
+        });
+        nDays++;
+      });
+      if (!nDays) return null;
+      for (let h = 0; h < 24; h++) avg[h] /= nDays;
+      const now = /* @__PURE__ */ new Date();
+      const tStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const dates = [...new Set(storeSched.map((s) => s.date).filter((d) => d && d >= tStr))].sort().slice(0, 7);
+      if (!dates.length) return null;
+      const hours = heatmap.hours;
+      const rows = dates.map((date) => {
+        const exp = byDow[(/* @__PURE__ */ new Date(date + "T12:00:00")).getDay()] || avg;
+        const heads = hours.map(() => 0);
+        storeSched.forEach((sh) => {
+          if (sh.date !== date || !sh.startDateTime || !sh.endDateTime) return;
+          const st = new Date(sh.startDateTime), en = new Date(sh.endDateTime);
+          if (isNaN(st.getTime()) || isNaN(en.getTime()) || en <= st) return;
+          const sH = st.getHours() + st.getMinutes() / 60;
+          const eH = en.getHours() + en.getMinutes() / 60 + (en.getDate() !== st.getDate() ? 24 : 0);
+          hours.forEach((h, i) => {
+            if (sH <= h + 0.5 && h + 0.5 < eH) heads[i]++;
+          });
+        });
+        const cells = hours.map((h, i) => {
+          const n = heads[i], expSales = exp[h] || 0;
+          let fit = "ok";
+          if (n === 0) fit = expSales > 50 ? "under" : "off";
+          else {
+            const splh = expSales / n;
+            if (n >= 2 && splh < SPLH_OVER) fit = "over";
+            else if (splh > SPLH_UNDER) fit = "under";
+          }
+          return { n, exp: expSales, fit };
+        });
+        return { date, isToday: date === tStr, cells };
+      });
+      return { hours, rows };
+    }, [storeSched, storeHourly, heatmap]);
+    const deadZone = React.useMemo(() => {
+      if (!storeHourly?.length || !peerHourly?.length) return null;
+      const DAYPARTS = [
+        { label: "5\u20138a", hs: [5, 6, 7] },
+        { label: "8\u201311a", hs: [8, 9, 10] },
+        { label: "11a\u20132p", hs: [11, 12, 13] },
+        { label: "2\u20135p", hs: [14, 15, 16] },
+        { label: "5\u20139p", hs: [17, 18, 19, 20] }
+      ];
+      const sumHours = (days) => {
+        const a = Array(24).fill(0);
+        days.forEach((d) => (d.hours || []).forEach((h) => {
+          a[h.h] += h.sales || 0;
+        }));
+        return a;
+      };
+      const mine = sumHours(storeHourly);
+      const myTotal = mine.reduce((x, y) => x + y, 0);
+      if (myTotal <= 0) return null;
+      const peerShare = Array(24).fill(0);
+      let peers = 0;
+      peerHourly.forEach((hist) => {
+        const a = sumHours(hist);
+        const t = a.reduce((x, y) => x + y, 0);
+        if (t > 0) {
+          a.forEach((v, h) => {
+            peerShare[h] += v / t;
+          });
+          peers++;
+        }
+      });
+      if (!peers) return null;
+      let worst = null;
+      for (const dp of DAYPARTS) {
+        const mineShare = dp.hs.reduce((x, h) => x + mine[h], 0) / myTotal * 100;
+        const theirs = dp.hs.reduce((x, h) => x + peerShare[h], 0) / peers * 100;
+        const gap = mineShare - theirs;
+        if (!worst || gap < worst.gap) worst = { label: dp.label, mine: mineShare, peers: theirs, gap };
+      }
+      return { ...worst, peerCount: peers };
+    }, [storeHourly, peerHourly]);
     const ticketCounts = React.useMemo(() => {
       const counts = {};
       allTickets.forEach((t) => {
@@ -3855,6 +4081,10 @@
       if (!L || !mapRef.current) return;
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
+      heatRef.current.forEach((m) => m.remove());
+      heatRef.current = [];
+      const etNow = new Date((/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const curHr = etNow.getHours(), curMin = etNow.getMinutes();
       stores.forEach((s) => {
         const c = STORE_COORDS[s.pc];
         if (!c) return;
@@ -3863,6 +4093,36 @@
           if (filterPerf === "green" && !(lPct !== null && lPct < 23)) return;
           if (filterPerf === "yellow" && !(lPct !== null && lPct >= 23 && lPct < 26)) return;
           if (filterPerf === "red" && !(lPct !== null && lPct >= 26)) return;
+        }
+        const heatHours = liveHeat[String(s.pc)];
+        if (heatHours && s.status === "Open") {
+          const useHr = curMin < 15 && curHr > 0 ? curHr - 1 : curHr;
+          let raw = heatHours[useHr] || 0;
+          if (useHr === curHr && curMin >= 15) raw = raw / (curMin / 60);
+          const peak = Math.max(...heatHours);
+          const intensity = peak > 0 ? Math.min(raw / peak, 1) : 0;
+          let rgb, a1, a2, size;
+          if (intensity >= 0.65) {
+            rgb = "239,68,68";
+            a1 = 0.55;
+            a2 = 0.26;
+            size = Math.round(80 + intensity * 30);
+          } else if (intensity >= 0.3) {
+            rgb = "255,103,31";
+            a1 = 0.42;
+            a2 = 0.18;
+            size = Math.round(64 + intensity * 30);
+          } else {
+            rgb = "148,163,184";
+            a1 = 0.3;
+            a2 = 0.12;
+            size = 52;
+          }
+          const pulse = intensity >= 0.3 ? `animation:heatCloudPulse 3.4s ease-in-out infinite;` : "";
+          const cloudHtml = `<div style="width:${size}px;height:${size}px;border-radius:50%;pointer-events:none;background:radial-gradient(circle, rgba(${rgb},${a1}) 0%, rgba(${rgb},${a2}) 45%, rgba(${rgb},0) 72%);${pulse}"></div>`;
+          const cloudIcon = L.divIcon({ className: "", html: cloudHtml, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+          const cloud = L.marker([c.lat, c.lng], { icon: cloudIcon, interactive: false, keyboard: false, zIndexOffset: -1e3 }).addTo(mapRef.current);
+          heatRef.current.push(cloud);
         }
         let color;
         if (s.status !== "Open" && s.status !== "Remodel") {
@@ -3888,7 +4148,7 @@
         });
         markersRef.current.push(marker);
       });
-    }, [stores, ticketCounts, laborData, filterPerf]);
+    }, [stores, ticketCounts, laborData, filterPerf, liveHeat]);
     React.useEffect(() => {
       const id = "pcg-leaflet-zoom-theme";
       let s = document.getElementById(id);
@@ -3901,6 +4161,7 @@
       .leaflet-bar { border: 1px solid ${th.cardBorder} !important; box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important; border-radius: 0.5rem !important; overflow: hidden; }
       .leaflet-control-zoom-in, .leaflet-control-zoom-out { background: ${th.card} !important; color: ${th.text} !important; border-bottom: 1px solid ${th.cardBorder} !important; }
       .leaflet-control-zoom-in:hover, .leaflet-control-zoom-out:hover { background: ${th.card2} !important; color: #FF671F !important; }
+      @keyframes heatCloudPulse { 0%, 100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.12); opacity: 1; } }
     `;
     }, [th.dark]);
     const legend = laborData ? (() => {
@@ -3950,19 +4211,68 @@
         l.label,
         l.sublabel && /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.7 } }, " ", l.sublabel)
       );
-    }), filterPerf && /* @__PURE__ */ React.createElement("button", { onClick: () => setFilterPerf(null), style: { fontSize: "0.68rem", color: th.muted, background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "2rem", padding: "0.22rem 0.65rem", cursor: "pointer", fontFamily: "'Source Sans 3'" } }, "\u2715 Show all")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flex: 1, minHeight: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, position: "relative", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { ref: containerRef, style: { width: "100%", height: "100%" } })), selectedStore && /* @__PURE__ */ React.createElement("div", { style: { width: 400, flexShrink: 0, borderLeft: `1px solid ${th.cardBorder}`, display: "flex", flexDirection: "column", overflow: "hidden", background: th.card } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem 1.25rem 0.875rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, selectedStore.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: detailSColor, background: detailSColor + "22", padding: "0.15rem 0.5rem", borderRadius: "1rem", border: `1px solid ${detailSColor}44` } }, selectedStore.status)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.77rem", color: th.muted } }, selectedStore.address), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginTop: "0.1rem" } }, selectedStore.city, ", ", selectedStore.state, selectedStore.zip ? " " + selectedStore.zip : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.71rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", null, "District ", selectedStore.district || "\u2014"), /* @__PURE__ */ React.createElement("span", null, "PC# ", selectedStore.pc), selectedStore.mgr && /* @__PURE__ */ React.createElement("span", null, "MGR: ", selectedStore.mgr), selectedStore.mgrPhone && /* @__PURE__ */ React.createElement("span", null, selectedStore.mgrPhone)), detailWeather && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.71rem", color: th.muted, marginTop: "0.3rem", display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", null, WEATHER_EMOJI[detailWeather.condition] || "\u{1F324}\uFE0F"), /* @__PURE__ */ React.createElement("span", { style: { textTransform: "capitalize" } }, detailWeather.condition), /* @__PURE__ */ React.createElement("span", null, "\xB7"), /* @__PURE__ */ React.createElement("span", null, detailWeather.tempHighF, "\xB0 / ", detailWeather.tempLowF, "\xB0F"), detailWeather.precipMm > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#60a5fa" } }, "\u{1F4A7} ", detailWeather.precipMm, "mm"))), /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedStore(null), style: { background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "1.1rem", padding: "0.1rem 0.3rem", lineHeight: 1, flexShrink: 0 } }, "\u2715"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(5,1fr)", padding: "0.75rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0, gap: "0.25rem" } }, [
+    }), filterPerf && /* @__PURE__ */ React.createElement("button", { onClick: () => setFilterPerf(null), style: { fontSize: "0.68rem", color: th.muted, background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "2rem", padding: "0.22rem 0.65rem", cursor: "pointer", fontFamily: "'Source Sans 3'" } }, "\u2715 Show all"), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "0.55rem", fontSize: "0.68rem", color: th.muted, fontFamily: "'Source Sans 3'" } }, heatLoading ? "loading live heat\u2026" : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 15, height: 15, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle, rgba(239,68,68,0.8) 0%, rgba(239,68,68,0.35) 45%, rgba(239,68,68,0) 72%)" } }), "Busy"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 15, height: 15, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle, rgba(255,103,31,0.7) 0%, rgba(255,103,31,0.3) 45%, rgba(255,103,31,0) 72%)" } }), "Steady"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 15, height: 15, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle, rgba(148,163,184,0.6) 0%, rgba(148,163,184,0.25) 45%, rgba(148,163,184,0) 72%)" } }), "Slow"), /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.75 } }, "\xB7 this hour, live")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flex: 1, minHeight: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, position: "relative", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { ref: containerRef, style: { width: "100%", height: "100%" } })), selectedStore && /* @__PURE__ */ React.createElement("div", { style: { width: 400, flexShrink: 0, borderLeft: `1px solid ${th.cardBorder}`, display: "flex", flexDirection: "column", overflow: "hidden", background: th.card } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem 1.25rem 0.875rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, selectedStore.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: detailSColor, background: detailSColor + "22", padding: "0.15rem 0.5rem", borderRadius: "1rem", border: `1px solid ${detailSColor}44` } }, selectedStore.status)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.77rem", color: th.muted } }, selectedStore.address), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginTop: "0.1rem" } }, selectedStore.city, ", ", selectedStore.state, selectedStore.zip ? " " + selectedStore.zip : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.71rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", null, "District ", selectedStore.district || "\u2014"), /* @__PURE__ */ React.createElement("span", null, "PC# ", selectedStore.pc), selectedStore.mgr && /* @__PURE__ */ React.createElement("span", null, "MGR: ", selectedStore.mgr), selectedStore.mgrPhone && /* @__PURE__ */ React.createElement("span", null, selectedStore.mgrPhone)), detailWeather && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.71rem", color: th.muted, marginTop: "0.3rem", display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", null, WEATHER_EMOJI[detailWeather.condition] || "\u{1F324}\uFE0F"), /* @__PURE__ */ React.createElement("span", { style: { textTransform: "capitalize" } }, detailWeather.condition), /* @__PURE__ */ React.createElement("span", null, "\xB7"), /* @__PURE__ */ React.createElement("span", null, detailWeather.tempHighF, "\xB0 / ", detailWeather.tempLowF, "\xB0F"), detailWeather.precipMm > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#60a5fa" } }, "\u{1F4A7} ", detailWeather.precipMm, "mm"))), /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedStore(null), style: { background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "1.1rem", padding: "0.1rem 0.3rem", lineHeight: 1, flexShrink: 0 } }, "\u2715"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(5,1fr)", padding: "0.75rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0, gap: "0.25rem" } }, [
       { label: "Sales", value: detailLd ? fmtDollars(detailLd.sales) : "\u2014", color: "#FF671F" },
       { label: "Labor %", value: detailLPct !== null ? detailLPct.toFixed(1) + "%" : "\u2014", color: detailLColor },
       { label: "Clocked", value: detailLd ? String(detailLd.employeesOnClock ?? "\u2014") : "\u2014", color: "#22c55e" },
       { label: "Sched", value: detailLd ? String(detailLd.scheduledNow ?? "\u2014") : "\u2014", color: "#74c0fc" },
       { label: "Tickets", value: String(storeTickets.length), color: storeTickets.length > 0 ? "#ef4444" : th.muted }
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: k.color, lineHeight: 1 } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: "0.2rem", fontWeight: 600 } }, k.label)))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text } }, "Today's Team"), storeEmpsLoading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "Loading\u2026"), storeEmps && !storeEmpsLoading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, storeEmps.length, " employee", storeEmps.length !== 1 ? "s" : "")), storeEmpsLoading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "Fetching team data\u2026"), storeEmps && storeEmps.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "No data available for today"), storeEmps && storeEmps.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, storeEmps.map((e, i) => {
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: k.color, lineHeight: 1 } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: "0.2rem", fontWeight: 600 } }, k.label)))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text } }, "Today's Team"), storeEmpsLoading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "Loading\u2026"), storeEmps && !storeEmpsLoading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, storeEmps.length, " employee", storeEmps.length !== 1 ? "s" : "")), storeEmpsLoading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "Fetching team data\u2026"), storeEmps && storeEmps.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "No data available for today"), storeEmps && storeEmps.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 2 } }, (teamExpanded ? storeEmps : storeEmps.slice(0, 5)).map((e, i) => {
       const eName = typeof e.name === "string" ? e.name : "Unknown";
       const eRole = typeof e.role === "string" ? e.role : "Crew";
       const eHours = typeof e.hoursToday === "number" ? e.hoursToday.toFixed(1) + "h" : "\u2014";
       const initials = eName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase() || "?";
-      return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0.5rem", borderRadius: "0.5rem", background: th.card2 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 30, height: 30, borderRadius: "50%", background: "#FF671F22", color: "#FF671F", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "0.6rem", flexShrink: 0 } }, initials), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, eName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted } }, eRole)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 600, color: th.text } }, eHours), e.overtime === "ot" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", color: "#ef4444", fontWeight: 700 } }, "OT"), e.overtime === "approaching" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", color: "#f59e0b", fontWeight: 700 } }, "~OT")));
-    }))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text, marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" } }, "Open Tickets", storeTickets.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#ef4444", fontWeight: 700, background: "#ef444420", padding: "0.1rem 0.4rem", borderRadius: "1rem" } }, storeTickets.length)), storeTickets.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#22c55e", display: "flex", alignItems: "center", gap: "0.35rem" } }, "\u2713 No open tickets"), storeTickets.map((t, i) => {
+      return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.45rem", padding: "0.2rem 0.4rem", borderRadius: "0.4rem", background: th.card2 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 20, height: 20, borderRadius: "50%", background: "#FF671F22", color: "#FF671F", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "0.52rem", flexShrink: 0 } }, initials), /* @__PURE__ */ React.createElement("span", { style: { flex: 1, minWidth: 0, fontSize: "0.74rem", color: th.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, eName, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.62rem" } }, "\xB7 ", eRole)), e.overtime === "ot" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.52rem", color: "#ef4444", fontWeight: 700, flexShrink: 0 } }, "OT"), e.overtime === "approaching" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.52rem", color: "#f59e0b", fontWeight: 700, flexShrink: 0 } }, "~OT"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, color: th.text, flexShrink: 0 } }, eHours));
+    }), storeEmps.length > 5 && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setTeamExpanded((x) => !x),
+        style: { background: "none", border: "none", color: th.muted, fontSize: "0.66rem", fontWeight: 600, cursor: "pointer", padding: "0.25rem 0", fontFamily: "'Source Sans 3'" }
+      },
+      teamExpanded ? "\u25B2 Show less" : `\u25BC Show all ${storeEmps.length}`
+    ))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.65rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text } }, "Hourly Traffic"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: th.muted } }, "last 7 days", heatmap ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 peak ", /* @__PURE__ */ React.createElement("span", { style: { color: O2, fontWeight: 700 } }, hourLabel(heatmap.peakHour))) : "")), storeHourlyLoading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "Loading\u2026"), storeHourly && storeHourly.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "No history available yet"), heatmap && (() => {
+      const cellColor = (v) => {
+        const t = heatmap.max > 0 ? v / heatmap.max : 0;
+        if (t <= 0) return th.card2;
+        const alpha = t <= 0.15 ? "26" : t <= 0.35 ? "59" : t <= 0.6 ? "8c" : t <= 0.85 ? "bf" : "ff";
+        return `${O2}${alpha}`;
+      };
+      const fmtTotal = (t) => t >= 1e3 ? `$${(t / 1e3).toFixed(1)}k` : `$${Math.round(t)}`;
+      const cols = `32px repeat(${heatmap.hours.length}, 1fr) 42px`;
+      const lastIdx = heatmap.days.length - 1;
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: cols, gap: 3, marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", null), heatmap.hours.map((h) => /* @__PURE__ */ React.createElement("span", { key: h, style: { fontSize: "0.56rem", color: th.muted, textAlign: "center", whiteSpace: "nowrap" } }, h % 3 === 0 ? hourLabel(h) : "")), /* @__PURE__ */ React.createElement("span", null)), heatmap.days.map((d, di) => /* @__PURE__ */ React.createElement("div", { key: d.date, style: { display: "grid", gridTemplateColumns: cols, gap: 3, alignItems: "center", marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: di === lastIdx ? 700 : 500, color: di === lastIdx ? th.text : th.muted } }, (/* @__PURE__ */ new Date(d.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short" })), d.values.map((v, i) => /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: i,
+          title: `${hourLabel(heatmap.hours[i])} \u2014 ${fmtDollars(v)}`,
+          style: { height: 16, borderRadius: 4, background: cellColor(v) }
+        }
+      )), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", color: th.muted, textAlign: "right", whiteSpace: "nowrap" } }, fmtTotal(d.total)))), deadZone && (deadZone.gap < -2.5 ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "0.4rem", marginTop: "0.55rem", padding: "0.4rem 0.6rem", borderRadius: "0.5rem", background: "#ef444412", border: "1px solid #ef444433", fontSize: "0.66rem", color: th.text, lineHeight: 1.45 } }, /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0 } }, "\u26A0\uFE0F"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", null, "Dead zone ", deadZone.label), " \u2014 ", deadZone.mine.toFixed(1), "% of daily sales vs ", deadZone.peers.toFixed(1), "% for ", deadZone.peerCount, " district peers. Market issue or ops issue?")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.55rem", fontSize: "0.64rem", color: "#22c55e" } }, "\u2713 Daypart mix tracks district peers")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: "0.5rem", fontSize: "0.58rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Less"), ["26", "59", "8c", "bf", "ff"].map((a) => /* @__PURE__ */ React.createElement("div", { key: a, style: { width: 11, height: 11, borderRadius: 3, background: `${O2}${a}` } })), /* @__PURE__ */ React.createElement("span", { style: { marginRight: 2 } }, "More")), schedFit && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.45rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.74rem", color: th.text } }, "Staffing Fit"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", color: th.muted } }, "scheduled heads vs typical traffic")), schedFit.rows.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.date, style: { display: "grid", gridTemplateColumns: cols, gap: 3, alignItems: "center", marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: r.isToday ? 700 : 500, color: r.isToday ? th.text : th.muted } }, (/* @__PURE__ */ new Date(r.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short" })), r.cells.map((cell, i) => {
+        const c = cell.fit === "over" ? "#ef4444" : cell.fit === "under" ? "#f59e0b" : null;
+        let tip = `${hourLabel(schedFit.hours[i])} \u2014 ${cell.n} scheduled \xB7 typical ${fmtDollars(cell.exp)}`;
+        if (cell.fit === "over") tip += " \xB7 OVERSTAFFED";
+        if (cell.fit === "under") tip += cell.n === 0 ? " \xB7 NO COVERAGE" : " \xB7 UNDERSTAFFED";
+        return /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            key: i,
+            title: tip,
+            style: {
+              height: 16,
+              borderRadius: 4,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: c ? `${c}22` : th.card2,
+              color: c || th.muted,
+              fontSize: "0.55rem",
+              fontWeight: 700
+            }
+          },
+          cell.fit === "off" ? "" : cell.n
+        );
+      }), /* @__PURE__ */ React.createElement("span", null))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.6rem", marginTop: "0.4rem", fontSize: "0.58rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 11, height: 11, borderRadius: 3, background: "#ef444422", border: "1px solid #ef444455" } }), " overstaffed"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 11, height: 11, borderRadius: 3, background: "#f59e0b22", border: "1px solid #f59e0b55" } }), " understaffed"))));
+    })()), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text, marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" } }, "Open Tickets", storeTickets.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#ef4444", fontWeight: 700, background: "#ef444420", padding: "0.1rem 0.4rem", borderRadius: "1rem" } }, storeTickets.length)), storeTickets.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#22c55e", display: "flex", alignItems: "center", gap: "0.35rem" } }, "\u2713 No open tickets"), storeTickets.map((t, i) => {
       const tTitle = typeof t.title === "string" ? t.title : typeof t.description === "string" ? t.description.slice(0, 50) : "Untitled";
       const tPriority = typeof t.priority === "string" ? t.priority : "\u2014";
       const tStatus = typeof t.status === "string" ? t.status : "\u2014";
@@ -5233,8 +5543,8 @@
       label,
       sortCol === col ? sortDir < 0 ? " \u2193" : " \u2191" : " \u2195"
     );
-    const thS = { padding: "0.4rem 0.5rem", color: th.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.72rem", whiteSpace: "nowrap" };
-    const tdS = { padding: "0.45rem 0.5rem" };
+    const thS = thCell(th, { padding: "0.4rem 0.5rem" });
+    const tdS = tdCell(th, { padding: "0.45rem 0.5rem" });
     return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text } }, "\u{1F4CA} ", isDMViewer ? `District ${dmDistrict} Analytics` : "Weekly Analytics"), cloudStatus === "loading" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\u2601\uFE0F Loading\u2026"), cloudStatus === "saving" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#74c0fc" } }, "\u2601\uFE0F Saving\u2026"), cloudStatus === "saved" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#69db7c" } }, "\u2601\uFE0F Saved"), cloudStatus === "error" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#ffa94d" } }, "\u26A0\uFE0F Cloud unavailable \u2014 using local storage"), week && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.1rem" } }, "Week #", week.weekNum, " \xB7 ", week.weekEnd, week.isDraft ? /* @__PURE__ */ React.createElement("span", { style: { color: "#ffa94d", fontWeight: 700, marginLeft: "0.4rem", fontSize: "0.7rem", border: "1px solid #ffa94d", borderRadius: "4px", padding: "1px 6px", verticalAlign: "middle" } }, "DRAFT") : "", " \xB7 ", isDMViewer ? `${filtered.length} stores in your district` : `${week.stores.length} stores`)), salesWeeks.length > 1 && /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), width: "auto", padding: "0.4rem 0.7rem", fontSize: "0.8rem" }, value: selWeek, onChange: (e) => setSelWeek(+e.target.value) }, salesWeeks.map((w, i) => /* @__PURE__ */ React.createElement("option", { key: i, value: i }, "Wk #", w.weekNum, " \u2014 ", w.weekEnd, w.isDraft ? " (Draft)" : ""))), canUpload && /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { padding: "0.5rem 1rem", fontSize: "0.8rem", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.4rem" }), opacity: uploading ? 0.7 : 1 } }, /* @__PURE__ */ React.createElement("input", { ref: fileRef, type: "file", accept: ".xlsx,.xls,.pdf", style: { display: "none" }, onChange: handleUpload, disabled: uploading }), uploading ? "\u23F3 Parsing..." : "\u{1F4CA} Upload Weekly Report"), canUpload && salesWeeks.length > 0 && /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -6207,7 +6517,7 @@
       /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: `${G}44`, strokeWidth: 1.5 })
     )));
   }
-  function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView }) {
+  function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user }) {
     const s = stores.find((st) => st.pc === pc);
     const fmtUSD = (v) => "$" + Math.round(v).toLocaleString();
     const fmtNum = (v) => Math.round(v).toLocaleString();
@@ -6262,6 +6572,11 @@
     const [txnMenuMap, setTxnMenuMap] = React.useState(null);
     const [dtSchedule, setDtSchedule] = React.useState(null);
     const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
+    const [upsellHistory, setUpsellHistory] = React.useState(null);
+    const upsellEntry = React.useMemo(() => {
+      if (!Array.isArray(upsellHistory)) return null;
+      return upsellHistory.find((e) => e.date <= localDate && typeof e.upsellRate === "number") || null;
+    }, [upsellHistory, localDate]);
     React.useEffect(() => {
       if (storeTab !== "driveThru") return;
       const id = setInterval(() => {
@@ -6276,6 +6591,18 @@
           if (res.ok) {
             const j = await res.json();
             setStoreReviews(j.data || j);
+          }
+        } catch {
+        }
+      })();
+    }, [pc]);
+    React.useEffect(() => {
+      (async () => {
+        try {
+          const res = await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: `pcg_hourly_history_${pc}` }) });
+          if (res.ok) {
+            const j = await res.json();
+            setUpsellHistory(Array.isArray(j.data) ? j.data : []);
           }
         } catch {
         }
@@ -6634,8 +6961,9 @@
       { label: "Tax", value: fmtUSD(d.tax), color: "#20c997" },
       { label: "Err Cor", value: fmtUSD(d.errCor), color: "#868e96" },
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
-      { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null }
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", marginBottom: "1.25rem", background: th.card, borderRadius: "0.75rem", border: `1px solid ${th.cardBorder}`, overflow: "hidden" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t, i, arr) => /* @__PURE__ */ React.createElement(
+      { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null },
+      ...upsellEntry ? [{ label: "Upsell Rate", value: upsellEntry.upsellRate.toFixed(1) + "%", color: "#22d3ee", sub: upsellEntry.date }] : []
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "1.25rem", background: th.card, borderRadius: "999px", border: `1px solid ${th.cardBorder}`, padding: "0.3rem" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -6659,7 +6987,7 @@
             }).finally(() => setFoodCostLoading(false));
           }
         },
-        style: { flex: 1, padding: "0.7rem 0.5rem", border: "none", borderRight: i < arr.length - 1 ? `1px solid ${th.cardBorder}` : "none", background: storeTab === t.id ? O + "18" : "transparent", color: storeTab === t.id ? O : th.muted, fontWeight: storeTab === t.id ? 700 : 400, fontSize: "0.78rem", cursor: "pointer", transition: "all .15s", borderBottom: storeTab === t.id ? `2px solid ${O}` : "2px solid transparent", fontFamily: "'Raleway',sans-serif" }
+        style: { flex: 1, padding: "0.6rem 0.5rem", border: "none", borderRadius: "999px", background: storeTab === t.id ? O : "transparent", color: storeTab === t.id ? "#fff" : th.muted, fontWeight: storeTab === t.id ? 800 : 500, fontSize: "0.78rem", cursor: "pointer", transition: "all .15s", boxShadow: storeTab === t.id ? `0 2px 10px ${O}55` : "none", fontFamily: "'Raleway',sans-serif" }
       },
       t.label
     ))), storeTab === "sales" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
@@ -7124,7 +7452,7 @@
         const f = txnFilters;
         if (f.otCat !== "all" && otCat(chk.otNum) !== f.otCat) return false;
         if (f.voids && !(chk.vdTtl && Math.abs(chk.vdTtl) > 0)) return false;
-        if (f.refunds && !((chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
+        if (f.refunds && !(Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
         if (f.discounts && !(chk.dscTtl && Math.abs(chk.dscTtl) > 0)) return false;
         if (f.timeStart) {
           const chkT = toETHHMM(chk.opnUTC || "");
@@ -7197,7 +7525,7 @@
         const t = chk.opnUTC ? toET(chk.opnUTC) : "--";
         const hasDisc = Math.abs(chk.dscTtl || 0) > 0;
         const hasVoid = Math.abs(chk.vdTtl || 0) > 0;
-        const hasRefund = (chk.rtrnCnt || 0) > 0 || (chk.chkTtl || 0) < 0;
+        const hasRefund = Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0;
         const otName = txnOTMap[chk.otNum] || "";
         const cat = otCat(chk.otNum);
         const otColor = cat === "drive_thru" ? "#2563eb" : cat === "eat_in" ? "#059669" : cat === "uber" ? "#d97706" : cat === "doordash" ? "#dc2626" : cat === "mobile" ? "#7c3aed" : cat === "delivery" ? "#0891b2" : "#64748b";
@@ -8192,7 +8520,6 @@
     const [collapsed, setCollapsed] = useState(/* @__PURE__ */ new Set());
     const [pulseView, setPulseView] = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
     const [weatherForecast, setWeatherForecast] = useState(null);
-    const [weatherCorrelations, setWeatherCorrelations] = useState(null);
     const [networkReviews, setNetworkReviews] = useState(null);
     const cdRef = useRef(null);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
@@ -8389,17 +8716,10 @@ ${t2.slice(0, 300)}`);
     useEffect(() => {
       (async () => {
         try {
-          const [fRes, cRes] = await Promise.all([
-            fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_forecast" }) }),
-            fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_correlations" }) })
-          ]);
+          const fRes = await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_forecast" }) });
           if (fRes.ok) {
             const j = await fRes.json();
             setWeatherForecast(j.data || j);
-          }
-          if (cRes.ok) {
-            const j = await cRes.json();
-            setWeatherCorrelations(j.data || j);
           }
           const rRes = await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_reviews_network" }) });
           if (rRes.ok) {
@@ -8468,27 +8788,9 @@ ${t2.slice(0, 300)}`);
     const fmtUSD = (v) => "$" + Math.round(v).toLocaleString();
     const fmtNum = (v) => Math.round(v).toLocaleString();
     const fmtAvg = (v) => v > 0 ? "$" + v.toFixed(2) : "\u2014";
-    const thS = {
-      padding: "0.45rem 0.65rem",
-      fontFamily: "'Raleway'",
-      fontWeight: 700,
-      fontSize: "0.68rem",
-      textTransform: "uppercase",
-      letterSpacing: 0.8,
-      color: th.muted,
-      whiteSpace: "nowrap",
-      background: th.card
-    };
-    const tdS = { padding: "0.5rem 0.65rem", fontSize: "0.78rem", color: th.text, verticalAlign: "middle" };
+    const thS = thCell(th, { background: th.card });
+    const tdS = tdCell(th);
     const distList = Object.values(districts || {}).sort((a, b) => a.num - b.num);
-    const cardS = {
-      background: th.card2,
-      borderRadius: "0.75rem",
-      padding: "1rem 1.25rem",
-      borderLeft: `3px solid ${G}`,
-      flex: "1 1 150px",
-      minWidth: 130
-    };
     const toggleCollapse = (d) => setCollapsed((prev) => {
       const next = new Set(prev);
       next.has(d) ? next.delete(d) : next.add(d);
@@ -8662,21 +8964,6 @@ ${t2.slice(0, 300)}`);
     ), /* @__PURE__ */ React.createElement(
       "button",
       {
-        onClick: loadWTD,
-        disabled: wtdLoading || loading,
-        style: { ...btn(th, {
-          background: hasWTD ? `${G}33` : "#1a3a2a",
-          color: hasWTD ? G : `${G}88`,
-          border: `1px solid ${G}33`,
-          fontWeight: 700,
-          padding: "0.4rem 1rem",
-          fontSize: "0.78rem"
-        }) }
-      },
-      wtdLoading ? "\u23F3 WTD\u2026" : hasWTD ? `\u2705 WTD (${wtdLoaded}d)` : "\u{1F4C5} Load WTD"
-    ), /* @__PURE__ */ React.createElement(
-      "button",
-      {
         onClick: () => setAutoRefresh((a) => !a),
         style: { ...btn(th, {
           background: autoRefresh ? `${G}33` : th.card3,
@@ -8717,76 +9004,31 @@ ${t2.slice(0, 300)}`);
       borderRadius: 4,
       width: "100%",
       animation: "wtdPulse 1.5s ease-in-out infinite"
-    } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: `${G}88` } }, "Loading WTD data\u2026"))), (() => {
+    } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: `${G}88` } }, "Loading WTD data\u2026")), pulseView === "network" && loaded.length > 0 && (() => {
+      const vRate = (t) => t.netSales > 0 ? t.voids / t.netSales * 100 : null;
+      const vCell = (t) => {
+        const r = vRate(t);
+        return r == null ? "\u2014" : r.toFixed(2) + "%";
+      };
+      const vColor = (t) => {
+        const r = vRate(t);
+        return r != null && r > 1 ? "#ff6b6b" : "#69db7c";
+      };
+      const lblS2 = { padding: "0.15rem 1.1rem 0.15rem 0", fontSize: "0.65rem", color: `${G}99`, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, textAlign: "left", whiteSpace: "nowrap" };
+      const valS2 = { padding: "0.2rem 1.1rem 0.2rem 0", fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.15rem", whiteSpace: "nowrap" };
+      const divL = { borderLeft: `1px solid ${G}33`, paddingLeft: "1.1rem" };
+      const onPace = hasLYWeek && lyDaysLoaded === 7 && weeklyForecastLY > 0;
+      return /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "0.85rem", borderTop: `1px solid ${G}33`, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: lblS2 }), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Net Sales"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Guests"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Avg Check"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Discounts"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Void Rate"), /* @__PURE__ */ React.createElement("th", { style: { ...lblS2, ...divL } }, "Weekly Forecast ", /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.7, textTransform: "none" } }, "(LY + 2%)")), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Pace"))), /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { style: { ...lblS2, fontSize: "0.7rem", color: "#e9fff4" } }, "Today"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: G, textShadow: `0 0 12px ${G}66` } }, fmtUSD(totals.netSales)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#74c0fc" } }, fmtNum(totals.guests)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#ffd43b" } }, fmtAvg(totals.avgCheck)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#f06595" } }, fmtUSD(totals.discounts)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: vColor(totals) } }, vCell(totals)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, ...divL, color: `${G}66`, fontSize: "0.8rem", fontWeight: 600 } }, "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: `${G}66`, fontSize: "0.8rem", fontWeight: 600 } }, "\u2014")), hasWTD && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { style: { ...lblS2, fontSize: "0.7rem", color: "#e9fff4" } }, "WTD (", wtdLoaded, "d)"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: G } }, fmtUSD(wtdTotals.netSales)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#74c0fc" } }, fmtNum(wtdTotals.guests)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#ffd43b" } }, wtdTotals.guests > 0 ? fmtAvg(wtdTotals.netSales / wtdTotals.guests) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#f06595" } }, fmtUSD(wtdTotals.discounts)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: vColor(wtdTotals) } }, vCell(wtdTotals)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, ...divL, color: "#cc5de8" } }, hasLYWeek && lyDaysLoaded === 7 ? fmtUSD(weeklyForecastLY) : hasLYWeek ? `${lyDaysLoaded}/7\u2026` : "Loading\u2026"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: wtdTotals.netSales >= weeklyForecastLY * wtdLoaded / 7 ? "#69db7c" : "#ff6b6b" } }, onPace ? (wtdTotals.netSales / (weeklyForecastLY * wtdLoaded / 7) * 100).toFixed(0) + "%" : "\u2014")))));
+    })()), (() => {
       const nonOpen = stores.filter((s) => s.status !== "Open" && (!isDMUser || Number(s.district) === dmDistrict));
       if (!nonOpen.length) return null;
       return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem", padding: "0.6rem 0.85rem", background: "#fd7e1418", borderLeft: `3px solid #fd7e14`, borderRadius: "0.375rem", fontSize: "0.78rem", color: th.muted, lineHeight: 1.5 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: "#fd7e14" } }, "Note:"), " ", nonOpen.map((s) => /* @__PURE__ */ React.createElement("span", { key: s.pc }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, s.name), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", padding: "1px 4px", borderRadius: 3, fontWeight: 600, color: "#fff", background: s.status === "Remodel" ? "#fd7e14" : s.status === "Temp Closed" ? "#dc3545" : "#6c757d" } }, s.status))).reduce((a, b) => [a, ", ", b]), " \u2014 ", "totals may be lower due to ", nonOpen.length === 1 ? "this store" : "these stores", " not operating at full capacity.");
-    })(), pulseView === "network" && loaded.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...cardS } }, /* @__PURE__ */ React.createElement("div", { style: {
-      fontFamily: "'Raleway'",
-      fontWeight: 900,
-      fontSize: "1.5rem",
-      color: G,
-      textShadow: `0 0 12px ${G}66`
-    } }, fmtUSD(totals.netSales)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, "Net Sales \u2014 ", busDt)), /* @__PURE__ */ React.createElement("div", { style: { ...cardS, borderColor: "#74c0fc" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: "#74c0fc" } }, fmtNum(totals.guests)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, "Guests / Checks")), /* @__PURE__ */ React.createElement("div", { style: { ...cardS, borderColor: "#ffd43b" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: "#ffd43b" } }, fmtAvg(totals.avgCheck)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, "Avg Check")), /* @__PURE__ */ React.createElement("div", { style: { ...cardS, borderColor: "#f06595" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: "#f06595" } }, fmtUSD(totals.discounts)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, "Discounts")), /* @__PURE__ */ React.createElement("div", { style: { ...cardS, borderColor: "#ff8787" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: totals.netSales > 0 && totals.voids / totals.netSales * 100 > 1 ? "#ff6b6b" : "#69db7c" } }, totals.netSales > 0 ? (totals.voids / totals.netSales * 100).toFixed(2) + "%" : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, "Void Rate"))), pulseView === "network" && hasWTD && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem", borderLeft: `3px solid ${G}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", fontWeight: 700, color: th.text, marginBottom: "0.75rem" } }, "Week to Date ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 400, color: th.muted } }, "(", wtdLoaded, " days)")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.25rem", flexWrap: "wrap", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: G } }, fmtUSD(wtdTotals.netSales)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Net Sales")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#74c0fc" } }, fmtNum(wtdTotals.guests)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Guests")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#ffd43b" } }, wtdTotals.guests > 0 ? fmtAvg(wtdTotals.netSales / wtdTotals.guests) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Avg Check")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#f06595" } }, fmtUSD(wtdTotals.discounts)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Discounts")), /* @__PURE__ */ React.createElement("div", { style: { borderLeft: `1px solid ${th.cardBorder}`, paddingLeft: "1.25rem", marginLeft: "0.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#cc5de8" } }, hasLYWeek && lyDaysLoaded === 7 ? fmtUSD(weeklyForecastLY) : hasLYWeek ? `${lyDaysLoaded}/7\u2026` : "Loading\u2026"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Weekly Forecast ", /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.7 } }, "(LY + 2%)"))), hasLYWeek && lyDaysLoaded === 7 && weeklyForecastLY > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: {
-      fontFamily: "'Raleway'",
-      fontWeight: 900,
-      fontSize: "1.4rem",
-      color: wtdTotals.netSales >= weeklyForecastLY * wtdLoaded / 7 ? "#69db7c" : "#ff6b6b"
-    } }, (wtdTotals.netSales / (weeklyForecastLY * wtdLoaded / 7) * 100).toFixed(0), "%"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Pace vs Forecast")))), pulseView === "network" && hasWTD && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: (dateKey) => setBusDt(dateKey) }), pulseView === "network" && loaded.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.125rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.875rem" } }, "\u{1F4CA} District Performance \u2014 ", busDt), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem" } }, distNums.map((distNum) => {
-      const distStores = allRows.filter((s) => s.district === distNum);
-      const distOk = distStores.filter((s) => s.live?.status === "ok");
-      const distTotals = distOk.reduce((a, s) => ({
-        netSales: a.netSales + s.live.data.netSales,
-        guests: a.guests + s.live.data.guests,
-        voids: a.voids + (s.live.data.voids || 0),
-        forecast: a.forecast + (s.live.data.forecast || 0)
-      }), { netSales: 0, guests: 0, voids: 0, forecast: 0 });
-      distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
-      const fcPct = distTotals.forecast > 0 ? distTotals.netSales / distTotals.forecast * 100 : 0;
-      const fcColor = fcPct <= 0 ? th.muted : fcPct >= 100 ? "#22c55e" : fcPct >= 90 ? "#ff9800" : "#f44336";
-      return /* @__PURE__ */ React.createElement(
-        "div",
-        {
-          key: distNum,
-          onClick: () => setPulseView({ level: "district", num: distNum }),
-          className: "card-hover",
-          style: {
-            background: th.card2,
-            borderRadius: "0.625rem",
-            padding: "1rem",
-            paddingTop: "0.85rem",
-            borderTop: `3px solid ${G}`,
-            cursor: "pointer",
-            transition: "all .2s",
-            overflow: "hidden"
-          }
-        },
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.85rem", color: G } }, "District ", distNum), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.35rem" } }, fcPct > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 800, color: fcColor, background: `${fcColor}18`, border: `1px solid ${fcColor}33`, padding: "0.1rem 0.4rem", borderRadius: 999 } }, fcPct.toFixed(0), "% fc"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, dmName(distNum), " \xB7 ", distStores.length))),
-        /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.3rem", color: th.text } }, fmtUSD(distTotals.netSales)),
-        fcPct > 0 && /* @__PURE__ */ React.createElement("div", { style: { height: 3, background: `${G}22`, borderRadius: 999, margin: "0.4rem 0", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(fcPct, 100)}%`, background: fcColor, borderRadius: 999, boxShadow: `0 0 6px ${fcColor}88`, transition: "width .5s ease" } })),
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", marginTop: "0.25rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#74c0fc" } }, fmtNum(distTotals.guests), " guests"), /* @__PURE__ */ React.createElement("span", { style: { color: "#ffd43b" } }, fmtAvg(distTotals.avgCheck), " avg")),
-        weatherForecast?.[distNum] && (() => {
-          const todayForecast = (weatherForecast[distNum]?.days || []).find((d) => d.date === busDt);
-          if (!todayForecast) return null;
-          const impact = weatherCorrelations?.[distNum]?.[todayForecast.condition];
-          const hasNegImpact = impact && impact < 0.9;
-          return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginTop: "0.3rem", fontSize: "0.68rem" } }, /* @__PURE__ */ React.createElement("span", null, WEATHER_ICONS2[todayForecast.condition] || "\u{1F321}\uFE0F"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, todayForecast.tempHighF, "\xB0F"), hasNegImpact && /* @__PURE__ */ React.createElement("span", { style: { color: "#f44336", fontWeight: 700, fontSize: "0.62rem" } }, Math.round((impact - 1) * 100), "% impact"));
-        })(),
-        networkReviews?.storeRatings && (() => {
-          const distPCs = allRows.filter((s) => s.district === distNum).map((s) => s.pc);
-          const ratings = distPCs.map((pc) => networkReviews.storeRatings[pc]).filter((r) => r > 0);
-          if (ratings.length === 0) return null;
-          const avgRating = Math.round(ratings.reduce((s, r) => s + r, 0) / ratings.length * 10) / 10;
-          const color = avgRating >= 4 ? "#4caf50" : avgRating >= 3.5 ? "#ff9800" : "#f44336";
-          return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.25rem", fontSize: "0.68rem", marginTop: "0.15rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color } }, "\u2605 ", avgRating), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.6rem" } }, "(", ratings.length, " stores)"));
-        })()
-      );
-    }))), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in District ${dmDistrict}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
+    })(), pulseView === "network" && hasWTD && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: (dateKey) => setBusDt(dateKey) }), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in District ${dmDistrict}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
       const dPct = (idx + 1) / arr.length;
       const isDone = progress / 100 >= dPct;
       const isActive = progress / 100 >= idx / arr.length && progress / 100 < dPct;
       return /* @__PURE__ */ React.createElement("div", { key: d, style: { textAlign: "center", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 6, height: 6, borderRadius: "50%", margin: "0 auto 0.2rem", background: isDone ? G : isActive ? `${G}88` : th.cardBorder, boxShadow: isDone ? `0 0 5px ${G}` : "none", animation: isActive ? "pulse 1.5s ease-in-out infinite" : "none", transition: "background .3s" } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.52rem", color: isDone ? `${G}99` : th.muted, fontWeight: 700, letterSpacing: "0.3px" } }, "D", d));
-    })))), Object.keys(storeData).length === 0 && !loading && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", filter: `drop-shadow(0 0 12px ${G})` } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1.1rem", color: G, marginBottom: "0.5rem" } }, "Ready to Monitor"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.875rem", marginBottom: "1.25rem" } }, "Select a date and click ", /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, "\u26A1 Refresh"), " to pull live data for all ", activePCs.length, " active stores. Use ", /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, "\u{1F4C5} Load WTD"), " to fetch the full week trend."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: loadAll, style: { ...btn(th, { background: `${G}22`, color: G, border: `1px solid ${G}55`, fontWeight: 700, padding: "0.6rem 2rem", fontSize: "0.9rem" }) } }, "\u26A1 Load Today"), /* @__PURE__ */ React.createElement("button", { onClick: loadWTD, style: { ...btn(th, { background: "#1a3a2a", color: `${G}88`, border: `1px solid ${G}33`, fontWeight: 700, padding: "0.6rem 2rem", fontSize: "0.9rem" }) } }, "\u{1F4C5} Load Full Week"))), loaded.length > 0 && pulseView === "network" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.125rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.875rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, flex: 1 } }, "\u{1F4CD} Store Breakdown \u2014 ", busDt), !isDMUser && /* @__PURE__ */ React.createElement(
+    })))), Object.keys(storeData).length === 0 && !loading && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", filter: `drop-shadow(0 0 12px ${G})` } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1.1rem", color: G, marginBottom: "0.5rem" } }, "Ready to Monitor"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.875rem", marginBottom: "1.25rem" } }, "Select a date and click ", /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, "\u26A1 Refresh"), " to pull live data for all ", activePCs.length, " active stores. The full week trend loads automatically afterward."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: loadAll, style: { ...btn(th, { background: `${G}22`, color: G, border: `1px solid ${G}55`, fontWeight: 700, padding: "0.6rem 2rem", fontSize: "0.9rem" }) } }, "\u26A1 Load Today"))), loaded.length > 0 && pulseView === "network" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.125rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.875rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, flex: 1 } }, "\u{1F4CD} Store Breakdown \u2014 ", busDt), !isDMUser && /* @__PURE__ */ React.createElement(
       "select",
       {
         style: { ...inp(th), width: "auto", padding: "0.3rem 0.6rem", fontSize: "0.75rem" },
@@ -8801,9 +9043,16 @@ ${t2.slice(0, 300)}`);
       const distOk = distRows.filter((s) => s.live?.status === "ok");
       const distTotals = distOk.reduce((a, s) => ({
         netSales: a.netSales + s.live.data.netSales,
-        guests: a.guests + s.live.data.guests
-      }), { netSales: 0, guests: 0 });
+        guests: a.guests + s.live.data.guests,
+        forecast: a.forecast + (s.live.data.forecast || 0)
+      }), { netSales: 0, guests: 0, forecast: 0 });
       distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
+      const fcPct = distTotals.forecast > 0 ? distTotals.netSales / distTotals.forecast * 100 : 0;
+      const fcColor = fcPct <= 0 ? th.muted : fcPct >= 100 ? "#22c55e" : fcPct >= 90 ? "#ff9800" : "#f44336";
+      const todayForecast = (weatherForecast?.[distNum]?.days || []).find((d) => d.date === busDt);
+      const distRatings = networkReviews?.storeRatings ? distRows.map((s) => networkReviews.storeRatings[s.pc]).filter((r) => r > 0) : [];
+      const avgRating = distRatings.length ? Math.round(distRatings.reduce((s, r) => s + r, 0) / distRatings.length * 10) / 10 : 0;
+      const ratingColor = avgRating >= 4 ? "#4caf50" : avgRating >= 3.5 ? "#ff9800" : "#f44336";
       const isCollapsed = collapsed.has(distNum);
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: distNum }, /* @__PURE__ */ React.createElement(
         "tr",
@@ -8821,10 +9070,31 @@ ${t2.slice(0, 300)}`);
           "District ",
           distNum,
           " \u2014 ",
-          dmName(distNum)
+          dmName(distNum),
+          /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: (e) => {
+                e.stopPropagation();
+                setPulseView({ level: "district", num: distNum });
+              },
+              style: {
+                marginLeft: "0.6rem",
+                background: "none",
+                border: `1px solid ${G}44`,
+                color: G,
+                cursor: "pointer",
+                fontSize: "0.62rem",
+                fontWeight: 700,
+                padding: "0.1rem 0.45rem",
+                borderRadius: 999
+              }
+            },
+            "View \u2192"
+          )
         ),
-        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: th.muted, fontSize: "0.7rem" } }, distRows.length, " stores"),
-        /* @__PURE__ */ React.createElement("td", { style: { ...tdS } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: G, fontWeight: 600 } }, distOk.length, "/", distRows.length, " live")),
+        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: th.muted, fontSize: "0.7rem", whiteSpace: "nowrap" } }, distRows.length, " stores", todayForecast && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 6 } }, WEATHER_ICONS2[todayForecast.condition] || "\u{1F321}\uFE0F", " ", todayForecast.tempHighF, "\xB0"), avgRating > 0 && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 6, color: ratingColor, fontWeight: 700 } }, "\u2605 ", avgRating)),
+        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: G, fontWeight: 600 } }, distOk.length, "/", distRows.length, " live"), fcPct > 0 && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 6, fontSize: "0.62rem", fontWeight: 800, color: fcColor, background: `${fcColor}18`, border: `1px solid ${fcColor}33`, padding: "0.1rem 0.4rem", borderRadius: 999 } }, fcPct.toFixed(0), "% fc")),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", fontWeight: 800, color: G } }, fmtUSD(distTotals.netSales)),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#74c0fc", fontWeight: 700 } }, fmtNum(distTotals.guests)),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#ffd43b", fontWeight: 700 } }, fmtAvg(distTotals.avgCheck))
@@ -9005,7 +9275,7 @@ ${t2.slice(0, 300)}`);
       doc.text(`${_proj.nickname || _proj.pc || "Daily Report"} \u2014 ${report.date ? (/* @__PURE__ */ new Date(report.date + "T12:00:00")).toLocaleDateString("en-US") : ""}`, margin, y);
       y += 0.25;
     };
-    const sectionTitle = (title) => {
+    const sectionTitle2 = (title) => {
       y += 0.2;
       addPageIfNeeded(0.75);
       setText(textDark);
@@ -9160,7 +9430,7 @@ ${t2.slice(0, 300)}`);
     } else {
       y += 0.08;
     }
-    sectionTitle("Weather");
+    sectionTitle2("Weather");
     const weather = report.weather || [];
     const wCount = weather.length || 1, wCardGap = 0.15;
     const wCardW = (contentW - wCardGap * (wCount - 1)) / wCount, wCardH = 1.55;
@@ -9187,7 +9457,7 @@ ${t2.slice(0, 300)}`);
       doc.text(`Wind: ${w.wind || "0"} MPH  \u2022  Precip: ${w.precipitation || "0"}"  \u2022  Hum: ${w.humidity || "0"}%`, x + wCardW / 2, y + 1.4, { align: "center" });
     }
     y += wCardH + 0.5;
-    sectionTitle("Work Logs");
+    sectionTitle2("Work Logs");
     const workLogs = (report.workLogs || []).filter((w) => w.name);
     if (workLogs.length === 0) {
       setText(textFaint);
@@ -9294,7 +9564,7 @@ ${t2.slice(0, 300)}`);
     }
     for (const b of [{ label: "Materials", val: report.materials }, { label: "Equipment", val: report.equipment }, { label: "General Notes", val: report.generalNotes }]) {
       if (!b.val) continue;
-      sectionTitle(b.label);
+      sectionTitle2(b.label);
       const lines = wrapText(b.val, contentW, 9);
       setText([68, 68, 68]);
       doc.setFont("helvetica", "normal");
@@ -9306,7 +9576,7 @@ ${t2.slice(0, 300)}`);
       }
       y += 0.3;
     }
-    sectionTitle("Safety Survey");
+    sectionTitle2("Safety Survey");
     const rowH = 0.32;
     setFill(bgSoft);
     doc.rect(margin, y, contentW, rowH, "F");
@@ -9707,7 +9977,7 @@ ${t2.slice(0, 300)}`);
         doc.text(`${_proj.nickname || _proj.pc || "Daily Report"} \u2014 ${report.date ? (/* @__PURE__ */ new Date(report.date + "T12:00:00")).toLocaleDateString("en-US") : ""}`, margin, y);
         y += 0.25;
       };
-      const sectionTitle = (title) => {
+      const sectionTitle2 = (title) => {
         y += 0.2;
         addPageIfNeeded(0.75);
         setText(textDark);
@@ -9886,7 +10156,7 @@ ${t2.slice(0, 300)}`);
       } else {
         y += 0.08;
       }
-      sectionTitle("Weather");
+      sectionTitle2("Weather");
       const weather = report.weather || [];
       const wCount = weather.length || 1;
       const wCardGap = 0.15;
@@ -9917,7 +10187,7 @@ ${t2.slice(0, 300)}`);
         doc.text(stats, x + wCardW / 2, y + 1.4, { align: "center" });
       }
       y += wCardH + 0.5;
-      sectionTitle("Work Logs");
+      sectionTitle2("Work Logs");
       const workLogs = (report.workLogs || []).filter((w) => w.name);
       if (workLogs.length === 0) {
         setText(textFaint);
@@ -10049,7 +10319,7 @@ ${t2.slice(0, 300)}`);
       ];
       for (const b of textBlocks) {
         if (!b.val) continue;
-        sectionTitle(b.label);
+        sectionTitle2(b.label);
         const lines = wrapText(b.val, contentW, 9);
         setText([68, 68, 68]);
         doc.setFont("helvetica", "normal");
@@ -10061,7 +10331,7 @@ ${t2.slice(0, 300)}`);
         }
         y += 0.3;
       }
-      sectionTitle("Safety Survey");
+      sectionTitle2("Safety Survey");
       const rowH = 0.32;
       setFill(bgSoft);
       doc.rect(margin, y, contentW, rowH, "F");
@@ -11560,7 +11830,7 @@ ${t2.slice(0, 300)}`);
         /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.75rem", color: k.color, lineHeight: 0.95, letterSpacing: -0.5, textShadow: active ? `0 0 18px ${k.color}55` : "none" } }, k.value),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1, marginTop: "0.35rem" } }, k.label)
       );
-    })), addMode && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.5rem", border: `1px solid ${O}44` }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", fontWeight: 600, color: O, marginBottom: "1rem", textTransform: "uppercase", letterSpacing: 1 } }, editId ? "Edit Project" : "New Project"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "PC#"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. 342144", value: form.pc, onChange: (e) => setForm((f) => ({ ...f, pc: e.target.value })), onBlur: handlePcBlur })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Nickname"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Store name", value: form.nickname, onChange: (e) => setForm((f) => ({ ...f, nickname: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Type"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.type, onChange: (e) => setForm((f) => ({ ...f, type: e.target.value })) }, /* @__PURE__ */ React.createElement("option", null, "Remodel"), /* @__PURE__ */ React.createElement("option", null, "Relocation"), /* @__PURE__ */ React.createElement("option", null, "New Location"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Priority"), /* @__PURE__ */ React.createElement("input", { type: "number", style: inp(th), placeholder: "1", value: form.priority || "", onChange: (e) => setForm((f) => ({ ...f, priority: parseInt(e.target.value) || 0 })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Due Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.dueDate, onChange: (e) => setForm((f) => ({ ...f, dueDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Target Completion"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.completionDate, onChange: (e) => setForm((f) => ({ ...f, completionDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: "#ff6b00", fontWeight: 600 } }, "Dunkin' Completion Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.dunkinCompletionDate || "", onChange: (e) => setForm((f) => ({ ...f, dunkinCompletionDate: e.target.value })) }))), (manualAddr || !stores.find((s) => s.pc === form.pc)) && form.pc && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr 0.5fr 0.75fr", gap: "0.75rem", marginBottom: "0.75rem" }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Address"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Street address", value: form.address, onChange: (e) => setForm((f) => ({ ...f, address: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "City"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.city, onChange: (e) => setForm((f) => ({ ...f, city: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "State"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.state, onChange: (e) => setForm((f) => ({ ...f, state: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Zip"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.zip, onChange: (e) => setForm((f) => ({ ...f, zip: e.target.value })) }))), stores.find((s) => s.pc === form.pc) && form.pc && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#22c55e", marginBottom: "0.75rem", fontWeight: 600 } }, "\u2713 Linked to store: ", stores.find((s) => s.pc === form.pc)?.address), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Attorney"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.attorney || "", onChange: (e) => setForm((f) => ({ ...f, attorney: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.attorneys || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Architect"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.architect || "", onChange: (e) => setForm((f) => ({ ...f, architect: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.architects || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Engineer"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.engineer || "", onChange: (e) => setForm((f) => ({ ...f, engineer: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.engineers || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name))))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Notify Emails (comma-separated)"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "user@example.com", value: form.notifyEmails, onChange: (e) => setForm((f) => ({ ...f, notifyEmails: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Google Drive Folder URL"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "https://drive.google.com/drive/folders/...", value: form.driveFolder || "", onChange: (e) => setForm((f) => ({ ...f, driveFolder: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Notes"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Optional notes", value: form.notes, onChange: (e) => setForm((f) => ({ ...f, notes: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.8125rem", color: th.text, fontWeight: 600, padding: "0.55rem 0" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!form.landDevSkip, onChange: (e) => setForm((f) => ({ ...f, landDevSkip: e.target.checked })), style: { accentColor: "#14b8a6", width: 16, height: 16 } }), "Skip Land Development Phase"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr", gap: "0.75rem", marginBottom: "0.75rem", padding: "0.75rem", background: th.card2, borderRadius: "0.5rem", border: `1px dashed ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Phase Override ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, opacity: 0.75, textTransform: "none" } }, "(optional \u2014 force the project into a specific phase regardless of checklist progress)")), /* @__PURE__ */ React.createElement(
+    })), addMode && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.5rem", border: `1px solid ${O}44` }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", fontWeight: 600, color: O, marginBottom: "1rem", textTransform: "uppercase", letterSpacing: 1 } }, editId ? "Edit Project" : "New Project"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "PC#"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. 342144", value: form.pc, onChange: (e) => setForm((f) => ({ ...f, pc: e.target.value })), onBlur: handlePcBlur })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Nickname"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Store name", value: form.nickname, onChange: (e) => setForm((f) => ({ ...f, nickname: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Type"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.type, onChange: (e) => setForm((f) => ({ ...f, type: e.target.value })) }, /* @__PURE__ */ React.createElement("option", null, "Remodel"), /* @__PURE__ */ React.createElement("option", null, "Relocation"), /* @__PURE__ */ React.createElement("option", null, "New Location"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Priority"), /* @__PURE__ */ React.createElement("input", { type: "number", style: inp(th), placeholder: "1", value: form.priority || "", onChange: (e) => setForm((f) => ({ ...f, priority: parseInt(e.target.value) || 0 })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Due Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.dueDate, onChange: (e) => setForm((f) => ({ ...f, dueDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Target Completion"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.completionDate, onChange: (e) => setForm((f) => ({ ...f, completionDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: "#ff6b00", fontWeight: 600 } }, "Dunkin' Completion Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.dunkinCompletionDate || "", onChange: (e) => setForm((f) => ({ ...f, dunkinCompletionDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: "#8b5cf6", fontWeight: 600 } }, "Construction Start Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.startDate || "", onChange: (e) => setForm((f) => ({ ...f, startDate: e.target.value })) }))), (manualAddr || !stores.find((s) => s.pc === form.pc)) && form.pc && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr 0.5fr 0.75fr", gap: "0.75rem", marginBottom: "0.75rem" }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Address"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Street address", value: form.address, onChange: (e) => setForm((f) => ({ ...f, address: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "City"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.city, onChange: (e) => setForm((f) => ({ ...f, city: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "State"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.state, onChange: (e) => setForm((f) => ({ ...f, state: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Zip"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.zip, onChange: (e) => setForm((f) => ({ ...f, zip: e.target.value })) }))), stores.find((s) => s.pc === form.pc) && form.pc && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#22c55e", marginBottom: "0.75rem", fontWeight: 600 } }, "\u2713 Linked to store: ", stores.find((s) => s.pc === form.pc)?.address), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Attorney"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.attorney || "", onChange: (e) => setForm((f) => ({ ...f, attorney: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.attorneys || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Architect"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.architect || "", onChange: (e) => setForm((f) => ({ ...f, architect: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.architects || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Engineer"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.engineer || "", onChange: (e) => setForm((f) => ({ ...f, engineer: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 None \u2014"), (pros.engineers || []).map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name))))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Notify Emails (comma-separated)"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "user@example.com", value: form.notifyEmails, onChange: (e) => setForm((f) => ({ ...f, notifyEmails: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Google Drive Folder URL"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "https://drive.google.com/drive/folders/...", value: form.driveFolder || "", onChange: (e) => setForm((f) => ({ ...f, driveFolder: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Notes"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Optional notes", value: form.notes, onChange: (e) => setForm((f) => ({ ...f, notes: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.8125rem", color: th.text, fontWeight: 600, padding: "0.55rem 0" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!form.landDevSkip, onChange: (e) => setForm((f) => ({ ...f, landDevSkip: e.target.checked })), style: { accentColor: "#14b8a6", width: 16, height: 16 } }), "Skip Land Development Phase"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr", gap: "0.75rem", marginBottom: "0.75rem", padding: "0.75rem", background: th.card2, borderRadius: "0.5rem", border: `1px dashed ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Phase Override ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, opacity: 0.75, textTransform: "none" } }, "(optional \u2014 force the project into a specific phase regardless of checklist progress)")), /* @__PURE__ */ React.createElement(
       "select",
       {
         style: inp(th),
@@ -11984,7 +12254,7 @@ ${t2.slice(0, 300)}`);
       if (e.key === "Enter") add();
     }, placeholder: "Add by email or username", style: { ...inp(th), flex: 1 } }), /* @__PURE__ */ React.createElement("button", { onClick: add, disabled: saving || !input.trim(), style: { ...btn(th), opacity: saving || !input.trim() ? 0.6 : 1 } }, saving ? "Saving\u2026" : "Add")));
   }
-  function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals }) {
+  function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
     const [newEmail, setNewEmail] = useState("");
     const [newTicketEmail, setNewTicketEmail] = useState("");
     const [notifyLog, setNotifyLog] = useState(null);
@@ -12075,14 +12345,16 @@ ${t2.slice(0, 300)}`);
       setTicketNotifyEmails((prev) => prev.filter((_, i) => i !== idx));
       showAlert("success", "Email removed from ticket list");
     };
-    const [settingsTab, setSettingsTab] = React.useState("notifications");
+    const [innerTab, setInnerTab] = React.useState("notifications");
+    const settingsTab = embedSection || innerTab;
+    const setSettingsTab = setInnerTab;
     const settingsTabs = [
       { id: "notifications", label: "\u{1F4EC} Notifications", color: O },
       { id: "orion", label: "Orion", icon: /* @__PURE__ */ React.createElement(OrionIcon, { size: 16 }), color: "#7C3AED" },
       { id: "vendors", label: "\u{1F3D7}\uFE0F Vendors", color: "#14b8a6" },
       { id: "admin", label: "\u{1F6E0}\uFE0F Admin Tools", color: "#0EA5E9" }
     ];
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: th.text, marginBottom: "0.25rem" } }, "\u2699\uFE0F Settings"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8125rem", marginBottom: "1.25rem" } }, "System configuration and notification settings."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.375rem", marginBottom: "1.5rem", background: th.card2, borderRadius: "0.75rem", padding: "0.3rem" } }, settingsTabs.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.id, onClick: () => setSettingsTab(t.id), style: {
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, !embedSection && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: th.text, marginBottom: "0.25rem" } }, "\u2699\uFE0F Settings"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8125rem", marginBottom: "1.25rem" } }, "System configuration and notification settings."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.375rem", marginBottom: "1.5rem", background: th.card2, borderRadius: "0.75rem", padding: "0.3rem" } }, settingsTabs.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.id, onClick: () => setSettingsTab(t.id), style: {
       flex: 1,
       padding: "0.55rem 0.5rem",
       border: "none",
@@ -12095,7 +12367,7 @@ ${t2.slice(0, 300)}`);
       color: settingsTab === t.id ? t.color : th.muted,
       boxShadow: settingsTab === t.id ? "0 1px 4px #00000018" : "none",
       transition: "all 0.18s"
-    } }, t.icon ? /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem" } }, t.icon, t.label) : t.label))), canManagePnlAccess(user) && /* @__PURE__ */ React.createElement(PnlAccessPanel, { th, user, users, showAlert }), settingsTab === "notifications" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, O, { marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("button", { onClick: () => setNotifyInfoOpen((o) => !o), style: { display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", background: "none", border: "none", cursor: "pointer", padding: "1rem 1.25rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text } }, "How Notifications Work"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, marginLeft: "0.5rem" } }, notifyInfoOpen ? "\u25B2 Hide" : "\u25BC Show")), notifyInfoOpen && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.muted, lineHeight: 1.7, padding: "0 1.25rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem", marginTop: "0.25rem" } }, "\u{1F4C2} Project Notifications"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F4EC} ", /* @__PURE__ */ React.createElement("strong", null, "Global list"), " \u2014 everyone in the Global Project Notifications list gets notified on every project update"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F4CB} ", /* @__PURE__ */ React.createElement("strong", null, "Per-project list"), " \u2014 additional emails can be added inside each individual project's settings"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, "\u{1F514} ", /* @__PURE__ */ React.createElement("strong", null, "Triggers:"), " New project added, phase changes, checklist updates, deadline warnings"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" } }, "\u{1F3AB} Ticket Notifications"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F3AB} ", /* @__PURE__ */ React.createElement("strong", null, "Ticket list"), " \u2014 everyone in the Ticket Notifications list is notified when a new service ticket is created"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F514} ", /* @__PURE__ */ React.createElement("strong", null, "In-app bell"), " \u2014 a bell badge appears in the header for every new ticket; clicking it jumps to the Tickets tab"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, "\u26A1 ", /* @__PURE__ */ React.createElement("strong", null, "Triggers:"), " New ticket submitted"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" } }, "\u{1F4E1} Delivery Channels"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F4E7} ", /* @__PURE__ */ React.createElement("strong", null, "Email"), " \u2014 sent via Resend to all matching recipients (unless disabled in user profile)"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F4F1} ", /* @__PURE__ */ React.createElement("strong", null, "SMS"), " \u2014 sent via Twilio to users with a phone number + SMS enabled in their profile"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F514} ", /* @__PURE__ */ React.createElement("strong", null, "Web Push"), " \u2014 browser/device push notification for users with Push enabled in their profile"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, "\u26A0\uFE0F ", /* @__PURE__ */ React.createElement("strong", null, "Matching:"), " Your user's ", /* @__PURE__ */ React.createElement("em", null, "email"), " must appear in the relevant notify list to receive SMS or Push"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" } }, "\u2699\uFE0F Powered By"), /* @__PURE__ */ React.createElement("div", null, "Resend (email) \xB7 Twilio (SMS) \xB7 Web Push VAPID \u2014 configure API keys in Netlify environment variables"))), /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#ffffff", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { onClick: () => setGlobalNotifyOpen((o) => !o), style: { display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: globalNotifyOpen ? "0.25rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F4E7}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Global Project Notifications"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", globalNotifyEmails.length, ")")), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem" } }, globalNotifyOpen ? "\u25B2 Hide" : "\u25BC Show")), globalNotifyOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These email addresses receive notifications for ", /* @__PURE__ */ React.createElement("strong", null, "all projects"), " \u2014 phase changes, new projects, deadline alerts, and checklist updates. Individual projects can also have their own additional notify emails."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, globalNotifyEmails.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No global notify emails configured."), globalNotifyEmails.map((email, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 } }, email.charAt(0).toUpperCase()), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, email)), /* @__PURE__ */ React.createElement("button", { onClick: () => removeEmail(idx), style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+    } }, t.icon ? /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem" } }, t.icon, t.label) : t.label)))), settingsTab === "notifications" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, O, { marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("button", { onClick: () => setNotifyInfoOpen((o) => !o), style: { display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", background: "none", border: "none", cursor: "pointer", padding: "1rem 1.25rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text } }, "How Notifications Work"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, marginLeft: "0.5rem" } }, notifyInfoOpen ? "\u25B2 Hide" : "\u25BC Show")), notifyInfoOpen && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.muted, lineHeight: 1.7, padding: "0 1.25rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem", marginTop: "0.25rem" } }, "\u{1F4C2} Project Notifications"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F4EC} ", /* @__PURE__ */ React.createElement("strong", null, "Global list"), " \u2014 everyone in the Global Project Notifications list gets notified on every project update"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F4CB} ", /* @__PURE__ */ React.createElement("strong", null, "Per-project list"), " \u2014 additional emails can be added inside each individual project's settings"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, "\u{1F514} ", /* @__PURE__ */ React.createElement("strong", null, "Triggers:"), " New project added, phase changes, checklist updates, deadline warnings"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" } }, "\u{1F3AB} Ticket Notifications"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F3AB} ", /* @__PURE__ */ React.createElement("strong", null, "Ticket list"), " \u2014 everyone in the Ticket Notifications list is notified when a new service ticket is created"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F514} ", /* @__PURE__ */ React.createElement("strong", null, "In-app bell"), " \u2014 a bell badge appears in the header for every new ticket; clicking it jumps to the Tickets tab"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, "\u26A1 ", /* @__PURE__ */ React.createElement("strong", null, "Triggers:"), " New ticket submitted"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" } }, "\u{1F4E1} Delivery Channels"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F4E7} ", /* @__PURE__ */ React.createElement("strong", null, "Email"), " \u2014 sent via Resend to all matching recipients (unless disabled in user profile)"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F4F1} ", /* @__PURE__ */ React.createElement("strong", null, "SMS"), " \u2014 sent via Twilio to users with a phone number + SMS enabled in their profile"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.25rem" } }, "\u{1F514} ", /* @__PURE__ */ React.createElement("strong", null, "Web Push"), " \u2014 browser/device push notification for users with Push enabled in their profile"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, "\u26A0\uFE0F ", /* @__PURE__ */ React.createElement("strong", null, "Matching:"), " Your user's ", /* @__PURE__ */ React.createElement("em", null, "email"), " must appear in the relevant notify list to receive SMS or Push"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" } }, "\u2699\uFE0F Powered By"), /* @__PURE__ */ React.createElement("div", null, "Resend (email) \xB7 Twilio (SMS) \xB7 Web Push VAPID \u2014 configure API keys in Netlify environment variables"))), /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#ffffff", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { onClick: () => setGlobalNotifyOpen((o) => !o), style: { display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: globalNotifyOpen ? "0.25rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F4E7}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Global Project Notifications"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", globalNotifyEmails.length, ")")), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem" } }, globalNotifyOpen ? "\u25B2 Hide" : "\u25BC Show")), globalNotifyOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These email addresses receive notifications for ", /* @__PURE__ */ React.createElement("strong", null, "all projects"), " \u2014 phase changes, new projects, deadline alerts, and checklist updates. Individual projects can also have their own additional notify emails."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, globalNotifyEmails.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No global notify emails configured."), globalNotifyEmails.map((email, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 } }, email.charAt(0).toUpperCase()), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, email)), /* @__PURE__ */ React.createElement("button", { onClick: () => removeEmail(idx), style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         style: { ...inp(th), flex: 1 },
@@ -12369,7 +12641,7 @@ ${t2.slice(0, 300)}`);
         }));
       };
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ContractorSection, null), /* @__PURE__ */ React.createElement(VendorSection, { title: "Attorneys", icon: "\u2696\uFE0F", type: "attorneys", items: pros.attorneys || [] }), /* @__PURE__ */ React.createElement(VendorSection, { title: "Architects", icon: "\u{1F4D0}", type: "architects", items: pros.architects || [] }), /* @__PURE__ */ React.createElement(VendorSection, { title: "Engineers", icon: "\u{1F527}", type: "engineers", items: pros.engineers || [] }));
-    })(), settingsTab === "admin" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { marginTop: 0 } }, /* @__PURE__ */ React.createElement(NotificationLogSection, { th, notifyLog, pushSubs, logLoading, logOpen, setLogOpen, loadNotifyLog, users: users || [], accent: "#ffffff" })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AuditLogSection, { th, user, users: users || [], accent: "#0EA5E9" })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user }))));
+    })(), settingsTab === "admin" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { marginTop: 0 } }, /* @__PURE__ */ React.createElement(NotificationLogSection, { th, notifyLog, pushSubs, logLoading, logOpen, setLogOpen, loadNotifyLog, users: users || [], accent: "#ffffff" })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AuditLogSection, { th, user, users: users || [], accent: "#0EA5E9" }))));
   }
   function ReceiptThumb({ receiptKey, size = 48, expandable = true }) {
     const [src, setSrc] = React.useState(null);
@@ -12417,11 +12689,11 @@ ${t2.slice(0, 300)}`);
       reader.readAsDataURL(file);
     });
   }
-  function ExpenseLogSection({ th, user }) {
+  function ExpenseLogSection({ th, user, standalone }) {
     const O2 = "#FF671F";
     const GOLD = "#f59e0b";
     const isVP = user?.userType === "executive" || user?.userType === "it";
-    const [open, setOpen] = React.useState(false);
+    const [open, setOpen] = React.useState(!!standalone);
     const [search, setSearch] = React.useState("");
     const [filterCat, setFilterCat] = React.useState("All");
     const [filterUser, setFilterUser] = React.useState("All");
@@ -12648,6 +12920,132 @@ ${t2.slice(0, 300)}`);
       const emailList = (entry.email || []).map((e) => e.to).join(", ");
       return /* @__PURE__ */ React.createElement("tr", { key: i, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.text } }, dt ? dt.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted } }, entry.busDt || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: O, background: O + "18", padding: "0.1rem 0.4rem", borderRadius: "0.2rem" } }, entry.type || "pulse")), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.text, fontWeight: 600 } }, entry.summary?.netSales ? "$" + Math.round(entry.summary.netSales).toLocaleString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#4caf50", fontWeight: 600 } }, pushSent), pushFailed > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#f44336", marginLeft: 4 } }, "(", pushFailed, " failed)")), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.75rem" } }, emailList || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem" } }, entry.isManual ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: "#ff9800", fontWeight: 700 } }, "MANUAL") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted } }, "auto")));
     })))), logOpen && !logLoading && (!notifyLog || notifyLog.length === 0) && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", padding: "1rem 0", textAlign: "center" } }, "No notification history yet. Run a manual pulse notification to start logging."));
+  }
+  function AdminDataPanel({ th, user, users, stores, districts, version }) {
+    const activeUsers = (users || []).filter((u) => u.active !== false);
+    const roleCounts = {};
+    (users || []).forEach((u) => {
+      const t = u.userType || "unknown";
+      roleCounts[t] = (roleCounts[t] || 0) + 1;
+    });
+    const cards = [
+      { label: "Users", value: (users || []).length, sub: `${activeUsers.length} active` },
+      { label: "Stores", value: (stores || []).length, sub: `${(districts || []).length} districts` },
+      { label: "Roles in use", value: Object.keys(roleCounts).length, sub: "distinct types" },
+      { label: "Portal version", value: version || "\u2014", sub: "live build" }
+    ];
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, cards.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.label, style: card(th, { padding: "1rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.35rem" } }, c.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: th.text, lineHeight: 1 } }, c.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.3rem" } }, c.sub)))), /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#a78bfa", { padding: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Role Breakdown"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.5rem" } }, Object.entries(roleCounts).sort((a, b) => b[1] - a[1]).map(([t, n]) => /* @__PURE__ */ React.createElement("span", { key: t, style: pill("#a78bfa", { fontSize: "0.72rem", padding: "0.3rem 0.7rem" }) }, ROLE_META[t]?.label || t, " \xB7 ", n)))));
+  }
+  var ROLE_META = {
+    executive: { label: "VP / Executive", admin: true, scope: "Full access to every section, network-wide." },
+    it: { label: "IT / HR Admin", admin: true, scope: "Full access + user management & this Admin console." },
+    office_staff: { label: "Office Staff", admin: false, scope: "All operational tabs, network-wide. No destructive admin powers." },
+    dm: { label: "District Manager", admin: false, scope: "Tabs filtered to their own district only." },
+    manager: { label: "Store Manager", admin: false, scope: "Their assigned store(s) only; My Store mobile mode." },
+    construction: { label: "Construction", admin: false, scope: "Projects / Construction (incl. mobile construction view)." },
+    maintenance: { label: "Maintenance", admin: false, scope: "Tickets, calendar, expense tracking/approvals." },
+    vendor: { label: "Vendor", admin: false, scope: "Projects tab only (+ chat)." },
+    kiosk_pulse: { label: "Kiosk TV", admin: false, scope: "Pulse TV display only \u2014 no portal access." },
+    kiosk_upload: { label: "Kiosk Upload", admin: false, scope: "Upload-only kiosk \u2014 no portal access." }
+  };
+  function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, showAlert }) {
+    const roles = Object.keys(ROLE_META);
+    const userCounts = {};
+    (users || []).forEach((u) => {
+      const t = u.userType || "unknown";
+      userCounts[t] = (userCounts[t] || 0) + 1;
+    });
+    const KIOSK = /* @__PURE__ */ new Set(["kiosk_pulse", "kiosk_upload"]);
+    const ov = accessOverrides || {};
+    const isLocked = (rt, tabId) => tabId === "admin" && (rt === "executive" || rt === "it");
+    const isOn = (rt, tabId) => ov[rt]?.[tabId] !== false;
+    const toggle = (rt, tabId) => {
+      if (isLocked(rt, tabId)) {
+        showAlert && showAlert("error", "The Admin console stays visible for IT/Executive \u2014 lockout guard.");
+        return;
+      }
+      setAccessOverrides((prev) => {
+        const next = { ...prev, [rt]: { ...prev[rt] || {} } };
+        if (next[rt][tabId] === false) delete next[rt][tabId];
+        else next[rt][tabId] = false;
+        if (Object.keys(next[rt]).length === 0) delete next[rt];
+        return next;
+      });
+    };
+    const hiddenCount = Object.values(ov).reduce((n, m) => n + Object.values(m || {}).filter((v) => v === false).length, 0);
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#0ea5e9", { padding: "0.85rem 1rem", marginBottom: "1.1rem", display: "flex", gap: "0.6rem", alignItems: "flex-start" }) }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, "\u{1F510}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, "Tap any section chip to ", /* @__PURE__ */ React.createElement("strong", null, "show / hide"), " it for that role. Changes save automatically and apply to everyone in that role network-wide. Hidden sections (", /* @__PURE__ */ React.createElement("span", { style: { textDecoration: "line-through", opacity: 0.6 } }, "dimmed"), ") disappear from their sidebar on next refresh. Universal tabs (Dashboard, Chat, Notes\u2026) are always available and aren't listed here.", hiddenCount > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " ", /* @__PURE__ */ React.createElement("strong", null, hiddenCount, " section", hiddenCount !== 1 ? "s" : "", " currently hidden.")))), canManagePnlAccess(user) && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement(PnlAccessPanel, { th, user, users, showAlert })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.85rem" } }, roles.map((rt) => {
+      const meta = ROLE_META[rt];
+      const seen = /* @__PURE__ */ new Set();
+      const tabs = (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: "000000" })).filter((t) => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
+      const visibleN = tabs.filter((t) => isOn(rt, t.id)).length;
+      return /* @__PURE__ */ React.createElement("div", { key: rt, style: card(th, { padding: "1rem 1.15rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { ...sectionTitle(th) } }, meta.label), meta.admin && /* @__PURE__ */ React.createElement("span", { style: pill("#ef4444") }, "ADMIN"), /* @__PURE__ */ React.createElement("span", { style: pill("#94a3b8") }, userCounts[rt] || 0, " user", (userCounts[rt] || 0) !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.7rem", color: th.muted } }, KIOSK.has(rt) ? "\u2014" : `${visibleN}/${tabs.length} visible`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginBottom: tabs.length ? "0.6rem" : 0 } }, meta.scope), tabs.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.35rem" } }, tabs.map((t) => {
+        const on = isOn(rt, t.id);
+        const locked = isLocked(rt, t.id);
+        return /* @__PURE__ */ React.createElement("button", { key: t.id, onClick: () => toggle(rt, t.id), title: locked ? "Locked \u2014 always visible for this role" : on ? "Click to hide" : "Click to show", style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.3rem",
+          fontSize: "0.68rem",
+          fontWeight: 600,
+          fontFamily: "'Source Sans 3'",
+          cursor: locked ? "default" : "pointer",
+          color: on ? th.text : th.muted,
+          textDecoration: on ? "none" : "line-through",
+          opacity: on ? 1 : 0.55,
+          background: on ? th.card2 || th.card : "transparent",
+          border: `1px solid ${on ? th.cardBorder : `${th.muted}55`}`,
+          borderRadius: RADIUS.chip,
+          padding: "0.18rem 0.5rem",
+          transition: "all .12s"
+        } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem" } }, locked ? "\u{1F512}" : on ? "\u25CF" : "\u25CB"), t.label);
+      })));
+    })));
+  }
+  function AdminConsole(props) {
+    const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
+    const SUBS = [
+      { id: "notifications", label: "Notifications", icon: "\u{1F4EC}", accent: O },
+      { id: "users", label: "Users", icon: "\u{1F465}", accent: "#a78bfa" },
+      { id: "access", label: "Access", icon: "\u{1F510}", accent: "#ef4444" },
+      { id: "orion", label: "Orion", icon: "\u{1F7E3}", accent: "#7C3AED" },
+      { id: "vendors", label: "Vendors", icon: "\u{1F3D7}\uFE0F", accent: "#14b8a6" },
+      { id: "system", label: "System & Logs", icon: "\u{1F5C4}\uFE0F", accent: "#94a3b8" }
+    ];
+    const SETTINGS_SECTION = { notifications: "notifications", orion: "orion", vendors: "vendors" };
+    const VALID = SUBS.map((s) => s.id);
+    const [sub, setSub] = React.useState(() => {
+      try {
+        const s = localStorage.getItem("pcg_admin_sub");
+        return VALID.includes(s) ? s : "notifications";
+      } catch {
+        return "notifications";
+      }
+    });
+    const go = (id) => {
+      setSub(id);
+      try {
+        localStorage.setItem("pcg_admin_sub", id);
+      } catch {
+      }
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "1.25rem", borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: "0.6rem" } }, SUBS.map((s) => {
+      const on = sub === s.id;
+      return /* @__PURE__ */ React.createElement("button", { key: s.id, onClick: () => go(s.id), style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.4rem",
+        padding: "0.5rem 1rem",
+        fontSize: "0.82rem",
+        fontWeight: 700,
+        fontFamily: "'Source Sans 3'",
+        cursor: "pointer",
+        borderRadius: RADIUS.control,
+        border: `1px solid ${on ? s.accent : th.cardBorder}`,
+        background: on ? `${s.accent}1a` : "transparent",
+        color: on ? s.accent : th.muted,
+        transition: "all .15s"
+      } }, /* @__PURE__ */ React.createElement("span", null, s.icon), s.label);
+    })), sub === "users" && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), sub === "access" && /* @__PURE__ */ React.createElement(AccessMatrix, { th, user, users, accessOverrides, setAccessOverrides, showAlert }), SETTINGS_SECTION[sub] && /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: SETTINGS_SECTION[sub] }), sub === "system" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AdminDataPanel, { th, user, users, stores, districts, version }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "admin" }))));
   }
   function AuditLogSection({ th, user, users, accent }) {
     const [open, setOpen] = React.useState(false);
@@ -13711,12 +14109,12 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       { id: "impact", label: "Impact Radar", icon: (c) => ICONS.map(c) },
       { id: "cash", label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
       { id: "recon", label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
+      { id: "expenses", label: "Expense Log", icon: (c) => ICONS.dollar(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
-      { id: "users", label: "Users", icon: (c) => ICONS.users(c) },
       { id: "email", label: "Email", icon: "\u{1F4E7}" },
-      { id: "settings", label: "Settings", icon: (c) => ICONS.settings(c) }
+      { id: "admin", label: "Admin", icon: (c) => ICONS.settings(c) }
     ];
     if (ut === "office_staff") return [
       ...BASE_TABS,
@@ -14240,6 +14638,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
+  var APP_VERSION = "v15.33";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -17060,8 +17459,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }, []);
     const fmtD = (v) => "$" + Math.abs(v || 0).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmtDate = (d) => d ? (/* @__PURE__ */ new Date(d + "T12:00:00")).toLocaleDateString(void 0, { month: "short", day: "numeric" }) : "";
-    const thS = { padding: "0.5rem 0.75rem", textAlign: "left", borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 };
-    const tdS = { padding: "0.4rem 0.75rem", borderBottom: `1px solid ${th.cardBorder}`, fontSize: "0.8rem", color: th.text };
+    const thS = thCell(th, { padding: "0.5rem 0.75rem", borderBottom: `2px solid ${O}44` });
+    const tdS = tdCell(th, { padding: "0.4rem 0.75rem", borderBottom: `1px solid ${th.cardBorder}` });
     if (view === "wtdDetail" && wtdDetail) {
       return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
         setView("main");
@@ -18345,8 +18744,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       fontWeight: 600,
       fontFamily: "'Source Sans 3'"
     } }, label);
-    const thS = { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5, padding: "0.4rem 0.6rem", textAlign: "left", borderBottom: `1px solid ${th.cardBorder}` };
-    const tdS = { fontSize: "0.8125rem", color: th.text, padding: "0.4rem 0.6rem", borderBottom: `1px solid ${th.cardBorder}22` };
+    const thS = thCell(th, { padding: "0.4rem 0.6rem", borderBottom: `1px solid ${th.cardBorder}` });
+    const tdS = tdCell(th, { padding: "0.4rem 0.6rem", borderBottom: `1px solid ${th.cardBorder}22` });
     return /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Source Sans 3'" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th, { padding: "0.4rem 0.75rem", fontSize: "0.875rem", background: th.card3, color: th.text }) } }, "\u2190 Back"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text } }, store.name || storeInfo.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "District ", store.district || storeInfo.district, " \xB7 ", mgrName)), loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginLeft: "auto" } }, "Loading live data\u2026")), fetchError && !loading && /* @__PURE__ */ React.createElement("div", { style: { background: "#ff980020", border: "1px solid #ff9800", borderRadius: "0.5rem", padding: "0.75rem 1rem", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#ff9800", fontSize: "0.8125rem" } }, "Live data unavailable. Showing cached data."), /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setFetchError(false);
       setLoading(true);
@@ -18527,7 +18926,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       })()));
     })(), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setEmpExpanded((x) => !x), style: { ...btn(th, { background: th.card3, color: th.text, padding: "0.4rem 0.875rem", fontSize: "0.875rem", display: "flex", alignItems: "center", gap: "0.5rem" }) } }, /* @__PURE__ */ React.createElement("span", null, "Employees (", enrichedEmps.length, ")"), onClockCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, color: "#4caf50", background: "#4caf5020", padding: "0.15rem 0.4rem", borderRadius: "0.3rem" } }, onClockCount, " In"), otCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, color: "#f44336", background: "#f4433620", padding: "0.15rem 0.4rem", borderRadius: "0.3rem" } }, otCount, " OT"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, empExpanded ? "\u25B2" : "\u25BC")), empExpanded && /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Name", "Role", "Status", "Schedule", "Hrs Today", "Hrs/Wk", "Rate", "Cost Today"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thS }, h)))), /* @__PURE__ */ React.createElement("tbody", null, enrichedEmps.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { ...tdS, textAlign: "center", color: th.muted } }, "No employee data loaded")), enrichedEmps.map((emp) => {
       const statusColor = emp.liveStatus === "Clocked In" ? "#4caf50" : emp.liveStatus === "Scheduled" ? "#2196f3" : emp.liveStatus === "Shift Today" ? "#ff9800" : th.muted;
-      return /* @__PURE__ */ React.createElement("tr", { key: emp.id }, /* @__PURE__ */ React.createElement("td", { style: tdS }, emp.currentlyOnClock && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#4caf50", marginRight: 5, verticalAlign: "middle" } }), emp.name), /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: th.muted } }, emp.role), /* @__PURE__ */ React.createElement("td", { style: tdS }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: statusColor, background: statusColor + "20", padding: "0.15rem 0.4rem", borderRadius: "0.3rem" } }, emp.liveStatus), emp.otStatus === "OT" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: "#f44336", background: "#f4433620", padding: "0.15rem 0.4rem", borderRadius: "0.3rem", marginLeft: 4 } }, "OT"), emp.otStatus === "Approaching OT" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: "#ff9800", background: "#ff980020", padding: "0.15rem 0.4rem", borderRadius: "0.3rem", marginLeft: 4 } }, "~OT"), emp.isSalary && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: "#2196f3", background: "#2196f320", padding: "0.15rem 0.4rem", borderRadius: "0.3rem", marginLeft: 4 } }, "SAL")), /* @__PURE__ */ React.createElement("td", { style: { ...tdS, fontSize: "0.75rem", color: th.muted } }, emp.clockedInAt ? `In ${emp.clockedInAt}` : emp.scheduledStart ? `${emp.scheduledStart} - ${emp.scheduledEnd}` : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdS }, emp.hoursToday.toFixed(2)), /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: emp.otStatus === "OT" ? "#f44336" : emp.otStatus === "Approaching OT" ? "#ff9800" : th.text, fontWeight: emp.otStatus ? 600 : 400 } }, emp.hoursWeek.toFixed(1)), /* @__PURE__ */ React.createElement("td", { style: tdS }, emp.isSalary ? "$" + Math.round(emp.rate).toLocaleString() + "/2wk" : "$" + emp.rate.toFixed(2) + "/hr"), /* @__PURE__ */ React.createElement("td", { style: tdS }, fmtDollars(emp.dailyCost)));
+      return /* @__PURE__ */ React.createElement("tr", { key: emp.id }, /* @__PURE__ */ React.createElement("td", { style: tdS }, emp.currentlyOnClock && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#4caf50", marginRight: 5, verticalAlign: "middle" } }), emp.name), /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: th.muted } }, emp.role), /* @__PURE__ */ React.createElement("td", { style: tdS }, /* @__PURE__ */ React.createElement("span", { style: pill(statusColor) }, emp.liveStatus), emp.otStatus === "OT" && /* @__PURE__ */ React.createElement("span", { style: pill("#f44336", { marginLeft: 4 }) }, "OT"), emp.otStatus === "Approaching OT" && /* @__PURE__ */ React.createElement("span", { style: pill("#ff9800", { marginLeft: 4 }) }, "~OT"), emp.isSalary && /* @__PURE__ */ React.createElement("span", { style: pill("#2196f3", { marginLeft: 4 }) }, "SAL")), /* @__PURE__ */ React.createElement("td", { style: { ...tdS, fontSize: "0.75rem", color: th.muted } }, emp.clockedInAt ? `In ${emp.clockedInAt}` : emp.scheduledStart ? `${emp.scheduledStart} - ${emp.scheduledEnd}` : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdS }, emp.hoursToday.toFixed(2)), /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: emp.otStatus === "OT" ? "#f44336" : emp.otStatus === "Approaching OT" ? "#ff9800" : th.text, fontWeight: emp.otStatus ? 600 : 400 } }, emp.hoursWeek.toFixed(1)), /* @__PURE__ */ React.createElement("td", { style: tdS }, emp.isSalary ? "$" + Math.round(emp.rate).toLocaleString() + "/2wk" : "$" + emp.rate.toFixed(2) + "/hr"), /* @__PURE__ */ React.createElement("td", { style: tdS }, fmtDollars(emp.dailyCost)));
     }))))));
   }
   var LABOR_GREEN = 22.9;
@@ -18604,6 +19003,10 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }, []);
     useEffect(() => {
       fetchLaborData();
+    }, [fetchLaborData]);
+    useEffect(() => {
+      const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
+      return () => clearInterval(id);
     }, [fetchLaborData]);
     const managerStorePCs = React.useMemo(() => {
       if (!isManager) return /* @__PURE__ */ new Set();
@@ -18733,7 +19136,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       { label: "Total Sales", value: fmtDollars(summary.sales), color: "#FF671F", sub: `${filtered.length} stores` },
       { label: "Scheduled Now", value: String(summary.scheduledNow || summary.employeesOnClock || 0), color: "#FF671F", sub: `${summary.overtimeCount || 0} on overtime` }
     ];
-    return /* @__PURE__ */ React.createElement("div", null, error && /* @__PURE__ */ React.createElement("div", { style: { background: "#ff980020", border: "1px solid #ff9800", borderRadius: "0.5rem", padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ff9800", fontSize: "0.875rem" } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontFamily: "'Raleway'", fontWeight: 700, color: th.text } }, "Labor"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "Updated ", timeAgo(laborData?.lastUpdated)), /* @__PURE__ */ React.createElement("button", { onClick: handleRefresh, disabled: refreshing, style: { ...btn(th, { padding: "0.4rem 0.8rem", fontSize: "0.75rem", opacity: refreshing ? 0.5 : 1 }) } }, refreshing ? "Refreshing..." : "Refresh"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, kpiCards.map((k, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.85rem 1rem", textAlign: "center", position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: 3, background: k.color, borderRadius: "0.625rem 0.625rem 0 0", opacity: 0.85 } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.8 } }, k.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.4rem", fontWeight: 700, color: k.color, marginTop: "0.15rem", fontFamily: "'Source Sans 3'" } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, marginTop: "0.1rem", fontWeight: 600 } }, k.sub)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}` } }, ["today", "wtd"].map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => setTimeFilter(t), style: {
+    return /* @__PURE__ */ React.createElement("div", null, error && /* @__PURE__ */ React.createElement("div", { style: { background: "#ff980020", border: "1px solid #ff9800", borderRadius: "0.5rem", padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ff9800", fontSize: "0.875rem" } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Labor"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "Updated ", timeAgo(laborData?.lastUpdated)), /* @__PURE__ */ React.createElement("button", { onClick: handleRefresh, disabled: refreshing, style: { ...btn(th, { padding: "0.4rem 0.8rem", fontSize: "0.75rem", opacity: refreshing ? 0.5 : 1 }) } }, refreshing ? "Refreshing..." : "Refresh"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, kpiCards.map((k, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.85rem 1rem", textAlign: "center", position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: 3, background: k.color, opacity: 0.85 } }), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th, { fontSize: "0.6rem" }) } }, k.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.4rem", fontWeight: 700, color: k.color, marginTop: "0.15rem", fontFamily: "'Source Sans 3'" } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, marginTop: "0.1rem", fontWeight: 600 } }, k.sub)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}` } }, ["today", "wtd"].map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => setTimeFilter(t), style: {
       background: timeFilter === t ? "#FF671F" : th.card,
       color: timeFilter === t ? "#fff" : th.text,
       border: "none",
@@ -18742,7 +19145,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       fontSize: "0.8125rem",
       fontWeight: 600,
       fontFamily: "'Source Sans 3'"
-    } }, t === "today" ? "Today" : "This Week"))), !isDM && !isManager && /* @__PURE__ */ React.createElement("select", { value: districtFilter, onChange: (e) => setDistrictFilter(e.target.value), style: { ...inp(th, { width: "auto", padding: "0.4rem 0.75rem", fontSize: "0.8125rem" }) } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All Districts"), [1, 2, 3, 4, 5, 6, 7, 8].map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: String(d) }, "District ", d))), summary.overtimeCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 700, color: "#f44336", padding: "0.3rem 0.6rem", background: "#f4433615", borderRadius: "0.4rem" } }, summary.overtimeCount, " OT")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.75rem" } }, filtered.map(([pc, s]) => {
+    } }, t === "today" ? "Today" : "This Week"))), !isDM && !isManager && /* @__PURE__ */ React.createElement("select", { value: districtFilter, onChange: (e) => setDistrictFilter(e.target.value), style: { ...inp(th, { width: "auto", padding: "0.4rem 0.75rem", fontSize: "0.8125rem" }) } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All Districts"), [1, 2, 3, 4, 5, 6, 7, 8].map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: String(d) }, "District ", d))), summary.overtimeCount > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#f44336", { fontSize: "0.75rem", padding: "0.3rem 0.6rem" }) }, summary.overtimeCount, " OT")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.75rem" } }, filtered.map(([pc, s]) => {
       const t = timeFilter === "today" ? s?.today : s?.wtd;
       if (!t) return null;
       const pct = t.laborPct || 0;
@@ -18772,11 +19175,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             e.currentTarget.style.boxShadow = "";
           }
         },
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text } }, s.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center" } }, t.sales > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 800, color: clr, background: `${clr}18`, padding: "0.1rem 0.4rem", borderRadius: 999 } }, fmtPct(pct)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6875rem", color: th.muted } }, "D", s.district))),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text } }, s.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center" } }, t.sales > 0 && /* @__PURE__ */ React.createElement("span", { style: pill(clr, { fontWeight: 800 }) }, fmtPct(pct)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6875rem", color: th.muted } }, "D", s.district))),
         /* @__PURE__ */ React.createElement("div", { style: { height: 4, background: th.cardBorder, borderRadius: 999, marginBottom: "0.45rem", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(pct / 35 * 100, 100)}%`, background: clr, borderRadius: 999, boxShadow: `0 0 8px ${clr}88`, transition: "width .5s ease" } })),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.2rem", fontWeight: 700, color: th.text, marginBottom: "0.2rem" } }, fmtDollars(t.laborDollars)),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.35rem" } }, "of ", fmtDollars(t.sales), " sales"),
-        timeFilter === "today" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap" } }, (t.scheduledNow || t.employeesOnClock || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", fontWeight: 800, color: "#22c55e", background: "#22c55e18", border: "1px solid #22c55e33", padding: "0.12rem 0.4rem", borderRadius: 999 } }, t.scheduledNow || t.employeesOnClock, " clocked in"), (t.scheduledToday || t.employees || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", fontWeight: 800, color: "#74c0fc", background: "#74c0fc18", border: "1px solid #74c0fc33", padding: "0.12rem 0.4rem", borderRadius: 999 } }, t.scheduledToday || t.employees, " today"), (t.overtimeCount || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", fontWeight: 800, color: "#f44336", background: "#f4433618", border: "1px solid #f4433633", padding: "0.12rem 0.4rem", borderRadius: 999 } }, t.overtimeCount, " OT")),
+        timeFilter === "today" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap" } }, (t.scheduledNow || t.employeesOnClock || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#22c55e", { fontSize: "0.58rem", fontWeight: 800 }) }, t.scheduledNow || t.employeesOnClock, " clocked in"), (t.scheduledToday || t.employees || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#74c0fc", { fontSize: "0.58rem", fontWeight: 800 }) }, t.scheduledToday || t.employees, " today"), (t.overtimeCount || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#f44336", { fontSize: "0.58rem", fontWeight: 800 }) }, t.overtimeCount, " OT")),
         (() => {
           const fc = forecastData[pc];
           if (!fc?.loaded) return null;
@@ -24142,10 +24545,26 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [sidebarGroupsOpen, setSidebarGroupsOpen] = useState(() => {
       try {
         const saved = localStorage.getItem("pcg_sidebar_groups");
-        return saved ? JSON.parse(saved) : { ops: true, fin: true, team: false, system: false };
+        return saved ? JSON.parse(saved) : { ops: true, fin: true, team: false, system: false, workspace: false };
       } catch {
-        return { ops: true, fin: true, team: false, system: false };
+        return { ops: true, fin: true, team: false, system: false, workspace: false };
       }
+    });
+    const [pinnedTabIds, setPinnedTabIds] = useState(() => {
+      try {
+        const saved = localStorage.getItem("pcg_sidebar_pinned");
+        if (saved) return JSON.parse(saved);
+      } catch {
+      }
+      return null;
+    });
+    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState(() => {
+      try {
+        const s = localStorage.getItem("pcg_sidebar_sections");
+        if (s) return JSON.parse(s);
+      } catch {
+      }
+      return {};
     });
     const [links, setLinks] = useState(() => {
       const s = loadFromStorage();
@@ -24216,6 +24635,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [chatReadState, setChatReadState] = useState({});
     const [announcements, setAnnouncements] = useState([]);
     const [announcementsDismissed, setAnnouncementsDismissed] = useState({});
+    const [accessOverrides, setAccessOverrides] = useState({});
+    const cloudAccessLoaded = useRef(false);
     const cloudProjectsLoaded = useRef(false);
     const cloudUsersLoaded = useRef(false);
     const cloudDailyReportsLoaded = useRef(false);
@@ -24305,9 +24726,66 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       let t = getTabs(u);
       if (!canPnl) t = t.filter((x) => x.id !== "pnl");
       if (!canDeals) t = t.filter((x) => x.id !== "deals");
+      const ov = accessOverrides[u?.userType];
+      if (ov) t = t.filter((x) => BASE_TAB_IDS.includes(x.id) || ov[x.id] !== false || x.id === "admin" && isFullAdmin(u));
       return t;
     };
     const TABS = tabsForUser(user);
+    const PINNED_DEFAULTS = {
+      executive: ["pulse", "labor", "pnl", "projects"],
+      it: ["pulse", "labor", "pnl", "projects"],
+      office_staff: ["pulse", "labor", "reports", "projects"],
+      dm: ["pulse", "labor", "reports"],
+      manager: ["labor", "reports"]
+    };
+    const pinnedNavIds = (pinnedTabIds ?? (PINNED_DEFAULTS[user?.userType] || [])).filter((id) => TABS.some((t) => t.id === id));
+    const togglePinNav = (id) => {
+      setPinnedTabIds((prev) => {
+        const base = prev ?? (PINNED_DEFAULTS[user?.userType] || []);
+        const next = base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
+        try {
+          localStorage.setItem("pcg_sidebar_pinned", JSON.stringify(next));
+        } catch {
+        }
+        return next;
+      });
+    };
+    const toggleSidebarSection = (key) => {
+      setSidebarSectionsOpen((prev) => {
+        const next = { ...prev, [key]: !prev[key] };
+        try {
+          localStorage.setItem("pcg_sidebar_sections", JSON.stringify(next));
+        } catch {
+        }
+        return next;
+      });
+    };
+    const ESSENTIAL_BASE_IDS = ["dashboard", "chat", "announcements", "tickets"];
+    const WORKSPACE_BASE_IDS = ["calendar", "todos", "notes", "contacts", "links", "kb"];
+    const navBadge = (t) => {
+      if (!t) return null;
+      if (t.id === "chat" && chatUnreadCount > 0) return chatUnreadCount;
+      if (t.id === "reports" && reportsUnreadCount > 0) return reportsUnreadCount;
+      if (t.id === "cash" && cashMissingCount > 0) return cashMissingCount;
+      if (t.id === "announcements" && user) {
+        const myDist = user.district ? Number(user.district) : null;
+        const unread = announcements.filter((a) => {
+          if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
+          if (!a.targets) return true;
+          const { roles, districts: districts2 } = a.targets;
+          if (roles?.includes(user.userType)) return true;
+          if (myDist && districts2?.includes(myDist)) return true;
+          return false;
+        }).length;
+        if (unread > 0) return unread;
+      }
+      return null;
+    };
+    useEffect(() => {
+      if (!user || !tab) return;
+      const ids = tabsForUser(user).map((t) => t.id);
+      if (!ids.includes(tab)) setTab(ids[0] || "dashboard");
+    }, [accessOverrides, tab, user?.userType]);
     useEffect(() => {
       if (isMobile && drawerOpen) {
         document.body.style.overflow = "hidden";
@@ -25143,6 +25621,18 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       cloudSave("pcg_announcements_dismissed_v1", announcementsDismissed);
     }, [announcementsDismissed]);
     useEffect(() => {
+      cloudLoad("pcg_access_overrides_v1").then((ov) => {
+        cloudAccessLoaded.current = true;
+        if (ov && typeof ov === "object" && !Array.isArray(ov)) setAccessOverrides(ov);
+      }).catch(() => {
+        cloudAccessLoaded.current = true;
+      });
+    }, []);
+    useEffect(() => {
+      if (chatPollActive.current || !cloudAccessLoaded.current) return;
+      cloudSave("pcg_access_overrides_v1", accessOverrides);
+    }, [accessOverrides]);
+    useEffect(() => {
       registerServiceWorker();
     }, []);
     useEffect(() => {
@@ -25152,12 +25642,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (!user) return;
       chatPollRef.current = setInterval(async () => {
         try {
-          const [ch, ms, rd, ann, dis] = await Promise.all([
+          const [ch, ms, rd, ann, dis, acc] = await Promise.all([
             cloudLoad("pcg_chat_channels_v1"),
             cloudLoad("pcg_chat_messages_v1"),
             cloudLoad("pcg_chat_read_v1"),
             cloudLoad("pcg_announcements_v1"),
-            cloudLoad("pcg_announcements_dismissed_v1")
+            cloudLoad("pcg_announcements_dismissed_v1"),
+            cloudLoad("pcg_access_overrides_v1")
           ]);
           chatPollActive.current = true;
           if (ch && Array.isArray(ch)) setChatChannels(ch);
@@ -25165,6 +25656,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           if (rd && typeof rd === "object" && rd !== null) setChatReadState(rd);
           if (ann && Array.isArray(ann)) setAnnouncements(ann);
           if (dis && typeof dis === "object" && dis !== null) setAnnouncementsDismissed(dis);
+          if (acc && typeof acc === "object" && !Array.isArray(acc)) setAccessOverrides(acc);
           setTimeout(() => {
             chatPollActive.current = false;
           }, 0);
@@ -25562,13 +26054,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const isConstruction = user?.userType === "construction";
-    const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor }) => {
+    const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin }) => {
       const C = accent;
       const inactiveColor = th.muted;
       return /* @__PURE__ */ React.createElement(
         "button",
         {
           key: tabDef.id,
+          className: "nav-row",
           onClick,
           title: collapsed ? tabDef.label : void 0,
           style: {
@@ -25630,6 +26123,30 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           transition: "filter .2s"
         } }, typeof tabDef.icon === "function" ? tabDef.icon(isActive ? C : inactiveColor) : tabDef.icon),
         !collapsed && /* @__PURE__ */ React.createElement("span", { style: { flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, tabDef.label),
+        !collapsed && onTogglePin && /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            className: "nav-pin" + (pinned ? " pinned" : ""),
+            role: "button",
+            title: pinned ? "Unpin from top" : "Pin to top",
+            onClick: (e) => {
+              e.stopPropagation();
+              onTogglePin(tabDef.id);
+            },
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              marginLeft: 2,
+              width: 18,
+              height: 18,
+              borderRadius: 5,
+              color: pinned ? C : th.muted
+            }
+          },
+          /* @__PURE__ */ React.createElement("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: pinned ? C : "none", stroke: pinned ? C : "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" }))
+        ),
         badge != null && badge > 0 && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 4, minWidth: 8, height: 8, borderRadius: "50%", background: C, boxShadow: `0 0 6px ${C}` } }) : /* @__PURE__ */ React.createElement("span", { style: {
           minWidth: 20,
           height: 18,
@@ -25648,28 +26165,48 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         glow && !isActive && badge == null && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 4, width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite", flexShrink: 0 } }))
       );
     };
-    const SectionHeader = ({ label, accent, collapsed }) => {
+    const SectionHeader = ({ label, accent, collapsed, onToggle, open }) => {
       if (collapsed) return /* @__PURE__ */ React.createElement("div", { style: { height: 1, margin: "0.85rem 0.65rem", background: `linear-gradient(90deg, transparent, ${th.sidebarBorder}, transparent)` } });
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0.5rem 0.55rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` } }), /* @__PURE__ */ React.createElement("span", { style: {
-        fontSize: "0.55rem",
-        fontWeight: 800,
-        color: accent,
-        letterSpacing: 1.6,
-        textTransform: "uppercase",
-        padding: "0.15rem 0.5rem",
-        background: `${accent}12`,
-        borderTop: `1px solid ${accent}33`,
-        borderLeft: `1px solid ${accent}33`,
-        borderRight: `1px solid ${accent}33`,
-        borderBottom: `2px solid ${accent}66`,
-        borderRadius: 999
-      } }, label), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` } }));
+      const clickable = typeof onToggle === "function";
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          onClick: onToggle,
+          title: clickable ? open ? "Collapse section" : "Expand section" : void 0,
+          style: { display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0.5rem 0.55rem", cursor: clickable ? "pointer" : "default", userSelect: "none" }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` } }),
+        /* @__PURE__ */ React.createElement("span", { style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.3rem",
+          fontSize: "0.55rem",
+          fontWeight: 800,
+          color: accent,
+          letterSpacing: 1.6,
+          textTransform: "uppercase",
+          padding: "0.15rem 0.5rem",
+          background: `${accent}12`,
+          borderTop: `1px solid ${accent}33`,
+          borderLeft: `1px solid ${accent}33`,
+          borderRight: `1px solid ${accent}33`,
+          borderBottom: `2px solid ${accent}66`,
+          borderRadius: 999
+        } }, label, clickable && /* @__PURE__ */ React.createElement("span", { style: {
+          fontSize: "0.45rem",
+          opacity: 0.7,
+          transition: "transform 0.22s",
+          display: "inline-block",
+          transform: open ? "rotate(90deg)" : "none"
+        } }, "\u25B6")),
+        /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` } })
+      );
     };
     const ADMIN_GROUPS = [
       { key: "ops", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polyline", { points: "23 6 13.5 15.5 8.5 10.5 1 18" }), /* @__PURE__ */ React.createElement("polyline", { points: "17 6 23 6 23 12" })) }), label: "Operations", color: "#38bdf8", ids: ["pulse", "labor", "analytics", "anomalies", "scorecard"] },
-      { key: "fin", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "1", x2: "12", y2: "23" }), /* @__PURE__ */ React.createElement("path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" })) }), label: "Finance", color: "#22c55e", ids: ["pnl", "ndcp", "cash", "recon"] },
+      { key: "fin", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "1", x2: "12", y2: "23" }), /* @__PURE__ */ React.createElement("path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" })) }), label: "Finance", color: "#22c55e", ids: ["pnl", "ndcp", "cash", "recon", "expenses"] },
       { key: "team", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 2 7 12 12 22 7 12 2" }), /* @__PURE__ */ React.createElement("polyline", { points: "2 17 12 22 22 17" }), /* @__PURE__ */ React.createElement("polyline", { points: "2 12 12 17 22 12" })) }), label: "Team & Sites", color: "#a78bfa", ids: ["map", "locations", "impact", "projects", "deals", "users"] },
-      { key: "system", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "21", x2: "4", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "10", x2: "4", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "21", x2: "12", y2: "12" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "8", x2: "12", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "21", x2: "20", y2: "16" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "12", x2: "20", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "1", y1: "14", x2: "7", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "9", y1: "8", x2: "15", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "17", y1: "16", x2: "23", y2: "16" })) }), label: "System", color: "#94a3b8", ids: ["reports", "email", "settings"] }
+      { key: "system", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "21", x2: "4", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "10", x2: "4", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "21", x2: "12", y2: "12" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "8", x2: "12", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "21", x2: "20", y2: "16" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "12", x2: "20", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "1", y1: "14", x2: "7", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "9", y1: "8", x2: "15", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "17", y1: "16", x2: "23", y2: "16" })) }), label: "System", color: "#94a3b8", ids: ["reports", "email", "admin"] }
     ];
     const AdminGroup = ({ icon: grpIcon, label, color, tabs: grpTabs, collapsed, groupKey, onNav: nav }) => {
       const isOpen = sidebarGroupsOpen[groupKey];
@@ -25794,6 +26331,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             badge,
             glow,
             dotColor: C,
+            pinned: pinnedNavIds.includes(t.id),
+            onTogglePin: togglePinNav,
             onClick: () => {
               setTab(t.id);
               nav && nav();
@@ -26030,47 +26569,82 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       },
       "Out"
-    ))), /* @__PURE__ */ React.createElement("div", { ref: navRef2, onScroll: onNavScroll, style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, BASE_TABS.map((t) => {
-      const isActive = tab === t.id;
-      let badge = null;
-      if (t.id === "chat" && chatUnreadCount > 0) badge = chatUnreadCount;
-      if (t.id === "reports" && reportsUnreadCount > 0) badge = reportsUnreadCount;
-      if (t.id === "announcements") {
-        const myDist = user.district ? Number(user.district) : null;
-        const unread = announcements.filter((a) => {
-          if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
-          if (!a.targets) return true;
-          const { roles, districts: districts2 } = a.targets;
-          if (roles?.includes(user.userType)) return true;
-          if (myDist && districts2?.includes(myDist)) return true;
-          return false;
-        }).length;
-        if (unread > 0) badge = unread;
-      }
-      return /* @__PURE__ */ React.createElement(
-        NavButton,
-        {
-          key: t.id,
-          tabDef: t,
-          accent: O,
-          isActive,
-          collapsed,
-          badge,
-          onClick: () => {
-            setTab(t.id);
-            onNav && onNav();
+    ))), /* @__PURE__ */ React.createElement("div", { ref: navRef2, onScroll: onNavScroll, style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, (() => {
+      const pinnedTabs = pinnedNavIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);
+      if (pinnedTabs.length === 0) return null;
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Pinned", accent: O, collapsed }), pinnedTabs.map((t) => {
+        const C = t.cash ? cashMissingCount > 0 ? "#ef4444" : "#00d084" : t.green ? "#00d084" : O;
+        return /* @__PURE__ */ React.createElement(
+          NavButton,
+          {
+            key: "pin_" + t.id,
+            tabDef: t,
+            accent: C,
+            isActive: tab === t.id,
+            collapsed,
+            badge: navBadge(t),
+            glow: t.green || t.cash,
+            dotColor: C,
+            pinned: true,
+            onTogglePin: togglePinNav,
+            onClick: () => {
+              setTab(t.id);
+              onNav && onNav();
+            }
           }
+        );
+      }));
+    })(), BASE_TABS.filter((t) => ESSENTIAL_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id)).map((t) => /* @__PURE__ */ React.createElement(
+      NavButton,
+      {
+        key: t.id,
+        tabDef: t,
+        accent: O,
+        isActive: tab === t.id,
+        collapsed,
+        badge: navBadge(t),
+        onTogglePin: togglePinNav,
+        onClick: () => {
+          setTab(t.id);
+          onNav && onNav();
+        }
+      }
+    )), (() => {
+      const wsTabs = BASE_TABS.filter((t) => WORKSPACE_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      if (wsTabs.length === 0) return null;
+      const wsIcon = (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7" })) });
+      return /* @__PURE__ */ React.createElement(
+        AdminGroup,
+        {
+          groupKey: "workspace",
+          icon: wsIcon,
+          label: "Workspace",
+          color: "#94a3b8",
+          tabs: wsTabs,
+          collapsed,
+          onNav
         }
       );
-    }), user?.userType === "dm" && (() => {
+    })(), user?.userType === "dm" && (() => {
       const dmTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
       const DM_GROUPS = [
         { key: "dm_loc", label: "Locations & Map", color: "#74c0fc", icon: (c) => ICONS.locations(c), ids: ["map", "locations"] },
         { key: "dm_ops", label: "Operations", color: "#74c0fc", icon: (c) => ICONS.analytics(c), ids: ["pulse", "labor", "pnl", "analytics", "anomalies"] },
         { key: "dm_biz", label: "District", color: "#74c0fc", icon: (c) => ICONS.dollar(c), ids: ["cash", "reports", "projects", "deals", "scorecard"] }
       ];
-      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "My District", accent: "#74c0fc", collapsed }), DM_GROUPS.map((grp) => {
-        const grpTabs = grp.ids.map((id) => dmTabs.find((t) => t.id === id)).filter(Boolean);
+      const sectionHasActive = dmTabs.some((t) => t.id === tab) && !pinnedNavIds.includes(tab);
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_dm"] || sectionHasActive;
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: "My District",
+          accent: "#74c0fc",
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_dm")
+        }
+      ), sectionOpen && DM_GROUPS.map((grp) => {
+        const grpTabs = grp.ids.map((id) => dmTabs.find((t) => t.id === id)).filter((t) => t && !pinnedNavIds.includes(t.id));
         if (grpTabs.length === 0) return null;
         return /* @__PURE__ */ React.createElement(
           AdminGroup,
@@ -26086,66 +26660,124 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           }
         );
       }));
-    })(), user?.userType === "manager" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "My Store", accent: "#22c55e", collapsed }), tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id)).map((t) => /* @__PURE__ */ React.createElement(
-      NavButton,
-      {
-        key: t.id,
-        tabDef: t,
-        accent: "#22c55e",
-        isActive: tab === t.id,
-        collapsed,
-        badge: t.id === "reports" && reportsUnreadCount > 0 ? reportsUnreadCount : null,
-        onClick: () => {
-          setTab(t.id);
-          onNav && onNav();
+    })(), user?.userType === "manager" && (() => {
+      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_manager"] || secTabs.some((t) => t.id === tab);
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: "My Store",
+          accent: "#22c55e",
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_manager")
         }
-      }
-    ))), user?.userType === "construction" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Construction", accent: "#fb923c", collapsed }), tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id)).map((t) => /* @__PURE__ */ React.createElement(
-      NavButton,
-      {
-        key: t.id,
-        tabDef: t,
-        accent: "#fb923c",
-        isActive: tab === t.id,
-        collapsed,
-        onClick: () => {
-          setTab(t.id);
-          onNav && onNav();
-        }
-      }
-    ))), user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Maintenance", accent: "#a78bfa", collapsed }), tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id)).map((t) => /* @__PURE__ */ React.createElement(
-      NavButton,
-      {
-        key: t.id,
-        tabDef: t,
-        accent: "#a78bfa",
-        isActive: tab === t.id,
-        collapsed,
-        onClick: () => {
-          setTab(t.id);
-          onNav && onNav();
-        }
-      }
-    ))), (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: isFullAdmin(user) ? "Admin" : "Operations", accent: O, collapsed }), (() => {
-      const adminTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
-      return ADMIN_GROUPS.map((grp) => {
-        const grpTabs = grp.ids.map((id) => adminTabs.find((t) => t.id === id)).filter(Boolean);
-        if (grpTabs.length === 0) return null;
-        return /* @__PURE__ */ React.createElement(
-          AdminGroup,
-          {
-            key: grp.key,
-            groupKey: grp.key,
-            icon: grp.icon,
-            label: grp.label,
-            color: grp.color,
-            tabs: grpTabs,
-            collapsed,
-            onNav
+      ), sectionOpen && secTabs.map((t) => /* @__PURE__ */ React.createElement(
+        NavButton,
+        {
+          key: t.id,
+          tabDef: t,
+          accent: "#22c55e",
+          isActive: tab === t.id,
+          collapsed,
+          badge: t.id === "reports" && reportsUnreadCount > 0 ? reportsUnreadCount : null,
+          pinned: pinnedNavIds.includes(t.id),
+          onTogglePin: togglePinNav,
+          onClick: () => {
+            setTab(t.id);
+            onNav && onNav();
           }
-        );
-      });
-    })())), /* @__PURE__ */ React.createElement("div", { style: {
+        }
+      )));
+    })(), user?.userType === "construction" && (() => {
+      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_construction"] || secTabs.some((t) => t.id === tab);
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: "Construction",
+          accent: "#fb923c",
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_construction")
+        }
+      ), sectionOpen && secTabs.map((t) => /* @__PURE__ */ React.createElement(
+        NavButton,
+        {
+          key: t.id,
+          tabDef: t,
+          accent: "#fb923c",
+          isActive: tab === t.id,
+          collapsed,
+          pinned: pinnedNavIds.includes(t.id),
+          onTogglePin: togglePinNav,
+          onClick: () => {
+            setTab(t.id);
+            onNav && onNav();
+          }
+        }
+      )));
+    })(), user?.userType === "maintenance" && (() => {
+      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_maintenance"] || secTabs.some((t) => t.id === tab);
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: "Maintenance",
+          accent: "#a78bfa",
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_maintenance")
+        }
+      ), sectionOpen && secTabs.map((t) => /* @__PURE__ */ React.createElement(
+        NavButton,
+        {
+          key: t.id,
+          tabDef: t,
+          accent: "#a78bfa",
+          isActive: tab === t.id,
+          collapsed,
+          pinned: pinnedNavIds.includes(t.id),
+          onTogglePin: togglePinNav,
+          onClick: () => {
+            setTab(t.id);
+            onNav && onNav();
+          }
+        }
+      )));
+    })(), (isFullAdmin(user) || user?.userType === "office_staff") && (() => {
+      const adminTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
+      const sectionHasActive = adminTabs.some((t) => t.id === tab) && !pinnedNavIds.includes(tab);
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_admin"] || sectionHasActive;
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: isFullAdmin(user) ? "Admin" : "Operations",
+          accent: O,
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_admin")
+        }
+      ), sectionOpen && (() => {
+        return ADMIN_GROUPS.map((grp) => {
+          const grpTabs = grp.ids.map((id) => adminTabs.find((t) => t.id === id)).filter((t) => t && !pinnedNavIds.includes(t.id));
+          if (grpTabs.length === 0) return null;
+          return /* @__PURE__ */ React.createElement(
+            AdminGroup,
+            {
+              key: grp.key,
+              groupKey: grp.key,
+              icon: grp.icon,
+              label: grp.label,
+              color: grp.color,
+              tabs: grpTabs,
+              collapsed,
+              onNav
+            }
+          );
+        });
+      })());
+    })()), /* @__PURE__ */ React.createElement("div", { style: {
       borderTop: `1px solid ${th.sidebarBorder}`,
       padding: collapsed ? "0.6rem 0.4rem" : "0.6rem 1rem",
       display: "flex",
@@ -26162,7 +26794,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       fontWeight: 700,
       letterSpacing: 0.5,
       opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), "v14.78", /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), APP_VERSION, /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
@@ -26268,7 +26900,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     } }, ICONS.menu(th.text)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: isMobile ? 17 : 20, color: th.text, letterSpacing: -0.5 } }, (() => {
       const ct = TABS.find((t) => t.id === tab);
       return ct ? /* @__PURE__ */ React.createElement(React.Fragment, null, typeof ct.icon === "function" ? ct.icon(th.text) : ct.icon, " ", ct.label) : null;
-    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.75rem", marginTop: "0.125rem" } }, tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "cash" && "Deposit tracking and missing-deposit alerts.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "settings" && "Portal configuration and preferences.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.75rem", marginTop: "0.125rem" } }, tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "cash" && "Deposit tracking and missing-deposit alerts.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "expenses" && "All maintenance expenses across tickets \u2014 review, filter, and approve.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setShowNotifs((s) => !s);
       setShowChatPanel(false);
     }, style: { background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4, display: "flex", alignItems: "center" } }, ICONS.bell(th.text), filterNotifsByRole(notifications, user).filter((n) => !n.read).length > 0 && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -2, right: -4, width: 18, height: 18, borderRadius: "50%", background: "#ff4444", color: "#fff", fontSize: "0.5625rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" } }, filterNotifsByRole(notifications, user).filter((n) => !n.read).length)), showNotifs && (() => {
@@ -26458,7 +27090,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" } }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "settings" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminSettings, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
+    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
       const ut = user?.userType;
       const pinnedIds = ut === "executive" || ut === "it" ? ["dashboard", "pulse", "labor", "chat"] : ut === "office_staff" ? ["dashboard", "pulse", "labor", "chat"] : ut === "dm" ? ["dashboard", "labor", "chat", "tickets"] : ut === "manager" ? ["dashboard", "labor", "chat", "tickets"] : ["dashboard", "chat", "announcements", "tickets"];
       const pinnedTabs = pinnedIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);

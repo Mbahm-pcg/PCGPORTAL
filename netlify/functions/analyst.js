@@ -2,8 +2,8 @@
 // Actions: ask, brief, brief-refresh, case-list, case-detail, case-update, feedback, report-settings
 
 const { askAnalyst } = require('./analyst-lib/analyst-claude');
-const { buildDataContext, buildKPISnapshot, buildStoreContext } = require('./analyst-lib/analyst-data');
-const { buildBriefPrompt, buildAskPrompt, PERSONA, REPORT_SYSTEM, buildReportPrompt } = require('./analyst-lib/analyst-prompts');
+const { buildDataContext, buildKPISnapshot, buildStoreContext, STORES } = require('./analyst-lib/analyst-data');
+const { buildBriefPrompt, buildStoreBriefPrompt, buildAskPrompt, PERSONA, REPORT_SYSTEM, buildReportPrompt } = require('./analyst-lib/analyst-prompts');
 const { saveReport } = require('./analyst-lib/analyst-reports-gen');
 const { generateStructured } = require('./analyst-lib/analyst-claude');
 const { getCases, loadCase, updateCaseStatus, loadDecisionLog } = require('./analyst-lib/analyst-cases');
@@ -148,7 +148,7 @@ exports.handler = async (event) => {
       }
 
       // Generate fresh brief
-      const dataContext = await buildDataContext({ district: district || null });
+      const dataContext = await buildDataContext({ district: district || null, includeVoids: true });
       const prompt = buildBriefPrompt(role, today, dataContext);
       const result = await generateStructured({
         system: PERSONA,
@@ -177,7 +177,7 @@ exports.handler = async (event) => {
       // Re-call with refresh flag
       const today = new Date().toISOString().slice(0, 10);
       const role = userRole === 'dm' ? 'District Manager' : 'VP / Executive';
-      const dataContext = await buildDataContext({ district: district || null });
+      const dataContext = await buildDataContext({ district: district || null, includeVoids: true });
       const prompt = buildBriefPrompt(role, today, dataContext);
       const result = await generateStructured({
         system: PERSONA,
@@ -196,6 +196,43 @@ exports.handler = async (event) => {
       };
 
       const briefKey = `analyst/briefs/${today}_${district || 'network'}`;
+      await cacheSave(briefKey, brief);
+      return respond(200, { brief, cached: false });
+    }
+
+    // ── Per-Store Brief ──────────────────────────────────────────────────
+    if (action === 'store-brief') {
+      const { storePC } = payload;
+      if (!storePC) return respond(400, { error: 'Missing storePC' });
+      const store = STORES.find(s => s.pc === storePC);
+      if (!store) return respond(404, { error: 'Store not found' });
+
+      const today = new Date().toISOString().slice(0, 10);
+      const briefKey = `analyst/store-briefs/${storePC}_${today}`;
+
+      const cached = await cacheLoad(briefKey);
+      if (cached && !payload.refresh) {
+        return respond(200, { brief: cached, cached: true });
+      }
+
+      const dataContext = await buildStoreContext({ storePC });
+      const prompt = buildStoreBriefPrompt(store.name, storePC, today, dataContext);
+      const result = await generateStructured({
+        system: PERSONA,
+        userPrompt: prompt,
+        action: 'store-brief',
+        userId,
+      });
+
+      const brief = {
+        date: today,
+        storePC,
+        storeName: store.name,
+        content: result.text,
+        generatedAt: new Date().toISOString(),
+        model: result.model,
+      };
+
       await cacheSave(briefKey, brief);
       return respond(200, { brief, cached: false });
     }

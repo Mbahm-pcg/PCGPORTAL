@@ -333,7 +333,7 @@ exports.handler = async (event) => {
       // Per-district briefs (for DMs)
       for (let d = 1; d <= 8; d++) {
         try {
-          const distData = await buildDataContext({ district: d });
+          const distData = await buildDataContext({ district: d, includeVoids: true });
           if (distData.includes('No labor data')) continue;
 
           const distWeatherCtx = await buildWeatherContext({ district: d });
