@@ -18072,7 +18072,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v15.47";
+const APP_VERSION = "v15.52";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32699,10 +32699,31 @@ function PCGPortal() {
     } catch { return { ops: true, fin: true, team: false, system: false, workspace: false }; }
   });
   // Pinned sidebar tabs (user favorites surfaced at the very top). null = use role default.
-  const [pinnedTabIds, setPinnedTabIds] = useState(() => {
-    try { const saved = localStorage.getItem('pcg_sidebar_pinned'); if (saved) return JSON.parse(saved); } catch {}
-    return null;
-  });
+  // Stored per-user (key suffixed with user.id) so each account keeps its own quick-access
+  // set — a shared device no longer leaks one person's pins to the next. Loaded via the
+  // effect below once `user` is known (state starts null = role default until then).
+  const [pinnedTabIds, setPinnedTabIds] = useState(null);
+  // Load this user's pins when they log in (and reset to role-default on logout).
+  useEffect(() => {
+    if (!user?.id) { setPinnedTabIds(null); return; }
+    const key = 'pcg_sidebar_pinned_' + user.id;
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved != null) { setPinnedTabIds(JSON.parse(saved)); return; }
+      // One-time migration: adopt the old global (device-wide) pins for the first
+      // account to log in after this change, then retire the shared key so it can't
+      // leak to other accounts on the same device.
+      const legacy = localStorage.getItem('pcg_sidebar_pinned');
+      if (legacy != null) {
+        const parsed = JSON.parse(legacy); // parse first — don't persist a corrupt value
+        localStorage.setItem(key, legacy);
+        localStorage.removeItem('pcg_sidebar_pinned');
+        setPinnedTabIds(parsed);
+        return;
+      }
+    } catch {}
+    setPinnedTabIds(null);
+  }, [user?.id]);
   // Whole-section collapse state (e.g. the Admin / Operations block below the base tabs).
   // Default {} = every section collapsed on first open until the user clicks it.
   const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState(() => {
@@ -32843,7 +32864,9 @@ function PCGPortal() {
     setPinnedTabIds(prev => {
       const base = prev ?? (PINNED_DEFAULTS[user?.userType] || []);
       const next = base.includes(id) ? base.filter(x => x !== id) : [...base, id];
-      try { localStorage.setItem('pcg_sidebar_pinned', JSON.stringify(next)); } catch {}
+      if (user?.id) {
+        try { localStorage.setItem('pcg_sidebar_pinned_' + user.id, JSON.stringify(next)); } catch {}
+      }
       return next;
     });
   };
@@ -34320,12 +34343,9 @@ function PCGPortal() {
     const hasActiveChild = grpTabs.some(t => t.id === tab);
     const showChildren = isOpen || hasActiveChild;
 
-    // Any child with a badge → show red dot on the group header
-    const hasBadge = grpTabs.some(t => {
-      if (t.cash && cashMissingCount > 0) return true;
-      if (t.id === "reports" && reportsUnreadCount > 0) return true;
-      return false;
-    });
+    // Any child with a badge → show red dot on the group header (covers chat, reports,
+    // cash, announcements via navBadge — important now that base tabs live in a group).
+    const hasBadge = grpTabs.some(t => navBadge(t) != null);
 
     const toggle = () => {
       const next = { ...sidebarGroupsOpen, [groupKey]: !isOpen };
@@ -34418,8 +34438,7 @@ function PCGPortal() {
               const cashColor = cashHasMissing ? "#ef4444" : "#00d084";
               const C = isCash ? cashColor : (isGreen ? "#00d084" : color);
               const glow = isGreen || isCash;
-              const isReports = t.id === "reports";
-              const badge = (isCash && cashHasMissing) ? cashMissingCount : (isReports && reportsUnreadCount > 0) ? reportsUnreadCount : null;
+              const badge = navBadge(t);
               return (
                 <NavButton key={t.id} tabDef={t} accent={C} isActive={isActive} collapsed={false}
                   badge={badge} glow={glow} dotColor={C}
@@ -34616,7 +34635,7 @@ function PCGPortal() {
           if (pinnedTabs.length === 0) return null;
           return (
             <>
-              <SectionHeader label="Pinned" accent={O} collapsed={collapsed} />
+              <SectionHeader label="Quick Access" accent={O} collapsed={collapsed} />
               {pinnedTabs.map(t => {
                 const C = t.cash ? (cashMissingCount > 0 ? "#ef4444" : "#00d084") : (t.green ? "#00d084" : O);
                 return (
@@ -34639,35 +34658,35 @@ function PCGPortal() {
           );
         })()}
 
-        {/* ── Essential universal tabs (flat, always visible) ── */}
-        {BASE_TABS.filter(t => ESSENTIAL_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id)).map(t => (
-          <NavButton
-            key={t.id}
-            tabDef={t}
-            accent={O}
-            isActive={tab === t.id}
-            collapsed={collapsed}
-            badge={navBadge(t)}
-            onTogglePin={togglePinNav}
-            onClick={() => { setTab(t.id); onNav && onNav(); }}
-          />
-        ))}
-
-        {/* ── Workspace — utility universal tabs, grouped to save space ── */}
+        {/* ── Workspace — ALL universal base tabs, its OWN collapsible section (like
+             Quick Access / Admin), collapsed by default and deduped against Quick Access.
+             No auto-open on active tab — stays closed until expanded manually. ── */}
         {(() => {
-          const wsTabs = BASE_TABS.filter(t => WORKSPACE_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const baseIds = new Set([...ESSENTIAL_BASE_IDS, ...WORKSPACE_BASE_IDS]);
+          const wsTabs = BASE_TABS.filter(t => baseIds.has(t.id) && !pinnedNavIds.includes(t.id));
           if (wsTabs.length === 0) return null;
-          const wsIcon = (c) => <Icon color={c} d={<><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></>} />;
+          // Auto-open when the active tab lives here (e.g. the Dashboard landing tab) so
+          // essential base tabs aren't buried behind a collapsed header on first load.
+          const hasActiveChild = wsTabs.some(t => t.id === tab);
+          const sectionOpen = collapsed || hasActiveChild || !!sidebarSectionsOpen['sec_workspace'];
           return (
-            <AdminGroup
-              groupKey="workspace"
-              icon={wsIcon}
-              label="Workspace"
-              color="#94a3b8"
-              tabs={wsTabs}
-              collapsed={collapsed}
-              onNav={onNav}
-            />
+            <>
+              <SectionHeader label="Workspace" accent={O} collapsed={collapsed}
+                open={sectionOpen} onToggle={() => toggleSidebarSection('sec_workspace')} />
+              {sectionOpen && wsTabs.map(t => (
+                <NavButton
+                  key={t.id}
+                  tabDef={t}
+                  accent={O}
+                  isActive={tab === t.id}
+                  collapsed={collapsed}
+                  badge={navBadge(t)}
+                  pinned={pinnedNavIds.includes(t.id)}
+                  onTogglePin={togglePinNav}
+                  onClick={() => { setTab(t.id); onNav && onNav(); }}
+                />
+              ))}
+            </>
           );
         })()}
 

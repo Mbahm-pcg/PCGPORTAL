@@ -14409,7 +14409,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v15.47";
+  var APP_VERSION = "v15.52";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -24284,14 +24284,31 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return { ops: true, fin: true, team: false, system: false, workspace: false };
       }
     });
-    const [pinnedTabIds, setPinnedTabIds] = useState(() => {
+    const [pinnedTabIds, setPinnedTabIds] = useState(null);
+    useEffect(() => {
+      if (!user?.id) {
+        setPinnedTabIds(null);
+        return;
+      }
+      const key = "pcg_sidebar_pinned_" + user.id;
       try {
-        const saved = localStorage.getItem("pcg_sidebar_pinned");
-        if (saved) return JSON.parse(saved);
+        const saved = localStorage.getItem(key);
+        if (saved != null) {
+          setPinnedTabIds(JSON.parse(saved));
+          return;
+        }
+        const legacy = localStorage.getItem("pcg_sidebar_pinned");
+        if (legacy != null) {
+          const parsed = JSON.parse(legacy);
+          localStorage.setItem(key, legacy);
+          localStorage.removeItem("pcg_sidebar_pinned");
+          setPinnedTabIds(parsed);
+          return;
+        }
       } catch {
       }
-      return null;
-    });
+      setPinnedTabIds(null);
+    }, [user?.id]);
     const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState(() => {
       try {
         const s = localStorage.getItem("pcg_sidebar_sections");
@@ -24477,9 +24494,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setPinnedTabIds((prev) => {
         const base = prev ?? (PINNED_DEFAULTS[user?.userType] || []);
         const next = base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
-        try {
-          localStorage.setItem("pcg_sidebar_pinned", JSON.stringify(next));
-        } catch {
+        if (user?.id) {
+          try {
+            localStorage.setItem("pcg_sidebar_pinned_" + user.id, JSON.stringify(next));
+          } catch {
+          }
         }
         return next;
       });
@@ -25946,11 +25965,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const isOpen = sidebarGroupsOpen[groupKey];
       const hasActiveChild = grpTabs.some((t) => t.id === tab);
       const showChildren = isOpen || hasActiveChild;
-      const hasBadge = grpTabs.some((t) => {
-        if (t.cash && cashMissingCount > 0) return true;
-        if (t.id === "reports" && reportsUnreadCount > 0) return true;
-        return false;
-      });
+      const hasBadge = grpTabs.some((t) => navBadge(t) != null);
       const toggle = () => {
         const next = { ...sidebarGroupsOpen, [groupKey]: !isOpen };
         setSidebarGroupsOpen(next);
@@ -26052,8 +26067,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         const cashColor = cashHasMissing ? "#ef4444" : "#00d084";
         const C = isCash ? cashColor : isGreen ? "#00d084" : color;
         const glow = isGreen || isCash;
-        const isReports = t.id === "reports";
-        const badge = isCash && cashHasMissing ? cashMissingCount : isReports && reportsUnreadCount > 0 ? reportsUnreadCount : null;
+        const badge = navBadge(t);
         return /* @__PURE__ */ React.createElement(
           NavButton,
           {
@@ -26306,7 +26320,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ))), /* @__PURE__ */ React.createElement("div", { ref: navRef2, onScroll: onNavScroll, style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, (() => {
       const pinnedTabs = pinnedNavIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);
       if (pinnedTabs.length === 0) return null;
-      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Pinned", accent: O, collapsed }), pinnedTabs.map((t) => {
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Quick Access", accent: O, collapsed }), pinnedTabs.map((t) => {
         const C = t.cash ? cashMissingCount > 0 ? "#ef4444" : "#00d084" : t.green ? "#00d084" : O;
         return /* @__PURE__ */ React.createElement(
           NavButton,
@@ -26328,37 +26342,38 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           }
         );
       }));
-    })(), BASE_TABS.filter((t) => ESSENTIAL_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id)).map((t) => /* @__PURE__ */ React.createElement(
-      NavButton,
-      {
-        key: t.id,
-        tabDef: t,
-        accent: O,
-        isActive: tab === t.id,
-        collapsed,
-        badge: navBadge(t),
-        onTogglePin: togglePinNav,
-        onClick: () => {
-          setTab(t.id);
-          onNav && onNav();
-        }
-      }
-    )), (() => {
-      const wsTabs = BASE_TABS.filter((t) => WORKSPACE_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+    })(), (() => {
+      const baseIds = /* @__PURE__ */ new Set([...ESSENTIAL_BASE_IDS, ...WORKSPACE_BASE_IDS]);
+      const wsTabs = BASE_TABS.filter((t) => baseIds.has(t.id) && !pinnedNavIds.includes(t.id));
       if (wsTabs.length === 0) return null;
-      const wsIcon = (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7" })) });
-      return /* @__PURE__ */ React.createElement(
-        AdminGroup,
+      const hasActiveChild = wsTabs.some((t) => t.id === tab);
+      const sectionOpen = collapsed || hasActiveChild || !!sidebarSectionsOpen["sec_workspace"];
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
         {
-          groupKey: "workspace",
-          icon: wsIcon,
           label: "Workspace",
-          color: "#94a3b8",
-          tabs: wsTabs,
+          accent: O,
           collapsed,
-          onNav
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_workspace")
         }
-      );
+      ), sectionOpen && wsTabs.map((t) => /* @__PURE__ */ React.createElement(
+        NavButton,
+        {
+          key: t.id,
+          tabDef: t,
+          accent: O,
+          isActive: tab === t.id,
+          collapsed,
+          badge: navBadge(t),
+          pinned: pinnedNavIds.includes(t.id),
+          onTogglePin: togglePinNav,
+          onClick: () => {
+            setTab(t.id);
+            onNav && onNav();
+          }
+        }
+      )));
     })(), user?.userType === "dm" && (() => {
       const dmTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
       const DM_GROUPS = [
