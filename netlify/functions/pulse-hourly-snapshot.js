@@ -204,31 +204,37 @@ function itemCountForCheck(check) {
 }
 
 // ── Bakery par foundation (Par Level Optimizer 9.2) ─────────────────────────────
-// Classify a menu-item name into a donut/munchkin sub-category + units-per-sale
-// (e.g. "Donut Dozen" → 12). Slim port of classifyItem() in food-cost.js — keep
-// the donut/munchkin branches here in sync with that source of truth. Returns null
-// for anything that isn't a donut or munchkin (par scope is bakery-only for now).
+// Classify a menu-item name into a donut/munchkin sub-category + units-per-sale.
+// Returns null for anything that isn't a donut or munchkin (par scope is bakery-only).
+//
+// Units-per-sale ("qty") is the whole point for par math: a single "Donut" is 1, but a
+// box must expand to its real count. These stores name boxes several ways, in order of
+// precedence below: an explicit "N ct/count/pk/pack", a LEADING count ("12 Donuts",
+// "10 Munchkins" — the dominant convention here), "dozen"/"half dozen" words, or a
+// munchkin "25/50" box/bucket. NOTE: this is deliberately more thorough than
+// classifyItem() in food-cost.js, which misses the leading-count form and undercounts.
 function classifyBakery(name) {
   const lower = (name || '').toLowerCase();
-  // Munchkins (check before donut: "munchkin" never contains "donut")
-  if (lower.includes('munchkin')) {
-    const ctMatch = lower.match(/(\d+)\s*ct/);
-    if (ctMatch) return { sub: 'munchkin', qty: parseInt(ctMatch[1], 10) };
-    if (lower.includes('box') || lower.includes('bucket')) {
-      if (lower.includes('50')) return { sub: 'munchkin', qty: 50 };
-      if (lower.includes('25')) return { sub: 'munchkin', qty: 25 };
-    }
-    return { sub: 'munchkin', qty: 1 };
+  if (lower.includes('empty')) return null; // packaging/deposit items, not real bakery
+  const isMunchkin = lower.includes('munchkin');
+  const isDonut = !isMunchkin && (lower.includes('donut') || lower.includes('doughnut'));
+  if (!isMunchkin && !isDonut) return null;
+  const sub = isMunchkin ? 'munchkin' : 'donut';
+
+  let qty = 1;
+  const countMatch = lower.match(/(\d+)\s*(?:ct|count|pk|pack)\b/)   // "25 ct", "50 count", "6 pk"
+    || lower.match(/^(\d+)\s+(?:donut|doughnut|munchkin)/);          // "12 Donuts", "10 Munchkins"
+  if (countMatch) {
+    qty = parseInt(countMatch[1], 10);
+  } else if (lower.includes('half dozen') || lower.includes('1/2 dozen')) {
+    qty = 6;
+  } else if (lower.includes('dozen')) {
+    qty = 12;
+  } else if (isMunchkin && (lower.includes('box') || lower.includes('bucket'))) {
+    if (lower.includes('50')) qty = 50;
+    else if (lower.includes('25')) qty = 25;
   }
-  // Donuts
-  if (lower.includes('donut') || lower.includes('doughnut')) {
-    const ctMatch = lower.match(/(\d+)\s*(?:ct|pk|pack)/);
-    if (ctMatch) return { sub: 'donut', qty: parseInt(ctMatch[1], 10) };
-    if (lower.includes('half dozen') || lower.includes('1/2 dozen') || lower.includes('6 pk')) return { sub: 'donut', qty: 6 };
-    if (lower.includes('dozen')) return { sub: 'donut', qty: 12 };
-    return { sub: 'donut', qty: 1 };
-  }
-  return null;
+  return { sub, qty };
 }
 
 // Build a miNum → { sub, qty, name } map of donut/munchkin items for a Pulse route,
