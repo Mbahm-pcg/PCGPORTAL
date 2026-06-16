@@ -20,7 +20,6 @@ const {
   postJSON, getJSON, wmoToCondition, buildBakeryClassMap, extractBakery, dowFor,
 } = require('./pulse-hourly-snapshot');
 
-const STATE_KEY = 'pcg_item_backfill_state_v1';
 const STORES_PER_RUN = 5;     // stores processed per invocation (keeps each run ~3 min)
 const DATE_CONCURRENCY = 6;   // concurrent getGuestChecks per store
 
@@ -131,63 +130,69 @@ function triggerNextRun() {
   });
 }
 
-// ── Handler ───────────────────────────────────────────────────────────────────────
+// A store still needs backfill if its history has fewer than (days − slack) entries.
+// The slack tolerates a few dates Pulse can't return so a store isn't reprocessed forever.
+const COVERAGE_SLACK = 3;
 
+async function historyCount(pc) {
+  const existing = await cacheLoad(`pcg_item_history_${pc}`);
+  return Array.isArray(existing) ? existing.length : 0;
+}
+
+// ── Handler ───────────────────────────────────────────────────────────────────────
+//
+// Stateless & resumable: every invocation reads the ACTUAL history coverage to decide
+// which stores still need work — no shared progress counter to corrupt. That makes it
+// safe to trigger repeatedly and safe if two runs overlap (idempotent merge by date).
+// Each run does up to STORES_PER_RUN stores, then self-chains while work remains; if the
+// self-chain ever drops, just POST again and it resumes exactly where coverage left off.
 exports.handler = async (event) => {
   let body = {};
   try { body = JSON.parse((event && event.body) || '{}'); } catch {}
+  const days = Math.min(Math.max(parseInt(body.days, 10) || 90, 1), MAX_HISTORY_DAYS);
+  const force = body.reset === true || body.force === true; // reprocess even complete stores
 
-  let state = await cacheLoad(STATE_KEY);
-  if (!state || !Array.isArray(state.queue) || body.reset) {
-    const days = Math.min(Math.max(parseInt(body.days, 10) || 90, 1), MAX_HISTORY_DAYS);
-    state = { days, queue: STORES.map(s => s.pc), done: [], errors: {}, runs: 0, startedAt: new Date().toISOString() };
-    console.log(`[item-backfill] init: ${state.queue.length} stores × ${days} days`);
+  // Ground-truth coverage check across all stores.
+  const counts = await Promise.all(STORES.map(s => historyCount(s.pc)));
+  const needed = STORES.filter((s, i) => force || counts[i] < days - COVERAGE_SLACK);
+
+  if (needed.length === 0) {
+    console.log('[item-backfill] all stores complete');
+    return { statusCode: 200, body: JSON.stringify({ complete: true, stores: STORES.length }) };
   }
 
-  if (state.queue.length === 0) {
-    console.log('[item-backfill] nothing queued — already complete');
-    return { statusCode: 200, body: JSON.stringify({ complete: true, done: state.done.length, errors: state.errors }) };
-  }
+  const batch = needed.slice(0, STORES_PER_RUN);
+  console.log(`[item-backfill] ${needed.length} stores need backfill; processing ${batch.map(s => s.pc).join(',')}`);
 
-  state.runs = (state.runs || 0) + 1;
-  const dates = backfillDates(state.days);                 // newest → oldest
+  const dates = backfillDates(days);                 // newest → oldest
   const start = dates[dates.length - 1], end = dates[0];
-
-  // Build the donut/munchkin class map per Pulse route (menu nums are per-route).
   const routeClass = {};
-  for (const route of [...new Set(STORES.map(s => apiRoute(s.pc)))]) {
+  for (const route of [...new Set(batch.map(s => apiRoute(s.pc)))]) {
     const rep = STORES.find(s => apiRoute(s.pc) === route);
     routeClass[route] = await buildBakeryClassMap(rep.pc);
   }
   const weatherRange = await fetchDistrictWeatherRange(start, end);
 
-  const batch = state.queue.slice(0, STORES_PER_RUN);
-  for (const pc of batch) {
-    const store = STORES.find(s => s.pc === pc);
-    const classMap = routeClass[apiRoute(pc)];
-    if (!classMap || classMap.size === 0) {
-      state.errors[pc] = 'class map empty (dimensions fetch failed)';
-      state.done.push(pc);
-      continue;
-    }
+  const processed = [], errors = {};
+  for (const store of batch) {
+    const classMap = routeClass[apiRoute(store.pc)];
+    if (!classMap || classMap.size === 0) { errors[store.pc] = 'class map empty (dimensions fetch failed)'; continue; }
     try {
       const n = await backfillStore(store, dates, classMap, weatherRange[String(store.district)]);
-      console.log(`[item-backfill] ${store.name} (${pc}): ${n}/${dates.length} days`);
-      state.done.push(pc);
+      console.log(`[item-backfill] ${store.name} (${store.pc}): ${n}/${dates.length} days`);
+      processed.push(store.pc);
     } catch (e) {
-      state.errors[pc] = e.message;
-      state.done.push(pc); // record and move on so the queue can't stall forever
+      errors[store.pc] = e.message;
+      console.warn(`[item-backfill] ${store.pc} failed: ${e.message}`);
     }
   }
-  state.queue = state.queue.slice(batch.length);
-  await cacheSave(STATE_KEY, state);
 
-  if (state.queue.length > 0) {
-    console.log(`[item-backfill] run ${state.runs} done; ${state.queue.length} stores remaining — chaining`);
+  const remaining = needed.length - processed.length;
+  if (remaining > 0) {
+    console.log(`[item-backfill] ${processed.length} done this run; ~${remaining} remaining — chaining`);
     await triggerNextRun();
-    return { statusCode: 202, body: JSON.stringify({ chained: true, done: state.done.length, remaining: state.queue.length }) };
+    return { statusCode: 202, body: JSON.stringify({ processed, remaining, errors }) };
   }
-
-  console.log(`[item-backfill] COMPLETE: ${state.done.length} stores, ${Object.keys(state.errors).length} errors`);
-  return { statusCode: 200, body: JSON.stringify({ complete: true, done: state.done.length, errors: state.errors }) };
+  console.log(`[item-backfill] COMPLETE: all stores covered`);
+  return { statusCode: 200, body: JSON.stringify({ complete: true, processed, errors }) };
 };
