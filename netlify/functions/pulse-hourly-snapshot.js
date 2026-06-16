@@ -189,17 +189,21 @@ async function fetchDistrictWeather(date) {
 
 // ── Hourly sales aggregation ──────────────────────────────────────────────────
 
-// Modifier-only line items (e.g. "NO", "ADD") — don't count toward item count
-const MODIFIER_MI_NUMS = new Set([906005, 906006]);
-
-// Number of real menu items rung on a check (excludes modifier-only lines, voids, tenders)
+// Count REAL sellable menu items on a check (drives the upsell metric: 2+ items = upsell).
+// Only TOP-LEVEL item lines count. In the Pulse/POS hierarchy, modifiers and build
+// components (cream, sugar, swirls, paid extra shots, a sandwich's egg/cheese) are CHILD
+// lines that carry a `parDtlId` pointing at their parent item — they must not count, or an
+// add-on-heavy order (e.g. coffee + cream + sugar) looks like a 3-item "upsell". Tenders,
+// tax, discounts, and rewards have no `menuItem` at all, so they're excluded too.
+// (Counting child lines previously inflated the rate to ~95%; top-level-only ≈ 56%.)
 function itemCountForCheck(check) {
   const lines = check.detailLines || [];
   return lines.filter(d =>
     d.menuItem &&
     !d.vdFlag &&
-    (d.dspQty || 0) > 0 &&
-    !MODIFIER_MI_NUMS.has(d.menuItem.miNum)
+    !d.errCorFlag &&
+    d.parDtlId == null &&        // top-level only — exclude modifier / build-component child lines
+    (d.dspQty || 0) > 0
   ).length;
 }
 

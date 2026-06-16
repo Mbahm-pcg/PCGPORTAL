@@ -1,5 +1,6 @@
-// One-off backfill: compute upsellRate for the last 7 days of pcg_hourly_history_{pc}
-// for every store, using the same item-count proxy as pulse-hourly-snapshot.js.
+// One-off backfill: recompute upsellRate for ALL stored days of pcg_hourly_history_{pc}
+// for every store, using the corrected real-item count (top-level items only — matches
+// itemCountForCheck in pulse-hourly-snapshot.js). Overwrites prior inflated values.
 // Run via: npx netlify dev:exec -- node scripts/backfill-upsell.js
 const https = require('https');
 const { getStore } = require('@netlify/blobs');
@@ -28,7 +29,6 @@ const APIS = {
 };
 const STORE_P227 = '345986';
 const apiRoute = pc => pc === STORE_P227 ? 'p227' : 'p228';
-const MOD = new Set([906005, 906006]);
 
 function postJSON(cfg, endpoint, body) {
   return new Promise((resolve, reject) => {
@@ -45,8 +45,13 @@ function postJSON(cfg, endpoint, body) {
   });
 }
 
+// Real sellable menu items = top-level item lines only. Modifiers / build components are
+// POS child lines (parDtlId set); tenders/tax/discounts have no menuItem. Must match
+// itemCountForCheck() in pulse-hourly-snapshot.js so history and nightly values agree.
 function itemCountForCheck(c) {
-  return (c.detailLines || []).filter(d => d.menuItem && !d.vdFlag && (d.dspQty || 0) > 0 && !MOD.has(d.menuItem.miNum)).length;
+  return (c.detailLines || []).filter(d =>
+    d.menuItem && !d.vdFlag && !d.errCorFlag && d.parDtlId == null && (d.dspQty || 0) > 0
+  ).length;
 }
 
 async function upsellForDate(pc, busDt) {
@@ -78,16 +83,23 @@ function getBlobStore() {
     const entries = Array.isArray(raw?.data) ? raw.data : [];
     if (entries.length === 0) { console.log(`${s.name}: no history`); skipped++; continue; }
 
-    // Last 7 days that don't already have upsellRate
-    const targets = entries.filter(e => typeof e.upsellRate !== 'number').slice(0, 7);
+    // Recompute EVERY stored day — existing upsellRate values used the old (inflated)
+    // logic that counted modifier child-lines, so they must all be overwritten.
+    const targets = entries.filter(e => e.date);
+    let recomputed = 0, failed = 0;
     for (const entry of targets) {
       const result = await upsellForDate(s.pc, entry.date);
-      if (result) Object.assign(entry, result);
+      // null = API failure/timeout or a day with zero checks. We must NOT silently keep
+      // the old inflated value: stamp upsellStale so mixed old/new data is detectable,
+      // and surface the count below instead of reporting a clean success.
+      if (result) { Object.assign(entry, result); delete entry.upsellStale; recomputed++; }
+      else if (typeof entry.upsellRate === 'number') { entry.upsellStale = true; failed++; }
     }
 
     await store.setJSON(key, { savedAt: new Date().toISOString(), data: entries });
     const latest = entries.find(e => typeof e.upsellRate === 'number');
-    console.log(`${s.name}: backfilled ${targets.length} days, latest upsellRate=${latest?.upsellRate ?? 'n/a'} (${latest?.date})`);
+    const warn = failed ? ` ⚠ ${failed} day(s) un-recomputed (stale value flagged)` : '';
+    console.log(`${s.name}: recomputed ${recomputed}/${targets.length} days${warn}, latest upsellRate=${latest?.upsellRate ?? 'n/a'} (${latest?.date})`);
     updated++;
   }
 

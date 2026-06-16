@@ -111,7 +111,7 @@
 - Highlight variance outliers — potential theft, overportioning, or waste
 - COGS is 28-32%. A 2% reduction across 45 stores on $50M revenue = $1M to the bottom line
 
-### 9.2 Par Level Optimizer
+### 9.2 Par Level Optimizer (June 23)
 - Use sales forecasts to recommend optimal par levels per product per store per day
 - "Tomorrow is projected 15% above average at Store 310 — increase donut par by X dozen"
 - Detect stockout events (menu item sales dropping to zero mid-day)
