@@ -209,6 +209,80 @@ describe('weeklyFromScorecard', () => {
   });
 });
 
+import { isoWeekStart, beforeWindowWeeks, weekDates, dailyToWeekly, mergeWeekly } from './impact.mjs';
+
+describe('isoWeekStart — Sunday-start of an ISO date', () => {
+  test('a Sunday maps to itself', () => {
+    assert.strictEqual(isoWeekStart('2025-12-28'), '2025-12-28'); // Dec 28 2025 is a Sunday
+    assert.strictEqual(isoWeekStart('2026-01-04'), '2026-01-04');
+  });
+  test('mid-week maps back to its Sunday', () => {
+    assert.strictEqual(isoWeekStart('2025-12-31'), '2025-12-28'); // Wed
+    assert.strictEqual(isoWeekStart('2026-01-03'), '2025-12-28'); // Sat
+  });
+  test('bad input → null', () => {
+    assert.strictEqual(isoWeekStart('nope'), null);
+    assert.strictEqual(isoWeekStart(null), null);
+  });
+});
+
+describe('beforeWindowWeeks — N Sunday-weeks ending at the event week', () => {
+  test('3 weeks ending at 2025-12-28, ascending, inclusive of event week', () => {
+    assert.deepStrictEqual(beforeWindowWeeks('2025-12-28', 3), ['2025-12-14', '2025-12-21', '2025-12-28']);
+  });
+  test('event date mid-week still anchors to its Sunday', () => {
+    assert.deepStrictEqual(beforeWindowWeeks('2025-12-31', 2), ['2025-12-21', '2025-12-28']);
+  });
+  test('weeksBefore <= 0 → empty', () => {
+    assert.deepStrictEqual(beforeWindowWeeks('2025-12-28', 0), []);
+  });
+});
+
+describe('weekDates — 7 ISO days Sun..Sat from a week start', () => {
+  test('expands a Sunday into its 7 days, crossing month/year', () => {
+    assert.deepStrictEqual(weekDates('2025-12-28'),
+      ['2025-12-28','2025-12-29','2025-12-30','2025-12-31','2026-01-01','2026-01-02','2026-01-03']);
+  });
+});
+
+describe('dailyToWeekly — group daily net sales into Sunday weeks', () => {
+  test('sums a full 7-day week and counts days', () => {
+    const daily = weekDates('2025-12-28').map((busDt, i) => ({ busDt, netSales: 100 + i }));
+    const wk = dailyToWeekly(daily);
+    assert.strictEqual(wk.length, 1);
+    assert.strictEqual(wk[0].weekOf, '2025-12-28');
+    assert.strictEqual(wk[0].sales, 100+101+102+103+104+105+106);
+    assert.strictEqual(wk[0].days, 7);
+  });
+  test('splits days across two weeks and reports partial day counts', () => {
+    const daily = [
+      { busDt: '2025-12-27', netSales: 50 }, // belongs to week 2025-12-21
+      { busDt: '2025-12-28', netSales: 10 },
+      { busDt: '2025-12-29', netSales: 20 }, // week 2025-12-28
+    ];
+    const wk = dailyToWeekly(daily);
+    assert.deepStrictEqual(wk.map(w => [w.weekOf, w.sales, w.days]),
+      [['2025-12-21', 50, 1], ['2025-12-28', 30, 2]]);
+  });
+  test('ignores rows with non-finite sales or bad dates', () => {
+    const wk = dailyToWeekly([{ busDt: 'x', netSales: 5 }, { busDt: '2025-12-28', netSales: NaN }]);
+    assert.deepStrictEqual(wk, []);
+  });
+});
+
+describe('mergeWeekly — union by weekOf, first source wins, ascending', () => {
+  test('dedups on weekOf preferring the first series, sorts ascending', () => {
+    const card = [{ weekOf: '2025-12-28', sales: 100 }];
+    const labor = [{ weekOf: '2025-12-21', sales: 90 }, { weekOf: '2025-12-28', sales: 999 }];
+    assert.deepStrictEqual(mergeWeekly(card, labor),
+      [{ weekOf: '2025-12-21', sales: 90 }, { weekOf: '2025-12-28', sales: 100 }]);
+  });
+  test('handles empty / missing series', () => {
+    assert.deepStrictEqual(mergeWeekly([], [{ weekOf: '2026-01-04', sales: 5 }], null),
+      [{ weekOf: '2026-01-04', sales: 5 }]);
+  });
+});
+
 describe('weeklyMetricsFromScorecard', () => {
   const salesWeeks = [
     { weekEnd: '01/03/2026', stores: [{ pc: '304863', lwSale: 10000, lwCC: 1000, laborDollar: 2500 }] },

@@ -430,3 +430,88 @@ export function pickControls(rankedStores, impactedPc, n = 3) {
   const seen = new Set();
   return picks.filter((s) => (seen.has(s.pc) ? false : seen.add(s.pc)));
 }
+
+// ─── Historical backfill helpers (Impact Radar before-window) ────────────────
+
+/** Parse an ISO 'YYYY-MM-DD' to a UTC epoch (ms), or null. */
+function isoToUtc(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null;
+}
+const utcToIso = (ms) => new Date(ms).toISOString().slice(0, 10);
+const DAY_MS = 86400000;
+
+/**
+ * Sunday-start (ISO) of the week containing an ISO date. Null on bad input.
+ * @param {string} iso 'YYYY-MM-DD'
+ * @returns {string|null}
+ */
+export function isoWeekStart(iso) {
+  const ms = isoToUtc(iso);
+  if (ms == null) return null;
+  return utcToIso(ms - new Date(ms).getUTCDay() * DAY_MS); // getUTCDay: 0=Sun
+}
+
+/**
+ * The `weeksBefore` Sunday-week starts ending at (and including) the event week,
+ * ascending. Used to know which pre-event weeks we need sales for.
+ * @param {string} eventDate ISO
+ * @param {number} weeksBefore
+ * @returns {string[]}
+ */
+export function beforeWindowWeeks(eventDate, weeksBefore) {
+  const start = isoWeekStart(eventDate);
+  if (!start || !(weeksBefore > 0)) return [];
+  const endMs = isoToUtc(start);
+  const out = [];
+  for (let i = weeksBefore - 1; i >= 0; i--) out.push(utcToIso(endMs - i * 7 * DAY_MS));
+  return out;
+}
+
+/**
+ * The 7 ISO dates (Sun..Sat) of a week given its Sunday-start ISO.
+ * @param {string} weekStartISO
+ * @returns {string[]}
+ */
+export function weekDates(weekStartISO) {
+  const ms = isoToUtc(weekStartISO);
+  if (ms == null) return [];
+  return Array.from({ length: 7 }, (_, i) => utcToIso(ms + i * DAY_MS));
+}
+
+/**
+ * Group daily net sales into Sunday weeks. Skips rows with bad dates or
+ * non-finite sales. Reports `days` (how many daily rows landed in each week) so
+ * callers can drop partial weeks.
+ * @param {{busDt:string, netSales:number}[]} dailyRows
+ * @returns {{weekOf:string, sales:number, days:number}[]} ascending by weekOf
+ */
+export function dailyToWeekly(dailyRows) {
+  const byWeek = new Map();
+  for (const r of dailyRows || []) {
+    const wk = r && isoWeekStart(r.busDt);
+    const sales = r ? Number(r.netSales) : NaN;
+    if (!wk || !Number.isFinite(sales)) continue;
+    const cur = byWeek.get(wk) || { weekOf: wk, sales: 0, days: 0 };
+    cur.sales += sales; cur.days += 1;
+    byWeek.set(wk, cur);
+  }
+  return [...byWeek.values()].sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+}
+
+/**
+ * Merge multiple {weekOf,sales}[] series into one, deduped by weekOf. Earlier
+ * arguments win on conflict (pass the more-trusted source first). Ascending.
+ * @param {...({weekOf:string, sales:number}[]|null)} series
+ * @returns {{weekOf:string, sales:number}[]}
+ */
+export function mergeWeekly(...series) {
+  const byWeek = new Map();
+  for (const s of series) {
+    for (const w of s || []) {
+      if (!w || !w.weekOf || !Number.isFinite(Number(w.sales))) continue;
+      if (!byWeek.has(w.weekOf)) byWeek.set(w.weekOf, { weekOf: w.weekOf, sales: Number(w.sales) });
+    }
+  }
+  return [...byWeek.values()].sort((a, b) => a.weekOf.localeCompare(b.weekOf));
+}
