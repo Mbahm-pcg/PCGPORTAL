@@ -31,6 +31,15 @@
 [functions.analyst-cron]
   schedule = "0 11,14 * * *"
 
+# Competitor intelligence (10.5) — weekly Wednesday 5 AM ET (09:00 UTC): competitor
+# openings/closings near each store, ImpactRadar sales impact, and competitor promotions.
+# (09:00 UTC = 5 AM EDT; 4 AM EST in winter, like the app's other fixed-UTC crons.)
+# Scheduled as the -background variant (15-min timeout) — the run does up to 45
+# Google Places calls + a Claude web-search call before emailing, which would risk
+# the 26s sync limit. Manual test: POST /.netlify/functions/competitor-cron-background.
+[functions.competitor-cron-background]
+  schedule = "0 9 * * 3"
+
 # Hourly sales + weather snapshot — 2:30 AM UTC (10:30 PM ET) — runs after pulse-cron
 [functions.pulse-hourly-snapshot]
   schedule = "30 2 * * *"

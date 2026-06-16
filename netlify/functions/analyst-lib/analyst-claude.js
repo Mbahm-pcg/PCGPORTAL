@@ -108,6 +108,42 @@ async function askAnalyst({ userPrompt, userId, forceDeep, history }) {
 }
 
 /**
+ * Call Claude with the web_search server tool enabled. Used for competitive
+ * intelligence (current competitor promotions/LTOs). Returns { text, citations, ... }.
+ * Degrades by throwing if the tool isn't enabled on the API key — callers should catch.
+ */
+async function callClaudeWithWebSearch({ system, userPrompt, maxUses = 5, maxTokens = 2500, userId }) {
+  const model = SONNET; // synthesis quality matters here
+  const start = Date.now();
+  try {
+    const response = await getClient().messages.create({
+      model,
+      max_tokens: maxTokens,
+      system: system || PERSONA,
+      messages: [{ role: 'user', content: userPrompt }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxUses }],
+    });
+    const latencyMs = Date.now() - start;
+    const blocks = Array.isArray(response.content) ? response.content : [];
+    const text = blocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+    const citations = [];
+    for (const b of blocks) {
+      if (b.type === 'text' && Array.isArray(b.citations)) {
+        for (const c of b.citations) if (c.url) citations.push({ url: c.url, title: c.title || '' });
+      }
+    }
+    const inputTokens = response.usage?.input_tokens || 0;
+    const outputTokens = response.usage?.output_tokens || 0;
+    logLLMCall({ model, action: 'websearch', inputTokens, outputTokens, latencyMs, userId }).catch(() => {});
+    return { text, citations, model, inputTokens, outputTokens, latencyMs };
+  } catch (err) {
+    const latencyMs = Date.now() - start;
+    logLLMCall({ model, action: 'websearch', inputTokens: 0, outputTokens: 0, latencyMs, userId, error: err.message }).catch(() => {});
+    throw err;
+  }
+}
+
+/**
  * Generate a brief or business case (structured output).
  */
 async function generateStructured({ system, userPrompt, action, userId }) {
@@ -121,4 +157,4 @@ async function generateStructured({ system, userPrompt, action, userId }) {
   });
 }
 
-module.exports = { callClaude, askAnalyst, generateStructured, pickModel, HAIKU, SONNET };
+module.exports = { callClaude, callClaudeWithWebSearch, askAnalyst, generateStructured, pickModel, HAIKU, SONNET };

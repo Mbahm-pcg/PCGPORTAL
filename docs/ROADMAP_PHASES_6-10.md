@@ -158,14 +158,14 @@
 - Percentile rankings: "Store 345 is in the 85th percentile for labor efficiency"
 - "If your bottom 10 stores improved to median, your network would gain $X/year"
 
-### 10.4 New Store / Remodel ROI Tracker ✅
+### 10.4 New Store / Remodel ROI Tracker 
 - Track pre/post performance for every capital project
 - "Remodel completed 3 months ago: sales up 12%, labor down 1.5%, guest count up 8%"
 - Calculate payback period on capital investments
 
 ### 10.5 Competitive Intelligence Layer
-- Track nearby competitor openings/closings (manual entry or public data)
-✅ - Correlate with store performance: "Sales dropped 8% after Starbucks opened 0.3 miles away" — ImpactRadar: before/after event analysis vs distance-ranked control stores, exportable PDF report
+✅ - Track nearby competitor openings/closings (manual entry or public data)
+ - Correlate with store performance: "Sales dropped 8% after Starbucks opened 0.3 miles away" — ImpactRadar: before/after event analysis vs distance-ranked control stores, exportable PDF report
 - Market share estimation using data proxies
 
 ### 10.6 White-Label / Multi-Brand Architecture
