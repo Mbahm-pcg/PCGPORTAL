@@ -18072,7 +18072,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v15.45";
+const APP_VERSION = "v15.47";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32127,9 +32127,14 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     });
 
     // Project milestones (start + estimated completion)
+    // Dunkin' completion is restricted to Exec / IT / Construction and the DM of that
+    // store's district (myProjects already scopes DMs to their district) — managers and
+    // office staff don't see it.
+    const canSeeDunkin = isFullAdmin(user) || user?.userType === 'construction' || isDM;
     myProjects.forEach(p => {
       if (p.startDate) add(p.startDate, { type:'project', id:p.id, title:`▶ ${p.nickname||p.pc}`, store:p.storeName });
       if (p.completionDate) add(p.completionDate, { type:'project_end', id:p.id, title:`✓ ${p.nickname||p.pc}`, store:p.storeName });
+      if (p.dunkinCompletionDate && canSeeDunkin) add(p.dunkinCompletionDate, { type:'project_dunkin', id:p.id, title:`🍩 ${p.nickname||p.pc}`, store:p.storeName });
     });
 
     // Todos with due dates
@@ -32138,7 +32143,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     });
 
     return map;
-  }, [myTickets, schedules, myProjects, myTodos, year, month]);
+  }, [myTickets, mySchedules, myProjects, myTodos, year, month, user?.userType, isDM]);
 
   const selectedEvents = selectedDay ? (eventMap[selectedDay]||[]) : [];
   const priorityColor = p => p==='Emergency'?'#ef4444': p==='High'?'#f97316': p==='Medium'?'#3b82f6':'#22c55e';
@@ -32146,6 +32151,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     if (e.type==='todo')                    return O;
     if (e.type==='schedule')                return '#a855f7';
     if (e.type==='project'||e.type==='project_end') return '#14b8a6';
+    if (e.type==='project_dunkin')          return '#ff6b00';
     return priorityColor(e.priority);
   };
   const eventIcon = e => {
@@ -32153,6 +32159,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     if (e.type==='schedule')      return '🔧';
     if (e.type==='project')       return '🏗️';
     if (e.type==='project_end')   return '✅';
+    if (e.type==='project_dunkin') return '🍩';
     if (e.type==='ticket_due')    return '⏰';
     return '🎫';
   };
@@ -32232,7 +32239,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
                   : selectedEvents.map((e,i)=>(
                     <div key={i} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:10, padding:'0.6rem 0.7rem', marginBottom:'0.5rem', borderLeft:`3px solid ${eventColor(e)}` }}>
                       <div style={{ fontSize:'0.62rem', fontWeight:700, color:eventColor(e), marginBottom:3 }}>
-                        {eventIcon(e)} {e.type==='ticket'?'Ticket': e.type==='ticket_due'?'Due Date': e.type==='schedule'?'Equipment Check': e.type==='project'?'Project Start': e.type==='project_end'?'Project End':'Task'}
+                        {eventIcon(e)} {e.type==='ticket'?'Ticket': e.type==='ticket_due'?'Due Date': e.type==='schedule'?'Equipment Check': e.type==='project'?'Project Start': e.type==='project_end'?'Project End': e.type==='project_dunkin'?"Dunkin' Completion":'Task'}
                       </div>
                       <div style={{ fontWeight:700, fontSize:'0.83rem', color:th.text }}>{e.title}</div>
                       {e.store && <div style={{ fontSize:'0.72rem', color:th.muted, marginTop:2 }}>{e.store}</div>}
