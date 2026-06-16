@@ -251,6 +251,51 @@ async function buildBakeryClassMap(repPc) {
   return m;
 }
 
+// ET hour (0–23) a guest check opened, from its UTC open timestamp. null if unparseable.
+function etHour(opnUTC) {
+  const raw = opnUTC || '';
+  if (!raw) return null;
+  const dt = new Date(raw.endsWith('Z') ? raw : raw + 'Z');
+  if (isNaN(dt.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: '2-digit', hour12: false,
+  }).formatToParts(dt);
+  return parseInt(parts.find(p => p.type === 'hour').value, 10) % 24;
+}
+
+// Given a day's guest checks + a route's bakery class map, return donut/munchkin units
+// shaped for storage: { bakery: { sub: { total, byHour:{h:units} } }, flavors: {name:units} }.
+// Shared by the nightly snapshot and the one-time backfill so both produce identical data.
+function extractBakery(checks, bakeryClass) {
+  const bakeryByHour = {}; // h → { donut, munchkin }
+  const flavors = {};      // item name → units sold that day
+  if (bakeryClass && bakeryClass.size > 0) {
+    for (const c of checks) {
+      const h = etHour(c.opnUTC);
+      if (h === null) continue;
+      for (const d of (c.detailLines || [])) {
+        if (!d.menuItem || d.vdFlag || (d.dspQty || 0) <= 0) continue;
+        const ci = bakeryClass.get(String(d.menuItem.miNum));
+        if (!ci) continue;
+        const units = d.dspQty * ci.qty;
+        if (!bakeryByHour[h]) bakeryByHour[h] = { donut: 0, munchkin: 0 };
+        bakeryByHour[h][ci.sub] += units;
+        flavors[ci.name] = (flavors[ci.name] || 0) + units;
+      }
+    }
+  }
+  const bakery = {};
+  for (const sub of ['donut', 'munchkin']) {
+    const byHour = {};
+    let total = 0;
+    for (const [h, v] of Object.entries(bakeryByHour)) {
+      if (v[sub] > 0) { byHour[h] = Math.round(v[sub] * 10) / 10; total += v[sub]; }
+    }
+    bakery[sub] = { total: Math.round(total * 10) / 10, byHour };
+  }
+  return { bakery, flavors };
+}
+
 async function fetchHourlySales(pc, busDt, bakeryClass) {
   const cfg = APIS[apiRoute(pc)];
   try {
@@ -262,26 +307,12 @@ async function fetchHourlySales(pc, busDt, bakeryClass) {
 
     const checks = json.guestChecks || [];
     const byHour = {};
-    // Donut/munchkin units bucketed by ET hour (for par timing + mid-day stockout),
-    // plus per-flavor daily totals (for future flavor-mix recommendations).
-    const bakeryByHour = {}; // h → { donut, munchkin }
-    const flavors = {};      // item name → units sold that day
     let upsoldChecks = 0;
     let totalChecks = 0;
 
     for (const c of checks) {
-      const raw = c.opnUTC || '';
-      if (!raw) continue;
-      const dt = new Date(raw.endsWith('Z') ? raw : raw + 'Z');
-      if (isNaN(dt.getTime())) continue;
-
-      // Extract ET hour reliably using Intl
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
-        hour: '2-digit',
-        hour12: false,
-      }).formatToParts(dt);
-      const h = parseInt(parts.find(p => p.type === 'hour').value, 10) % 24;
+      const h = etHour(c.opnUTC);
+      if (h === null) continue;
 
       if (!byHour[h]) byHour[h] = { h, sales: 0, checks: 0 };
       byHour[h].sales  += c.chkTtl || c.subTtl || 0;
@@ -289,20 +320,6 @@ async function fetchHourlySales(pc, busDt, bakeryClass) {
 
       totalChecks += 1;
       if (itemCountForCheck(c) >= 2) upsoldChecks += 1;
-
-      // Accumulate donut/munchkin units for this check's hour (no extra API call —
-      // detailLines are already in the payload). Skipped when the class map is empty.
-      if (bakeryClass && bakeryClass.size > 0) {
-        for (const d of (c.detailLines || [])) {
-          if (!d.menuItem || d.vdFlag || (d.dspQty || 0) <= 0) continue;
-          const ci = bakeryClass.get(String(d.menuItem.miNum));
-          if (!ci) continue;
-          const units = d.dspQty * ci.qty;
-          if (!bakeryByHour[h]) bakeryByHour[h] = { donut: 0, munchkin: 0 };
-          bakeryByHour[h][ci.sub] += units;
-          flavors[ci.name] = (flavors[ci.name] || 0) + units;
-        }
-      }
     }
 
     const hours = Object.values(byHour)
@@ -311,16 +328,8 @@ async function fetchHourlySales(pc, busDt, bakeryClass) {
 
     const upsellRate = totalChecks > 0 ? Math.round((upsoldChecks / totalChecks) * 1000) / 10 : null;
 
-    // Reshape bakery into { sub: { total, byHour:{h:units} } } for compact storage.
-    const bakery = {};
-    for (const sub of ['donut', 'munchkin']) {
-      const byHourSub = {};
-      let total = 0;
-      for (const [h, v] of Object.entries(bakeryByHour)) {
-        if (v[sub] > 0) { byHourSub[h] = Math.round(v[sub] * 10) / 10; total += v[sub]; }
-      }
-      bakery[sub] = { total: Math.round(total * 10) / 10, byHour: byHourSub };
-    }
+    // Donut/munchkin units (no extra API call — detailLines are already in the payload).
+    const { bakery, flavors } = extractBakery(checks, bakeryClass);
 
     return { hours, upsoldChecks, totalChecks, upsellRate, bakery, flavors };
 
@@ -414,3 +423,19 @@ exports.handler = async () => {
   console.log(`[hourly-snapshot] Complete: ${saved} saved, ${failed} failed`);
   return { statusCode: 200, body: JSON.stringify({ date, saved, failed, districtWeather }) };
 };
+
+// Shared toolkit reused by pulse-item-backfill-background.js so the one-time backfill
+// produces byte-identical bakery history to the nightly snapshot (single source of truth).
+module.exports.STORES = STORES;
+module.exports.DISTRICT_COORDS = DISTRICT_COORDS;
+module.exports.MAX_HISTORY_DAYS = MAX_HISTORY_DAYS;
+module.exports.apiRoute = apiRoute;
+module.exports.APIS = APIS;
+module.exports.postJSON = postJSON;
+module.exports.getJSON = getJSON;
+module.exports.wmoToCondition = wmoToCondition;
+module.exports.classifyBakery = classifyBakery;
+module.exports.buildBakeryClassMap = buildBakeryClassMap;
+module.exports.extractBakery = extractBakery;
+module.exports.dowFor = dowFor;
+module.exports.appendItemSnapshot = appendItemSnapshot;
