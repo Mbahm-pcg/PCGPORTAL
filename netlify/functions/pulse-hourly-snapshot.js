@@ -203,7 +203,55 @@ function itemCountForCheck(check) {
   ).length;
 }
 
-async function fetchHourlySales(pc, busDt) {
+// ── Bakery par foundation (Par Level Optimizer 9.2) ─────────────────────────────
+// Classify a menu-item name into a donut/munchkin sub-category + units-per-sale
+// (e.g. "Donut Dozen" → 12). Slim port of classifyItem() in food-cost.js — keep
+// the donut/munchkin branches here in sync with that source of truth. Returns null
+// for anything that isn't a donut or munchkin (par scope is bakery-only for now).
+function classifyBakery(name) {
+  const lower = (name || '').toLowerCase();
+  // Munchkins (check before donut: "munchkin" never contains "donut")
+  if (lower.includes('munchkin')) {
+    const ctMatch = lower.match(/(\d+)\s*ct/);
+    if (ctMatch) return { sub: 'munchkin', qty: parseInt(ctMatch[1], 10) };
+    if (lower.includes('box') || lower.includes('bucket')) {
+      if (lower.includes('50')) return { sub: 'munchkin', qty: 50 };
+      if (lower.includes('25')) return { sub: 'munchkin', qty: 25 };
+    }
+    return { sub: 'munchkin', qty: 1 };
+  }
+  // Donuts
+  if (lower.includes('donut') || lower.includes('doughnut')) {
+    const ctMatch = lower.match(/(\d+)\s*(?:ct|pk|pack)/);
+    if (ctMatch) return { sub: 'donut', qty: parseInt(ctMatch[1], 10) };
+    if (lower.includes('half dozen') || lower.includes('1/2 dozen') || lower.includes('6 pk')) return { sub: 'donut', qty: 6 };
+    if (lower.includes('dozen')) return { sub: 'donut', qty: 12 };
+    return { sub: 'donut', qty: 1 };
+  }
+  return null;
+}
+
+// Build a miNum → { sub, qty, name } map of donut/munchkin items for a Pulse route,
+// using one representative store's menu-item dimensions. Returns an empty Map on failure
+// (the snapshot still records sales; bakery data is just skipped for that run).
+async function buildBakeryClassMap(repPc) {
+  const cfg = APIS[apiRoute(repPc)];
+  const m = new Map();
+  try {
+    const dims = await postJSON(cfg, 'getMenuItemDimensions', { locRef: repPc });
+    for (const mi of (dims?.menuItems || [])) {
+      const ci = classifyBakery(mi.name);
+      // Key by String(num): getMenuItemDimensions and getGuestChecks may return the
+      // item id as different JS types, and Map.get is type-sensitive (5012 !== "5012").
+      if (ci) m.set(String(mi.num), { ...ci, name: mi.name });
+    }
+  } catch (e) {
+    console.warn(`[hourly-snapshot] dimensions fetch failed for ${repPc}: ${e.message}`);
+  }
+  return m;
+}
+
+async function fetchHourlySales(pc, busDt, bakeryClass) {
   const cfg = APIS[apiRoute(pc)];
   try {
     const json = await postJSON(cfg, 'getGuestChecks', {
@@ -214,6 +262,10 @@ async function fetchHourlySales(pc, busDt) {
 
     const checks = json.guestChecks || [];
     const byHour = {};
+    // Donut/munchkin units bucketed by ET hour (for par timing + mid-day stockout),
+    // plus per-flavor daily totals (for future flavor-mix recommendations).
+    const bakeryByHour = {}; // h → { donut, munchkin }
+    const flavors = {};      // item name → units sold that day
     let upsoldChecks = 0;
     let totalChecks = 0;
 
@@ -237,6 +289,20 @@ async function fetchHourlySales(pc, busDt) {
 
       totalChecks += 1;
       if (itemCountForCheck(c) >= 2) upsoldChecks += 1;
+
+      // Accumulate donut/munchkin units for this check's hour (no extra API call —
+      // detailLines are already in the payload). Skipped when the class map is empty.
+      if (bakeryClass && bakeryClass.size > 0) {
+        for (const d of (c.detailLines || [])) {
+          if (!d.menuItem || d.vdFlag || (d.dspQty || 0) <= 0) continue;
+          const ci = bakeryClass.get(String(d.menuItem.miNum));
+          if (!ci) continue;
+          const units = d.dspQty * ci.qty;
+          if (!bakeryByHour[h]) bakeryByHour[h] = { donut: 0, munchkin: 0 };
+          bakeryByHour[h][ci.sub] += units;
+          flavors[ci.name] = (flavors[ci.name] || 0) + units;
+        }
+      }
     }
 
     const hours = Object.values(byHour)
@@ -245,7 +311,18 @@ async function fetchHourlySales(pc, busDt) {
 
     const upsellRate = totalChecks > 0 ? Math.round((upsoldChecks / totalChecks) * 1000) / 10 : null;
 
-    return { hours, upsoldChecks, totalChecks, upsellRate };
+    // Reshape bakery into { sub: { total, byHour:{h:units} } } for compact storage.
+    const bakery = {};
+    for (const sub of ['donut', 'munchkin']) {
+      const byHourSub = {};
+      let total = 0;
+      for (const [h, v] of Object.entries(bakeryByHour)) {
+        if (v[sub] > 0) { byHourSub[h] = Math.round(v[sub] * 10) / 10; total += v[sub]; }
+      }
+      bakery[sub] = { total: Math.round(total * 10) / 10, byHour: byHourSub };
+    }
+
+    return { hours, upsoldChecks, totalChecks, upsellRate, bakery, flavors };
 
   } catch (e) {
     console.warn(`[hourly-snapshot] Guest checks failed for ${pc}: ${e.message}`);
@@ -270,6 +347,24 @@ async function appendSnapshot(pc, date, hours, weather, upsell) {
   await cacheSave(key, trimmed);
 }
 
+// Day-of-week (0=Sun … 6=Sat) for a YYYY-MM-DD date, anchored at local noon to
+// dodge timezone/DST edges.
+function dowFor(date) {
+  return new Date(`${date}T12:00:00`).getDay();
+}
+
+// Per-store donut/munchkin history → pcg_item_history_{pc} (separate blob from the
+// hourly sales history so existing analyst consumers are untouched). Feeds the Par
+// Level Optimizer: per-DOW unit baselines + hourly series for mid-day stockout detection.
+async function appendItemSnapshot(pc, date, weather, bakery, flavors) {
+  const key = `pcg_item_history_${pc}`;
+  const existing = (await cacheLoad(key)) || [];
+  const entries = Array.isArray(existing) ? existing : [];
+  const filtered = entries.filter(e => e.date !== date); // idempotent on re-run
+  filtered.unshift({ date, dow: dowFor(date), weather, bakery, flavors });
+  await cacheSave(key, filtered.slice(0, MAX_HISTORY_DAYS));
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 exports.handler = async () => {
@@ -283,6 +378,15 @@ exports.handler = async () => {
     .join(' ');
   console.log(`[hourly-snapshot] Weather: ${conditionSummary}`);
 
+  // Build the donut/munchkin classification map once per Pulse route (menu-item
+  // numbers are per-route), reused across all stores on that route.
+  const routeClass = {};
+  for (const route of [...new Set(STORES.map(s => apiRoute(s.pc)))]) {
+    const rep = STORES.find(s => apiRoute(s.pc) === route);
+    routeClass[route] = await buildBakeryClassMap(rep.pc);
+  }
+  console.log(`[hourly-snapshot] Bakery items mapped: ${Object.entries(routeClass).map(([r, m]) => `${r}:${m.size}`).join(' ')}`);
+
   // Process all stores in batches of 8
   let saved = 0, failed = 0;
   const BATCH = 8;
@@ -290,12 +394,19 @@ exports.handler = async () => {
   for (let i = 0; i < STORES.length; i += BATCH) {
     const batch = STORES.slice(i, i + BATCH);
     await Promise.all(batch.map(async (store) => {
-      const result = await fetchHourlySales(store.pc, date);
+      const classMap = routeClass[apiRoute(store.pc)];
+      const result = await fetchHourlySales(store.pc, date, classMap);
       if (result === null) { failed++; return; }
 
-      const { hours, ...upsell } = result;
+      const { hours, bakery, flavors, ...upsell } = result;
       const weather = districtWeather[String(store.district)] || null;
       await appendSnapshot(store.pc, date, hours, weather, upsell);
+      // Only record bakery history when the class map built — otherwise a transient
+      // dimensions-fetch failure would persist false zeros that look like a real
+      // zero-sales day and skew the Par Optimizer's per-DOW baselines.
+      if (classMap && classMap.size > 0) {
+        await appendItemSnapshot(store.pc, date, weather, bakery, flavors);
+      }
       saved++;
     }));
   }
