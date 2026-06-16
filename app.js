@@ -14638,7 +14638,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v15.33";
+  var APP_VERSION = "v15.73";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -24276,21 +24276,24 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           else break;
         }
       });
+      const canSeeDunkin = isFullAdmin(user) || user?.userType === "construction" || isDM;
       myProjects.forEach((p) => {
         if (p.startDate) add(p.startDate, { type: "project", id: p.id, title: `\u25B6 ${p.nickname || p.pc}`, store: p.storeName });
         if (p.completionDate) add(p.completionDate, { type: "project_end", id: p.id, title: `\u2713 ${p.nickname || p.pc}`, store: p.storeName });
+        if (p.dunkinCompletionDate && canSeeDunkin) add(p.dunkinCompletionDate, { type: "project_dunkin", id: p.id, title: `\u{1F369} ${p.nickname || p.pc}`, store: p.storeName });
       });
       myTodos.forEach((t) => {
         if (t.dueDate) add(t.dueDate, { type: "todo", id: t.id, title: t.text || t.title || "Task" });
       });
       return map;
-    }, [myTickets, schedules, myProjects, myTodos, year, month]);
+    }, [myTickets, mySchedules, myProjects, myTodos, year, month, user?.userType, isDM]);
     const selectedEvents = selectedDay ? eventMap[selectedDay] || [] : [];
     const priorityColor = (p) => p === "Emergency" ? "#ef4444" : p === "High" ? "#f97316" : p === "Medium" ? "#3b82f6" : "#22c55e";
     const eventColor = (e) => {
       if (e.type === "todo") return O2;
       if (e.type === "schedule") return "#a855f7";
       if (e.type === "project" || e.type === "project_end") return "#14b8a6";
+      if (e.type === "project_dunkin") return "#ff6b00";
       return priorityColor(e.priority);
     };
     const eventIcon = (e) => {
@@ -24298,6 +24301,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (e.type === "schedule") return "\u{1F527}";
       if (e.type === "project") return "\u{1F3D7}\uFE0F";
       if (e.type === "project_end") return "\u2705";
+      if (e.type === "project_dunkin") return "\u{1F369}";
       if (e.type === "ticket_due") return "\u23F0";
       return "\u{1F3AB}";
     };
@@ -24309,7 +24313,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const isSel = selectedDay === dateStr;
       const evts = eventMap[dateStr] || [];
       return /* @__PURE__ */ React.createElement("div", { key: day, onClick: () => setSelectedDay(isSel ? null : dateStr), style: { background: isSel ? `${O2}12` : th.card, padding: isMobile ? "0.35rem 0.2rem" : "0.4rem 0.45rem", cursor: "pointer", borderTop: isSel ? `2px solid ${O2}` : "2px solid transparent", transition: "background 0.12s", overflow: "hidden", minHeight: isMobile ? 44 : "unset" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: isToday ? 900 : 600, fontSize: isMobile ? "0.8rem" : "0.85rem", color: isToday ? "#fff" : th.text, background: isToday ? O2 : "transparent", width: isMobile ? 26 : 24, height: isMobile ? 26 : 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 3, margin: isMobile ? "0 auto 3px" : void 0 } }, day), isMobile ? evts.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 2, justifyContent: "center" } }, evts.slice(0, 3).map((e, ei) => /* @__PURE__ */ React.createElement("div", { key: ei, style: { width: 7, height: 7, borderRadius: "50%", background: eventColor(e), flexShrink: 0 } })), evts.length > 3 && /* @__PURE__ */ React.createElement("div", { style: { width: 7, height: 7, borderRadius: "50%", background: th.muted, flexShrink: 0 } })) : /* @__PURE__ */ React.createElement(React.Fragment, null, evts.slice(0, 3).map((e, ei) => /* @__PURE__ */ React.createElement("div", { key: ei, style: { fontSize: "0.62rem", fontWeight: 600, padding: "2px 5px", borderRadius: 4, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: `${eventColor(e)}20`, color: eventColor(e), borderLeft: `2px solid ${eventColor(e)}` } }, eventIcon(e), " ", e.title)), evts.length > 3 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, marginTop: 1 } }, "+", evts.length - 3, " more")));
-    }))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: "0.75rem", minWidth: isMobile ? 0 : 220, maxWidth: isMobile ? "none" : 300 } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), flex: 1, overflowY: "auto", minHeight: 0, padding: "1rem" } }, selectedDay ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.88rem", color: th.text } }, (/* @__PURE__ */ new Date(selectedDay + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedDay(null), style: { background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.85rem" } }, "\u2715")), selectedEvents.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Nothing scheduled.") : selectedEvents.map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: "0.6rem 0.7rem", marginBottom: "0.5rem", borderLeft: `3px solid ${eventColor(e)}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: eventColor(e), marginBottom: 3 } }, eventIcon(e), " ", e.type === "ticket" ? "Ticket" : e.type === "ticket_due" ? "Due Date" : e.type === "schedule" ? "Equipment Check" : e.type === "project" ? "Project Start" : e.type === "project_end" ? "Project End" : "Task"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.83rem", color: th.text } }, e.title), e.store && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: 2 } }, e.store), e.category && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: 2 } }, e.category, " \xB7 ", e.freq)))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.88rem", color: th.text, marginBottom: "0.65rem" } }, "Upcoming"), upcomingEntries.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Nothing coming up.") : upcomingEntries.flatMap(([d, evts]) => evts.map((e, i) => /* @__PURE__ */ React.createElement("div", { key: `${d}${i}`, onClick: () => setSelectedDay(d), style: { display: "flex", gap: "0.55rem", alignItems: "flex-start", padding: "0.45rem 0", borderBottom: `1px solid ${th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 32, textAlign: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", fontWeight: 700, color: th.muted, textTransform: "uppercase" } }, (/* @__PURE__ */ new Date(d + "T12:00:00")).toLocaleDateString("en-US", { month: "short" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", color: eventColor(e), lineHeight: 1.1 } }, (/* @__PURE__ */ new Date(d + "T12:00:00")).getDate())), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, eventIcon(e), " ", e.title), e.store && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.store))))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.78rem", color: th.text, marginBottom: "0.5rem" } }, "Legend"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: isMobile ? "0.4rem 0.75rem" : 0 } }, [["#ef4444", "Emergency ticket"], ["#f97316", "High priority"], ["#3b82f6", "Medium ticket"], ["#a855f7", "\u{1F527} Equipment check"], ["#14b8a6", "\u{1F3D7}\uFE0F Project"], [O2, "\u{1F4DD} Task/Todo"]].map(([c, l]) => /* @__PURE__ */ React.createElement("div", { key: l, style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: isMobile ? 0 : "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 10, height: 10, borderRadius: "50%", background: c, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, l))))), canAddMaint && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddMaint(true), style: { background: O2, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 1rem", cursor: "pointer", fontFamily: "'Source Sans 3'", fontWeight: 700, fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "0.4rem", width: "100%", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, "+"), " Maintenance Schedule"))), showAddMaint && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1e3, display: "flex", alignItems: "center", justifyContent: "center" }, onClick: () => setShowAddMaint(false) }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: 16, padding: "1.5rem", width: 420, maxWidth: "95vw", boxShadow: "0 8px 32px rgba(0,0,0,0.35)" }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "1rem" } }, "+ Maintenance Schedule"), [{ key: "title", label: "Task Title *", type: "text" }, { key: "notes", label: "Notes", type: "text" }].map((f) => /* @__PURE__ */ React.createElement("div", { key: f.key, style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, f.label), /* @__PURE__ */ React.createElement("input", { value: maintForm[f.key], placeholder: f.label, onChange: (e) => setMaintForm((p) => ({ ...p, [f.key]: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Store"), /* @__PURE__ */ React.createElement("select", { value: maintForm.storePC, onChange: (e) => setMaintForm((p) => ({ ...p, storePC: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All Stores"), stores.filter((s) => s.status !== "Closed").sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Category"), /* @__PURE__ */ React.createElement("select", { value: maintForm.category, onChange: (e) => setMaintForm((p) => ({ ...p, category: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }, ["HVAC", "Plumbing", "Electrical", "Equipment", "Cleaning", "Safety", "Other"].map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Frequency"), /* @__PURE__ */ React.createElement("select", { value: maintForm.freq, onChange: (e) => setMaintForm((p) => ({ ...p, freq: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }, [["once", "One-time"], ["weekly", "Weekly"], ["biweekly", "Bi-weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["annual", "Annual"]].map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Start Date"), /* @__PURE__ */ React.createElement("input", { type: "date", value: maintForm.startDate, onChange: (e) => setMaintForm((p) => ({ ...p, startDate: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddMaint(false), style: { flex: 1, ...btn(th, { background: th.card3, color: th.text }) } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: handleAddMaint, disabled: maintSaving || !maintForm.title.trim(), style: { flex: 1, ...btn(th, { opacity: !maintForm.title.trim() || maintSaving ? 0.5 : 1 }) } }, maintSaving ? "Saving\u2026" : "Save Schedule")))));
+    }))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: "0.75rem", minWidth: isMobile ? 0 : 220, maxWidth: isMobile ? "none" : 300 } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), flex: 1, overflowY: "auto", minHeight: 0, padding: "1rem" } }, selectedDay ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.88rem", color: th.text } }, (/* @__PURE__ */ new Date(selectedDay + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedDay(null), style: { background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.85rem" } }, "\u2715")), selectedEvents.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Nothing scheduled.") : selectedEvents.map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: "0.6rem 0.7rem", marginBottom: "0.5rem", borderLeft: `3px solid ${eventColor(e)}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: eventColor(e), marginBottom: 3 } }, eventIcon(e), " ", e.type === "ticket" ? "Ticket" : e.type === "ticket_due" ? "Due Date" : e.type === "schedule" ? "Equipment Check" : e.type === "project" ? "Project Start" : e.type === "project_end" ? "Project End" : e.type === "project_dunkin" ? "Dunkin' Completion" : "Task"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.83rem", color: th.text } }, e.title), e.store && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: 2 } }, e.store), e.category && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: 2 } }, e.category, " \xB7 ", e.freq)))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.88rem", color: th.text, marginBottom: "0.65rem" } }, "Upcoming"), upcomingEntries.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Nothing coming up.") : upcomingEntries.flatMap(([d, evts]) => evts.map((e, i) => /* @__PURE__ */ React.createElement("div", { key: `${d}${i}`, onClick: () => setSelectedDay(d), style: { display: "flex", gap: "0.55rem", alignItems: "flex-start", padding: "0.45rem 0", borderBottom: `1px solid ${th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 32, textAlign: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", fontWeight: 700, color: th.muted, textTransform: "uppercase" } }, (/* @__PURE__ */ new Date(d + "T12:00:00")).toLocaleDateString("en-US", { month: "short" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", color: eventColor(e), lineHeight: 1.1 } }, (/* @__PURE__ */ new Date(d + "T12:00:00")).getDate())), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, eventIcon(e), " ", e.title), e.store && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.store))))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.78rem", color: th.text, marginBottom: "0.5rem" } }, "Legend"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: isMobile ? "0.4rem 0.75rem" : 0 } }, [["#ef4444", "Emergency ticket"], ["#f97316", "High priority"], ["#3b82f6", "Medium ticket"], ["#a855f7", "\u{1F527} Equipment check"], ["#14b8a6", "\u{1F3D7}\uFE0F Project"], [O2, "\u{1F4DD} Task/Todo"]].map(([c, l]) => /* @__PURE__ */ React.createElement("div", { key: l, style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: isMobile ? 0 : "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 10, height: 10, borderRadius: "50%", background: c, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, l))))), canAddMaint && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddMaint(true), style: { background: O2, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 1rem", cursor: "pointer", fontFamily: "'Source Sans 3'", fontWeight: 700, fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "0.4rem", width: "100%", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, "+"), " Maintenance Schedule"))), showAddMaint && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1e3, display: "flex", alignItems: "center", justifyContent: "center" }, onClick: () => setShowAddMaint(false) }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: 16, padding: "1.5rem", width: 420, maxWidth: "95vw", boxShadow: "0 8px 32px rgba(0,0,0,0.35)" }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "1rem" } }, "+ Maintenance Schedule"), [{ key: "title", label: "Task Title *", type: "text" }, { key: "notes", label: "Notes", type: "text" }].map((f) => /* @__PURE__ */ React.createElement("div", { key: f.key, style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, f.label), /* @__PURE__ */ React.createElement("input", { value: maintForm[f.key], placeholder: f.label, onChange: (e) => setMaintForm((p) => ({ ...p, [f.key]: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Store"), /* @__PURE__ */ React.createElement("select", { value: maintForm.storePC, onChange: (e) => setMaintForm((p) => ({ ...p, storePC: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All Stores"), stores.filter((s) => s.status !== "Closed").sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Category"), /* @__PURE__ */ React.createElement("select", { value: maintForm.category, onChange: (e) => setMaintForm((p) => ({ ...p, category: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }, ["HVAC", "Plumbing", "Electrical", "Equipment", "Cleaning", "Safety", "Other"].map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Frequency"), /* @__PURE__ */ React.createElement("select", { value: maintForm.freq, onChange: (e) => setMaintForm((p) => ({ ...p, freq: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }, [["once", "One-time"], ["weekly", "Weekly"], ["biweekly", "Bi-weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["annual", "Annual"]].map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.3rem" } }, "Start Date"), /* @__PURE__ */ React.createElement("input", { type: "date", value: maintForm.startDate, onChange: (e) => setMaintForm((p) => ({ ...p, startDate: e.target.value })), style: { ...inp(th), width: "100%", boxSizing: "border-box" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddMaint(false), style: { flex: 1, ...btn(th, { background: th.card3, color: th.text }) } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: handleAddMaint, disabled: maintSaving || !maintForm.title.trim(), style: { flex: 1, ...btn(th, { opacity: !maintForm.title.trim() || maintSaving ? 0.5 : 1 }) } }, maintSaving ? "Saving\u2026" : "Save Schedule")))));
   }
   function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
     const O2 = "#FF671F";
@@ -24550,14 +24554,31 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return { ops: true, fin: true, team: false, system: false, workspace: false };
       }
     });
-    const [pinnedTabIds, setPinnedTabIds] = useState(() => {
+    const [pinnedTabIds, setPinnedTabIds] = useState(null);
+    useEffect(() => {
+      if (!user?.id) {
+        setPinnedTabIds(null);
+        return;
+      }
+      const key = "pcg_sidebar_pinned_" + user.id;
       try {
-        const saved = localStorage.getItem("pcg_sidebar_pinned");
-        if (saved) return JSON.parse(saved);
+        const saved = localStorage.getItem(key);
+        if (saved != null) {
+          setPinnedTabIds(JSON.parse(saved));
+          return;
+        }
+        const legacy = localStorage.getItem("pcg_sidebar_pinned");
+        if (legacy != null) {
+          const parsed = JSON.parse(legacy);
+          localStorage.setItem(key, legacy);
+          localStorage.removeItem("pcg_sidebar_pinned");
+          setPinnedTabIds(parsed);
+          return;
+        }
       } catch {
       }
-      return null;
-    });
+      setPinnedTabIds(null);
+    }, [user?.id]);
     const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState(() => {
       try {
         const s = localStorage.getItem("pcg_sidebar_sections");
@@ -24743,9 +24764,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setPinnedTabIds((prev) => {
         const base = prev ?? (PINNED_DEFAULTS[user?.userType] || []);
         const next = base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
-        try {
-          localStorage.setItem("pcg_sidebar_pinned", JSON.stringify(next));
-        } catch {
+        if (user?.id) {
+          try {
+            localStorage.setItem("pcg_sidebar_pinned_" + user.id, JSON.stringify(next));
+          } catch {
+          }
         }
         return next;
       });
@@ -26212,11 +26235,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const isOpen = sidebarGroupsOpen[groupKey];
       const hasActiveChild = grpTabs.some((t) => t.id === tab);
       const showChildren = isOpen || hasActiveChild;
-      const hasBadge = grpTabs.some((t) => {
-        if (t.cash && cashMissingCount > 0) return true;
-        if (t.id === "reports" && reportsUnreadCount > 0) return true;
-        return false;
-      });
+      const hasBadge = grpTabs.some((t) => navBadge(t) != null);
       const toggle = () => {
         const next = { ...sidebarGroupsOpen, [groupKey]: !isOpen };
         setSidebarGroupsOpen(next);
@@ -26318,8 +26337,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         const cashColor = cashHasMissing ? "#ef4444" : "#00d084";
         const C = isCash ? cashColor : isGreen ? "#00d084" : color;
         const glow = isGreen || isCash;
-        const isReports = t.id === "reports";
-        const badge = isCash && cashHasMissing ? cashMissingCount : isReports && reportsUnreadCount > 0 ? reportsUnreadCount : null;
+        const badge = navBadge(t);
         return /* @__PURE__ */ React.createElement(
           NavButton,
           {
@@ -26572,7 +26590,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ))), /* @__PURE__ */ React.createElement("div", { ref: navRef2, onScroll: onNavScroll, style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, (() => {
       const pinnedTabs = pinnedNavIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);
       if (pinnedTabs.length === 0) return null;
-      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Pinned", accent: O, collapsed }), pinnedTabs.map((t) => {
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Quick Access", accent: O, collapsed }), pinnedTabs.map((t) => {
         const C = t.cash ? cashMissingCount > 0 ? "#ef4444" : "#00d084" : t.green ? "#00d084" : O;
         return /* @__PURE__ */ React.createElement(
           NavButton,
@@ -26594,37 +26612,38 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           }
         );
       }));
-    })(), BASE_TABS.filter((t) => ESSENTIAL_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id)).map((t) => /* @__PURE__ */ React.createElement(
-      NavButton,
-      {
-        key: t.id,
-        tabDef: t,
-        accent: O,
-        isActive: tab === t.id,
-        collapsed,
-        badge: navBadge(t),
-        onTogglePin: togglePinNav,
-        onClick: () => {
-          setTab(t.id);
-          onNav && onNav();
-        }
-      }
-    )), (() => {
-      const wsTabs = BASE_TABS.filter((t) => WORKSPACE_BASE_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+    })(), (() => {
+      const baseIds = /* @__PURE__ */ new Set([...ESSENTIAL_BASE_IDS, ...WORKSPACE_BASE_IDS]);
+      const wsTabs = BASE_TABS.filter((t) => baseIds.has(t.id) && !pinnedNavIds.includes(t.id));
       if (wsTabs.length === 0) return null;
-      const wsIcon = (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7" })) });
-      return /* @__PURE__ */ React.createElement(
-        AdminGroup,
+      const hasActiveChild = wsTabs.some((t) => t.id === tab);
+      const sectionOpen = collapsed || hasActiveChild || !!sidebarSectionsOpen["sec_workspace"];
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
         {
-          groupKey: "workspace",
-          icon: wsIcon,
           label: "Workspace",
-          color: "#94a3b8",
-          tabs: wsTabs,
+          accent: O,
           collapsed,
-          onNav
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_workspace")
         }
-      );
+      ), sectionOpen && wsTabs.map((t) => /* @__PURE__ */ React.createElement(
+        NavButton,
+        {
+          key: t.id,
+          tabDef: t,
+          accent: O,
+          isActive: tab === t.id,
+          collapsed,
+          badge: navBadge(t),
+          pinned: pinnedNavIds.includes(t.id),
+          onTogglePin: togglePinNav,
+          onClick: () => {
+            setTab(t.id);
+            onNav && onNav();
+          }
+        }
+      )));
     })(), user?.userType === "dm" && (() => {
       const dmTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
       const DM_GROUPS = [
