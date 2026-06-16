@@ -11,6 +11,7 @@ const { cacheLoad, cacheSave, cacheList } = require('./analyst-cache');
 const { sendEmail, wrapEmail, loadReportSettings } = require('./analyst-reports');
 const { haversineMiles, beforeAfter, pickControls } = require('./impact-math');
 const { callClaudeWithWebSearch } = require('./analyst-claude');
+const { saveReport } = require('./analyst-reports-gen');
 
 const PROMOS_KEY = 'competitor/promos_v1';
 // Known competitor brands we can meaningfully research promotions for (national/regional
@@ -34,6 +35,7 @@ const promoKey = (p) => `${p.brand}|${p.offer}`.toLowerCase().replace(/\s+/g, ' 
 
 const EVENTS_KEY = 'competitor/events_v1';
 const SNAP_KEY = (pc) => `competitor/snap_${pc}`;
+const MARKET_SHARE_KEY = 'competitor/market_share_v1';
 
 // Competitor types relevant to a Dunkin' (coffee + bakery/donut). Google Places v1 types.
 const COMPETITOR_TYPES = ['coffee_shop', 'cafe', 'bakery'];
@@ -50,6 +52,7 @@ function defaultSettings() {
     minWeeksAfter: 3,                            // need this many post-event weeks before first analyzing
     weeksAfterCap: 8,                            // keep refreshing impact until this many post-event weeks, then finalize
     promosEnabled: true,
+    marketShareEnabled: true,                    // estimate local market share from Places review data (10.5 bullet 3)
     emailOnlyWhenNew: false,                     // weekly cadence → send the digest every run; set true to suppress quiet weeks
   };
 }
@@ -279,6 +282,70 @@ Only include deals you found actual evidence for.`;
   return marked;
 }
 
+// ── Market share estimation (data proxy) ────────────────────────────────────
+// Roadmap 10.5 bullet 3. No survey data exists, so we proxy local demand with
+// public Google review signal: a place's "pull" ≈ review volume scaled by its
+// star rating (rating/5). Our estimated share within a store's trade area =
+// our brand's pull ÷ (our pull + every nearby coffee/café/bakery competitor's
+// pull). Directional, not exact — review counts under-represent drive-thru and
+// app-order volume, so treat as a relative-pressure signal, not a true %.
+const placeProxy = (p) => {
+  const rc = Number(p.ratingCount) || 0;
+  const r = Number(p.rating) || 0;
+  return r > 0 ? rc * (r / 5) : rc; // fall back to raw review count when unrated
+};
+
+// One Places call per store (same endpoint detection uses) — but here we KEEP the
+// own-brand entries, since our own Dunkin's review pull is the numerator.
+async function estimateMarketShare(today, settings) {
+  const stores = [];
+  let eligible = 0; // stores with coords we attempted to fetch
+  for (const store of STORES) {
+    const coords = STORE_COORDS[store.pc];
+    if (!coords) continue;
+    eligible++;
+    let data;
+    try { data = await placesNearby({ lat: coords.lat, lng: coords.lng, radiusMeters: settings.radiusMeters }); }
+    catch (e) { console.warn(`[competitor] market-share places failed ${store.pc}:`, e.message); continue; }
+    const places = (Array.isArray(data.places) ? data.places : [])
+      .map((p) => ({
+        name: p.displayName?.text || '',
+        rating: p.rating || 0,
+        ratingCount: p.userRatingCount || 0,
+        status: p.businessStatus || 'OPERATIONAL',
+      }))
+      .filter((p) => p.name && p.status === 'OPERATIONAL');
+
+    const own = places.filter((p) => OWN_BRAND.test(p.name));
+    const comp = places.filter((p) => !OWN_BRAND.test(p.name));
+    const ourProxy = own.reduce((s, p) => s + placeProxy(p), 0);
+    const competitorProxy = comp.reduce((s, p) => s + placeProxy(p), 0);
+    const denom = ourProxy + competitorProxy;
+    // Need our own store visible in Places to estimate a share; otherwise report density only.
+    const sharePct = (own.length && denom > 0) ? Math.round((ourProxy / denom) * 1000) / 10 : null;
+    const top = comp.slice().sort((a, b) => placeProxy(b) - placeProxy(a))[0] || null;
+    stores.push({
+      pc: store.pc, storeName: store.name, district: store.district,
+      sharePct, competitorCount: comp.length,
+      topCompetitor: top ? { name: top.name, rating: top.rating, ratingCount: top.ratingCount } : null,
+    });
+  }
+  const withShare = stores.filter((s) => s.sharePct != null);
+  const avgShare = withShare.length
+    ? Math.round((withShare.reduce((s, x) => s + x.sharePct, 0) / withShare.length) * 10) / 10 : null;
+  const totalCompetitors = stores.reduce((s, x) => s + x.competitorCount, 0);
+  // Guard against reporting a "network" average from a thin sample (e.g. an API key /
+  // quota failure dropping most stores). Flag low coverage so consumers can caveat it.
+  const lowSample = withShare.length < Math.max(3, Math.ceil(eligible * 0.5));
+  const result = {
+    asOf: today, avgShare, totalCompetitors,
+    storesAnalyzed: stores.length, storesWithShare: withShare.length, storesEligible: eligible, lowSample,
+    radiusMi: Math.round((settings.radiusMeters / 1609) * 10) / 10, stores,
+  };
+  await cacheSave(MARKET_SHARE_KEY, result);
+  return result;
+}
+
 // ── Email composition ────────────────────────────────────────────────────────
 const fmt$ = (n) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-US');
 const labelType = (t) => (t || 'business').replace(/_/g, ' ');
@@ -323,7 +390,126 @@ function promoSection(promos) {
   return `<h3 style="margin:18px 0 8px;">🎯 Competitor promotions (${promos.length})</h3><ul style="padding-left:18px;margin:0 0 6px;">${rows}</ul><div style="color:#888;font-size:12px;">AI-gathered via web search — verify before acting.</div>`;
 }
 
-function buildEmailHtml(newEvents, analyzed, promos) {
+// Shared selection logic for the two market-share renderers (HTML email + plain-text
+// report). Returns the picked stores + flags, or null when there's nothing to say —
+// so the single-store case, runner-up filter, and low-sample flag live in ONE place.
+function marketShareFacts(ms) {
+  if (!ms || !Array.isArray(ms.stores)) return null;
+  const withShare = ms.stores.filter((s) => s.sharePct != null);
+  if (!withShare.length) return null;
+  const asc = withShare.slice().sort((a, b) => a.sharePct - b.sharePct);
+  return {
+    avg: ms.avgShare, radiusMi: ms.radiusMi, storesAnalyzed: ms.storesAnalyzed,
+    totalCompetitors: ms.totalCompetitors, lowSample: !!ms.lowSample,
+    worst: asc[0], best: asc[asc.length - 1],
+    single: asc.length === 1, // only one store has a share → no worst-vs-best contrast
+    runnersUp: asc.slice(1, 3).filter((s) => ms.avgShare == null || s.sharePct < ms.avgShare),
+  };
+}
+const topCompText = (s) => s.topCompetitor
+  ? `${s.topCompetitor.name} (${s.topCompetitor.ratingCount} reviews)` : 'a nearby independent';
+
+// Narrative summary of the market-share estimate. Built deterministically from the
+// computed figures (no LLM call) so every number in the prose is real — an exec email
+// can't risk hallucinated shares. Reads like a short Orion note.
+function marketShareSection(ms) {
+  const f = marketShareFacts(ms);
+  if (!f) return '';
+  const compStr = (s) => s.topCompetitor ? `${esc(s.topCompetitor.name)} (${esc(s.topCompetitor.ratingCount)} reviews)` : 'a nearby independent';
+
+  const paras = [];
+  paras.push(`Across ${esc(f.storesAnalyzed)} stores, estimated local share averages <strong>~${esc(f.avg)}%</strong> within a ~${esc(f.radiusMi)} mi trade area, against ${esc(f.totalCompetitors)} nearby coffee, café and bakery competitors.`);
+
+  let pressure = `<strong>${esc(f.worst.storeName)}</strong> (District ${esc(f.worst.district)}) is under the most pressure at <strong>~${esc(f.worst.sharePct)}%</strong> share — ${esc(f.worst.competitorCount)} competitors within range, led by ${compStr(f.worst)}.`;
+  if (!f.single && f.runnersUp.length) {
+    pressure += ` ${f.runnersUp.map((s) => `${esc(s.storeName)} (~${esc(s.sharePct)}%)`).join(' and ')} ${f.runnersUp.length > 1 ? 'are' : 'is'} also below the network average.`;
+  }
+  paras.push(pressure);
+
+  // Only contrast a best-positioned store when it's a DIFFERENT store from the worst.
+  if (!f.single) {
+    paras.push(`By contrast, <strong>${esc(f.best.storeName)}</strong> looks best-positioned at <strong>~${esc(f.best.sharePct)}%</strong> with only ${esc(f.best.competitorCount)} competitor${f.best.competitorCount === 1 ? '' : 's'} nearby.`);
+  }
+
+  const body = paras.map((p) => `<p style="margin:0 0 8px;line-height:1.55;">${p}</p>`).join('');
+  const sampleNote = f.lowSample ? ` Based on partial data (${esc(ms.storesWithShare)} of ${esc(ms.storesEligible)} stores) — interpret with caution.` : '';
+  return `<h3 style="margin:18px 0 8px;">📈 Estimated local market share</h3>
+    ${body}
+    <div style="color:#888;font-size:12px;margin-top:4px;">Estimate from public Google review data (review volume × star rating) — directional, not exact; it under-counts drive-thru and app orders.${sampleNote}</div>`;
+}
+
+// Plain-text market-share summary for the portal report's "Orion's Take" / callout
+// (the reports UI renders narrative text as plain text, not HTML — so no markup here).
+function marketShareNarrativeText(ms) {
+  const f = marketShareFacts(ms);
+  if (!f) return '';
+  const parts = [
+    `Estimated local share averages ~${f.avg}% across ${f.storesAnalyzed} stores within a ~${f.radiusMi} mi trade area, against ${f.totalCompetitors} nearby coffee, café and bakery competitors.`,
+    `${f.worst.storeName} (District ${f.worst.district}) is under the most pressure at ~${f.worst.sharePct}% — ${f.worst.competitorCount} competitors nearby, led by ${topCompText(f.worst)}.`,
+  ];
+  if (!f.single) {
+    parts.push(`${f.best.storeName} is best-positioned at ~${f.best.sharePct}% with only ${f.best.competitorCount} competitor${f.best.competitorCount === 1 ? '' : 's'} nearby.`);
+  }
+  if (f.lowSample) parts.push(`(Partial data: ${ms.storesWithShare} of ${ms.storesEligible} stores — interpret with caution.)`);
+  return parts.join(' ');
+}
+
+// Build a structured Orion report artifact (for the portal Reports tab) from the same
+// weekly data the email uses. The reports renderer escapes all values (React), so these
+// are plain objects — no HTML. Returns null when there's nothing worth a report.
+function buildReportArtifact(newEvents, analyzed, promos, marketShare, today) {
+  const hasShare = !!(marketShare && Array.isArray(marketShare.stores) && marketShare.stores.length);
+  if (!newEvents.length && !analyzed.length && !promos.length && !hasShare) return null;
+
+  const components = [];
+  components.push({ type: 'kpi-grid', data: { items: [
+    { label: 'New events', value: String(newEvents.length) },
+    { label: 'Impact updates', value: String(analyzed.length) },
+    { label: 'Promotions', value: String(promos.length) },
+    { label: 'Network share', value: marketShare?.avgShare != null ? `~${marketShare.avgShare}%` : '—' },
+  ] } });
+
+  if (newEvents.length) components.push({ type: 'table', data: {
+    title: 'New competitor activity',
+    columns: [{ key: 'competitor', label: 'Competitor' }, { key: 'event', label: 'Event' }, { key: 'dist', label: 'Distance' }, { key: 'store', label: 'Store' }, { key: 'district', label: 'District' }],
+    rows: newEvents.map((ev) => ({
+      competitor: ev.competitor, event: ev.eventType === 'open' ? 'Opened' : 'Closed',
+      dist: ev.distanceMi != null ? `${ev.distanceMi} mi` : '—', store: ev.storeName, district: `D${ev.district}`,
+    })),
+  } });
+
+  if (analyzed.length) components.push({ type: 'table', data: {
+    title: 'Impact analysis (control-adjusted)',
+    columns: [{ key: 'store', label: 'Store' }, { key: 'competitor', label: 'Event' }, { key: 'adj', label: 'Adj Δ%' }, { key: 'annual', label: 'Annualized' }, { key: 'weeks', label: 'Wks after' }],
+    rows: analyzed.map((ev) => ({
+      store: ev.storeName, competitor: ev.competitor, adj: `${ev.impact.adjustedDeltaPct}%`,
+      annual: fmt$(ev.impact.adjustedAnnual), weeks: ev.impact.weeksAfterUsed,
+    })),
+  } });
+
+  if (promos.length) components.push({ type: 'table', data: {
+    title: 'Competitor promotions',
+    columns: [{ key: 'brand', label: 'Brand' }, { key: 'offer', label: 'Offer' }, { key: 'ends', label: 'Ends' }],
+    rows: promos.map((p) => ({ brand: `${p.brand}${p.isNew ? ' ● NEW' : ''}`, offer: p.offer, ends: p.ends || '—' })),
+  } });
+
+  const msText = marketShareNarrativeText(marketShare);
+  if (msText) components.push({ type: 'narrative', data: { style: 'callout', text: `Estimated local market share — ${msText}` } });
+
+  const headline = `Orion's weekly competitive scan: ${newEvents.length} new competitor event(s), ${analyzed.length} impact update(s), and ${promos.length} active promotion(s) across the network${marketShare?.avgShare != null ? `. Estimated network market share ~${marketShare.avgShare}%.` : '.'} Auto-detected — verify before acting.`;
+
+  return {
+    type: 'brief',
+    title: `Competitive Intelligence — ${today}`,
+    scope: 'network',
+    createdBy: 'orion',
+    trigger: 'scheduled',
+    narrative: headline,
+    components,
+  };
+}
+
+function buildEmailHtml(newEvents, analyzed, promos, marketShare) {
   const parts = [];
   if (newEvents.length) {
     parts.push(`<h3 style="margin:0 0 8px;">🆕 New competitor activity (${newEvents.length})</h3><ul style="padding-left:18px;margin:0 0 18px;">${newEvents.map(eventRow).join('')}</ul>`);
@@ -332,6 +518,7 @@ function buildEmailHtml(newEvents, analyzed, promos) {
     parts.push(`<h3 style="margin:0 0 8px;">📊 Impact analysis — new / updated (${analyzed.length})</h3><ul style="padding-left:18px;margin:0 0 18px;">${analyzed.map(eventRow).join('')}</ul>`);
   }
   parts.push(promoSection(promos));
+  parts.push(marketShareSection(marketShare));
   return parts.join('');
 }
 
@@ -384,9 +571,21 @@ async function runCompetitorIntel({ today, doDetection }) {
     }
   }
 
+  // Market share estimation (Places review-data proxy) — refreshed on the weekly detection run.
+  let marketShare = null;
+  if (doDetection && settings.marketShareEnabled !== false) {
+    try { marketShare = await estimateMarketShare(today, settings); }
+    catch (e) { console.warn('[competitor] market-share failed:', e.message); }
+  }
+
   // emailOnlyWhenNew:true suppresses quiet runs (email only on a new opening/closing,
   // a new/updated impact analysis, or a newly-detected promo). Default false → send the
   // full weekly digest every run.
+  // NOTE: market share is a near-static review-data proxy that barely moves week to week,
+  // so it must NOT independently trigger an email — it rides along on emails the real
+  // signals (events / impact / promos) already justify. Otherwise execs get a content-free
+  // email every week and tune the digest out. The portal report below still captures the
+  // share figure on quiet weeks.
   const newPromos = promos.filter((p) => p.isNew).length;
   const hasNews = newEvents.length || analyzed.length || newPromos;
   const shouldEmail = settings.emailOnlyWhenNew === false ? (newEvents.length || analyzed.length || promos.length) : hasNews;
@@ -395,18 +594,30 @@ async function runCompetitorIntel({ today, doDetection }) {
   if (shouldEmail) {
     const { to, cc } = await resolveRecipients([...newEvents, ...analyzed], settings);
     if (to.length) {
+      const shareNote = marketShare?.avgShare != null ? ` · ~${marketShare.avgShare}% avg share` : '';
       const subject = `🏪 Competitor Intel — ${newEvents.length} new, ${analyzed.length} analyzed, ${promos.length} promos (${today})`;
       const html = wrapEmail(
         'Competitive Intelligence',
-        `${newEvents.length} new event(s) · ${analyzed.length} impact update(s) · ${promos.length} promo(s)${newPromos ? ` (${newPromos} new)` : ''}`,
-        buildEmailHtml(newEvents, analyzed, promos),
+        `${newEvents.length} new event(s) · ${analyzed.length} impact update(s) · ${promos.length} promo(s)${newPromos ? ` (${newPromos} new)` : ''}${shareNote}`,
+        buildEmailHtml(newEvents, analyzed, promos, marketShare),
         settings.testMode ? 'TEST MODE — routed to test inbox. Auto-detected events & promos are candidates; verify before acting.' : 'Auto-detected events & promos are candidates; verify before acting.',
       );
       await sendEmail({ to, cc, subject, html });
       emailed = true;
     }
   }
-  return { newEvents: newEvents.length, analyzed: analyzed.length, promos: promos.length, emailed, testMode: settings.testMode };
+  // Surface the same digest in the portal Reports tab (Orion 'brief', network scope).
+  // Saved every weekly detection run that has content — independent of email/test mode.
+  let reportId = null;
+  if (doDetection) {
+    const artifact = buildReportArtifact(newEvents, analyzed, promos, marketShare, today);
+    if (artifact) {
+      try { reportId = await saveReport(artifact); }
+      catch (e) { console.warn('[competitor] save report failed:', e.message); }
+    }
+  }
+
+  return { newEvents: newEvents.length, analyzed: analyzed.length, promos: promos.length, marketShare: marketShare ? marketShare.storesAnalyzed : 0, emailed, reportId, testMode: settings.testMode };
 }
 
-module.exports = { runCompetitorIntel, runDetection, analyzeEvents, snapshotStore, diffSnapshots, deriveBrands, fetchPromos, buildEmailHtml };
+module.exports = { runCompetitorIntel, runDetection, analyzeEvents, snapshotStore, diffSnapshots, deriveBrands, fetchPromos, estimateMarketShare, buildEmailHtml, buildReportArtifact };
