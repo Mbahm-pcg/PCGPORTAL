@@ -1,7 +1,7 @@
 // email-send.mjs — HTTP POST endpoint for sending emails from the portal
 import https from 'node:https';
-import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
-import { logAudit } from './analyst-lib/analyst-audit.js';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
+import { logAudit } from './analyst-lib/analyst-audit.mjs';
 
 let nodemailer;
 try { nodemailer = (await import('nodemailer')).default; } catch {}

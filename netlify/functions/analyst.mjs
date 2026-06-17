@@ -1,15 +1,15 @@
 // analyst.mjs — HTTP handler for the UOP Analyst module
 // Actions: ask, brief, brief-refresh, case-list, case-detail, case-update, feedback, report-settings
 
-import { askAnalyst, generateStructured } from './analyst-lib/analyst-claude.js';
-import { buildDataContext, buildKPISnapshot, buildStoreContext, STORES } from './analyst-lib/analyst-data.js';
-import { buildBriefPrompt, buildStoreBriefPrompt, buildAskPrompt, PERSONA, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.js';
-import { saveReport } from './analyst-lib/analyst-reports-gen.js';
-import { getCases, loadCase, updateCaseStatus, loadDecisionLog } from './analyst-lib/analyst-cases.js';
-import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
-import { logFeedback, logAccessEvent, loadAccessEntries } from './analyst-lib/analyst-audit.js';
-import { loadKBContent, buildKBContext } from './analyst-lib/analyst-kb.js';
-import { loadReportSettings, sendExecReport, sendExecDailyReport, sendDMBriefs } from './analyst-lib/analyst-reports.js';
+import { askAnalyst, generateStructured } from './analyst-lib/analyst-claude.mjs';
+import { buildDataContext, buildKPISnapshot, buildStoreContext, STORES } from './analyst-lib/analyst-data.mjs';
+import { buildBriefPrompt, buildStoreBriefPrompt, buildAskPrompt, PERSONA, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
+import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
+import { getCases, loadCase, updateCaseStatus, loadDecisionLog } from './analyst-lib/analyst-cases.mjs';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
+import { logFeedback, logAccessEvent, loadAccessEntries } from './analyst-lib/analyst-audit.mjs';
+import { loadKBContent, buildKBContext } from './analyst-lib/analyst-kb.mjs';
+import { loadReportSettings, sendExecReport, sendExecDailyReport, sendDMBriefs } from './analyst-lib/analyst-reports.mjs';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',

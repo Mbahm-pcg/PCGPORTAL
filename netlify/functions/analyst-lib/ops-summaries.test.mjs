@@ -1,6 +1,6 @@
-const { test, describe } = require('node:test');
-const assert = require('node:assert');
-const { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, renderOpsContext } = require('./ops-summaries');
+import { test, describe } from 'node:test';
+import assert from 'node:assert';
+import { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, renderOpsContext } from './ops-summaries.mjs';
 
 // Small store fixture (mirrors STORES shape)
 const STORES_FIX = [

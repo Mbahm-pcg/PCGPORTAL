@@ -63,4 +63,4 @@ function computeStorePnL(inputs, costOf) {
   };
 }
 
-module.exports = { computeStorePnL, computeCogs, DEFAULT_COGS_PCT, BOM_COVERAGE_THRESHOLD };
+export { computeStorePnL, computeCogs, DEFAULT_COGS_PCT, BOM_COVERAGE_THRESHOLD };

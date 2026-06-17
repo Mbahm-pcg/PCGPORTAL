@@ -1,6 +1,6 @@
-const { test, describe } = require('node:test');
-const assert = require('node:assert');
-const { lookupUnitCost } = require('./cost-lookup');
+import { test, describe } from 'node:test';
+import assert from 'node:assert';
+import { lookupUnitCost } from './cost-lookup.mjs';
 
 describe('lookupUnitCost', () => {
   test('resolves a known exact catalog item to a positive number', () => {

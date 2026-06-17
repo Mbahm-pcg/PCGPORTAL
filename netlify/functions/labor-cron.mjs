@@ -5,8 +5,8 @@
 
 import https from 'node:https';
 import { getStore } from '@netlify/blobs';
-import { lookupUnitCost } from './analyst-lib/cost-lookup.js';
-import { computeStorePnL, DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.js';
+import { lookupUnitCost } from './analyst-lib/cost-lookup.mjs';
+import { computeStorePnL, DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.mjs';
 
 export const config = { schedule: "0 9-23,0-3 * * *" };
 

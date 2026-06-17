@@ -1,4 +1,4 @@
-import { sql } from './_shared/db.js';
+import { sql } from './_shared/db.mjs';
 
 export default async (request) => {
   if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });

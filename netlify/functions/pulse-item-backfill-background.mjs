@@ -14,7 +14,7 @@
 //   body (optional): { "days": 90, "reset": true }   reset=true restarts from scratch.
 
 import https from 'node:https';
-import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import {
   STORES, DISTRICT_COORDS, MAX_HISTORY_DAYS, apiRoute, APIS,
   postJSON, getJSON, wmoToCondition, buildBakeryClassMap, extractBakery, dowFor,

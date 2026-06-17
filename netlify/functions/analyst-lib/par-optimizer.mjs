@@ -127,4 +127,4 @@ function buildSummary(products, impactPct, condition) {
   return `${head} — set ${dPart}, ${mPart}.`;
 }
 
-module.exports = { computeStorePar, dowBaseline, dowHourly, confidenceOf, ROUND_UNIT, DEFAULT_SAFETY };
+export { computeStorePar, dowBaseline, dowHourly, confidenceOf, ROUND_UNIT, DEFAULT_SAFETY };

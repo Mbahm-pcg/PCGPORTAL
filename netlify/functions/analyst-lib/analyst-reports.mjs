@@ -1,12 +1,12 @@
 // analyst-reports.js — Scheduled email reports (DM daily brief, exec weekly report)
-const https = require('https');
+import https from 'node:https';
+import { buildDataContext, buildKPISnapshot, STORES, getStoresByDistrict } from './analyst-data.mjs';
+import { generateStructured } from './analyst-claude.mjs';
+import { PERSONA } from './analyst-prompts.mjs';
+import { cacheSave, cacheLoad } from './analyst-cache.mjs';
+import { logAudit } from './analyst-audit.mjs';
 let nodemailer;
-try { nodemailer = require('nodemailer'); } catch {}
-const { buildDataContext, buildKPISnapshot, STORES, getStoresByDistrict } = require('./analyst-data');
-const { generateStructured } = require('./analyst-claude');
-const { PERSONA } = require('./analyst-prompts');
-const { cacheSave, cacheLoad } = require('./analyst-cache');
-const { logAudit } = require('./analyst-audit');
+try { nodemailer = (await import('nodemailer')).default; } catch {}
 
 // ── Pulse POS direct fetcher (same API as pulse.js / labor-cron.js) ──────────
 const POS_APIS = {
@@ -640,4 +640,4 @@ async function sendExecDailyReport(settings) {
   }
 }
 
-module.exports = { sendDMBriefs, sendExecReport, sendExecDailyReport, loadReportSettings, sendEmail, wrapEmail };
+export { sendDMBriefs, sendExecReport, sendExecDailyReport, loadReportSettings, sendEmail, wrapEmail };

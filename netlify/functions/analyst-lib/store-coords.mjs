@@ -49,4 +49,4 @@ const STORE_COORDS = {
   "364412": { lat: 40.060199, lng: -75.045759 },
 };
 
-module.exports = { STORE_COORDS };
+export { STORE_COORDS };

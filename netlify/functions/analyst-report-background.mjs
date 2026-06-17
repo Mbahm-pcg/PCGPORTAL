@@ -1,7 +1,7 @@
 // Background function for on-demand report sending. Returns 202 immediately;
 // generates and sends the report asynchronously. Supports: exec (weekly), daily, dm.
-import { sendExecReport, sendExecDailyReport, sendDMBriefs, loadReportSettings } from './analyst-lib/analyst-reports.js';
-import { cacheLoad, cacheSave } from './analyst-lib/analyst-cache.js';
+import { sendExecReport, sendExecDailyReport, sendDMBriefs, loadReportSettings } from './analyst-lib/analyst-reports.mjs';
+import { cacheLoad, cacheSave } from './analyst-lib/analyst-cache.mjs';
 
 export const config = { background: true };
 

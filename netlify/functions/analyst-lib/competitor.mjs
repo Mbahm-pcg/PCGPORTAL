@@ -4,14 +4,14 @@
 // and emails Exec + the affected store's DM (or a test inbox while validating).
 //
 // No UI tab — all output is the event log blob (competitor/events_v1) + email.
-const https = require('https');
-const { STORES } = require('./analyst-data');
-const { STORE_COORDS } = require('./store-coords');
-const { cacheLoad, cacheSave, cacheList } = require('./analyst-cache');
-const { sendEmail, wrapEmail, loadReportSettings } = require('./analyst-reports');
-const { haversineMiles, beforeAfter, pickControls } = require('./impact-math');
-const { callClaudeWithWebSearch } = require('./analyst-claude');
-const { saveReport } = require('./analyst-reports-gen');
+import https from 'node:https';
+import { STORES } from './analyst-data.mjs';
+import { STORE_COORDS } from './store-coords.mjs';
+import { cacheLoad, cacheSave, cacheList } from './analyst-cache.mjs';
+import { sendEmail, wrapEmail, loadReportSettings } from './analyst-reports.mjs';
+import { haversineMiles, beforeAfter, pickControls } from './impact-math.mjs';
+import { callClaudeWithWebSearch } from './analyst-claude.mjs';
+import { saveReport } from './analyst-reports-gen.mjs';
 
 const PROMOS_KEY = 'competitor/promos_v1';
 // Known competitor brands we can meaningfully research promotions for (national/regional
@@ -620,4 +620,4 @@ async function runCompetitorIntel({ today, doDetection }) {
   return { newEvents: newEvents.length, analyzed: analyzed.length, promos: promos.length, marketShare: marketShare ? marketShare.storesAnalyzed : 0, emailed, reportId, testMode: settings.testMode };
 }
 
-module.exports = { runCompetitorIntel, runDetection, analyzeEvents, snapshotStore, diffSnapshots, deriveBrands, fetchPromos, estimateMarketShare, buildEmailHtml, buildReportArtifact };
+export { runCompetitorIntel, runDetection, analyzeEvents, snapshotStore, diffSnapshots, deriveBrands, fetchPromos, estimateMarketShare, buildEmailHtml, buildReportArtifact };

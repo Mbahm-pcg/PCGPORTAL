@@ -1,5 +1,5 @@
 // analyst-anomaly.js — Anomaly detection across KPI data
-const { buildKPISnapshot, getStoreDailyHistory, STORES } = require('./analyst-data');
+import { buildKPISnapshot, getStoreDailyHistory, STORES } from './analyst-data.mjs';
 
 // Thresholds
 const LABOR_RED = 26;         // labor % above this = red flag
@@ -133,4 +133,4 @@ async function detectAnomalies({ district } = {}) {
   return anomalies;
 }
 
-module.exports = { detectAnomalies, LABOR_RED, LABOR_YELLOW, SALES_DROP_PCT, OT_THRESHOLD };
+export { detectAnomalies, LABOR_RED, LABOR_YELLOW, SALES_DROP_PCT, OT_THRESHOLD };

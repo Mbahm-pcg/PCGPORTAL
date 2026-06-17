@@ -7,7 +7,7 @@
 // It only reads NDCP mail and performs idempotent upserts, so a stray manual POST
 // is harmless. Window is generous so multi-day revision chains are never missed.
 import { google } from 'googleapis';
-import { sql } from './_shared/db.js';
+import { sql } from './_shared/db.mjs';
 import { ensureTable, upsertMessage } from './ndcp-lib/ndcp-ingest.js';
 
 export const config = { schedule: '0 */6 * * *' };

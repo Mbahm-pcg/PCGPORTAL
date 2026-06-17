@@ -1,7 +1,7 @@
 // analyst-claude.js — LLM wrapper with Haiku/Sonnet routing, token counting, audit
-const Anthropic = require('@anthropic-ai/sdk');
-const { logLLMCall } = require('./analyst-audit');
-const { PERSONA, ASK_SYSTEM } = require('./analyst-prompts');
+import Anthropic from '@anthropic-ai/sdk';
+import { logLLMCall } from './analyst-audit.mjs';
+import { PERSONA, ASK_SYSTEM } from './analyst-prompts.mjs';
 
 const HAIKU = 'claude-haiku-4-5-20251001';
 const SONNET = 'claude-sonnet-4-6';
@@ -157,4 +157,4 @@ async function generateStructured({ system, userPrompt, action, userId }) {
   });
 }
 
-module.exports = { callClaude, callClaudeWithWebSearch, askAnalyst, generateStructured, pickModel, HAIKU, SONNET };
+export { callClaude, callClaudeWithWebSearch, askAnalyst, generateStructured, pickModel, HAIKU, SONNET };

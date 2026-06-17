@@ -4,7 +4,7 @@
 // Builds the historical dataset used later for weather-correlated sales predictions.
 
 import https from 'node:https';
-import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 
 export const config = { schedule: '30 2 * * *' };
 

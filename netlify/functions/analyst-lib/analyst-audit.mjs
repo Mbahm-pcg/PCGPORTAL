@@ -1,6 +1,6 @@
 // analyst-audit.js — Audit logging for every LLM call, feedback, and action
 // Per-entry blob keys (analyst/audit/{date}/{ts}_{rand}) prevent concurrent-write race conditions
-const { cacheSave, cacheLoad, cacheList } = require('./analyst-cache');
+import { cacheSave, cacheLoad, cacheList } from './analyst-cache.mjs';
 
 /** Log an audit entry — one blob per event to avoid concurrent-write collisions */
 async function logAudit(entry) {
@@ -80,4 +80,4 @@ async function loadAccessEntries(date) {
   return entries.filter(Boolean).sort((a, b) => (a.ts > b.ts ? 1 : -1));
 }
 
-module.exports = { logAudit, loadAuditEntries, logLLMCall, logFeedback, logAccessEvent, loadAccessEntries };
+export { logAudit, loadAuditEntries, logLLMCall, logFeedback, logAccessEvent, loadAccessEntries };

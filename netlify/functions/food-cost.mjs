@@ -7,7 +7,7 @@ import { getStore } from '@netlify/blobs';
 import {
   BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS,
   INGREDIENT_COSTS, lookupUnitCost,
-} from './analyst-lib/cost-lookup.js';
+} from './analyst-lib/cost-lookup.mjs';
 
 const BLOB_BEV_KEY = 'pcg_food_cost_beverages_v1';
 

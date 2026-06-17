@@ -1,6 +1,6 @@
 // weather-forecast-cron.mjs — Daily: 7-day forecast per district + weekly correlation rebuild
 import https from 'node:https';
-import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 
 export const config = { schedule: '0 12 * * *' };
 

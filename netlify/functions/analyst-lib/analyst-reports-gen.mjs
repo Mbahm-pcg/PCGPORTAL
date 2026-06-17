@@ -1,5 +1,5 @@
 // analyst-reports-gen.js — Report artifact storage layer
-const { cacheLoad, cacheSave } = require('./analyst-cache');
+import { cacheLoad, cacheSave } from './analyst-cache.mjs';
 
 function generateReportId() {
   const ts = Date.now();
@@ -48,4 +48,4 @@ async function getReadReportIds(userId) {
   return (await cacheLoad(`analyst/reports-read/${userId}`)) || [];
 }
 
-module.exports = { generateReportId, saveReport, loadReport, getReportsIndex, markReportRead, getReadReportIds };
+export { generateReportId, saveReport, loadReport, getReportsIndex, markReportRead, getReadReportIds };

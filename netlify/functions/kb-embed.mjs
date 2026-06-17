@@ -1,4 +1,4 @@
-import { sql } from './_shared/db.js';
+import { sql } from './_shared/db.mjs';
 import { getStore } from '@netlify/blobs';
 
 const CHUNK_SIZE = 500;

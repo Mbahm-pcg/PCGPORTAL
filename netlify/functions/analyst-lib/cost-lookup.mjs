@@ -452,7 +452,7 @@ function lookupUnitCost(itemName) {
     ?? WORD_SORT_LOOKUP[_sortWords(itemName)];
 }
 
-module.exports = {
+export {
   lookupUnitCost,
   BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, PREMIUM_COSTS,
   POS_ALIASES, INGREDIENT_COSTS, NORM_LOOKUP, WORD_SORT_LOOKUP,

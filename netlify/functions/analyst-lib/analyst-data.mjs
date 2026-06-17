@@ -2,11 +2,11 @@
 // This is the ONLY module that reads raw data sources.
 // TODO (Phase 2): Swap blob reads for Postgres/Supabase queries.
 
-const https = require('https');
-const { cacheLoad, cacheSave } = require('./analyst-cache');
-const { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, renderOpsContext } = require('./ops-summaries');
-const { BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, INGREDIENT_COSTS } = require('./cost-lookup');
-const { sql } = require('../_shared/db');
+import https from 'node:https';
+import { cacheLoad, cacheSave } from './analyst-cache.mjs';
+import { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, renderOpsContext } from './ops-summaries.mjs';
+import { BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, INGREDIENT_COSTS } from './cost-lookup.mjs';
+import { sql } from '../_shared/db.mjs';
 
 // ── Pulse POS direct fetcher (same API as pulse-hourly-snapshot.js) ─────────
 const POS_APIS = {
@@ -741,7 +741,7 @@ async function buildOpsContext({ district } = {}) {
   }
 }
 
-module.exports = {
+export {
   STORES,
   getAllStores,
   getStoresByDistrict,

@@ -10,7 +10,7 @@
 // here because that module is ESM and this function is CommonJS.
 import https from 'node:https';
 import { getStore } from '@netlify/blobs';
-import { sql } from './_shared/db.js';
+import { sql } from './_shared/db.mjs';
 import webpush from 'web-push';
 
 export const config = { schedule: '0 12 * * *' };

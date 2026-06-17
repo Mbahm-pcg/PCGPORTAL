@@ -4,7 +4,8 @@
 //   2. Portal KB articles (from blobs, live)
 //   3. Archive: Announcements, Notes, Chat (from blobs)
 
-const { cacheLoad } = require('./analyst-cache');
+import { cacheLoad } from './analyst-cache.mjs';
+import { sql } from '../_shared/db.mjs';
 
 async function loadKBIndex() {
   try { return await cacheLoad('analyst/kb/index'); } catch { return null; }
@@ -167,7 +168,6 @@ function buildKBContext(kbFiles) {
 
 async function searchKB(query) {
   try {
-    const { sql } = require('../_shared/db');
     const db = sql();
     const keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
     if (keywords.length === 0) return null;
@@ -187,4 +187,4 @@ async function searchKB(query) {
   }
 }
 
-module.exports = { loadKBIndex, loadKBContent, buildKBContext, searchKB };
+export { loadKBIndex, loadKBContent, buildKBContext, searchKB };

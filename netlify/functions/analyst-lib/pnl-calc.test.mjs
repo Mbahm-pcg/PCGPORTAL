@@ -1,6 +1,6 @@
-const { test, describe } = require('node:test');
-const assert = require('node:assert');
-const { computeStorePnL, computeCogs, DEFAULT_COGS_PCT, BOM_COVERAGE_THRESHOLD } = require('./pnl-calc');
+import { test, describe } from 'node:test';
+import assert from 'node:assert';
+import { computeStorePnL, computeCogs, DEFAULT_COGS_PCT, BOM_COVERAGE_THRESHOLD } from './pnl-calc.mjs';
 
 // Deterministic cost lookup for tests: latte $1, sandwich $2, everything else unknown.
 const costOf = (name) => ({ Latte: 1, Sandwich: 2 }[name]);

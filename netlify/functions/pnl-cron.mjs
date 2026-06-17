@@ -1,12 +1,12 @@
 // netlify/functions/pnl-cron.mjs
-import { buildKPISnapshot, getAllStores, getStoreLabor, getStoresByDistrict } from './analyst-lib/analyst-data.js';
-import { cacheLoad } from './analyst-lib/analyst-cache.js';
-import { PNL_SYSTEM, buildPnlPrompt } from './analyst-lib/analyst-prompts.js';
-import { generateStructured } from './analyst-lib/analyst-claude.js';
-import { saveReport } from './analyst-lib/analyst-reports-gen.js';
-import { sendEmail, wrapEmail, loadReportSettings } from './analyst-lib/analyst-reports.js';
+import { buildKPISnapshot, getAllStores, getStoreLabor, getStoresByDistrict } from './analyst-lib/analyst-data.mjs';
+import { cacheLoad } from './analyst-lib/analyst-cache.mjs';
+import { PNL_SYSTEM, buildPnlPrompt } from './analyst-lib/analyst-prompts.mjs';
+import { generateStructured } from './analyst-lib/analyst-claude.mjs';
+import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
+import { sendEmail, wrapEmail, loadReportSettings } from './analyst-lib/analyst-reports.mjs';
 import { getStore } from '@netlify/blobs';
-import { DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.js';
+import { DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.mjs';
 
 export const config = { schedule: '0 11 1 * *' };
 

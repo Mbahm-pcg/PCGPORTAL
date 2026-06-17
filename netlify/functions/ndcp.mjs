@@ -6,7 +6,7 @@
 // Actions:
 //   list    → latest version of each distinct order (+ version count + original total)
 //   detail  → every version of one order_number (full line items), oldest → newest
-import { sql } from './_shared/db.js';
+import { sql } from './_shared/db.mjs';
 import { enrich } from './ndcp-lib/store-map.js';
 import { summarize } from './ndcp-lib/summary.js';
 

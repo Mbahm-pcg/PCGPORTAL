@@ -1,9 +1,9 @@
 // reviews-cron.mjs — Weekly: fetch Google Places reviews + Claude Haiku sentiment per store
 import https from 'node:https';
-import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
-import { callClaude, HAIKU } from './analyst-lib/analyst-claude.js';
-import { REVIEW_ANALYSIS_SYSTEM } from './analyst-lib/analyst-prompts.js';
-import { logAudit } from './analyst-lib/analyst-audit.js';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
+import { callClaude, HAIKU } from './analyst-lib/analyst-claude.mjs';
+import { REVIEW_ANALYSIS_SYSTEM } from './analyst-lib/analyst-prompts.mjs';
+import { logAudit } from './analyst-lib/analyst-audit.mjs';
 
 export const config = { schedule: '0 5 * * 0' };
 

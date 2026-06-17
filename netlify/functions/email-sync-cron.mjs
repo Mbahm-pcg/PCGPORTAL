@@ -2,7 +2,7 @@
 // NOTE: intentionally unscheduled (dormant). No export const config = { schedule }.
 // Manual-invoke only via POST /.netlify/functions/email-sync-cron.
 import { google } from 'googleapis';
-import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 
 const CATEGORY_KEYWORDS = {
   vendor: ['invoice', 'delivery', 'order', 'shipment', 'supply', 'dcp', 'sysco'],

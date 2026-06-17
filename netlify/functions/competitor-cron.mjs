@@ -4,7 +4,7 @@
 // ImpactRadar-style sales impact, and researches competitor promotions (web search).
 // Sends a weekly digest email. Dedicated cron so it doesn't re-trigger analyst-cron.
 // No schedule config here — the -background wrapper carries the schedule.
-import { runCompetitorIntel } from './analyst-lib/competitor.js';
+import { runCompetitorIntel } from './analyst-lib/competitor.mjs';
 
 export default async (request, context) => {
   const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };

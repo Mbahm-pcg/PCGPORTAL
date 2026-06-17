@@ -13,7 +13,7 @@
 
 import crypto from 'node:crypto';
 import { google } from 'googleapis';
-import { sql } from './_shared/db.js';
+import { sql } from './_shared/db.mjs';
 import { ensureTable, upsertMessage } from './ndcp-lib/ndcp-ingest.js';
 
 // Constant-time bearer-token check (avoids leaking length/early-exit timing).

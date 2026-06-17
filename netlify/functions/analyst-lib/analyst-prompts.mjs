@@ -177,7 +177,7 @@ Return a JSON array matching the input order. Example:
 
 Return ONLY the JSON array, no markdown fences, no explanation.`;
 
-module.exports = {
+export {
   PERSONA, BRIEF_TEMPLATE, STORE_BRIEF_TEMPLATE, BUSINESS_CASE_TEMPLATE, ASK_SYSTEM, ASK_USER_TEMPLATE,
   REPORT_SYSTEM, PNL_SYSTEM, REVIEW_ANALYSIS_SYSTEM, buildStoreBriefPrompt,
   buildBriefPrompt, buildCasePrompt, buildAskPrompt, buildReportPrompt, buildPnlPrompt,

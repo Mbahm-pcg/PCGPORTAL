@@ -11,7 +11,7 @@
 // This endpoint is ADDITIVE — nothing calls it until the frontend cutover, so it
 // changes no current behavior.
 import { getStore } from '@netlify/blobs';
-import { sql } from './_shared/db.js';
+import { sql } from './_shared/db.mjs';
 import { signToken } from './deal-lib/token.js';
 import { hashPassword, verifyPassword } from './auth-lib/passwords.js';
 import { requireUser } from './auth-lib/require-user.js';

@@ -4,16 +4,16 @@
 // Exec report: Sunday 10 AM ET (14:00 UTC) + Tuesday 10 AM ET (14:00 UTC)
 // Anomaly detection: every run
 
-import { detectAnomalies } from './analyst-lib/analyst-anomaly.js';
-import { createCaseFromAnomaly, getCases } from './analyst-lib/analyst-cases.js';
-import { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentimentContext, buildEmailContext } from './analyst-lib/analyst-data.js';
-import { generateStructured } from './analyst-lib/analyst-claude.js';
-import { PERSONA, buildBriefPrompt, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.js';
-import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
-import { logAudit } from './analyst-lib/analyst-audit.js';
-import { sendDMBriefs, sendExecReport, loadReportSettings } from './analyst-lib/analyst-reports.js';
-import { saveReport } from './analyst-lib/analyst-reports-gen.js';
-import { sql } from './_shared/db.js';
+import { detectAnomalies } from './analyst-lib/analyst-anomaly.mjs';
+import { createCaseFromAnomaly, getCases } from './analyst-lib/analyst-cases.mjs';
+import { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentimentContext, buildEmailContext } from './analyst-lib/analyst-data.mjs';
+import { generateStructured } from './analyst-lib/analyst-claude.mjs';
+import { PERSONA, buildBriefPrompt, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
+import { logAudit } from './analyst-lib/analyst-audit.mjs';
+import { sendDMBriefs, sendExecReport, loadReportSettings } from './analyst-lib/analyst-reports.mjs';
+import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
+import { sql } from './_shared/db.mjs';
 import { dcpPct } from './ndcp-lib/store-map.js';
 
 export const config = { schedule: "0 11,14 * * *" };

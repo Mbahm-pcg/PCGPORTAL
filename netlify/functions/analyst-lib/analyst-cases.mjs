@@ -1,7 +1,7 @@
 // analyst-cases.js — Business Case CRUD (stored in Netlify Blobs)
-const { cacheSave, cacheLoad, cacheList } = require('./analyst-cache');
-const { generateStructured } = require('./analyst-claude');
-const { PERSONA, buildCasePrompt } = require('./analyst-prompts');
+import { cacheSave, cacheLoad, cacheList } from './analyst-cache.mjs';
+import { generateStructured } from './analyst-claude.mjs';
+import { PERSONA, buildCasePrompt } from './analyst-prompts.mjs';
 
 const DECISION_STATUSES = new Set(['Accepted', 'In Progress', 'Done']);
 
@@ -207,4 +207,4 @@ async function getCases({ status, district, severity, limit } = {}) {
   return index;
 }
 
-module.exports = { createCaseFromAnomaly, updateCaseStatus, getCases, loadCase, loadCasesIndex, loadDecisionLog };
+export { createCaseFromAnomaly, updateCaseStatus, getCases, loadCase, loadCasesIndex, loadDecisionLog };

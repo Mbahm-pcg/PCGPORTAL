@@ -9,8 +9,8 @@
 //   - pc omitted  → returns a recommendation for every store
 //   - date omitted → tomorrow (ET)
 
-import { cacheLoad } from './analyst-lib/analyst-cache.js';
-import { computeStorePar } from './analyst-lib/par-optimizer.js';
+import { cacheLoad } from './analyst-lib/analyst-cache.mjs';
+import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
 import { STORES } from './pulse-hourly-snapshot.mjs';
 
 function tomorrowET() {

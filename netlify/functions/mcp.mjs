@@ -23,10 +23,10 @@
 // Set PCG_MCP_SECRET in Netlify env vars. Requests must include:
 //   Authorization: Bearer <PCG_MCP_SECRET>
 
-import { cacheLoad } from './analyst-lib/analyst-cache.js';
-import { buildDataContext, buildKPISnapshot } from './analyst-lib/analyst-data.js';
-import { buildAskPrompt, PERSONA } from './analyst-lib/analyst-prompts.js';
-import { askAnalyst } from './analyst-lib/analyst-claude.js';
+import { cacheLoad } from './analyst-lib/analyst-cache.mjs';
+import { buildDataContext, buildKPISnapshot } from './analyst-lib/analyst-data.mjs';
+import { buildAskPrompt, PERSONA } from './analyst-lib/analyst-prompts.mjs';
+import { askAnalyst } from './analyst-lib/analyst-claude.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: 'PCG Portal', version: '7.7' };

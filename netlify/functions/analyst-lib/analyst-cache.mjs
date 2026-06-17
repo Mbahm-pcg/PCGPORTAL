@@ -1,5 +1,5 @@
 // analyst-cache.js — Blob-backed cache for KPI snapshots and analyst artifacts
-const { getStore } = require('@netlify/blobs');
+import { getStore } from '@netlify/blobs';
 
 const STORE_NAME = 'pcg-portal';
 
@@ -44,4 +44,4 @@ async function cacheDelete(key) {
   } catch {}
 }
 
-module.exports = { cacheSave, cacheLoad, cacheList, cacheDelete, getBlobStore };
+export { cacheSave, cacheLoad, cacheList, cacheDelete, getBlobStore };

@@ -1,4 +1,4 @@
-const { neon } = require("@neondatabase/serverless");
+import { neon } from "@neondatabase/serverless";
 
 let _sql = null;
 const sql = () => {
@@ -6,4 +6,4 @@ const sql = () => {
   return _sql;
 };
 
-module.exports = { sql };
+export { sql };

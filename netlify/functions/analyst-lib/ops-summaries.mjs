@@ -345,4 +345,4 @@ function renderOpsContext({ projects, tickets, cash, foodCost, upsell } = {}) {
   return L.join('\n');
 }
 
-module.exports = { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, LIST_CAPS, renderOpsContext };
+export { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, LIST_CAPS, renderOpsContext };
