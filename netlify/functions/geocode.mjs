@@ -1,8 +1,8 @@
 // PCG Portal — Address → {lat,lng} via the free US Census one-line geocoder.
 // No API key; US-wide. CORS-gated. Manual lat/lng is the client-side fallback.
-// Uses the https module to match the other external-proxy functions (philly-data.js, pulse.js).
+// Modern Netlify Functions (V2) runtime: default export, web Request/Response.
 
-const https = require('https');
+import https from 'node:https';
 
 const CENSUS_HOST = 'geocoding.geo.census.gov';
 const CENSUS_PATH = '/geocoder/locations/onelineaddress';
@@ -23,25 +23,25 @@ function fetchJSON(url) {
   });
 }
 
-exports.handler = async (event) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json',
-  };
+const HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json',
+};
 
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+export default async (request) => {
+  if (request.method === 'OPTIONS') return new Response('', { status: 204, headers: HEADERS });
+  if (request.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405, headers: HEADERS });
   }
 
   let payload;
-  try { payload = JSON.parse(event.body || '{}'); }
-  catch { return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
+  try { payload = await request.json(); }
+  catch { return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: HEADERS }); }
 
   const address = (payload.address || '').trim();
-  if (!address) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing address' }) };
+  if (!address) return new Response(JSON.stringify({ error: 'Missing address' }), { status: 400, headers: HEADERS });
 
   const qs = new URLSearchParams({
     address,
@@ -54,21 +54,17 @@ exports.handler = async (event) => {
     const json = await fetchJSON(url);
     const match = json && json.result && json.result.addressMatches && json.result.addressMatches[0];
     if (!match || !match.coordinates) {
-      return { statusCode: 200, headers, body: JSON.stringify({ matched: false }) };
+      return new Response(JSON.stringify({ matched: false }), { status: 200, headers: HEADERS });
     }
     // Census returns coordinates as { x: longitude, y: latitude }.
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        matched: true,
-        lat: match.coordinates.y,
-        lng: match.coordinates.x,
-        matchedAddress: match.matchedAddress || address,
-      }),
-    };
+    return new Response(JSON.stringify({
+      matched: true,
+      lat: match.coordinates.y,
+      lng: match.coordinates.x,
+      matchedAddress: match.matchedAddress || address,
+    }), { status: 200, headers: HEADERS });
   } catch (err) {
     console.error('geocode error:', err);
-    return { statusCode: 502, headers, body: JSON.stringify({ matched: false, error: err.message }) };
+    return new Response(JSON.stringify({ matched: false, error: err.message }), { status: 502, headers: HEADERS });
   }
 };
