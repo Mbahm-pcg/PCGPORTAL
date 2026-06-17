@@ -13001,10 +13001,227 @@ ${t2.slice(0, 300)}`);
       })));
     })));
   }
+  var TASK_SHIFTS = ["", "1 AM", "5 AM", "9 AM", "1 PM", "5 PM", "9 PM", "AM", "Noon", "PM"];
+  var TASK_LABELS = ["Food Safety", "Facility", "Fresh", "Planning Checklist"];
+  var TASK_INPUTS = ["checklist", "temperature", "weight", "count", "photo"];
+  var TASK_FREQS = ["daily", "weekly", "general"];
+  var TASK_TYPES = ["shift", "general"];
+  var NEW_TASK = { name: "", task_type: "shift", category: "", label: "Food Safety", input_type: "checklist", frequency: "daily", shift_time: "", recur_days: null, target: null, min_val: null, max_val: null, unit: "", allow_signoff: false, is_master: false, active: true };
+  function AdminTaskManager({ th, user, stores, showAlert }) {
+    const [templates, setTemplates] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [q, setQ] = useState("");
+    const [catFilter, setCatFilter] = useState("all");
+    const [activeFilter, setActiveFilter] = useState("all");
+    const [editing, setEditing] = useState(null);
+    const [locFor, setLocFor] = useState(null);
+    const [locPcs, setLocPcs] = useState([]);
+    const [itemsFor, setItemsFor] = useState(null);
+    const [templateItems, setTemplateItems] = useState([]);
+    const [templateEquip, setTemplateEquip] = useState([]);
+    const [busy, setBusy] = useState(false);
+    const api = useCallback(async (action, payload = {}) => {
+      const r = await fetch("/.netlify/functions/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
+      return r.json();
+    }, []);
+    const load = useCallback(async () => {
+      setLoading(true);
+      try {
+        const r = await api("admin_templates");
+        setTemplates(r.templates || []);
+      } finally {
+        setLoading(false);
+      }
+    }, [api]);
+    useEffect(() => {
+      load();
+    }, [load]);
+    const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
+    const filtered = (templates || []).filter((t) => {
+      if (activeFilter === "active" && !t.active) return false;
+      if (activeFilter === "inactive" && t.active) return false;
+      if (catFilter !== "all" && t.category !== catFilter) return false;
+      if (q && !`${t.name} ${t.category || ""} ${t.label || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
+      return true;
+    });
+    async function save(t) {
+      if (!t.name.trim()) {
+        showAlert && showAlert("Task name is required");
+        return;
+      }
+      setBusy(true);
+      try {
+        const r = await api("admin_save_template", { template: t });
+        if (r.ok) {
+          setEditing(null);
+          showAlert && showAlert("Task saved");
+          await load();
+        } else showAlert && showAlert(r.error || "Save failed");
+      } finally {
+        setBusy(false);
+      }
+    }
+    async function toggle(t) {
+      await api("admin_toggle_active", { template_id: t.id, active: !t.active });
+      load();
+    }
+    async function openLocations(t) {
+      setLocFor(t);
+      setLocPcs([]);
+      const r = await api("admin_get_locations", { template_id: t.id });
+      setLocPcs(r.store_pcs || []);
+    }
+    async function saveLocations() {
+      setBusy(true);
+      try {
+        await api("admin_set_locations", { template_id: locFor.id, store_pcs: locPcs });
+        setLocFor(null);
+        await load();
+      } finally {
+        setBusy(false);
+      }
+    }
+    async function openItems(t) {
+      setItemsFor(t);
+      const r = await api("admin_get_items", { template_id: t.id });
+      setTemplateItems(r.items || []);
+      setTemplateEquip(r.equipment || []);
+    }
+    function updateItem(i, key, val) {
+      setTemplateItems((prev) => prev.map((x, j) => j === i ? { ...x, [key]: val } : x));
+    }
+    async function saveItems() {
+      setBusy(true);
+      try {
+        const items = templateItems.map((it, i) => ({ ...it, sort_order: i }));
+        const equipment = templateEquip.map((e, i) => ({ ...e, sort_order: i }));
+        const r = await api("admin_save_items", { template_id: itemsFor.id, items, equipment });
+        if (r.ok) {
+          setItemsFor(null);
+          showAlert && showAlert("Items saved");
+          await load();
+        } else showAlert && showAlert(r.error || "Save failed");
+      } finally {
+        setBusy(false);
+      }
+    }
+    const scoped = (stores || []).filter((s) => s.pc);
+    const byDistrict = {};
+    scoped.forEach((s) => {
+      const d = s.district || "\u2014";
+      (byDistrict[d] = byDistrict[d] || []).push(s);
+    });
+    const field = (label, node) => /* @__PURE__ */ React.createElement("label", { style: { display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.72rem", fontWeight: 700, color: th.muted } }, label, node);
+    const num = (v, set) => /* @__PURE__ */ React.createElement("input", { type: "number", value: v ?? "", onChange: (e) => set(e.target.value === "" ? null : Number(e.target.value)), style: { ...inp(th), fontSize: "0.85rem" } });
+    const sel = (v, set, opts) => /* @__PURE__ */ React.createElement("select", { value: v ?? "", onChange: (e) => set(e.target.value), style: { ...inp(th), fontSize: "0.85rem" } }, opts.map((o) => /* @__PURE__ */ React.createElement("option", { key: o.value ?? o, value: o.value ?? o }, o.label ?? (o === "" ? "\u2014" : o))));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { ...sectionTitle(th), margin: 0 } }, "Book Task \u2014 Task Templates"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setEditing({ ...NEW_TASK }), style: { ...btn(th), fontSize: "0.82rem", padding: "0.5rem 1rem" } }, "+ New Task"), /* @__PURE__ */ React.createElement("button", { onClick: async () => {
+      setLoading(true);
+      await api("seed");
+      await load();
+    }, style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.5rem 1rem" } }, "Re-sync catalog"), /* @__PURE__ */ React.createElement("button", { onClick: async () => {
+      setBusy(true);
+      const r = await api("seed_items");
+      setBusy(false);
+      showAlert && showAlert(`Seeded items: ${r.items || 0} items across ${r.templates || 0} templates`);
+      await load();
+    }, disabled: busy, style: { ...btn(th, { background: "transparent", color: "#a78bfa", border: "1px solid #a78bfa55" }), fontSize: "0.82rem", padding: "0.5rem 1rem" } }, "Seed sub-items"))), editing && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid ${O}66` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, marginBottom: "0.75rem" } }, editing.id ? "Edit Task" : "New Task"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: "0.75rem" } }, field("Name", /* @__PURE__ */ React.createElement("input", { value: editing.name, onChange: (e) => setEditing({ ...editing, name: e.target.value }), style: { ...inp(th), fontSize: "0.85rem" } })), field("Category", /* @__PURE__ */ React.createElement("input", { value: editing.category || "", onChange: (e) => setEditing({ ...editing, category: e.target.value }), list: "task-cats", style: { ...inp(th), fontSize: "0.85rem" } })), field("Label", sel(editing.label, (v) => setEditing({ ...editing, label: v }), TASK_LABELS)), field("Task type", sel(editing.task_type, (v) => setEditing({ ...editing, task_type: v }), TASK_TYPES)), field("Input type", sel(editing.input_type, (v) => setEditing({ ...editing, input_type: v }), TASK_INPUTS)), field("Frequency", sel(editing.frequency, (v) => setEditing({ ...editing, frequency: v }), TASK_FREQS)), field("Shift time", sel(editing.shift_time, (v) => setEditing({ ...editing, shift_time: v }), TASK_SHIFTS)), editing.frequency === "general" && field("Recur every N days", num(editing.recur_days, (v) => setEditing({ ...editing, recur_days: v }))), (editing.input_type === "temperature" || editing.input_type === "weight" || editing.input_type === "count") && /* @__PURE__ */ React.createElement(React.Fragment, null, field("Target", num(editing.target, (v) => setEditing({ ...editing, target: v }))), field("Min", num(editing.min_val, (v) => setEditing({ ...editing, min_val: v }))), field("Max", num(editing.max_val, (v) => setEditing({ ...editing, max_val: v }))), field("Unit", /* @__PURE__ */ React.createElement("input", { value: editing.unit || "", onChange: (e) => setEditing({ ...editing, unit: e.target.value }), placeholder: "\xB0F / oz / ppm", style: { ...inp(th), fontSize: "0.85rem" } })))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.25rem", margin: "0.85rem 0", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!editing.allow_signoff, onChange: (e) => setEditing({ ...editing, allow_signoff: e.target.checked }) }), " Allow Manager & PCQI Sign-Off"), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!editing.is_master, onChange: (e) => setEditing({ ...editing, is_master: e.target.checked }) }), " Master task"), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: editing.active !== false, onChange: (e) => setEditing({ ...editing, active: e.target.checked }) }), " Active")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => save(editing), disabled: busy, style: { ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" } }, busy ? "Saving\u2026" : "Save"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditing(null), style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" } }, "Cancel"))), /* @__PURE__ */ React.createElement("datalist", { id: "task-cats" }, categories.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }))), locFor && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid #38bdf866` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800 } }, "Assign locations \u2014 ", locFor.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400 } }, "(", locPcs.length, " selected)")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setLocPcs(scoped.map((s) => String(s.pc))), style: { ...pill("#38bdf8", { cursor: "pointer", fontSize: "0.72rem" }) } }, "All 45"), /* @__PURE__ */ React.createElement("button", { onClick: () => setLocPcs([]), style: { ...pill(th.muted, { cursor: "pointer", fontSize: "0.72rem" }) } }, "Clear"))), /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 300, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "0.75rem" } }, Object.keys(byDistrict).sort().map((d) => /* @__PURE__ */ React.createElement("div", { key: d, style: { ...card(th), padding: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.muted, marginBottom: "0.35rem" } }, "District ", d), byDistrict[d].map((s) => {
+      const pc = String(s.pc);
+      const on = locPcs.includes(pc);
+      return /* @__PURE__ */ React.createElement("label", { key: pc, style: { display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.8rem", padding: "0.15rem 0", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: on, onChange: () => setLocPcs((prev) => on ? prev.filter((x) => x !== pc) : [...prev, pc]) }), s.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\xB7 ", pc));
+    })))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: saveLocations, disabled: busy, style: { ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" } }, busy ? "Saving\u2026" : "Save assignments"), /* @__PURE__ */ React.createElement("button", { onClick: () => setLocFor(null), style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" } }, "Cancel"))), itemsFor && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid #a78bfa55` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, marginBottom: "0.75rem", color: "#a78bfa" } }, "Sub-items \u2014 ", itemsFor.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.8rem" } }, "(", itemsFor.items_count || 0, " current)")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 700, color: th.muted, marginBottom: "0.3rem" } }, 'Equipment units (optional \u2014 e.g. "Turbochef 1", "Turbochef 2")'), templateEquip.map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: "0.4rem", marginBottom: "0.35rem" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        value: e.unit_name || "",
+        onChange: (ev) => setTemplateEquip((prev) => prev.map((x, j) => j === i ? { ...x, unit_name: ev.target.value } : x)),
+        placeholder: "Unit name",
+        style: { ...inp(th), flex: 1, fontSize: "0.82rem" }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setTemplateEquip((prev) => prev.filter((_, j) => j !== i)),
+        style: { ...btn(th, { background: "transparent", color: "#e03131", border: "1px solid #e0313155" }), fontSize: "0.78rem", padding: "0.3rem 0.6rem" }
+      },
+      "\u2715"
+    ))), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setTemplateEquip((prev) => [...prev, { unit_name: "", sort_order: prev.length }]),
+        style: { fontSize: "0.78rem", color: th.muted, background: "transparent", border: "none", cursor: "pointer", padding: "0.15rem 0", marginBottom: "0.75rem" }
+      },
+      "+ Add equipment unit"
+    ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 700, color: th.muted, marginBottom: "0.3rem" } }, "Items (sub-questions)"), templateItems.map((it, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.5rem 0.7rem", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        value: it.label || "",
+        onChange: (e) => updateItem(i, "label", e.target.value),
+        placeholder: "Item label",
+        style: { ...inp(th), flex: 2, minWidth: 140, fontSize: "0.82rem" }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        value: it.input_type || "bool",
+        onChange: (e) => updateItem(i, "input_type", e.target.value),
+        style: { ...inp(th), width: 120, fontSize: "0.82rem" }
+      },
+      ["bool", "temperature", "weight", "count", "text"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))
+    ), (it.input_type === "temperature" || it.input_type === "weight" || it.input_type === "count") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "number",
+        value: it.min_val ?? "",
+        onChange: (e) => updateItem(i, "min_val", e.target.value === "" ? null : Number(e.target.value)),
+        placeholder: "Min",
+        style: { ...inp(th), width: 65, fontSize: "0.82rem" }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "number",
+        value: it.max_val ?? "",
+        onChange: (e) => updateItem(i, "max_val", e.target.value === "" ? null : Number(e.target.value)),
+        placeholder: "Max",
+        style: { ...inp(th), width: 65, fontSize: "0.82rem" }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "number",
+        value: it.target ?? "",
+        onChange: (e) => updateItem(i, "target", e.target.value === "" ? null : Number(e.target.value)),
+        placeholder: "Target",
+        style: { ...inp(th), width: 65, fontSize: "0.82rem" }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        value: it.unit || "",
+        onChange: (e) => updateItem(i, "unit", e.target.value),
+        placeholder: "Unit",
+        style: { ...inp(th), width: 55, fontSize: "0.82rem" }
+      }
+    )), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setTemplateItems((prev) => prev.filter((_, j) => j !== i)),
+        style: { ...btn(th, { background: "transparent", color: "#e03131", border: "1px solid #e0313155" }), fontSize: "0.78rem", padding: "0.3rem 0.6rem" }
+      },
+      "\u2715"
+    )))), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setTemplateItems((prev) => [...prev, { label: "", input_type: "bool", sort_order: prev.length, target: null, min_val: null, max_val: null, unit: "" }]),
+        style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.4rem 0.85rem", marginBottom: "0.75rem" }
+      },
+      "+ Add item"
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: saveItems, disabled: busy, style: { ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" } }, busy ? "Saving\u2026" : "Save items"), /* @__PURE__ */ React.createElement("button", { onClick: () => setItemsFor(null), style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" } }, "Cancel"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search tasks\u2026", style: { ...inp(th), flex: 1, minWidth: 160, fontSize: "0.85rem" } }), /* @__PURE__ */ React.createElement("select", { value: catFilter, onChange: (e) => setCatFilter(e.target.value), style: { ...inp(th), width: 180, fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All categories"), categories.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))), /* @__PURE__ */ React.createElement("select", { value: activeFilter, onChange: (e) => setActiveFilter(e.target.value), style: { ...inp(th), width: 130, fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All"), /* @__PURE__ */ React.createElement("option", { value: "active" }, "Active"), /* @__PURE__ */ React.createElement("option", { value: "inactive" }, "Inactive"))), loading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "1.5rem" } }, "Loading\u2026"), !loading && templates && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.5rem" } }, filtered.length, " of ", templates.length, " tasks"), !loading && filtered.map((tp) => /* @__PURE__ */ React.createElement("div", { key: tp.id, style: { ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.4rem", display: "flex", alignItems: "center", gap: "0.75rem", opacity: tp.active ? 1 : 0.55 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.9rem" } }, tp.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, tp.category, " \xB7 ", tp.label, " \xB7 ", tp.input_type, " \xB7 ", tp.task_type, tp.shift_time ? " \xB7 " + tp.shift_time : "", " \xB7 ", tp.frequency, tp.min_val != null ? ` \xB7 ${tp.min_val}\u2013${tp.max_val}${tp.unit || ""}` : "")), /* @__PURE__ */ React.createElement("button", { onClick: () => openLocations(tp), style: { ...pill("#38bdf8", { cursor: "pointer", fontSize: "0.7rem" }) } }, tp.location_count, " stores"), /* @__PURE__ */ React.createElement("button", { onClick: () => openItems(tp), style: { ...pill("#a78bfa", { cursor: "pointer", fontSize: "0.7rem" }) } }, tp.items_count || 0, " items"), tp.allow_signoff && /* @__PURE__ */ React.createElement("span", { style: pill("#2f9e44", { fontSize: "0.66rem" }) }, "sign-off"), /* @__PURE__ */ React.createElement("button", { onClick: () => toggle(tp), style: { ...pill(tp.active ? "#2f9e44" : th.muted, { cursor: "pointer", fontSize: "0.7rem" }) } }, tp.active ? "Active" : "Inactive"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditing({ ...tp }), style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" } }, "Edit"))));
+  }
   function AdminConsole(props) {
     const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
     const SUBS = [
       { id: "notifications", label: "Notifications", icon: "\u{1F4EC}", accent: O },
+      { id: "tasks", label: "Tasks", icon: "\u2705", accent: "#38bdf8" },
       { id: "users", label: "Users", icon: "\u{1F465}", accent: "#a78bfa" },
       { id: "access", label: "Access", icon: "\u{1F510}", accent: "#ef4444" },
       { id: "orion", label: "Orion", icon: "\u{1F7E3}", accent: "#7C3AED" },
@@ -13045,7 +13262,7 @@ ${t2.slice(0, 300)}`);
         color: on ? s.accent : th.muted,
         transition: "all .15s"
       } }, /* @__PURE__ */ React.createElement("span", null, s.icon), s.label);
-    })), sub === "users" && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), sub === "access" && /* @__PURE__ */ React.createElement(AccessMatrix, { th, user, users, accessOverrides, setAccessOverrides, showAlert }), SETTINGS_SECTION[sub] && /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: SETTINGS_SECTION[sub] }), sub === "system" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AdminDataPanel, { th, user, users, stores, districts, version }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "admin" }))));
+    })), sub === "tasks" && /* @__PURE__ */ React.createElement(AdminTaskManager, { th, user, stores, showAlert }), sub === "users" && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), sub === "access" && /* @__PURE__ */ React.createElement(AccessMatrix, { th, user, users, accessOverrides, setAccessOverrides, showAlert }), SETTINGS_SECTION[sub] && /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: SETTINGS_SECTION[sub] }), sub === "system" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AdminDataPanel, { th, user, users, stores, districts, version }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "admin" }))));
   }
   function AuditLogSection({ th, user, users, accent }) {
     const [open, setOpen] = React.useState(false);
@@ -14097,6 +14314,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const ut = user.userType;
     if (ut === "executive" || ut === "it") return [
       ...BASE_TABS,
+      { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "map", label: "Map", icon: (c) => ICONS.map(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
       { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -14118,6 +14336,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     ];
     if (ut === "office_staff") return [
       ...BASE_TABS,
+      { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "map", label: "Map", icon: "\u{1F5FA}\uFE0F" },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
       { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -14136,6 +14355,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     ];
     if (ut === "dm") return [
       ...BASE_TABS,
+      { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "map", label: "Map", icon: (c) => ICONS.map(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
       { id: "pulse", label: "Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
@@ -14150,6 +14370,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     ];
     if (ut === "manager") return [
       ...BASE_TABS,
+      { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
       { id: "labor", label: "My Labor", icon: (c) => ICONS.dollar(c) },
       { id: "pnl", label: "My P&L", icon: (c) => ICONS.dollar(c) },
@@ -14638,7 +14859,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v15.74";
+  var APP_VERSION = "v15.91";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -19264,6 +19485,304 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 1e3 }, onClick: onClose }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), width: "min(540px, 92vw)", height: "100%", overflowY: "auto", borderRadius: 0, padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text } }, store.name), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { ...btn(th), padding: "0.3rem 0.7rem" } }, "Close")), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, waterfall.map((w) => /* @__PURE__ */ React.createElement("div", { key: w.label, style: { display: "flex", justifyContent: "space-between", padding: "0.4rem 0", borderBottom: `1px solid ${th.cardBorder}`, color: th.text } }, /* @__PURE__ */ React.createElement("span", null, w.label), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: w.color } }, fmtDollars(w.value))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.5rem", textTransform: "uppercase" } }, "Margin % Trend"), /* @__PURE__ */ React.createElement("canvas", { ref: canvasRef, style: { maxHeight: "180px" } })), [["Weekly", rollups.weekly], ["Monthly", rollups.monthly]].map(([title, rows]) => /* @__PURE__ */ React.createElement("div", { key: title, style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.4rem", textTransform: "uppercase" } }, title), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem", color: th.text } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { color: th.muted, textAlign: "left" } }, ["Period", "Revenue", "Contribution", "Margin %"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "0.3rem" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.key, style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem" } }, r.key), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem" } }, fmtDollars(r.revenue)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem" } }, fmtDollars(r.contribution)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.3rem", color: r.marginPct >= 30 ? "#22c55e" : "#ef4444" } }, fmtPct(r.marginPct))))))))));
   }
   var COORDS_BLOB = "pcg_store_coords_v1";
+  var TASK_STATUS_COLOR = { open: O, overdue: "#e03131", missed: "#868e96", completed: "#2f9e44" };
+  var complianceColor = (pct) => pct >= 75 ? "#2f9e44" : pct >= 50 ? "#f59e0b" : pct >= 25 ? "#f97316" : "#e03131";
+  function TaskRing({ pct, size = 44, th, color }) {
+    const r = (size - 6) / 2, c = 2 * Math.PI * r, off = c * (1 - (pct || 0) / 100);
+    const stroke = color || (pct >= 100 ? "#2f9e44" : pct > 0 ? O : th.muted);
+    return /* @__PURE__ */ React.createElement("svg", { width: size, height: size, style: { flexShrink: 0 } }, /* @__PURE__ */ React.createElement("circle", { cx: size / 2, cy: size / 2, r, stroke: th.muted + "33", strokeWidth: 4, fill: "none" }), /* @__PURE__ */ React.createElement(
+      "circle",
+      {
+        cx: size / 2,
+        cy: size / 2,
+        r,
+        stroke,
+        strokeWidth: 4,
+        fill: "none",
+        strokeDasharray: c,
+        strokeDashoffset: off,
+        strokeLinecap: "round",
+        transform: `rotate(-90 ${size / 2} ${size / 2})`,
+        style: { transition: "stroke-dashoffset .4s" }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "text",
+      {
+        x: "50%",
+        y: "51%",
+        textAnchor: "middle",
+        dominantBaseline: "middle",
+        fontSize: size * 0.26,
+        fontWeight: 700,
+        fill: th.text
+      },
+      pct || 0,
+      "%"
+    ));
+  }
+  function OpsTasks({ stores, th, user }) {
+    const isDM = user?.userType === "dm";
+    const isManager = user?.userType === "manager";
+    const myStore = getManagerStore(stores, user);
+    const scopeStores = (stores || []).filter((s) => {
+      if (isManager) return myStore && String(s.pc) === String(myStore.pc);
+      if (isDM) return String(s.district) === String(user?.district);
+      return true;
+    }).filter((s) => s.pc);
+    const todayET = () => {
+      const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+      return f.format(/* @__PURE__ */ new Date());
+    };
+    const [view, setView] = useState(isManager ? "tasks" : "dashboard");
+    const [storePc, setStorePc] = useState(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
+    const [date, setDate] = useState(todayET());
+    const [seg, setSeg] = useState("open");
+    const [data, setData] = useState(null);
+    const [dash, setDash] = useState(null);
+    const [rollup, setRollup] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [busyId, setBusyId] = useState(null);
+    const [openEntry, setOpenEntry] = useState(null);
+    const [entryVal, setEntryVal] = useState("");
+    const [expandedId, setExpandedId] = useState(null);
+    const [localAnswers, setLocalAnswers] = useState({});
+    const [cas, setCas] = useState(null);
+    const [caFilter, setCaFilter] = useState("open");
+    const [loadingCAs, setLoadingCAs] = useState(false);
+    const byName = user?.name || user?.email || "user";
+    const api = useCallback(async (action, payload = {}) => {
+      const r = await fetch("/.netlify/functions/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...payload })
+      });
+      return r.json();
+    }, []);
+    const loadStore = useCallback(async () => {
+      if (!storePc) return;
+      setLoading(true);
+      if (view === "dashboard") setDash(await api("dashboard", { store_pc: storePc, date }));
+      else setData(await api("list", { store_pc: storePc, date }));
+      setLoading(false);
+    }, [api, storePc, date, view]);
+    const loadRollup = useCallback(async () => {
+      setLoading(true);
+      const r = await api("rollup", { date, district: isDM ? user?.district : null });
+      setRollup(r);
+      setLoading(false);
+    }, [api, date, isDM, user]);
+    const loadCAs = useCallback(async () => {
+      setLoadingCAs(true);
+      const r = await api("list_corrective_actions", {
+        store_pc: isManager ? myStore ? String(myStore.pc) : "" : null,
+        district: isDM ? user?.district : null
+      });
+      setCas(r.corrective_actions || []);
+      setLoadingCAs(false);
+    }, [api, isManager, myStore, isDM, user]);
+    useEffect(() => {
+      if (view === "tasks" || view === "dashboard") loadStore();
+    }, [view, loadStore]);
+    useEffect(() => {
+      if (view === "stores") loadRollup();
+    }, [view, loadRollup]);
+    useEffect(() => {
+      if (view === "cas") loadCAs();
+    }, [view, loadCAs]);
+    useEffect(() => {
+      if (view !== "tasks" && view !== "dashboard") return;
+      const id = setInterval(loadStore, 25e3);
+      return () => clearInterval(id);
+    }, [view, loadStore]);
+    async function completeTask(tk, value) {
+      setBusyId(tk.id);
+      try {
+        await api("complete", { instance_id: tk.id, value: value ?? null, by: byName });
+        setOpenEntry(null);
+        setEntryVal("");
+        await loadStore();
+      } finally {
+        setBusyId(null);
+      }
+    }
+    async function reopenTask(tk) {
+      setBusyId(tk.id);
+      try {
+        await api("reopen", { instance_id: tk.id });
+        setExpandedId(null);
+        await loadStore();
+      } finally {
+        setBusyId(null);
+      }
+    }
+    async function submitAnswer(tk, item, equip, answerData) {
+      setBusyId(tk.id);
+      const key = `${tk.id}_${item.id}_${equip?.id || "null"}`;
+      try {
+        await api("submit_answers", {
+          instance_id: tk.id,
+          answers: [{ item_id: item.id, equipment_id: equip?.id || null, ...answerData }],
+          by: byName
+        });
+        setLocalAnswers((prev) => {
+          const n = { ...prev };
+          delete n[key];
+          return n;
+        });
+        await loadStore();
+      } finally {
+        setBusyId(null);
+      }
+    }
+    async function resolveCA(ca) {
+      await api("resolve_ca", { ca_id: ca.id, resolved_by: byName });
+      loadCAs();
+    }
+    const segTasks = (data?.tasks || []).filter(
+      (t) => seg === "all" ? true : seg === "missed" ? t.statusComputed === "missed" || t.statusComputed === "overdue" : t.statusComputed === "open"
+    );
+    const segBtn = (id, label, n) => /* @__PURE__ */ React.createElement("button", { onClick: () => setSeg(id), style: {
+      flex: 1,
+      padding: "0.55rem 0.4rem",
+      border: "none",
+      background: "transparent",
+      cursor: "pointer",
+      fontSize: "0.85rem",
+      fontWeight: 700,
+      color: seg === id ? O : th.muted,
+      borderBottom: `2px solid ${seg === id ? O : "transparent"}`
+    } }, label, typeof n === "number" ? ` (${n})` : "");
+    const viewTab = (id, label, accent) => /* @__PURE__ */ React.createElement("button", { onClick: () => setView(id), style: {
+      padding: "0.5rem 0.9rem",
+      borderRadius: 999,
+      border: `1px solid ${view === id ? accent || O : th.muted + "55"}`,
+      background: view === id ? accent || O : "transparent",
+      color: view === id ? "#fff" : th.text,
+      fontSize: "0.8rem",
+      fontWeight: 700,
+      cursor: "pointer",
+      whiteSpace: "nowrap"
+    } }, label);
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Tasks"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, !isManager && viewTab("dashboard", "Dashboard"), viewTab("tasks", "Tasks"), !isManager && viewTab("stores", "Stores"), viewTab("cas", "Corrective Actions", "#e03131"))), (view === "tasks" || view === "dashboard") && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, !isManager && /* @__PURE__ */ React.createElement("select", { value: storePc, onChange: (e) => setStorePc(e.target.value), style: { ...inp(th), flex: 1, minWidth: 160 } }, scopeStores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: String(s.pc) }, s.pc, " \u2014 ", s.name))), isManager && myStore && /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 } }, myStore.pc, " \u2014 ", myStore.name), /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: { ...inp(th), width: 160 } })), loading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "Loading\u2026"), view === "dashboard" && dash && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" } }, [["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text } }, dash.totals[k] || 0), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 600 } }, lbl)))), dash.open_cas > 0 && /* @__PURE__ */ React.createElement("div", { onClick: () => setView("cas"), style: { ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", borderLeft: "4px solid #e03131" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem", color: "#e03131", fontWeight: 800 } }, dash.open_cas), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text, fontWeight: 600 } }, "Open Corrective Action", dash.open_cas !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.75rem", color: th.muted } }, "View \u2192")), dash.categories.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.category, style: { ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` } }, /* @__PURE__ */ React.createElement(TaskRing, { pct: c.pct, th, size: 40, color: complianceColor(c.pct) }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, c.category), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, c.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, c.overdue, " overdue"), " \xB7 ", c.completed, "/", c.all, " done"))))), view === "tasks" && data && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", ...card(th), padding: 0, marginBottom: "0.75rem", overflow: "hidden" } }, segBtn("open", "Open", data.counts.open), segBtn("missed", "Missed", data.counts.missed + data.counts.overdue), segBtn("all", "All", data.counts.all)), segTasks.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "Nothing here"), segTasks.map((tk) => {
+      const sc = TASK_STATUS_COLOR[tk.statusComputed] || th.muted;
+      const done = tk.statusComputed === "completed";
+      const hasItems = (tk.items_count || 0) > 0;
+      const isExpanded = expandedId === tk.id;
+      const isMeas = !hasItems && (tk.input_type === "temperature" || tk.input_type === "weight" || tk.input_type === "count");
+      const itemPct = hasItems ? Math.round((tk.answers_count || 0) / tk.items_count * 100) : done ? 100 : 0;
+      return /* @__PURE__ */ React.createElement("div", { key: tk.id, style: { ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${sc}` } }, /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          style: { display: "flex", alignItems: "center", gap: "0.75rem", cursor: hasItems ? "pointer" : "default" },
+          onClick: () => hasItems && setExpandedId(isExpanded ? null : tk.id)
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.95rem" } }, tk.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.25rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: pill(th.muted, { fontSize: "0.68rem" }) }, tk.category), tk.shift_time && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, tk.shift_time), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: sc, textTransform: "capitalize" } }, tk.statusComputed), hasItems && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, tk.answers_count, "/", tk.items_count, " items"), !hasItems && isMeas && tk.min_val != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "(", tk.min_val, "\u2013", tk.max_val, tk.unit, " \xB7 tgt ", tk.target, tk.unit, ")")), done && !hasItems && tk.value != null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginTop: "0.2rem" } }, "Recorded: ", tk.value, tk.unit || "", tk.completed_by ? ` \xB7 ${tk.completed_by}` : "")),
+        /* @__PURE__ */ React.createElement(TaskRing, { pct: itemPct, th, size: 40, color: hasItems ? complianceColor(itemPct) : void 0 }),
+        hasItems && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", flexShrink: 0 } }, isExpanded ? "\u25B2" : "\u25BC")
+      ), hasItems && isExpanded && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}`, paddingTop: "0.5rem" } }, tk.items.map((item) => {
+        const equipList = tk.equipment.length ? tk.equipment : [null];
+        return equipList.map((equip) => {
+          const key = `${tk.id}_${item.id}_${equip?.id || "null"}`;
+          const existing = (tk.answers || []).find((a) => a.item_id === item.id && (equip ? a.equipment_id === equip.id : !a.equipment_id));
+          const localVal = localAnswers[key];
+          const outRange = existing?.in_range === false;
+          return /* @__PURE__ */ React.createElement("div", { key, style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0", borderBottom: `1px solid ${th.cardBorder}33` } }, equip && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, minWidth: 90, flexShrink: 0 } }, equip.unit_name), item.input_type === "bool" ? /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.5rem", alignItems: "center", cursor: done ? "default" : "pointer", flex: 1 } }, /* @__PURE__ */ React.createElement(
+            "input",
+            {
+              type: "checkbox",
+              checked: !!existing?.checked,
+              disabled: done || busyId === tk.id,
+              onChange: (e) => !done && submitAnswer(tk, item, equip, { checked: e.target.checked })
+            }
+          ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", flex: 1 } }, item.label), existing?.checked && /* @__PURE__ */ React.createElement("span", { style: { color: "#2f9e44", fontSize: "0.78rem" } }, "\u2713")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { flex: 1, fontSize: "0.85rem" } }, item.label), item.min_val != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, whiteSpace: "nowrap" } }, item.min_val, "\u2013", item.max_val, item.unit), /* @__PURE__ */ React.createElement(
+            "input",
+            {
+              type: "number",
+              inputMode: "decimal",
+              value: localVal !== void 0 ? localVal : existing?.value != null ? String(existing.value) : "",
+              onChange: (e) => setLocalAnswers((prev) => ({ ...prev, [key]: e.target.value })),
+              onBlur: (e) => {
+                const v = e.target.value;
+                if (v !== "" && !done && busyId !== tk.id) submitAnswer(tk, item, equip, { value: Number(v) });
+              },
+              disabled: done || busyId === tk.id,
+              style: { ...inp(th), width: 80, fontSize: "0.85rem", borderColor: outRange ? "#e03131" : void 0 }
+            }
+          ), outRange && /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131", fontSize: "0.8rem" } }, "\u26A0"), existing?.in_range === true && /* @__PURE__ */ React.createElement("span", { style: { color: "#2f9e44", fontSize: "0.8rem" } }, "\u2713")));
+        });
+      }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" } }, done ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.76rem", color: "#2f9e44", fontWeight: 700 } }, "\u2713 Complete", tk.completed_by ? ` \xB7 ${tk.completed_by}` : "") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.76rem", color: th.muted } }, "Tap a checkbox or enter a reading to record"), done && /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => reopenTask(tk),
+          disabled: busyId === tk.id,
+          style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" }
+        },
+        "Reset"
+      )), busyId === tk.id && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, textAlign: "center", paddingTop: "0.3rem" } }, "Saving\u2026")), !hasItems && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", display: "flex", gap: "0.5rem", alignItems: "center" } }, done ? /* @__PURE__ */ React.createElement("button", { onClick: () => reopenTask(tk), disabled: busyId === tk.id, style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.4rem 0.8rem" } }, "Reopen") : openEntry === tk.id ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "number",
+          inputMode: "decimal",
+          autoFocus: true,
+          value: entryVal,
+          onChange: (e) => setEntryVal(e.target.value),
+          placeholder: `Reading${tk.unit ? " (" + tk.unit + ")" : ""}`,
+          style: { ...inp(th), flex: 1, fontSize: "0.85rem" }
+        }
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => completeTask(tk, entryVal === "" ? null : Number(entryVal)),
+          disabled: busyId === tk.id,
+          style: { ...btn(th), fontSize: "0.8rem", padding: "0.45rem 0.9rem" }
+        },
+        "Save"
+      ), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+        setOpenEntry(null);
+        setEntryVal("");
+      }, style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.45rem 0.7rem" } }, "\u2715")) : /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            if (isMeas) {
+              setOpenEntry(tk.id);
+              setEntryVal("");
+            } else {
+              completeTask(tk);
+            }
+          },
+          disabled: busyId === tk.id,
+          style: { ...btn(th), fontSize: "0.82rem", padding: "0.45rem 1rem", width: isMeas ? "auto" : "100%" }
+        },
+        busyId === tk.id ? "\u2026" : isMeas ? "Enter reading" : "\u2713 Mark complete"
+      )));
+    })), view === "stores" && rollup && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" } }, rollup.stores.length, " stores \xB7 ", date, isDM ? ` \xB7 District ${user?.district}` : ""), rollup.stores.map((s) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: s.pc,
+        onClick: () => {
+          setStorePc(String(s.pc));
+          setView("tasks");
+        },
+        style: { ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", cursor: "pointer" }
+      },
+      /* @__PURE__ */ React.createElement(TaskRing, { pct: s.pct, th, size: 40, color: complianceColor(s.pct) }),
+      /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, s.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.78rem" } }, "\xB7 ", s.pc)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, s.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, s.overdue, " overdue"), " \xB7 ", s.completed, "/", s.all, " done", !isDM ? ` \xB7 D${s.district}` : "", s.open_cas > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131", marginLeft: "0.4rem" } }, "\xB7 ", s.open_cas, " CA", s.open_cas !== 1 ? "s" : "")))
+    ))), view === "cas" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap", alignItems: "center" } }, [["open", "Open"], ["resolved", "Resolved"], ["all", "All"]].map(([f, lbl]) => /* @__PURE__ */ React.createElement("button", { key: f, onClick: () => setCaFilter(f), style: {
+      padding: "0.45rem 0.9rem",
+      borderRadius: 999,
+      border: `1px solid ${caFilter === f ? "#e03131" : th.muted + "55"}`,
+      background: caFilter === f ? "#e031311a" : "transparent",
+      color: caFilter === f ? "#e03131" : th.text,
+      fontSize: "0.8rem",
+      fontWeight: 700,
+      cursor: "pointer"
+    } }, lbl, " (", (cas || []).filter((c) => f === "all" || c.status === f).length, ")")), /* @__PURE__ */ React.createElement("button", { onClick: loadCAs, style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.76rem", padding: "0.4rem 0.7rem", marginLeft: "auto" } }, "Refresh")), loadingCAs && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "Loading\u2026"), !loadingCAs && cas !== null && (() => {
+      const filtered = (cas || []).filter((c) => caFilter === "all" || c.status === caFilter);
+      if (!filtered.length) return /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "No ", caFilter !== "all" ? caFilter : "", " corrective actions");
+      return filtered.map((ca) => /* @__PURE__ */ React.createElement("div", { key: ca.id, style: { ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${ca.status === "resolved" ? "#2f9e44" : "#e03131"}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.88rem" } }, ca.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, !isManager && /* @__PURE__ */ React.createElement("span", null, ca.store_name), /* @__PURE__ */ React.createElement("span", { style: { color: ca.status === "resolved" ? "#2f9e44" : "#e03131", fontWeight: 700, textTransform: "capitalize" } }, ca.status), ca.created_at && /* @__PURE__ */ React.createElement("span", null, new Date(ca.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })), ca.due_date && ca.status === "open" && /* @__PURE__ */ React.createElement("span", { style: { color: "#f59e0b" } }, "Due ", ca.due_date)), ca.status === "open" && /* @__PURE__ */ React.createElement("button", { onClick: () => resolveCA(ca), style: { ...btn(th, { background: "transparent", color: "#2f9e44", border: "1px solid #2f9e4455" }), fontSize: "0.76rem", padding: "0.3rem 0.8rem", marginTop: "0.5rem" } }, "Mark Resolved"), ca.status === "resolved" && ca.resolved_by && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#2f9e44", marginTop: "0.3rem" } }, "Resolved by ", ca.resolved_by)));
+    })()));
+  }
   function ImpactRadar({ th, user, dark, salesWeeks }) {
     const [eventAddr, setEventAddr] = useState("2310 W Passyunk Ave, Philadelphia, PA 19145");
     const [eventLatLng, setEventLatLng] = useState(null);
@@ -26226,7 +26745,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       );
     };
     const ADMIN_GROUPS = [
-      { key: "ops", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polyline", { points: "23 6 13.5 15.5 8.5 10.5 1 18" }), /* @__PURE__ */ React.createElement("polyline", { points: "17 6 23 6 23 12" })) }), label: "Operations", color: "#38bdf8", ids: ["pulse", "labor", "analytics", "anomalies", "scorecard"] },
+      { key: "ops", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polyline", { points: "23 6 13.5 15.5 8.5 10.5 1 18" }), /* @__PURE__ */ React.createElement("polyline", { points: "17 6 23 6 23 12" })) }), label: "Operations", color: "#38bdf8", ids: ["tasks", "pulse", "labor", "analytics", "anomalies", "scorecard"] },
       { key: "fin", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "1", x2: "12", y2: "23" }), /* @__PURE__ */ React.createElement("path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" })) }), label: "Finance", color: "#22c55e", ids: ["pnl", "ndcp", "cash", "recon", "expenses"] },
       { key: "team", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 2 7 12 12 22 7 12 2" }), /* @__PURE__ */ React.createElement("polyline", { points: "2 17 12 22 22 17" }), /* @__PURE__ */ React.createElement("polyline", { points: "2 12 12 17 22 12" })) }), label: "Team & Sites", color: "#a78bfa", ids: ["map", "locations", "impact", "projects", "deals", "users"] },
       { key: "system", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "21", x2: "4", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "10", x2: "4", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "21", x2: "12", y2: "12" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "8", x2: "12", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "21", x2: "20", y2: "16" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "12", x2: "20", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "1", y1: "14", x2: "7", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "9", y1: "8", x2: "15", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "17", y1: "16", x2: "23", y2: "16" })) }), label: "System", color: "#94a3b8", ids: ["reports", "email", "admin"] }
@@ -26648,7 +27167,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const dmTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
       const DM_GROUPS = [
         { key: "dm_loc", label: "Locations & Map", color: "#74c0fc", icon: (c) => ICONS.locations(c), ids: ["map", "locations"] },
-        { key: "dm_ops", label: "Operations", color: "#74c0fc", icon: (c) => ICONS.analytics(c), ids: ["pulse", "labor", "pnl", "analytics", "anomalies"] },
+        { key: "dm_ops", label: "Operations", color: "#74c0fc", icon: (c) => ICONS.analytics(c), ids: ["tasks", "pulse", "labor", "pnl", "analytics", "anomalies"] },
         { key: "dm_biz", label: "District", color: "#74c0fc", icon: (c) => ICONS.dollar(c), ids: ["cash", "reports", "projects", "deals", "scorecard"] }
       ];
       const sectionHasActive = dmTabs.some((t) => t.id === tab) && !pinnedNavIds.includes(tab);
@@ -27109,7 +27628,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" } }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
+    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
       const ut = user?.userType;
       const pinnedIds = ut === "executive" || ut === "it" ? ["dashboard", "pulse", "labor", "chat"] : ut === "office_staff" ? ["dashboard", "pulse", "labor", "chat"] : ut === "dm" ? ["dashboard", "labor", "chat", "tickets"] : ut === "manager" ? ["dashboard", "labor", "chat", "tickets"] : ["dashboard", "chat", "announcements", "tickets"];
       const pinnedTabs = pinnedIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);

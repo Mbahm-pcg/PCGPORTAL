@@ -15861,10 +15861,272 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
 }
 
 // ── Admin Console — one flat tab bar, no nested settings page ───────────────
+// ── Admin → Tasks ("Book Task") — full template management (Workpulse parity) ──
+// Create/edit tasks, set type/category/label/time/measurement ranges, toggle active,
+// and assign each task to stores. Backed by netlify/functions/tasks.js admin_* actions.
+const TASK_SHIFTS = ["", "1 AM", "5 AM", "9 AM", "1 PM", "5 PM", "9 PM", "AM", "Noon", "PM"];
+const TASK_LABELS = ["Food Safety", "Facility", "Fresh", "Planning Checklist"];
+const TASK_INPUTS = ["checklist", "temperature", "weight", "count", "photo"];
+const TASK_FREQS = ["daily", "weekly", "general"];
+const TASK_TYPES = ["shift", "general"];
+const NEW_TASK = { name: "", task_type: "shift", category: "", label: "Food Safety", input_type: "checklist", frequency: "daily", shift_time: "", recur_days: null, target: null, min_val: null, max_val: null, unit: "", allow_signoff: false, is_master: false, active: true };
+
+function AdminTaskManager({ th, user, stores, showAlert }) {
+  const [templates, setTemplates] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [q, setQ] = useState("");
+  const [catFilter, setCatFilter] = useState("all");
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [editing, setEditing] = useState(null);
+  const [locFor, setLocFor] = useState(null);
+  const [locPcs, setLocPcs] = useState([]);
+  const [itemsFor, setItemsFor] = useState(null);
+  const [templateItems, setTemplateItems] = useState([]);
+  const [templateEquip, setTemplateEquip] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const api = useCallback(async (action, payload = {}) => {
+    const r = await fetch("/.netlify/functions/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
+    return r.json();
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { const r = await api("admin_templates"); setTemplates(r.templates || []); }
+    finally { setLoading(false); }
+  }, [api]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
+  const filtered = (templates || []).filter((t) => {
+    if (activeFilter === "active" && !t.active) return false;
+    if (activeFilter === "inactive" && t.active) return false;
+    if (catFilter !== "all" && t.category !== catFilter) return false;
+    if (q && !(`${t.name} ${t.category || ""} ${t.label || ""}`.toLowerCase().includes(q.toLowerCase()))) return false;
+    return true;
+  });
+
+  async function save(t) {
+    if (!t.name.trim()) { showAlert && showAlert("Task name is required"); return; }
+    setBusy(true);
+    try {
+      const r = await api("admin_save_template", { template: t });
+      if (r.ok) { setEditing(null); showAlert && showAlert("Task saved"); await load(); }
+      else showAlert && showAlert(r.error || "Save failed");
+    } finally { setBusy(false); }
+  }
+  async function toggle(t) { await api("admin_toggle_active", { template_id: t.id, active: !t.active }); load(); }
+  async function openLocations(t) { setLocFor(t); setLocPcs([]); const r = await api("admin_get_locations", { template_id: t.id }); setLocPcs(r.store_pcs || []); }
+  async function saveLocations() {
+    setBusy(true);
+    try { await api("admin_set_locations", { template_id: locFor.id, store_pcs: locPcs }); setLocFor(null); await load(); }
+    finally { setBusy(false); }
+  }
+  async function openItems(t) {
+    setItemsFor(t);
+    const r = await api("admin_get_items", { template_id: t.id });
+    setTemplateItems(r.items || []);
+    setTemplateEquip(r.equipment || []);
+  }
+  function updateItem(i, key, val) { setTemplateItems((prev) => prev.map((x, j) => j === i ? { ...x, [key]: val } : x)); }
+  async function saveItems() {
+    setBusy(true);
+    try {
+      const items = templateItems.map((it, i) => ({ ...it, sort_order: i }));
+      const equipment = templateEquip.map((e, i) => ({ ...e, sort_order: i }));
+      const r = await api("admin_save_items", { template_id: itemsFor.id, items, equipment });
+      if (r.ok) { setItemsFor(null); showAlert && showAlert("Items saved"); await load(); }
+      else showAlert && showAlert(r.error || "Save failed");
+    } finally { setBusy(false); }
+  }
+
+  const scoped = (stores || []).filter((s) => s.pc);
+  const byDistrict = {};
+  scoped.forEach((s) => { const d = s.district || "—"; (byDistrict[d] = byDistrict[d] || []).push(s); });
+
+  const field = (label, node) => (
+    <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.72rem", fontWeight: 700, color: th.muted }}>
+      {label}{node}
+    </label>
+  );
+  const num = (v, set) => <input type="number" value={v ?? ""} onChange={(e) => set(e.target.value === "" ? null : Number(e.target.value))} style={{ ...inp(th), fontSize: "0.85rem" }} />;
+  const sel = (v, set, opts) => <select value={v ?? ""} onChange={(e) => set(e.target.value)} style={{ ...inp(th), fontSize: "0.85rem" }}>{opts.map((o) => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? (o === "" ? "—" : o)}</option>)}</select>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.9rem" }}>
+        <h3 style={{ ...sectionTitle(th), margin: 0 }}>Book Task — Task Templates</h3>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button onClick={() => setEditing({ ...NEW_TASK })} style={{ ...btn(th), fontSize: "0.82rem", padding: "0.5rem 1rem" }}>+ New Task</button>
+          <button onClick={async () => { setLoading(true); await api("seed"); await load(); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.5rem 1rem" }}>Re-sync catalog</button>
+          <button onClick={async () => { setBusy(true); const r = await api("seed_items"); setBusy(false); showAlert && showAlert(`Seeded items: ${r.items || 0} items across ${r.templates || 0} templates`); await load(); }} disabled={busy} style={{ ...btn(th, { background: "transparent", color: "#a78bfa", border: "1px solid #a78bfa55" }), fontSize: "0.82rem", padding: "0.5rem 1rem" }}>Seed sub-items</button>
+        </div>
+      </div>
+
+      {/* Editor panel */}
+      {editing && (
+        <div style={{ ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid ${O}66` }}>
+          <div style={{ fontWeight: 800, marginBottom: "0.75rem" }}>{editing.id ? "Edit Task" : "New Task"}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: "0.75rem" }}>
+            {field("Name", <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} style={{ ...inp(th), fontSize: "0.85rem" }} />)}
+            {field("Category", <input value={editing.category || ""} onChange={(e) => setEditing({ ...editing, category: e.target.value })} list="task-cats" style={{ ...inp(th), fontSize: "0.85rem" }} />)}
+            {field("Label", sel(editing.label, (v) => setEditing({ ...editing, label: v }), TASK_LABELS))}
+            {field("Task type", sel(editing.task_type, (v) => setEditing({ ...editing, task_type: v }), TASK_TYPES))}
+            {field("Input type", sel(editing.input_type, (v) => setEditing({ ...editing, input_type: v }), TASK_INPUTS))}
+            {field("Frequency", sel(editing.frequency, (v) => setEditing({ ...editing, frequency: v }), TASK_FREQS))}
+            {field("Shift time", sel(editing.shift_time, (v) => setEditing({ ...editing, shift_time: v }), TASK_SHIFTS))}
+            {editing.frequency === "general" && field("Recur every N days", num(editing.recur_days, (v) => setEditing({ ...editing, recur_days: v })))}
+            {(editing.input_type === "temperature" || editing.input_type === "weight" || editing.input_type === "count") && <>
+              {field("Target", num(editing.target, (v) => setEditing({ ...editing, target: v })))}
+              {field("Min", num(editing.min_val, (v) => setEditing({ ...editing, min_val: v })))}
+              {field("Max", num(editing.max_val, (v) => setEditing({ ...editing, max_val: v })))}
+              {field("Unit", <input value={editing.unit || ""} onChange={(e) => setEditing({ ...editing, unit: e.target.value })} placeholder="°F / oz / ppm" style={{ ...inp(th), fontSize: "0.85rem" }} />)}
+            </>}
+          </div>
+          <div style={{ display: "flex", gap: "1.25rem", margin: "0.85rem 0", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" }}><input type="checkbox" checked={!!editing.allow_signoff} onChange={(e) => setEditing({ ...editing, allow_signoff: e.target.checked })} /> Allow Manager & PCQI Sign-Off</label>
+            <label style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" }}><input type="checkbox" checked={!!editing.is_master} onChange={(e) => setEditing({ ...editing, is_master: e.target.checked })} /> Master task</label>
+            <label style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" }}><input type="checkbox" checked={editing.active !== false} onChange={(e) => setEditing({ ...editing, active: e.target.checked })} /> Active</label>
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button onClick={() => save(editing)} disabled={busy} style={{ ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" }}>{busy ? "Saving…" : "Save"}</button>
+            <button onClick={() => setEditing(null)} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+      <datalist id="task-cats">{categories.map((c) => <option key={c} value={c} />)}</datalist>
+
+      {/* Location assignment panel */}
+      {locFor && (
+        <div style={{ ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid #38bdf866` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+            <div style={{ fontWeight: 800 }}>Assign locations — {locFor.name} <span style={{ color: th.muted, fontWeight: 400 }}>({locPcs.length} selected)</span></div>
+            <div style={{ display: "flex", gap: "0.4rem" }}>
+              <button onClick={() => setLocPcs(scoped.map((s) => String(s.pc)))} style={{ ...pill("#38bdf8", { cursor: "pointer", fontSize: "0.72rem" }) }}>All 45</button>
+              <button onClick={() => setLocPcs([])} style={{ ...pill(th.muted, { cursor: "pointer", fontSize: "0.72rem" }) }}>Clear</button>
+            </div>
+          </div>
+          <div style={{ maxHeight: 300, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "0.75rem" }}>
+            {Object.keys(byDistrict).sort().map((d) => (
+              <div key={d} style={{ ...card(th), padding: "0.6rem" }}>
+                <div style={{ fontSize: "0.72rem", fontWeight: 800, color: th.muted, marginBottom: "0.35rem" }}>District {d}</div>
+                {byDistrict[d].map((s) => {
+                  const pc = String(s.pc); const on = locPcs.includes(pc);
+                  return (
+                    <label key={pc} style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.8rem", padding: "0.15rem 0", cursor: "pointer" }}>
+                      <input type="checkbox" checked={on} onChange={() => setLocPcs((prev) => on ? prev.filter((x) => x !== pc) : [...prev, pc])} />
+                      {s.name} <span style={{ color: th.muted }}>· {pc}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+            <button onClick={saveLocations} disabled={busy} style={{ ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" }}>{busy ? "Saving…" : "Save assignments"}</button>
+            <button onClick={() => setLocFor(null)} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Items editor panel */}
+      {itemsFor && (
+        <div style={{ ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid #a78bfa55` }}>
+          <div style={{ fontWeight: 800, marginBottom: "0.75rem", color: "#a78bfa" }}>Sub-items — {itemsFor.name} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.8rem" }}>({itemsFor.items_count || 0} current)</span></div>
+
+          {/* Equipment units */}
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: th.muted, marginBottom: "0.3rem" }}>Equipment units (optional — e.g. "Turbochef 1", "Turbochef 2")</div>
+          {templateEquip.map((e, i) => (
+            <div key={i} style={{ display: "flex", gap: "0.4rem", marginBottom: "0.35rem" }}>
+              <input value={e.unit_name || ""} onChange={(ev) => setTemplateEquip((prev) => prev.map((x, j) => j === i ? { ...x, unit_name: ev.target.value } : x))}
+                placeholder="Unit name" style={{ ...inp(th), flex: 1, fontSize: "0.82rem" }} />
+              <button onClick={() => setTemplateEquip((prev) => prev.filter((_, j) => j !== i))}
+                style={{ ...btn(th, { background: "transparent", color: "#e03131", border: "1px solid #e0313155" }), fontSize: "0.78rem", padding: "0.3rem 0.6rem" }}>✕</button>
+            </div>
+          ))}
+          <button onClick={() => setTemplateEquip((prev) => [...prev, { unit_name: "", sort_order: prev.length }])}
+            style={{ fontSize: "0.78rem", color: th.muted, background: "transparent", border: "none", cursor: "pointer", padding: "0.15rem 0", marginBottom: "0.75rem" }}>+ Add equipment unit</button>
+
+          {/* Items */}
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: th.muted, marginBottom: "0.3rem" }}>Items (sub-questions)</div>
+          {templateItems.map((it, i) => (
+            <div key={i} style={{ ...card(th), padding: "0.5rem 0.7rem", marginBottom: "0.4rem" }}>
+              <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" }}>
+                <input value={it.label || ""} onChange={(e) => updateItem(i, "label", e.target.value)}
+                  placeholder="Item label" style={{ ...inp(th), flex: 2, minWidth: 140, fontSize: "0.82rem" }} />
+                <select value={it.input_type || "bool"} onChange={(e) => updateItem(i, "input_type", e.target.value)}
+                  style={{ ...inp(th), width: 120, fontSize: "0.82rem" }}>
+                  {["bool", "temperature", "weight", "count", "text"].map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+                {(it.input_type === "temperature" || it.input_type === "weight" || it.input_type === "count") && (
+                  <>
+                    <input type="number" value={it.min_val ?? ""} onChange={(e) => updateItem(i, "min_val", e.target.value === "" ? null : Number(e.target.value))}
+                      placeholder="Min" style={{ ...inp(th), width: 65, fontSize: "0.82rem" }} />
+                    <input type="number" value={it.max_val ?? ""} onChange={(e) => updateItem(i, "max_val", e.target.value === "" ? null : Number(e.target.value))}
+                      placeholder="Max" style={{ ...inp(th), width: 65, fontSize: "0.82rem" }} />
+                    <input type="number" value={it.target ?? ""} onChange={(e) => updateItem(i, "target", e.target.value === "" ? null : Number(e.target.value))}
+                      placeholder="Target" style={{ ...inp(th), width: 65, fontSize: "0.82rem" }} />
+                    <input value={it.unit || ""} onChange={(e) => updateItem(i, "unit", e.target.value)}
+                      placeholder="Unit" style={{ ...inp(th), width: 55, fontSize: "0.82rem" }} />
+                  </>
+                )}
+                <button onClick={() => setTemplateItems((prev) => prev.filter((_, j) => j !== i))}
+                  style={{ ...btn(th, { background: "transparent", color: "#e03131", border: "1px solid #e0313155" }), fontSize: "0.78rem", padding: "0.3rem 0.6rem" }}>✕</button>
+              </div>
+            </div>
+          ))}
+          <button onClick={() => setTemplateItems((prev) => [...prev, { label: "", input_type: "bool", sort_order: prev.length, target: null, min_val: null, max_val: null, unit: "" }])}
+            style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.4rem 0.85rem", marginBottom: "0.75rem" }}>+ Add item</button>
+
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button onClick={saveItems} disabled={busy} style={{ ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" }}>{busy ? "Saving…" : "Save items"}</button>
+            <button onClick={() => setItemsFor(null)} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search tasks…" style={{ ...inp(th), flex: 1, minWidth: 160, fontSize: "0.85rem" }} />
+        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={{ ...inp(th), width: 180, fontSize: "0.85rem" }}>
+          <option value="all">All categories</option>
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={activeFilter} onChange={(e) => setActiveFilter(e.target.value)} style={{ ...inp(th), width: 130, fontSize: "0.85rem" }}>
+          <option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option>
+        </select>
+      </div>
+
+      {loading && <div style={{ textAlign: "center", color: th.muted, padding: "1.5rem" }}>Loading…</div>}
+      {!loading && templates && (
+        <div style={{ fontSize: "0.75rem", color: th.muted, marginBottom: "0.5rem" }}>{filtered.length} of {templates.length} tasks</div>
+      )}
+      {!loading && filtered.map((tp) => (
+        <div key={tp.id} style={{ ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.4rem", display: "flex", alignItems: "center", gap: "0.75rem", opacity: tp.active ? 1 : 0.55 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{tp.name}</div>
+            <div style={{ fontSize: "0.72rem", color: th.muted }}>
+              {tp.category} · {tp.label} · {tp.input_type} · {tp.task_type}{tp.shift_time ? " · " + tp.shift_time : ""} · {tp.frequency}
+              {tp.min_val != null ? ` · ${tp.min_val}–${tp.max_val}${tp.unit || ""}` : ""}
+            </div>
+          </div>
+          <button onClick={() => openLocations(tp)} style={{ ...pill("#38bdf8", { cursor: "pointer", fontSize: "0.7rem" }) }}>{tp.location_count} stores</button>
+          <button onClick={() => openItems(tp)} style={{ ...pill("#a78bfa", { cursor: "pointer", fontSize: "0.7rem" }) }}>{tp.items_count || 0} items</button>
+          {tp.allow_signoff && <span style={pill("#2f9e44", { fontSize: "0.66rem" })}>sign-off</span>}
+          <button onClick={() => toggle(tp)} style={{ ...pill(tp.active ? "#2f9e44" : th.muted, { cursor: "pointer", fontSize: "0.7rem" }) }}>{tp.active ? "Active" : "Inactive"}</button>
+          <button onClick={() => setEditing({ ...tp })} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" }}>Edit</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AdminConsole(props) {
   const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
   const SUBS = [
     { id: 'notifications', label: 'Notifications', icon: '📬', accent: O },
+    { id: 'tasks',         label: 'Tasks',         icon: '✅', accent: '#38bdf8' },
     { id: 'users',         label: 'Users',         icon: '👥', accent: '#a78bfa' },
     { id: 'access',        label: 'Access',        icon: '🔐', accent: '#ef4444' },
     { id: 'orion',         label: 'Orion',         icon: '🟣', accent: '#7C3AED' },
@@ -15902,6 +16164,7 @@ function AdminConsole(props) {
         })}
       </div>
 
+      {sub === 'tasks' && <AdminTaskManager th={th} user={user} stores={stores} showAlert={showAlert} />}
       {sub === 'users' && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
       {sub === 'access' && <AccessMatrix th={th} user={user} users={users} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} showAlert={showAlert} />}
       {SETTINGS_SECTION[sub] && <AdminSettings {...props} embedSection={SETTINGS_SECTION[sub]} />}
@@ -17400,6 +17663,7 @@ const getTabs = (user) => {
   // Executive & IT → full admin suite
   if (ut === "executive" || ut === "it") return [
     ...BASE_TABS,
+    { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
@@ -17422,6 +17686,7 @@ const getTabs = (user) => {
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
     ...BASE_TABS,
+    { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
     { id: "map",       label: "Map",       icon: '🗺️' },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -17441,6 +17706,7 @@ const getTabs = (user) => {
   // District Managers → base + their locations + their district analytics + projects (view-only)
   if (ut === "dm") return [
     ...BASE_TABS,
+    { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
@@ -17456,6 +17722,7 @@ const getTabs = (user) => {
   // Store managers see only their assigned stores.
   if (ut === "manager") return [
     ...BASE_TABS,
+    { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "labor",     label: "My Labor",     icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
@@ -18233,7 +18500,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v15.74";
+const APP_VERSION = "v15.91";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -25170,6 +25437,409 @@ function PnLStoreDetail({ store, th, onClose }) {
 // latest version of each order with a revision badge + dollar delta; click through
 // for the full version history and line items. Read-only (data from ndcp.js).
 const COORDS_BLOB = 'pcg_store_coords_v1';
+
+// ───────────────────────── Ops Tasks & Checklists ─────────────────────────
+// Portal-native task / checklist / corrective system (Workpulse-independent).
+// See docs/TASK_CHECKLIST_SYSTEM_PLAN.md. Backed by netlify/functions/tasks.js.
+// Mobile-first: Manager completes their store's tasks; DM/Exec monitor roll-ups;
+// Exec/IT manage the task catalog ("Book Task").
+const TASK_STATUS_COLOR = { open: O, overdue: "#e03131", missed: "#868e96", completed: "#2f9e44" };
+// Compliance color bands (WorkPulse model): red <25, orange 25-49, yellow 50-74, green >=75
+const complianceColor = (pct) => pct >= 75 ? "#2f9e44" : pct >= 50 ? "#f59e0b" : pct >= 25 ? "#f97316" : "#e03131";
+
+function TaskRing({ pct, size = 44, th, color }) {
+  const r = (size - 6) / 2, c = 2 * Math.PI * r, off = c * (1 - (pct || 0) / 100);
+  const stroke = color || (pct >= 100 ? "#2f9e44" : pct > 0 ? O : th.muted);
+  return (
+    <svg width={size} height={size} style={{ flexShrink: 0 }}>
+      <circle cx={size / 2} cy={size / 2} r={r} stroke={th.muted + "33"} strokeWidth={4} fill="none" />
+      <circle cx={size / 2} cy={size / 2} r={r} stroke={stroke} strokeWidth={4} fill="none"
+        strokeDasharray={c} strokeDashoffset={off} strokeLinecap="round"
+        transform={`rotate(-90 ${size / 2} ${size / 2})`} style={{ transition: "stroke-dashoffset .4s" }} />
+      <text x="50%" y="51%" textAnchor="middle" dominantBaseline="middle"
+        fontSize={size * 0.26} fontWeight={700} fill={th.text}>{pct || 0}%</text>
+    </svg>
+  );
+}
+
+function OpsTasks({ stores, th, user }) {
+  const isDM = user?.userType === "dm";
+  const isManager = user?.userType === "manager";
+  const myStore = getManagerStore(stores, user);
+
+  const scopeStores = (stores || []).filter((s) => {
+    if (isManager) return myStore && String(s.pc) === String(myStore.pc);
+    if (isDM) return String(s.district) === String(user?.district);
+    return true;
+  }).filter((s) => s.pc);
+
+  const todayET = () => {
+    const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+    return f.format(new Date());
+  };
+
+  const [view, setView] = useState(isManager ? "tasks" : "dashboard");
+  const [storePc, setStorePc] = useState(isManager && myStore ? String(myStore.pc) : (scopeStores[0]?.pc ? String(scopeStores[0].pc) : ""));
+  const [date, setDate] = useState(todayET());
+  const [seg, setSeg] = useState("open");
+  const [data, setData] = useState(null);
+  const [dash, setDash] = useState(null);
+  const [rollup, setRollup] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [openEntry, setOpenEntry] = useState(null);
+  const [entryVal, setEntryVal] = useState("");
+  // Phase 2: multi-item expansion + local answer staging
+  const [expandedId, setExpandedId] = useState(null);
+  const [localAnswers, setLocalAnswers] = useState({});
+  // Phase 3: corrective actions
+  const [cas, setCas] = useState(null);
+  const [caFilter, setCaFilter] = useState("open");
+  const [loadingCAs, setLoadingCAs] = useState(false);
+  const byName = user?.name || user?.email || "user";
+
+  const api = useCallback(async (action, payload = {}) => {
+    const r = await fetch("/.netlify/functions/tasks", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return r.json();
+  }, []);
+
+  const loadStore = useCallback(async () => {
+    if (!storePc) return;
+    setLoading(true);
+    if (view === "dashboard") setDash(await api("dashboard", { store_pc: storePc, date }));
+    else setData(await api("list", { store_pc: storePc, date }));
+    setLoading(false);
+  }, [api, storePc, date, view]);
+
+  const loadRollup = useCallback(async () => {
+    setLoading(true);
+    const r = await api("rollup", { date, district: isDM ? user?.district : null });
+    setRollup(r); setLoading(false);
+  }, [api, date, isDM, user]);
+
+  const loadCAs = useCallback(async () => {
+    setLoadingCAs(true);
+    const r = await api("list_corrective_actions", {
+      store_pc: isManager ? (myStore ? String(myStore.pc) : "") : null,
+      district: isDM ? user?.district : null,
+    });
+    setCas(r.corrective_actions || []);
+    setLoadingCAs(false);
+  }, [api, isManager, myStore, isDM, user]);
+
+  useEffect(() => { if (view === "tasks" || view === "dashboard") loadStore(); }, [view, loadStore]);
+  useEffect(() => { if (view === "stores") loadRollup(); }, [view, loadRollup]);
+  useEffect(() => { if (view === "cas") loadCAs(); }, [view, loadCAs]);
+
+  useEffect(() => {
+    if (view !== "tasks" && view !== "dashboard") return;
+    const id = setInterval(loadStore, 25000);
+    return () => clearInterval(id);
+  }, [view, loadStore]);
+
+  async function completeTask(tk, value) {
+    setBusyId(tk.id);
+    try {
+      await api("complete", { instance_id: tk.id, value: value ?? null, by: byName });
+      setOpenEntry(null); setEntryVal("");
+      await loadStore();
+    } finally { setBusyId(null); }
+  }
+  async function reopenTask(tk) {
+    setBusyId(tk.id);
+    try {
+      await api("reopen", { instance_id: tk.id });
+      setExpandedId(null);
+      await loadStore();
+    } finally { setBusyId(null); }
+  }
+  async function submitAnswer(tk, item, equip, answerData) {
+    setBusyId(tk.id);
+    const key = `${tk.id}_${item.id}_${equip?.id || "null"}`;
+    try {
+      await api("submit_answers", {
+        instance_id: tk.id,
+        answers: [{ item_id: item.id, equipment_id: equip?.id || null, ...answerData }],
+        by: byName,
+      });
+      setLocalAnswers((prev) => { const n = { ...prev }; delete n[key]; return n; });
+      await loadStore();
+    } finally { setBusyId(null); }
+  }
+  async function resolveCA(ca) {
+    await api("resolve_ca", { ca_id: ca.id, resolved_by: byName });
+    loadCAs();
+  }
+
+  const segTasks = (data?.tasks || []).filter((t) =>
+    seg === "all" ? true : seg === "missed" ? (t.statusComputed === "missed" || t.statusComputed === "overdue") : t.statusComputed === "open"
+  );
+
+  const segBtn = (id, label, n) => (
+    <button onClick={() => setSeg(id)} style={{
+      flex: 1, padding: "0.55rem 0.4rem", border: "none", background: "transparent", cursor: "pointer",
+      fontSize: "0.85rem", fontWeight: 700, color: seg === id ? O : th.muted,
+      borderBottom: `2px solid ${seg === id ? O : "transparent"}`,
+    }}>{label}{typeof n === "number" ? ` (${n})` : ""}</button>
+  );
+
+  const viewTab = (id, label, accent) => (
+    <button onClick={() => setView(id)} style={{
+      padding: "0.5rem 0.9rem", borderRadius: 999,
+      border: `1px solid ${view === id ? (accent || O) : th.muted + "55"}`,
+      background: view === id ? (accent || O) : "transparent",
+      color: view === id ? "#fff" : th.text,
+      fontSize: "0.8rem", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+    }}>{label}</button>
+  );
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
+        <h2 style={{ ...pageTitle(th), margin: 0 }}>Tasks</h2>
+        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+          {!isManager && viewTab("dashboard", "Dashboard")}
+          {viewTab("tasks", "Tasks")}
+          {!isManager && viewTab("stores", "Stores")}
+          {viewTab("cas", "Corrective Actions", "#e03131")}
+        </div>
+      </div>
+
+      {/* Controls */}
+      {(view === "tasks" || view === "dashboard") && (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+          {!isManager && (
+            <select value={storePc} onChange={(e) => setStorePc(e.target.value)} style={{ ...inp(th), flex: 1, minWidth: 160 }}>
+              {scopeStores.map((s) => <option key={s.pc} value={String(s.pc)}>{s.pc} — {s.name}</option>)}
+            </select>
+          )}
+          {isManager && myStore && (
+            <div style={{ ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 }}>{myStore.pc} — {myStore.name}</div>
+          )}
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp(th), width: 160 }} />
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Loading…</div>}
+
+      {/* ── Dashboard ── */}
+      {view === "dashboard" && dash && !loading && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" }}>
+            {[["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => (
+              <div key={k} style={{ ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" }}>
+                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text }}>{dash.totals[k] || 0}</div>
+                <div style={{ fontSize: "0.7rem", color: th.muted, fontWeight: 600 }}>{lbl}</div>
+              </div>
+            ))}
+          </div>
+          {dash.open_cas > 0 && (
+            <div onClick={() => setView("cas")} style={{ ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", borderLeft: "4px solid #e03131" }}>
+              <span style={{ fontSize: "1.1rem", color: "#e03131", fontWeight: 800 }}>{dash.open_cas}</span>
+              <span style={{ fontSize: "0.82rem", color: th.text, fontWeight: 600 }}>Open Corrective Action{dash.open_cas !== 1 ? "s" : ""}</span>
+              <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: th.muted }}>View →</span>
+            </div>
+          )}
+          {dash.categories.map((c) => (
+            <div key={c.category} style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` }}>
+              <TaskRing pct={c.pct} th={th} size={40} color={complianceColor(c.pct)} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700 }}>{c.category}</div>
+                <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                  {c.open} open · <span style={{ color: "#e03131" }}>{c.overdue} overdue</span> · {c.completed}/{c.all} done
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Tasks list ── */}
+      {view === "tasks" && data && !loading && (
+        <div>
+          <div style={{ display: "flex", ...card(th), padding: 0, marginBottom: "0.75rem", overflow: "hidden" }}>
+            {segBtn("open", "Open", data.counts.open)}
+            {segBtn("missed", "Missed", data.counts.missed + data.counts.overdue)}
+            {segBtn("all", "All", data.counts.all)}
+          </div>
+          {segTasks.length === 0 && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Nothing here</div>}
+          {segTasks.map((tk) => {
+            const sc = TASK_STATUS_COLOR[tk.statusComputed] || th.muted;
+            const done = tk.statusComputed === "completed";
+            const hasItems = (tk.items_count || 0) > 0;
+            const isExpanded = expandedId === tk.id;
+            const isMeas = !hasItems && (tk.input_type === "temperature" || tk.input_type === "weight" || tk.input_type === "count");
+            const itemPct = hasItems ? Math.round(((tk.answers_count || 0) / tk.items_count) * 100) : (done ? 100 : 0);
+
+            return (
+              <div key={tk.id} style={{ ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${sc}` }}>
+                {/* Card header */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", cursor: hasItems ? "pointer" : "default" }}
+                  onClick={() => hasItems && setExpandedId(isExpanded ? null : tk.id)}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{tk.name}</div>
+                    <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.25rem", flexWrap: "wrap" }}>
+                      <span style={pill(th.muted, { fontSize: "0.68rem" })}>{tk.category}</span>
+                      {tk.shift_time && <span style={{ fontSize: "0.72rem", color: th.muted }}>{tk.shift_time}</span>}
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, color: sc, textTransform: "capitalize" }}>{tk.statusComputed}</span>
+                      {hasItems && <span style={{ fontSize: "0.68rem", color: th.muted }}>{tk.answers_count}/{tk.items_count} items</span>}
+                      {!hasItems && isMeas && tk.min_val != null && <span style={{ fontSize: "0.68rem", color: th.muted }}>({tk.min_val}–{tk.max_val}{tk.unit} · tgt {tk.target}{tk.unit})</span>}
+                    </div>
+                    {done && !hasItems && tk.value != null && <div style={{ fontSize: "0.74rem", color: th.muted, marginTop: "0.2rem" }}>Recorded: {tk.value}{tk.unit || ""}{tk.completed_by ? ` · ${tk.completed_by}` : ""}</div>}
+                  </div>
+                  <TaskRing pct={itemPct} th={th} size={40} color={hasItems ? complianceColor(itemPct) : undefined} />
+                  {hasItems && <span style={{ color: th.muted, fontSize: "0.85rem", flexShrink: 0 }}>{isExpanded ? "▲" : "▼"}</span>}
+                </div>
+
+                {/* Multi-item expansion (Phase 2) */}
+                {hasItems && isExpanded && (
+                  <div style={{ marginTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}`, paddingTop: "0.5rem" }}>
+                    {tk.items.map((item) => {
+                      const equipList = tk.equipment.length ? tk.equipment : [null];
+                      return equipList.map((equip) => {
+                        const key = `${tk.id}_${item.id}_${equip?.id || "null"}`;
+                        const existing = (tk.answers || []).find((a) => a.item_id === item.id && (equip ? a.equipment_id === equip.id : !a.equipment_id));
+                        const localVal = localAnswers[key];
+                        const outRange = existing?.in_range === false;
+                        return (
+                          <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0", borderBottom: `1px solid ${th.cardBorder}33` }}>
+                            {equip && <span style={{ fontSize: "0.68rem", color: th.muted, minWidth: 90, flexShrink: 0 }}>{equip.unit_name}</span>}
+                            {item.input_type === "bool" ? (
+                              <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", cursor: done ? "default" : "pointer", flex: 1 }}>
+                                <input type="checkbox" checked={!!existing?.checked}
+                                  disabled={done || busyId === tk.id}
+                                  onChange={(e) => !done && submitAnswer(tk, item, equip, { checked: e.target.checked })} />
+                                <span style={{ fontSize: "0.85rem", flex: 1 }}>{item.label}</span>
+                                {existing?.checked && <span style={{ color: "#2f9e44", fontSize: "0.78rem" }}>✓</span>}
+                              </label>
+                            ) : (
+                              <>
+                                <span style={{ flex: 1, fontSize: "0.85rem" }}>{item.label}</span>
+                                {item.min_val != null && <span style={{ fontSize: "0.68rem", color: th.muted, whiteSpace: "nowrap" }}>{item.min_val}–{item.max_val}{item.unit}</span>}
+                                <input type="number" inputMode="decimal"
+                                  value={localVal !== undefined ? localVal : (existing?.value != null ? String(existing.value) : "")}
+                                  onChange={(e) => setLocalAnswers((prev) => ({ ...prev, [key]: e.target.value }))}
+                                  onBlur={(e) => { const v = e.target.value; if (v !== "" && !done && busyId !== tk.id) submitAnswer(tk, item, equip, { value: Number(v) }); }}
+                                  disabled={done || busyId === tk.id}
+                                  style={{ ...inp(th), width: 80, fontSize: "0.85rem", borderColor: outRange ? "#e03131" : undefined }} />
+                                {outRange && <span style={{ color: "#e03131", fontSize: "0.8rem" }}>⚠</span>}
+                                {existing?.in_range === true && <span style={{ color: "#2f9e44", fontSize: "0.8rem" }}>✓</span>}
+                              </>
+                            )}
+                          </div>
+                        );
+                      });
+                    })}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
+                      {done
+                        ? <span style={{ fontSize: "0.76rem", color: "#2f9e44", fontWeight: 700 }}>✓ Complete{tk.completed_by ? ` · ${tk.completed_by}` : ""}</span>
+                        : <span style={{ fontSize: "0.76rem", color: th.muted }}>Tap a checkbox or enter a reading to record</span>
+                      }
+                      {done && (
+                        <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id}
+                          style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" }}>
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                    {busyId === tk.id && <div style={{ fontSize: "0.74rem", color: th.muted, textAlign: "center", paddingTop: "0.3rem" }}>Saving…</div>}
+                  </div>
+                )}
+
+                {/* Simple task actions (no items — Phase 1 compat) */}
+                {!hasItems && (
+                  <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    {done ? (
+                      <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.4rem 0.8rem" }}>Reopen</button>
+                    ) : openEntry === tk.id ? (
+                      <>
+                        <input type="number" inputMode="decimal" autoFocus value={entryVal} onChange={(e) => setEntryVal(e.target.value)}
+                          placeholder={`Reading${tk.unit ? " (" + tk.unit + ")" : ""}`} style={{ ...inp(th), flex: 1, fontSize: "0.85rem" }} />
+                        <button onClick={() => completeTask(tk, entryVal === "" ? null : Number(entryVal))} disabled={busyId === tk.id}
+                          style={{ ...btn(th), fontSize: "0.8rem", padding: "0.45rem 0.9rem" }}>Save</button>
+                        <button onClick={() => { setOpenEntry(null); setEntryVal(""); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.45rem 0.7rem" }}>✕</button>
+                      </>
+                    ) : (
+                      <button onClick={() => { if (isMeas) { setOpenEntry(tk.id); setEntryVal(""); } else { completeTask(tk); } }} disabled={busyId === tk.id}
+                        style={{ ...btn(th), fontSize: "0.82rem", padding: "0.45rem 1rem", width: isMeas ? "auto" : "100%" }}>
+                        {busyId === tk.id ? "…" : isMeas ? "Enter reading" : "✓ Mark complete"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Stores roll-up (DM / Exec) ── */}
+      {view === "stores" && rollup && !loading && (
+        <div>
+          <div style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" }}>{rollup.stores.length} stores · {date}{isDM ? ` · District ${user?.district}` : ""}</div>
+          {rollup.stores.map((s) => (
+            <div key={s.pc} onClick={() => { setStorePc(String(s.pc)); setView("tasks"); }}
+              style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", cursor: "pointer" }}>
+              <TaskRing pct={s.pct} th={th} size={40} color={complianceColor(s.pct)} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700 }}>{s.name} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.78rem" }}>· {s.pc}</span></div>
+                <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                  {s.open} open · <span style={{ color: "#e03131" }}>{s.overdue} overdue</span> · {s.completed}/{s.all} done{!isDM ? ` · D${s.district}` : ""}
+                  {s.open_cas > 0 && <span style={{ color: "#e03131", marginLeft: "0.4rem" }}>· {s.open_cas} CA{s.open_cas !== 1 ? "s" : ""}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Corrective Actions (Phase 3) ── */}
+      {view === "cas" && (
+        <div>
+          <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            {[["open", "Open"], ["resolved", "Resolved"], ["all", "All"]].map(([f, lbl]) => (
+              <button key={f} onClick={() => setCaFilter(f)} style={{
+                padding: "0.45rem 0.9rem", borderRadius: 999,
+                border: `1px solid ${caFilter === f ? "#e03131" : th.muted + "55"}`,
+                background: caFilter === f ? "#e031311a" : "transparent",
+                color: caFilter === f ? "#e03131" : th.text,
+                fontSize: "0.8rem", fontWeight: 700, cursor: "pointer",
+              }}>{lbl} ({(cas || []).filter((c) => f === "all" || c.status === f).length})</button>
+            ))}
+            <button onClick={loadCAs} style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.76rem", padding: "0.4rem 0.7rem", marginLeft: "auto" }}>Refresh</button>
+          </div>
+          {loadingCAs && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Loading…</div>}
+          {!loadingCAs && cas !== null && (() => {
+            const filtered = (cas || []).filter((c) => caFilter === "all" || c.status === caFilter);
+            if (!filtered.length) return <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>No {caFilter !== "all" ? caFilter : ""} corrective actions</div>;
+            return filtered.map((ca) => (
+              <div key={ca.id} style={{ ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${ca.status === "resolved" ? "#2f9e44" : "#e03131"}` }}>
+                <div style={{ fontWeight: 700, fontSize: "0.88rem" }}>{ca.title}</div>
+                <div style={{ fontSize: "0.73rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  {!isManager && <span>{ca.store_name}</span>}
+                  <span style={{ color: ca.status === "resolved" ? "#2f9e44" : "#e03131", fontWeight: 700, textTransform: "capitalize" }}>{ca.status}</span>
+                  {ca.created_at && <span>{new Date(ca.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
+                  {ca.due_date && ca.status === "open" && <span style={{ color: "#f59e0b" }}>Due {ca.due_date}</span>}
+                </div>
+                {ca.status === "open" && (
+                  <button onClick={() => resolveCA(ca)} style={{ ...btn(th, { background: "transparent", color: "#2f9e44", border: "1px solid #2f9e4455" }), fontSize: "0.76rem", padding: "0.3rem 0.8rem", marginTop: "0.5rem" }}>
+                    Mark Resolved
+                  </button>
+                )}
+                {ca.status === "resolved" && ca.resolved_by && (
+                  <div style={{ fontSize: "0.72rem", color: "#2f9e44", marginTop: "0.3rem" }}>Resolved by {ca.resolved_by}</div>
+                )}
+              </div>
+            ));
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ImpactRadar({ th, user, dark, salesWeeks }) {
   const [eventAddr, setEventAddr] = useState('2310 W Passyunk Ave, Philadelphia, PA 19145');
@@ -34528,7 +35198,7 @@ function PCGPortal() {
 
   // ─── Admin groups config ──────────────────────────────────────────────────
   const ADMIN_GROUPS = [
-    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['pulse', 'labor', 'analytics', 'anomalies', 'scorecard'] },
+    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['tasks', 'pulse', 'labor', 'analytics', 'anomalies', 'scorecard'] },
     { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon', 'expenses'] },
     { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'impact', 'projects', 'deals', 'users'] },
     { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'admin'] },
@@ -34892,7 +35562,7 @@ function PCGPortal() {
           const dmTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
           const DM_GROUPS = [
             { key:'dm_loc',  label:'Locations & Map', color:'#74c0fc', icon:(c)=>ICONS.locations(c), ids:['map','locations'] },
-            { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['pulse','labor','pnl','analytics','anomalies'] },
+            { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['tasks','pulse','labor','pnl','analytics','anomalies'] },
             { key:'dm_biz',  label:'District',        color:'#74c0fc', icon:(c)=>ICONS.dollar(c),    ids:['cash','reports','projects','deals','scorecard'] },
           ];
           const sectionHasActive = dmTabs.some(t => t.id === tab) && !pinnedNavIds.includes(tab);
@@ -35486,6 +36156,7 @@ function PCGPortal() {
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && <AdminNdcp th={th} user={user} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
+          {tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <OpsTasks stores={stores} th={th} user={user} />}
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
