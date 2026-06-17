@@ -222,6 +222,8 @@ async function ensureTable(db) {
   // Partial unique indexes prevent duplicate CAs for the same instance+item, matching the pattern on task_instance_answers
   await db`CREATE UNIQUE INDEX IF NOT EXISTS ca_uq_no_station ON corrective_actions(instance_id, item_id) WHERE station IS NULL`;
   await db`CREATE UNIQUE INDEX IF NOT EXISTS ca_uq_with_station ON corrective_actions(instance_id, item_id, station) WHERE station IS NOT NULL`;
+  // Phase 5: photo evidence on corrective actions
+  await db`ALTER TABLE corrective_actions ADD COLUMN IF NOT EXISTS photo_url TEXT`;
 }
 
 async function generateInstances(db, storePcs, dateStr) {
@@ -407,7 +409,7 @@ export default async (request, context) => {
     if (action === 'reopen') {
       const id = +body.instance_id;
       if (!id) return reply(400, { error: 'instance_id required' });
-      await db`UPDATE task_instances SET status='open', completed_by=null, completed_at=null WHERE id=${id}`;
+      await db`UPDATE task_instances SET status='open', completed_by=null, completed_at=null, signed_off_by=null, signed_off_at=null WHERE id=${id}`;
       // Remove answers so the form resets
       await db`DELETE FROM task_instance_answers WHERE instance_id = ${id}`;
       return reply(200, { ok: true, instance_id: id });
@@ -474,6 +476,27 @@ export default async (request, context) => {
 
       const caList = rows.map((ca) => ({ ...ca, store_name: STORE_BY_PC[ca.store_pc]?.name || ca.store_pc }));
       return reply(200, { corrective_actions: caList });
+    }
+
+    if (action === 'sign_off') {
+      const id = +body.instance_id;
+      if (!id) return reply(400, { error: 'instance_id required' });
+      const rows = await db`
+        SELECT i.status, t.allow_signoff
+        FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+        WHERE i.id = ${id}`;
+      if (!rows.length) return reply(404, { error: 'instance not found' });
+      if (!rows[0].allow_signoff) return reply(400, { error: 'task does not require sign-off' });
+      if (rows[0].status !== 'completed') return reply(400, { error: 'task must be completed before sign-off' });
+      await db`UPDATE task_instances SET signed_off_by=${body.signed_off_by || null}, signed_off_at=now() WHERE id=${id}`;
+      return reply(200, { ok: true, instance_id: id });
+    }
+
+    if (action === 'ca_add_photo') {
+      const id = +body.ca_id;
+      if (!id) return reply(400, { error: 'ca_id required' });
+      await db`UPDATE corrective_actions SET photo_url=${body.photo_url || null} WHERE id=${id}`;
+      return reply(200, { ok: true, ca_id: id });
     }
 
     if (action === 'resolve_ca') {

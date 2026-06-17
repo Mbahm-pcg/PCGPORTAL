@@ -18500,7 +18500,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v15.95";
+const APP_VERSION = "v16.00";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -25522,6 +25522,8 @@ function OpsTasks({ stores, th, user }) {
   const [cas, setCas] = useState(null);
   const [caFilter, setCaFilter] = useState("open");
   const [loadingCAs, setLoadingCAs] = useState(false);
+  // Task compliance alerts (from tasks-cron blob)
+  const [taskAlerts, setTaskAlerts] = useState(null);
   const byName = user?.name || user?.email || "user";
 
   const api = useCallback(async (action, payload = {}) => {
@@ -25532,12 +25534,20 @@ function OpsTasks({ stores, th, user }) {
     return r.json();
   }, []);
 
-  const loadStore = useCallback(async () => {
+  const loadStore = useCallback(async (silent = false) => {
     if (!storePc) return;
-    setLoading(true);
-    if (view === "dashboard") setDash(await api("dashboard", { store_pc: storePc, date }));
-    else setData(await api("list", { store_pc: storePc, date }));
-    setLoading(false);
+    if (!silent) setLoading(true);
+    if (view === "dashboard") {
+      const [dashData, alertsData] = await Promise.all([
+        api("dashboard", { store_pc: storePc, date }),
+        cloudLoad("pcg_task_alerts_v1"),
+      ]);
+      setDash(dashData);
+      setTaskAlerts(alertsData);
+    } else {
+      setData(await api("list", { store_pc: storePc, date }));
+    }
+    if (!silent) setLoading(false);
   }, [api, storePc, date, view]);
 
   const loadRollup = useCallback(async () => {
@@ -25562,7 +25572,7 @@ function OpsTasks({ stores, th, user }) {
 
   useEffect(() => {
     if (view !== "tasks" && view !== "dashboard") return;
-    const id = setInterval(loadStore, 25000);
+    const id = setInterval(() => loadStore(true), 25000);
     return () => clearInterval(id);
   }, [view, loadStore]);
 
@@ -25571,7 +25581,7 @@ function OpsTasks({ stores, th, user }) {
     try {
       await api("complete", { instance_id: tk.id, value: value ?? null, by: byName });
       setOpenEntry(null); setEntryVal("");
-      await loadStore();
+      await loadStore(true);
     } finally { setBusyId(null); }
   }
   async function reopenTask(tk) {
@@ -25579,7 +25589,7 @@ function OpsTasks({ stores, th, user }) {
     try {
       await api("reopen", { instance_id: tk.id });
       setExpandedId(null);
-      await loadStore();
+      await loadStore(true);
     } finally { setBusyId(null); }
   }
   async function submitAnswer(tk, item, equip, answerData) {
@@ -25592,12 +25602,55 @@ function OpsTasks({ stores, th, user }) {
         by: byName,
       });
       setLocalAnswers((prev) => { const n = { ...prev }; delete n[key]; return n; });
-      await loadStore();
+      await loadStore(true);
     } finally { setBusyId(null); }
   }
   async function resolveCA(ca) {
     await api("resolve_ca", { ca_id: ca.id, resolved_by: byName });
     loadCAs();
+  }
+  async function signOffTask(tk) {
+    setBusyId(tk.id);
+    try {
+      await api("sign_off", { instance_id: tk.id, signed_off_by: byName });
+      await loadStore(true);
+    } finally { setBusyId(null); }
+  }
+  function pickCaPhoto(ca) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.capture = "environment";
+    input.style.position = "absolute";
+    input.style.opacity = "0";
+    input.style.pointerEvents = "none";
+    input.onchange = async (e) => {
+      document.body.removeChild(input);
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const img = new window.Image();
+        img.onload = async () => {
+          try {
+            const MAX = 800;
+            const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+            await api("ca_add_photo", { ca_id: ca.id, photo_url: dataUrl });
+            loadCAs();
+          } catch (err) { console.error("CA photo error", err); }
+        };
+        img.onerror = (err) => console.error("CA photo load error", err);
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    };
+    document.body.appendChild(input);
+    input.click();
   }
 
   const segTasks = (data?.tasks || []).filter((t) =>
@@ -25657,6 +25710,28 @@ function OpsTasks({ stores, th, user }) {
       {/* ── Dashboard ── */}
       {view === "dashboard" && dash && !loading && (
         <div>
+          {/* Task compliance alerts from tasks-cron */}
+          {taskAlerts?.alerts?.length > 0 && (() => {
+            const scopedAlerts = (taskAlerts.alerts || []).filter((a) => {
+              if (isManager) return String(a.storePC) === String(myStore?.pc);
+              if (isDM) return String(a.district) === String(user?.district);
+              return true;
+            });
+            if (!scopedAlerts.length) return null;
+            return (
+              <div style={{ marginBottom: "0.9rem" }}>
+                {scopedAlerts.map((a) => (
+                  <div key={a.storePC} style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${a.severity === "high" ? "#e03131" : a.severity === "medium" ? "#f59e0b" : th.muted}`, display: "flex", gap: "0.6rem", alignItems: "flex-start" }}>
+                    <span style={{ fontSize: "1rem", flexShrink: 0 }}>{a.severity === "high" ? "⚠" : "ℹ"}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: "0.82rem", fontWeight: 700, color: th.text, marginBottom: "0.15rem" }}>{!isManager ? a.storeName : "Task Alert"}</div>
+                      <div style={{ fontSize: "0.78rem", color: th.muted, lineHeight: 1.4 }}>{a.message}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" }}>
             {[["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => (
               <div key={k} style={{ ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" }}>
@@ -25807,14 +25882,22 @@ function OpsTasks({ stores, th, user }) {
                     })}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
                       {done
-                        ? <span style={{ fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700 }}>Completed{tk.completed_by ? ` · ${tk.completed_by}` : ""}</span>
+                        ? <span style={{ fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700 }}>Completed{tk.completed_by ? ` · ${tk.completed_by}` : ""}{tk.signed_off_by ? ` · Signed off` : ""}</span>
                         : <span style={{ fontSize: "0.78rem", color: th.muted }}>Enter readings or check off items to record</span>
                       }
                       {done && (
-                        <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id}
-                          style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.45rem 0.85rem", minHeight: 36, touchAction: "manipulation" }}>
-                          Reset
-                        </button>
+                        <div style={{ display: "flex", gap: "0.4rem" }}>
+                          {tk.allow_signoff && !tk.signed_off_by && (
+                            <button onClick={() => signOffTask(tk)} disabled={busyId === tk.id}
+                              style={{ ...btn(th, { background: "#2f9e4422", color: "#2f9e44", border: "1px solid #2f9e4444" }), fontSize: "0.78rem", padding: "0.45rem 0.85rem", minHeight: 36, touchAction: "manipulation" }}>
+                              Sign Off
+                            </button>
+                          )}
+                          <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id || !!tk.signed_off_by}
+                            style={{ ...btn(th, { background: "transparent", color: tk.signed_off_by ? th.muted : th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.45rem 0.85rem", minHeight: 36, touchAction: "manipulation" }}>
+                            Reset
+                          </button>
+                        </div>
                       )}
                     </div>
                     {busyId === tk.id && (
@@ -25829,9 +25912,19 @@ function OpsTasks({ stores, th, user }) {
 
                 {/* Simple task actions (no items — Phase 1 compat) */}
                 {!hasItems && (
-                  <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
                     {done ? (
-                      <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.55rem 1rem", minHeight: 44, touchAction: "manipulation" }}>Reopen</button>
+                      <>
+                        {tk.allow_signoff && !tk.signed_off_by && (
+                          <button onClick={() => signOffTask(tk)} disabled={busyId === tk.id}
+                            style={{ ...btn(th, { background: "#2f9e4422", color: "#2f9e44", border: "1px solid #2f9e4444" }), fontSize: "0.82rem", padding: "0.55rem 1rem", minHeight: 44, touchAction: "manipulation" }}>
+                            Sign Off
+                          </button>
+                        )}
+                        {tk.signed_off_by && <span style={{ fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700, flex: 1 }}>✓ Signed off · {tk.signed_off_by}</span>}
+                        <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id || !!tk.signed_off_by}
+                          style={{ ...btn(th, { background: "transparent", color: tk.signed_off_by ? th.muted : th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.55rem 1rem", minHeight: 44, touchAction: "manipulation" }}>Reopen</button>
+                      </>
                     ) : openEntry === tk.id ? (
                       <>
                         <input type="number" inputMode="decimal" autoFocus value={entryVal} onChange={(e) => setEntryVal(e.target.value)}
@@ -25912,11 +26005,19 @@ function OpsTasks({ stores, th, user }) {
                   {ca.created_at && <span>{new Date(ca.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
                   {ca.due_date && ca.status === "open" && <span style={{ color: "#f59e0b" }}>Due {ca.due_date}</span>}
                 </div>
-                {ca.status === "open" && (
-                  <button onClick={() => resolveCA(ca)} style={{ ...btn(th, { background: "transparent", color: "#2f9e44", border: "1px solid #2f9e4455" }), fontSize: "0.82rem", padding: "0.5rem 1rem", minHeight: 40, marginTop: "0.6rem", touchAction: "manipulation" }}>
-                    Mark Resolved
-                  </button>
+                {ca.photo_url && (
+                  <img src={ca.photo_url} alt="CA photo" style={{ marginTop: "0.5rem", width: 80, height: 60, objectFit: "cover", borderRadius: 4, display: "block" }} />
                 )}
+                <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.6rem", flexWrap: "wrap" }}>
+                  {ca.status === "open" && (
+                    <button onClick={() => resolveCA(ca)} style={{ ...btn(th, { background: "transparent", color: "#2f9e44", border: "1px solid #2f9e4455" }), fontSize: "0.82rem", padding: "0.5rem 1rem", minHeight: 40, touchAction: "manipulation" }}>
+                      Mark Resolved
+                    </button>
+                  )}
+                  <button onClick={() => pickCaPhoto(ca)} style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}44` }), fontSize: "0.82rem", padding: "0.5rem 0.85rem", minHeight: 40, touchAction: "manipulation" }}>
+                    📷 {ca.photo_url ? "Replace Photo" : "Add Photo"}
+                  </button>
+                </div>
                 {ca.status === "resolved" && ca.resolved_by && (
                   <div style={{ fontSize: "0.72rem", color: "#2f9e44", marginTop: "0.3rem" }}>Resolved by {ca.resolved_by}</div>
                 )}
@@ -35473,7 +35574,7 @@ function PCGPortal() {
 
         {/* User card */}
         <div
-          onClick={() => setShowProfile(true)}
+          onClick={() => { setShowProfile(true); onNav && onNav(); }}
           style={{
             display: "flex", alignItems: "center",
             gap: collapsed ? 0 : "0.7rem",
