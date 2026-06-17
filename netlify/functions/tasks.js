@@ -1,27 +1,37 @@
 // tasks.js — Ops Task & Checklist system API (portal-native, Workpulse-independent).
 // See docs/TASK_CHECKLIST_SYSTEM_PLAN.md.
 //
-// One endpoint, action-dispatched (like ndcp.js). Unauthenticated read/write consistent
-// with the portal's other function endpoints; tab + role gating is done client-side.
-// Backed by Neon Postgres. Tables are created on demand (ensureTable), no migration step.
+// Phase 1: single-value completion per instance.
+// Phase 2: task_template_items + task_template_equipment + task_instance_answers
+//           (multi-item per-task completion, per-item ranges, equipment units).
+// Phase 3: corrective_actions (auto-created when answer out of range).
 //
 // Actions
 //   ── Manager / DM / Exec (consume) ──
-//   list        {store_pc, date}          → today's instances for a store (+ status counts)
-//   complete    {instance_id, value?, note?, by?, checklist?}  → mark an instance done
-//   reopen      {instance_id}             → set an instance back to open
-//   dashboard   {store_pc, date}          → per-category rollup for one store
-//   rollup      {date, district?}         → per-store rollup (DM = their district, Exec = all 45)
+//   list        {store_pc, date}
+//   complete    {instance_id, value?, note?, by?, checklist?}   ← simple tasks (no items)
+//   submit_answers {instance_id, answers[], by}                  ← multi-item tasks
+//   reopen      {instance_id}
+//   dashboard   {store_pc, date}
+//   rollup      {date, district?}
+//   list_corrective_actions {store_pc?, district?, status?}
+//   resolve_ca  {ca_id, resolved_by}
 //   ── Exec / IT (admin "Book Task") ──
-//   admin_templates                       → all templates (+ assigned-location count)
-//   admin_save_template  {template}       → create/update a template
-//   admin_set_locations  {template_id, store_pcs[]}  → assign stores
+//   admin_templates
+//   admin_save_template  {template}
+//   admin_get_locations  {template_id}
+//   admin_set_locations  {template_id, store_pcs[]}
 //   admin_toggle_active  {template_id, active}
-//   seed                                  → load the starter catalog (idempotent by name)
+//   admin_get_items      {template_id}
+//   admin_save_items     {template_id, items[], equipment[]}
+//   seed                 (idempotent catalog load)
+//   seed_items           (seed sub-items from ITEMS_CATALOG)
 
 const { sql } = require('./db');
 const { STORE_BY_PC } = require('./ndcp-lib/store-map');
-const { CATALOG, SHIFT_WINDOWS } = require('./tasks-lib/catalog');
+const { CATALOG, SHIFT_WINDOWS, ITEMS_CATALOG } = require('./tasks-lib/catalog');
+
+let _tableEnsured = false;
 
 const ALLOWED_ORIGINS = ['https://uop.peoplecapitalgroup.com', 'https://pcg-ops.netlify.app'];
 function corsFor(event) {
@@ -30,9 +40,8 @@ function corsFor(event) {
   return { 'Access-Control-Allow-Origin': allow, 'Access-Control-Allow-Headers': 'Content-Type', 'Content-Type': 'application/json' };
 }
 
-// ── Date / time helpers (operate in ET, since stores + crons are ET) ──
+// ── Date / time helpers (ET) ──
 function etNow() {
-  // Date parts in America/New_York regardless of server TZ.
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
@@ -40,7 +49,7 @@ function etNow() {
   const p = {}; for (const part of fmt.formatToParts(new Date())) p[part.type] = part.value;
   return { date: `${p.year}-${p.month}-${p.day}`, hour: +p.hour % 24, minute: +p.minute };
 }
-function dowOf(dateStr) { // 0=Sun..6=Sat, from 'YYYY-MM-DD' (noon avoids TZ edge)
+function dowOf(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay();
 }
@@ -49,7 +58,6 @@ function daysSinceEpoch(dateStr) {
   return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
 }
 
-// Compute display status from stored status + date + shift window (ET now).
 function computeStatus(row, now) {
   if (row.status === 'completed') return 'completed';
   const isPast = row.business_date < now.date;
@@ -61,9 +69,6 @@ function computeStatus(row, now) {
   return 'open';
 }
 
-// Tally instance rows into status counts + pct. With keyFn, also returns per-group counts
-// (key in `.key`). Shared by the list / dashboard / rollup actions so the four status
-// buckets and pct math live in exactly one place.
 function tally(rows, now, keyFn) {
   const blank = () => ({ open: 0, overdue: 0, missed: 0, completed: 0, all: 0 });
   const withPct = (o) => ({ ...o, pct: o.all ? Math.round((o.completed / o.all) * 100) : 0 });
@@ -82,6 +87,7 @@ function tally(rows, now, keyFn) {
 }
 
 async function ensureTable(db) {
+  // ── Phase 1 tables ──
   await db`
     CREATE TABLE IF NOT EXISTS task_templates (
       id SERIAL PRIMARY KEY,
@@ -124,17 +130,72 @@ async function ensureTable(db) {
       UNIQUE (template_id, store_pc, business_date)
     )`;
   await db`CREATE INDEX IF NOT EXISTS task_instances_store_date_idx ON task_instances(store_pc, business_date)`;
+
+  // ── Phase 2 tables ──
+  await db`
+    CREATE TABLE IF NOT EXISTS task_template_items (
+      id SERIAL PRIMARY KEY,
+      template_id INT NOT NULL REFERENCES task_templates(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      sort_order INT DEFAULT 0,
+      input_type TEXT DEFAULT 'bool',
+      group_name TEXT,
+      target NUMERIC, min_val NUMERIC, max_val NUMERIC, unit TEXT,
+      requires_photo BOOL DEFAULT false
+    )`;
+  await db`CREATE INDEX IF NOT EXISTS tti_template_idx ON task_template_items(template_id)`;
+  await db`
+    CREATE TABLE IF NOT EXISTS task_template_equipment (
+      id SERIAL PRIMARY KEY,
+      template_id INT NOT NULL REFERENCES task_templates(id) ON DELETE CASCADE,
+      unit_name TEXT NOT NULL,
+      sort_order INT DEFAULT 0
+    )`;
+  await db`CREATE INDEX IF NOT EXISTS tte_template_idx ON task_template_equipment(template_id)`;
+  await db`
+    CREATE TABLE IF NOT EXISTS task_instance_answers (
+      id SERIAL PRIMARY KEY,
+      instance_id INT NOT NULL REFERENCES task_instances(id) ON DELETE CASCADE,
+      item_id INT NOT NULL REFERENCES task_template_items(id) ON DELETE CASCADE,
+      equipment_id INT REFERENCES task_template_equipment(id) ON DELETE SET NULL,
+      checked BOOL,
+      value NUMERIC,
+      note TEXT,
+      in_range BOOL,
+      by TEXT,
+      at TIMESTAMPTZ DEFAULT now()
+    )`;
+  await db`CREATE UNIQUE INDEX IF NOT EXISTS tia_uq_no_equip ON task_instance_answers(instance_id, item_id) WHERE equipment_id IS NULL`;
+  await db`CREATE UNIQUE INDEX IF NOT EXISTS tia_uq_with_equip ON task_instance_answers(instance_id, item_id, equipment_id) WHERE equipment_id IS NOT NULL`;
+  await db`CREATE INDEX IF NOT EXISTS tia_instance_idx ON task_instance_answers(instance_id)`;
+
+  // ── Phase 3 table ──
+  await db`
+    CREATE TABLE IF NOT EXISTS corrective_actions (
+      id SERIAL PRIMARY KEY,
+      instance_id INT REFERENCES task_instances(id) ON DELETE SET NULL,
+      item_id INT REFERENCES task_template_items(id) ON DELETE SET NULL,
+      store_pc TEXT NOT NULL,
+      station TEXT,
+      title TEXT NOT NULL,
+      measured_value NUMERIC,
+      target NUMERIC, min_val NUMERIC, max_val NUMERIC, unit TEXT,
+      assignee TEXT,
+      due_date DATE,
+      status TEXT DEFAULT 'open',
+      resolved_by TEXT, resolved_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )`;
+  await db`CREATE INDEX IF NOT EXISTS ca_store_status_idx ON corrective_actions(store_pc, status)`;
+  // Partial unique indexes prevent duplicate CAs for the same instance+item, matching the pattern on task_instance_answers
+  await db`CREATE UNIQUE INDEX IF NOT EXISTS ca_uq_no_station ON corrective_actions(instance_id, item_id) WHERE station IS NULL`;
+  await db`CREATE UNIQUE INDEX IF NOT EXISTS ca_uq_with_station ON corrective_actions(instance_id, item_id, station) WHERE station IS NOT NULL`;
 }
 
-// Lazily generate any missing instances for one or more stores on a date, from active,
-// assigned, scheduled templates. Single set-based INSERT across ALL given stores (one
-// round-trip total) — the schedule rule lives in SQL so the 45-store roll-up stays well
-// under the function timeout. `general` recurrence is anchored to each template's creation
-// day (so "every N days" is predictable from when it was set up, not the Unix epoch).
 async function generateInstances(db, storePcs, dateStr) {
   const pcs = (Array.isArray(storePcs) ? storePcs : [storePcs]).map(String);
   if (!pcs.length) return;
-  const dow = dowOf(dateStr);          // 0=Sun..6=Sat (weekly tasks fire on Monday=1)
+  const dow = dowOf(dateStr);
   const dayNum = daysSinceEpoch(dateStr);
   await db`
     INSERT INTO task_instances (template_id, store_pc, business_date, shift_time)
@@ -163,15 +224,17 @@ exports.handler = async (event) => {
   const db = sql();
 
   try {
-    await ensureTable(db);
+    if (!_tableEnsured) { await ensureTable(db); _tableEnsured = true; }
     const now = etNow();
 
     // ───────────────────────── consume ─────────────────────────
+
     if (action === 'list') {
       const storePc = String(body.store_pc || '');
       const date = String(body.date || now.date);
       if (!storePc) return reply(400, { error: 'store_pc required' });
       await generateInstances(db, storePc, date);
+
       const rows = await db`
         SELECT i.id, i.template_id, i.store_pc, i.business_date::text AS business_date,
                i.shift_time, i.status, i.value, i.note, i.checklist,
@@ -181,12 +244,44 @@ exports.handler = async (event) => {
         FROM task_instances i JOIN task_templates t ON t.id = i.template_id
         WHERE i.store_pc = ${storePc} AND i.business_date = ${date}
         ORDER BY t.category, t.name`;
-      const tasks = rows.map((r) => ({ ...r, statusComputed: computeStatus(r, now) }));
+
+      // Fetch items, equipment, and answers for this store/date batch
+      const templateIds = [...new Set(rows.map((r) => r.template_id))];
+      const instanceIds = rows.map((r) => r.id);
+      let allItems = [], allEquip = [], allAnswers = [];
+
+      if (templateIds.length) {
+        allItems = await db`SELECT * FROM task_template_items WHERE template_id = ANY(${templateIds}) ORDER BY template_id, sort_order`;
+        allEquip = await db`SELECT * FROM task_template_equipment WHERE template_id = ANY(${templateIds}) ORDER BY template_id, sort_order`;
+      }
+      if (instanceIds.length) {
+        allAnswers = await db`SELECT * FROM task_instance_answers WHERE instance_id = ANY(${instanceIds})`;
+      }
+
+      const itemsByTpl = {}, equipByTpl = {}, anssByInst = {};
+      allItems.forEach((i) => { (itemsByTpl[i.template_id] = itemsByTpl[i.template_id] || []).push(i); });
+      allEquip.forEach((e) => { (equipByTpl[e.template_id] = equipByTpl[e.template_id] || []).push(e); });
+      allAnswers.forEach((a) => { (anssByInst[a.instance_id] = anssByInst[a.instance_id] || []).push(a); });
+
+      const tasks = rows.map((r) => {
+        const items = itemsByTpl[r.template_id] || [];
+        const equipment = equipByTpl[r.template_id] || [];
+        const answers = anssByInst[r.id] || [];
+        const totalExpected = items.length > 0 ? items.length * Math.max(1, equipment.length) : 0;
+        return {
+          ...r, statusComputed: computeStatus(r, now),
+          items, equipment, answers,
+          items_count: totalExpected,
+          answers_count: answers.length,
+        };
+      });
+
       const { totals } = tally(rows, now);
       return reply(200, { store_pc: storePc, date, counts: totals, tasks });
     }
 
     if (action === 'complete') {
+      // Simple completion for tasks without items (Phase 1 compat)
       const id = +body.instance_id;
       if (!id) return reply(400, { error: 'instance_id required' });
       await db`
@@ -201,10 +296,82 @@ exports.handler = async (event) => {
       return reply(200, { ok: true, instance_id: id });
     }
 
+    if (action === 'submit_answers') {
+      const instanceId = +body.instance_id;
+      const answers = Array.isArray(body.answers) ? body.answers : [];
+      const by = body.by || null;
+      if (!instanceId || !answers.length) return reply(400, { error: 'instance_id and answers required' });
+
+      const instRows = await db`
+        SELECT i.*, t.name AS task_name
+        FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+        WHERE i.id = ${instanceId}`;
+      if (!instRows.length) return reply(404, { error: 'instance not found' });
+      const inst = instRows[0];
+
+      const items = await db`SELECT * FROM task_template_items WHERE template_id = ${inst.template_id} ORDER BY sort_order`;
+      const itemMap = Object.fromEntries(items.map((it) => [it.id, it]));
+      const equip = await db`SELECT * FROM task_template_equipment WHERE template_id = ${inst.template_id}`;
+      const equipMap = Object.fromEntries(equip.map((e) => [e.id, e]));
+
+      const casCreated = [];
+
+      for (const ans of answers) {
+        const item = itemMap[+ans.item_id];
+        if (!item) continue;
+        const equipId = ans.equipment_id ? +ans.equipment_id : null;
+        const checked = ans.checked != null ? Boolean(ans.checked) : null;
+        const value = ans.value != null && ans.value !== '' ? Number(ans.value) : null;
+        const note = ans.note || null;
+
+        // Per-item range check
+        let inRange = null;
+        if (item.min_val != null && item.max_val != null && value != null) {
+          inRange = value >= Number(item.min_val) && value <= Number(item.max_val);
+        }
+
+        // DELETE + INSERT (avoids UNIQUE NULL complications)
+        if (equipId !== null) {
+          await db`DELETE FROM task_instance_answers WHERE instance_id = ${instanceId} AND item_id = ${item.id} AND equipment_id = ${equipId}`;
+        } else {
+          await db`DELETE FROM task_instance_answers WHERE instance_id = ${instanceId} AND item_id = ${item.id} AND equipment_id IS NULL`;
+        }
+        await db`
+          INSERT INTO task_instance_answers (instance_id, item_id, equipment_id, checked, value, note, in_range, by, at)
+          VALUES (${instanceId}, ${item.id}, ${equipId}, ${checked}, ${value}, ${note}, ${inRange}, ${by}, now())`;
+
+        // Auto-create corrective action for out-of-range numeric answers
+        if (inRange === false) {
+          const station = equipId ? (equipMap[equipId]?.unit_name || null) : null;
+          const title = `${inst.task_name} — ${item.label}${station ? ` (${station})` : ''}: ${value}${item.unit || ''} (expected ${item.min_val}–${item.max_val}${item.unit || ''})`;
+          const due = new Date(); due.setDate(due.getDate() + 1);
+          const caResult = await db`
+            INSERT INTO corrective_actions (instance_id, item_id, store_pc, station, title, measured_value, target, min_val, max_val, unit, status, due_date)
+            VALUES (${instanceId}, ${item.id}, ${inst.store_pc}, ${station}, ${title}, ${value}, ${item.target}, ${item.min_val}, ${item.max_val}, ${item.unit}, 'open', ${due.toISOString().slice(0, 10)})
+            ON CONFLICT DO NOTHING
+            RETURNING id`;
+          if (caResult.length) casCreated.push({ label: item.label, value, unit: item.unit || '' });
+        }
+      }
+
+      // Auto-complete instance when all items × equipment are answered
+      if (items.length > 0) {
+        const totalExpected = items.length * Math.max(1, equip.length);
+        const answeredCnt = (await db`SELECT COUNT(*) AS cnt FROM task_instance_answers WHERE instance_id = ${instanceId}`)[0]?.cnt || 0;
+        if (+answeredCnt >= totalExpected) {
+          await db`UPDATE task_instances SET status='completed', completed_by=${by}, completed_at=now() WHERE id=${instanceId} AND status != 'completed'`;
+        }
+      }
+
+      return reply(200, { ok: true, corrective_actions_created: casCreated });
+    }
+
     if (action === 'reopen') {
       const id = +body.instance_id;
       if (!id) return reply(400, { error: 'instance_id required' });
       await db`UPDATE task_instances SET status='open', completed_by=null, completed_at=null WHERE id=${id}`;
+      // Remove answers so the form resets
+      await db`DELETE FROM task_instance_answers WHERE instance_id = ${id}`;
       return reply(200, { ok: true, instance_id: id });
     }
 
@@ -217,10 +384,13 @@ exports.handler = async (event) => {
         SELECT i.id, i.status, i.business_date::text AS business_date, i.shift_time, t.category
         FROM task_instances i JOIN task_templates t ON t.id = i.template_id
         WHERE i.store_pc = ${storePc} AND i.business_date = ${date}`;
+      // CA count for this store (open)
+      const caRows = await db`SELECT COUNT(*) AS cnt FROM corrective_actions WHERE store_pc = ${storePc} AND status = 'open'`;
+      const openCAs = +(caRows[0]?.cnt || 0);
       const { totals, groups } = tally(rows, now, (r) => r.category || 'Other');
       const categories = groups.map((g) => ({ category: g.key, open: g.open, overdue: g.overdue, missed: g.missed, completed: g.completed, all: g.all, pct: g.pct }))
         .sort((a, b) => b.all - a.all);
-      return reply(200, { store_pc: storePc, date, totals, categories });
+      return reply(200, { store_pc: storePc, date, totals, categories, open_cas: openCAs });
     }
 
     if (action === 'rollup') {
@@ -233,22 +403,56 @@ exports.handler = async (event) => {
         FROM task_instances i
         WHERE i.business_date = ${date}
           AND i.store_pc = ANY(${stores.map((s) => s.pc)})`;
+      // Open CA counts per store
+      const caRows = await db`SELECT store_pc, COUNT(*) AS cnt FROM corrective_actions WHERE store_pc = ANY(${stores.map((s) => s.pc)}) AND status='open' GROUP BY store_pc`;
+      const caByStore = Object.fromEntries(caRows.map((r) => [r.store_pc, +r.cnt]));
+
       const { groups } = tally(rows, now, (r) => r.store_pc);
       const gmap = {}; groups.forEach((g) => { gmap[g.key] = g; });
       const list = stores.map((s) => {
         const g = gmap[s.pc] || { open: 0, overdue: 0, missed: 0, completed: 0, all: 0, pct: 0 };
-        return { pc: s.pc, name: s.name, district: s.district, dmName: s.dmName, open: g.open, overdue: g.overdue, missed: g.missed, completed: g.completed, all: g.all, pct: g.pct };
+        return { pc: s.pc, name: s.name, district: s.district, dmName: s.dmName, open: g.open, overdue: g.overdue, missed: g.missed, completed: g.completed, all: g.all, pct: g.pct, open_cas: caByStore[s.pc] || 0 };
       }).sort((a, b) => a.pct - b.pct);
       return reply(200, { date, district, stores: list });
     }
 
+    if (action === 'list_corrective_actions') {
+      const storePc = body.store_pc ? String(body.store_pc) : null;
+      const district = body.district ? +body.district : null;
+      const status = body.status || null;
+
+      let storePcs;
+      if (storePc) {
+        storePcs = [storePc];
+      } else if (district) {
+        storePcs = Object.values(STORE_BY_PC).filter((s) => s.district === district).map((s) => s.pc);
+      } else {
+        storePcs = Object.values(STORE_BY_PC).map((s) => s.pc);
+      }
+
+      const rows = status
+        ? await db`SELECT ca.*, t.name AS task_name FROM corrective_actions ca LEFT JOIN task_instances ti ON ti.id = ca.instance_id LEFT JOIN task_templates t ON t.id = ti.template_id WHERE ca.store_pc = ANY(${storePcs}) AND ca.status = ${status} ORDER BY ca.created_at DESC LIMIT 200`
+        : await db`SELECT ca.*, t.name AS task_name FROM corrective_actions ca LEFT JOIN task_instances ti ON ti.id = ca.instance_id LEFT JOIN task_templates t ON t.id = ti.template_id WHERE ca.store_pc = ANY(${storePcs}) ORDER BY ca.created_at DESC LIMIT 200`;
+
+      const caList = rows.map((ca) => ({ ...ca, store_name: STORE_BY_PC[ca.store_pc]?.name || ca.store_pc }));
+      return reply(200, { corrective_actions: caList });
+    }
+
+    if (action === 'resolve_ca') {
+      const id = +body.ca_id;
+      if (!id) return reply(400, { error: 'ca_id required' });
+      await db`UPDATE corrective_actions SET status='resolved', resolved_by=${body.resolved_by || null}, resolved_at=now() WHERE id=${id}`;
+      return reply(200, { ok: true, ca_id: id });
+    }
+
     // ───────────────────────── admin (Exec/IT) ─────────────────────────
+
     if (action === 'admin_templates') {
       const rows = await db`
-        SELECT t.*, COALESCE(l.cnt, 0)::int AS location_count
+        SELECT t.*, COALESCE(l.cnt, 0)::int AS location_count, COALESCE(it.cnt, 0)::int AS items_count
         FROM task_templates t
-        LEFT JOIN (SELECT template_id, count(*) cnt FROM task_template_locations GROUP BY template_id) l
-          ON l.template_id = t.id
+        LEFT JOIN (SELECT template_id, count(*) cnt FROM task_template_locations GROUP BY template_id) l ON l.template_id = t.id
+        LEFT JOIN (SELECT template_id, count(*) cnt FROM task_template_items GROUP BY template_id) it ON it.template_id = t.id
         ORDER BY t.category, t.name`;
       return reply(200, { templates: rows });
     }
@@ -315,10 +519,39 @@ exports.handler = async (event) => {
       return reply(200, { ok: true, template_id: id, active: !!body.active });
     }
 
+    if (action === 'admin_get_items') {
+      const id = +body.template_id;
+      if (!id) return reply(400, { error: 'template_id required' });
+      const items = await db`SELECT * FROM task_template_items WHERE template_id = ${id} ORDER BY sort_order`;
+      const equipment = await db`SELECT * FROM task_template_equipment WHERE template_id = ${id} ORDER BY sort_order`;
+      return reply(200, { template_id: id, items, equipment });
+    }
+
+    if (action === 'admin_save_items') {
+      const id = +body.template_id;
+      const items = Array.isArray(body.items) ? body.items : [];
+      const equipment = Array.isArray(body.equipment) ? body.equipment : [];
+      if (!id) return reply(400, { error: 'template_id required' });
+
+      await db`DELETE FROM task_template_items WHERE template_id = ${id}`;
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (!it.label) continue;
+        await db`
+          INSERT INTO task_template_items (template_id, label, sort_order, input_type, group_name, target, min_val, max_val, unit, requires_photo)
+          VALUES (${id}, ${it.label}, ${i}, ${it.input_type || 'bool'}, ${it.group_name || null}, ${it.target ?? null}, ${it.min_val ?? null}, ${it.max_val ?? null}, ${it.unit || null}, ${!!it.requires_photo})`;
+      }
+      await db`DELETE FROM task_template_equipment WHERE template_id = ${id}`;
+      for (let i = 0; i < equipment.length; i++) {
+        const e = equipment[i];
+        if (!e.unit_name) continue;
+        await db`INSERT INTO task_template_equipment (template_id, unit_name, sort_order) VALUES (${id}, ${e.unit_name}, ${i})`;
+      }
+      return reply(200, { ok: true, items: items.length, equipment: equipment.length });
+    }
+
     if (action === 'seed') {
       const all45 = Object.values(STORE_BY_PC).map((s) => s.pc);
-      // Two set-based statements (templates, then assignments) instead of ~1,800 per-row
-      // inserts — keeps the one-time catalog load well under the 26s function timeout.
       const col = (k, map) => CATALOG.map((c) => (map ? map(c[k]) : c[k]) ?? null);
       await db`
         INSERT INTO task_templates
@@ -344,6 +577,34 @@ exports.handler = async (event) => {
         assigned = all45Names.length * all45.length;
       }
       return reply(200, { ok: true, templates: CATALOG.length, assignments: assigned });
+    }
+
+    if (action === 'seed_items') {
+      let totalTemplates = 0, totalItems = 0;
+      for (const entry of ITEMS_CATALOG) {
+        const templates = entry.matchType === 'prefix'
+          ? await db`SELECT id FROM task_templates WHERE name LIKE ${entry.namePattern + '%'}`
+          : await db`SELECT id FROM task_templates WHERE name = ${entry.namePattern}`;
+
+        for (const tmpl of templates) {
+          // Replace items for this template
+          await db`DELETE FROM task_template_items WHERE template_id = ${tmpl.id}`;
+          for (let i = 0; i < (entry.items || []).length; i++) {
+            const it = entry.items[i];
+            await db`
+              INSERT INTO task_template_items (template_id, label, sort_order, input_type, group_name, target, min_val, max_val, unit, requires_photo)
+              VALUES (${tmpl.id}, ${it.label}, ${i}, ${it.input_type || 'bool'}, ${it.group_name || null}, ${it.target ?? null}, ${it.min_val ?? null}, ${it.max_val ?? null}, ${it.unit || null}, ${!!it.requires_photo})`;
+          }
+          // Always replace equipment (unconditional delete clears stale rows when catalog entry removes equipment)
+          await db`DELETE FROM task_template_equipment WHERE template_id = ${tmpl.id}`;
+          for (let i = 0; i < (entry.equipment || []).length; i++) {
+            await db`INSERT INTO task_template_equipment (template_id, unit_name, sort_order) VALUES (${tmpl.id}, ${entry.equipment[i]}, ${i})`;
+          }
+          totalTemplates++;
+          totalItems += (entry.items || []).length;
+        }
+      }
+      return reply(200, { ok: true, templates: totalTemplates, items: totalItems });
     }
 
     return reply(400, { error: 'unknown action: ' + action });

@@ -15880,6 +15880,9 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
   const [editing, setEditing] = useState(null);
   const [locFor, setLocFor] = useState(null);
   const [locPcs, setLocPcs] = useState([]);
+  const [itemsFor, setItemsFor] = useState(null);
+  const [templateItems, setTemplateItems] = useState([]);
+  const [templateEquip, setTemplateEquip] = useState([]);
   const [busy, setBusy] = useState(false);
 
   const api = useCallback(async (action, payload = {}) => {
@@ -15920,6 +15923,23 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
     try { await api("admin_set_locations", { template_id: locFor.id, store_pcs: locPcs }); setLocFor(null); await load(); }
     finally { setBusy(false); }
   }
+  async function openItems(t) {
+    setItemsFor(t);
+    const r = await api("admin_get_items", { template_id: t.id });
+    setTemplateItems(r.items || []);
+    setTemplateEquip(r.equipment || []);
+  }
+  function updateItem(i, key, val) { setTemplateItems((prev) => prev.map((x, j) => j === i ? { ...x, [key]: val } : x)); }
+  async function saveItems() {
+    setBusy(true);
+    try {
+      const items = templateItems.map((it, i) => ({ ...it, sort_order: i }));
+      const equipment = templateEquip.map((e, i) => ({ ...e, sort_order: i }));
+      const r = await api("admin_save_items", { template_id: itemsFor.id, items, equipment });
+      if (r.ok) { setItemsFor(null); showAlert && showAlert("Items saved"); await load(); }
+      else showAlert && showAlert(r.error || "Save failed");
+    } finally { setBusy(false); }
+  }
 
   const scoped = (stores || []).filter((s) => s.pc);
   const byDistrict = {};
@@ -15939,7 +15959,8 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
         <h3 style={{ ...sectionTitle(th), margin: 0 }}>Book Task — Task Templates</h3>
         <div style={{ display: "flex", gap: "0.5rem" }}>
           <button onClick={() => setEditing({ ...NEW_TASK })} style={{ ...btn(th), fontSize: "0.82rem", padding: "0.5rem 1rem" }}>+ New Task</button>
-          <button onClick={async () => { setLoading(true); await api("seed"); await load(); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.5rem 1rem" }}>Re-sync starter catalog</button>
+          <button onClick={async () => { setLoading(true); await api("seed"); await load(); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.5rem 1rem" }}>Re-sync catalog</button>
+          <button onClick={async () => { setBusy(true); const r = await api("seed_items"); setBusy(false); showAlert && showAlert(`Seeded items: ${r.items || 0} items across ${r.templates || 0} templates`); await load(); }} disabled={busy} style={{ ...btn(th, { background: "transparent", color: "#a78bfa", border: "1px solid #a78bfa55" }), fontSize: "0.82rem", padding: "0.5rem 1rem" }}>Seed sub-items</button>
         </div>
       </div>
 
@@ -16009,6 +16030,62 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
         </div>
       )}
 
+      {/* Items editor panel */}
+      {itemsFor && (
+        <div style={{ ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid #a78bfa55` }}>
+          <div style={{ fontWeight: 800, marginBottom: "0.75rem", color: "#a78bfa" }}>Sub-items — {itemsFor.name} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.8rem" }}>({itemsFor.items_count || 0} current)</span></div>
+
+          {/* Equipment units */}
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: th.muted, marginBottom: "0.3rem" }}>Equipment units (optional — e.g. "Turbochef 1", "Turbochef 2")</div>
+          {templateEquip.map((e, i) => (
+            <div key={i} style={{ display: "flex", gap: "0.4rem", marginBottom: "0.35rem" }}>
+              <input value={e.unit_name || ""} onChange={(ev) => setTemplateEquip((prev) => prev.map((x, j) => j === i ? { ...x, unit_name: ev.target.value } : x))}
+                placeholder="Unit name" style={{ ...inp(th), flex: 1, fontSize: "0.82rem" }} />
+              <button onClick={() => setTemplateEquip((prev) => prev.filter((_, j) => j !== i))}
+                style={{ ...btn(th, { background: "transparent", color: "#e03131", border: "1px solid #e0313155" }), fontSize: "0.78rem", padding: "0.3rem 0.6rem" }}>✕</button>
+            </div>
+          ))}
+          <button onClick={() => setTemplateEquip((prev) => [...prev, { unit_name: "", sort_order: prev.length }])}
+            style={{ fontSize: "0.78rem", color: th.muted, background: "transparent", border: "none", cursor: "pointer", padding: "0.15rem 0", marginBottom: "0.75rem" }}>+ Add equipment unit</button>
+
+          {/* Items */}
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: th.muted, marginBottom: "0.3rem" }}>Items (sub-questions)</div>
+          {templateItems.map((it, i) => (
+            <div key={i} style={{ ...card(th), padding: "0.5rem 0.7rem", marginBottom: "0.4rem" }}>
+              <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" }}>
+                <input value={it.label || ""} onChange={(e) => updateItem(i, "label", e.target.value)}
+                  placeholder="Item label" style={{ ...inp(th), flex: 2, minWidth: 140, fontSize: "0.82rem" }} />
+                <select value={it.input_type || "bool"} onChange={(e) => updateItem(i, "input_type", e.target.value)}
+                  style={{ ...inp(th), width: 120, fontSize: "0.82rem" }}>
+                  {["bool", "temperature", "weight", "count", "text"].map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+                {(it.input_type === "temperature" || it.input_type === "weight" || it.input_type === "count") && (
+                  <>
+                    <input type="number" value={it.min_val ?? ""} onChange={(e) => updateItem(i, "min_val", e.target.value === "" ? null : Number(e.target.value))}
+                      placeholder="Min" style={{ ...inp(th), width: 65, fontSize: "0.82rem" }} />
+                    <input type="number" value={it.max_val ?? ""} onChange={(e) => updateItem(i, "max_val", e.target.value === "" ? null : Number(e.target.value))}
+                      placeholder="Max" style={{ ...inp(th), width: 65, fontSize: "0.82rem" }} />
+                    <input type="number" value={it.target ?? ""} onChange={(e) => updateItem(i, "target", e.target.value === "" ? null : Number(e.target.value))}
+                      placeholder="Target" style={{ ...inp(th), width: 65, fontSize: "0.82rem" }} />
+                    <input value={it.unit || ""} onChange={(e) => updateItem(i, "unit", e.target.value)}
+                      placeholder="Unit" style={{ ...inp(th), width: 55, fontSize: "0.82rem" }} />
+                  </>
+                )}
+                <button onClick={() => setTemplateItems((prev) => prev.filter((_, j) => j !== i))}
+                  style={{ ...btn(th, { background: "transparent", color: "#e03131", border: "1px solid #e0313155" }), fontSize: "0.78rem", padding: "0.3rem 0.6rem" }}>✕</button>
+              </div>
+            </div>
+          ))}
+          <button onClick={() => setTemplateItems((prev) => [...prev, { label: "", input_type: "bool", sort_order: prev.length, target: null, min_val: null, max_val: null, unit: "" }])}
+            style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.4rem 0.85rem", marginBottom: "0.75rem" }}>+ Add item</button>
+
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button onClick={saveItems} disabled={busy} style={{ ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" }}>{busy ? "Saving…" : "Save items"}</button>
+            <button onClick={() => setItemsFor(null)} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search tasks…" style={{ ...inp(th), flex: 1, minWidth: 160, fontSize: "0.85rem" }} />
@@ -16035,6 +16112,7 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
             </div>
           </div>
           <button onClick={() => openLocations(tp)} style={{ ...pill("#38bdf8", { cursor: "pointer", fontSize: "0.7rem" }) }}>{tp.location_count} stores</button>
+          <button onClick={() => openItems(tp)} style={{ ...pill("#a78bfa", { cursor: "pointer", fontSize: "0.7rem" }) }}>{tp.items_count || 0} items</button>
           {tp.allow_signoff && <span style={pill("#2f9e44", { fontSize: "0.66rem" })}>sign-off</span>}
           <button onClick={() => toggle(tp)} style={{ ...pill(tp.active ? "#2f9e44" : th.muted, { cursor: "pointer", fontSize: "0.7rem" }) }}>{tp.active ? "Active" : "Inactive"}</button>
           <button onClick={() => setEditing({ ...tp })} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" }}>Edit</button>
@@ -18422,7 +18500,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v15.83";
+const APP_VERSION = "v15.90";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -25366,6 +25444,8 @@ const COORDS_BLOB = 'pcg_store_coords_v1';
 // Mobile-first: Manager completes their store's tasks; DM/Exec monitor roll-ups;
 // Exec/IT manage the task catalog ("Book Task").
 const TASK_STATUS_COLOR = { open: O, overdue: "#e03131", missed: "#868e96", completed: "#2f9e44" };
+// Compliance color bands (WorkPulse model): red <25, orange 25-49, yellow 50-74, green >=75
+const complianceColor = (pct) => pct >= 75 ? "#2f9e44" : pct >= 50 ? "#f59e0b" : pct >= 25 ? "#f97316" : "#e03131";
 
 function TaskRing({ pct, size = 44, th, color }) {
   const r = (size - 6) / 2, c = 2 * Math.PI * r, off = c * (1 - (pct || 0) / 100);
@@ -25383,12 +25463,10 @@ function TaskRing({ pct, size = 44, th, color }) {
 }
 
 function OpsTasks({ stores, th, user }) {
-  // Task management ("Book Task") lives in Admin → Tasks; this tab is consume + monitor only.
   const isDM = user?.userType === "dm";
   const isManager = user?.userType === "manager";
   const myStore = getManagerStore(stores, user);
 
-  // Stores this user may view.
   const scopeStores = (stores || []).filter((s) => {
     if (isManager) return myStore && String(s.pc) === String(myStore.pc);
     if (isDM) return String(s.district) === String(user?.district);
@@ -25400,17 +25478,24 @@ function OpsTasks({ stores, th, user }) {
     return f.format(new Date());
   };
 
-  const [view, setView] = useState(isManager ? "tasks" : "dashboard"); // tasks | dashboard | stores | admin
+  const [view, setView] = useState(isManager ? "tasks" : "dashboard");
   const [storePc, setStorePc] = useState(isManager && myStore ? String(myStore.pc) : (scopeStores[0]?.pc ? String(scopeStores[0].pc) : ""));
   const [date, setDate] = useState(todayET());
-  const [seg, setSeg] = useState("open"); // open | missed | all
+  const [seg, setSeg] = useState("open");
   const [data, setData] = useState(null);
   const [dash, setDash] = useState(null);
   const [rollup, setRollup] = useState(null);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
-  const [openEntry, setOpenEntry] = useState(null); // instance_id being entered
+  const [openEntry, setOpenEntry] = useState(null);
   const [entryVal, setEntryVal] = useState("");
+  // Phase 2: multi-item expansion + local answer staging
+  const [expandedId, setExpandedId] = useState(null);
+  const [localAnswers, setLocalAnswers] = useState({});
+  // Phase 3: corrective actions
+  const [cas, setCas] = useState(null);
+  const [caFilter, setCaFilter] = useState("open");
+  const [loadingCAs, setLoadingCAs] = useState(false);
   const byName = user?.name || user?.email || "user";
 
   const api = useCallback(async (action, payload = {}) => {
@@ -25421,8 +25506,6 @@ function OpsTasks({ stores, th, user }) {
     return r.json();
   }, []);
 
-  // Fetch only the panel that's actually visible (avoids doubling function/Neon load on
-  // every 25s poll). Tasks view needs `list`; Dashboard view needs `dashboard`.
   const loadStore = useCallback(async () => {
     if (!storePc) return;
     setLoading(true);
@@ -25437,10 +25520,20 @@ function OpsTasks({ stores, th, user }) {
     setRollup(r); setLoading(false);
   }, [api, date, isDM, user]);
 
+  const loadCAs = useCallback(async () => {
+    setLoadingCAs(true);
+    const r = await api("list_corrective_actions", {
+      store_pc: isManager ? (myStore ? String(myStore.pc) : "") : null,
+      district: isDM ? user?.district : null,
+    });
+    setCas(r.corrective_actions || []);
+    setLoadingCAs(false);
+  }, [api, isManager, myStore, isDM, user]);
+
   useEffect(() => { if (view === "tasks" || view === "dashboard") loadStore(); }, [view, loadStore]);
   useEffect(() => { if (view === "stores") loadRollup(); }, [view, loadRollup]);
+  useEffect(() => { if (view === "cas") loadCAs(); }, [view, loadCAs]);
 
-  // Poll for cross-device sync while a store view is open (~25s).
   useEffect(() => {
     if (view !== "tasks" && view !== "dashboard") return;
     const id = setInterval(loadStore, 25000);
@@ -25449,18 +25542,40 @@ function OpsTasks({ stores, th, user }) {
 
   async function completeTask(tk, value) {
     setBusyId(tk.id);
-    await api("complete", { instance_id: tk.id, value: value ?? null, by: byName });
-    setOpenEntry(null); setEntryVal("");
-    await loadStore(); setBusyId(null);
+    try {
+      await api("complete", { instance_id: tk.id, value: value ?? null, by: byName });
+      setOpenEntry(null); setEntryVal("");
+      await loadStore();
+    } finally { setBusyId(null); }
   }
   async function reopenTask(tk) {
-    setBusyId(tk.id); await api("reopen", { instance_id: tk.id }); await loadStore(); setBusyId(null);
+    setBusyId(tk.id);
+    try {
+      await api("reopen", { instance_id: tk.id });
+      setExpandedId(null);
+      await loadStore();
+    } finally { setBusyId(null); }
+  }
+  async function submitAnswer(tk, item, equip, answerData) {
+    setBusyId(tk.id);
+    const key = `${tk.id}_${item.id}_${equip?.id || "null"}`;
+    try {
+      await api("submit_answers", {
+        instance_id: tk.id,
+        answers: [{ item_id: item.id, equipment_id: equip?.id || null, ...answerData }],
+        by: byName,
+      });
+      setLocalAnswers((prev) => { const n = { ...prev }; delete n[key]; return n; });
+      await loadStore();
+    } finally { setBusyId(null); }
+  }
+  async function resolveCA(ca) {
+    await api("resolve_ca", { ca_id: ca.id, resolved_by: byName });
+    loadCAs();
   }
 
-  // Open = still-actionable (open + overdue); Missed = truly past-date. Badge counts and
-  // this filter must agree, so overdue lives only in Open (matching the badges below).
   const segTasks = (data?.tasks || []).filter((t) =>
-    seg === "all" ? true : seg === "missed" ? t.statusComputed === "missed" : (t.statusComputed === "open" || t.statusComputed === "overdue")
+    seg === "all" ? true : seg === "missed" ? (t.statusComputed === "missed" || t.statusComputed === "overdue") : t.statusComputed === "open"
   );
 
   const segBtn = (id, label, n) => (
@@ -25471,10 +25586,12 @@ function OpsTasks({ stores, th, user }) {
     }}>{label}{typeof n === "number" ? ` (${n})` : ""}</button>
   );
 
-  const viewTab = (id, label) => (
+  const viewTab = (id, label, accent) => (
     <button onClick={() => setView(id)} style={{
-      padding: "0.5rem 0.9rem", borderRadius: 999, border: `1px solid ${view === id ? O : th.muted + "55"}`,
-      background: view === id ? O : "transparent", color: view === id ? "#fff" : th.text,
+      padding: "0.5rem 0.9rem", borderRadius: 999,
+      border: `1px solid ${view === id ? (accent || O) : th.muted + "55"}`,
+      background: view === id ? (accent || O) : "transparent",
+      color: view === id ? "#fff" : th.text,
       fontSize: "0.8rem", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
     }}>{label}</button>
   );
@@ -25487,6 +25604,7 @@ function OpsTasks({ stores, th, user }) {
           {!isManager && viewTab("dashboard", "Dashboard")}
           {viewTab("tasks", "Tasks")}
           {!isManager && viewTab("stores", "Stores")}
+          {viewTab("cas", "Corrective Actions", "#e03131")}
         </div>
       </div>
 
@@ -25518,9 +25636,16 @@ function OpsTasks({ stores, th, user }) {
               </div>
             ))}
           </div>
+          {dash.open_cas > 0 && (
+            <div onClick={() => setView("cas")} style={{ ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", borderLeft: "4px solid #e03131" }}>
+              <span style={{ fontSize: "1.1rem", color: "#e03131", fontWeight: 800 }}>{dash.open_cas}</span>
+              <span style={{ fontSize: "0.82rem", color: th.text, fontWeight: 600 }}>Open Corrective Action{dash.open_cas !== 1 ? "s" : ""}</span>
+              <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: th.muted }}>View →</span>
+            </div>
+          )}
           {dash.categories.map((c) => (
-            <div key={c.category} style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <TaskRing pct={c.pct} th={th} size={40} />
+            <div key={c.category} style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` }}>
+              <TaskRing pct={c.pct} th={th} size={40} color={complianceColor(c.pct)} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{c.category}</div>
                 <div style={{ fontSize: "0.75rem", color: th.muted }}>
@@ -25536,49 +25661,115 @@ function OpsTasks({ stores, th, user }) {
       {view === "tasks" && data && !loading && (
         <div>
           <div style={{ display: "flex", ...card(th), padding: 0, marginBottom: "0.75rem", overflow: "hidden" }}>
-            {segBtn("open", "Open", data.counts.open + data.counts.overdue)}
-            {segBtn("missed", "Missed", data.counts.missed)}
+            {segBtn("open", "Open", data.counts.open)}
+            {segBtn("missed", "Missed", data.counts.missed + data.counts.overdue)}
             {segBtn("all", "All", data.counts.all)}
           </div>
-          {segTasks.length === 0 && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Nothing here 🎉</div>}
+          {segTasks.length === 0 && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Nothing here</div>}
           {segTasks.map((tk) => {
             const sc = TASK_STATUS_COLOR[tk.statusComputed] || th.muted;
             const done = tk.statusComputed === "completed";
-            const isMeas = tk.input_type === "temperature" || tk.input_type === "weight" || tk.input_type === "count";
+            const hasItems = (tk.items_count || 0) > 0;
+            const isExpanded = expandedId === tk.id;
+            const isMeas = !hasItems && (tk.input_type === "temperature" || tk.input_type === "weight" || tk.input_type === "count");
+            const itemPct = hasItems ? Math.round(((tk.answers_count || 0) / tk.items_count) * 100) : (done ? 100 : 0);
+
             return (
               <div key={tk.id} style={{ ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${sc}` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                {/* Card header */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", cursor: hasItems ? "pointer" : "default" }}
+                  onClick={() => hasItems && setExpandedId(isExpanded ? null : tk.id)}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{tk.name}</div>
                     <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.25rem", flexWrap: "wrap" }}>
                       <span style={pill(th.muted, { fontSize: "0.68rem" })}>{tk.category}</span>
                       {tk.shift_time && <span style={{ fontSize: "0.72rem", color: th.muted }}>{tk.shift_time}</span>}
                       <span style={{ fontSize: "0.72rem", fontWeight: 700, color: sc, textTransform: "capitalize" }}>{tk.statusComputed}</span>
-                      {isMeas && tk.min_val != null && <span style={{ fontSize: "0.68rem", color: th.muted }}>({tk.min_val}–{tk.max_val}{tk.unit} · tgt {tk.target}{tk.unit})</span>}
+                      {hasItems && <span style={{ fontSize: "0.68rem", color: th.muted }}>{tk.answers_count}/{tk.items_count} items</span>}
+                      {!hasItems && isMeas && tk.min_val != null && <span style={{ fontSize: "0.68rem", color: th.muted }}>({tk.min_val}–{tk.max_val}{tk.unit} · tgt {tk.target}{tk.unit})</span>}
                     </div>
-                    {done && tk.value != null && <div style={{ fontSize: "0.74rem", color: th.muted, marginTop: "0.2rem" }}>Recorded: {tk.value}{tk.unit || ""}{tk.completed_by ? ` · ${tk.completed_by}` : ""}</div>}
+                    {done && !hasItems && tk.value != null && <div style={{ fontSize: "0.74rem", color: th.muted, marginTop: "0.2rem" }}>Recorded: {tk.value}{tk.unit || ""}{tk.completed_by ? ` · ${tk.completed_by}` : ""}</div>}
                   </div>
-                  <TaskRing pct={done ? 100 : 0} th={th} size={40} />
+                  <TaskRing pct={itemPct} th={th} size={40} color={hasItems ? complianceColor(itemPct) : undefined} />
+                  {hasItems && <span style={{ color: th.muted, fontSize: "0.85rem", flexShrink: 0 }}>{isExpanded ? "▲" : "▼"}</span>}
                 </div>
-                {/* actions */}
-                <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                  {done ? (
-                    <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.4rem 0.8rem" }}>Reopen</button>
-                  ) : openEntry === tk.id ? (
-                    <>
-                      <input type="number" inputMode="decimal" autoFocus value={entryVal} onChange={(e) => setEntryVal(e.target.value)}
-                        placeholder={`Reading${tk.unit ? " (" + tk.unit + ")" : ""}`} style={{ ...inp(th), flex: 1, fontSize: "0.85rem" }} />
-                      <button onClick={() => completeTask(tk, entryVal === "" ? null : Number(entryVal))} disabled={busyId === tk.id}
-                        style={{ ...btn(th), fontSize: "0.8rem", padding: "0.45rem 0.9rem" }}>Save</button>
-                      <button onClick={() => { setOpenEntry(null); setEntryVal(""); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.45rem 0.7rem" }}>✕</button>
-                    </>
-                  ) : (
-                    <button onClick={() => { if (isMeas) { setOpenEntry(tk.id); setEntryVal(""); } else { completeTask(tk); } }} disabled={busyId === tk.id}
-                      style={{ ...btn(th), fontSize: "0.82rem", padding: "0.45rem 1rem", width: isMeas ? "auto" : "100%" }}>
-                      {busyId === tk.id ? "…" : isMeas ? "Enter reading" : "✓ Mark complete"}
-                    </button>
-                  )}
-                </div>
+
+                {/* Multi-item expansion (Phase 2) */}
+                {hasItems && isExpanded && (
+                  <div style={{ marginTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}`, paddingTop: "0.5rem" }}>
+                    {tk.items.map((item) => {
+                      const equipList = tk.equipment.length ? tk.equipment : [null];
+                      return equipList.map((equip) => {
+                        const key = `${tk.id}_${item.id}_${equip?.id || "null"}`;
+                        const existing = (tk.answers || []).find((a) => a.item_id === item.id && (equip ? a.equipment_id === equip.id : !a.equipment_id));
+                        const localVal = localAnswers[key];
+                        const outRange = existing?.in_range === false;
+                        return (
+                          <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0", borderBottom: `1px solid ${th.cardBorder}33` }}>
+                            {equip && <span style={{ fontSize: "0.68rem", color: th.muted, minWidth: 90, flexShrink: 0 }}>{equip.unit_name}</span>}
+                            {item.input_type === "bool" ? (
+                              <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", cursor: done ? "default" : "pointer", flex: 1 }}>
+                                <input type="checkbox" checked={!!existing?.checked}
+                                  disabled={done || busyId === tk.id}
+                                  onChange={(e) => !done && submitAnswer(tk, item, equip, { checked: e.target.checked })} />
+                                <span style={{ fontSize: "0.85rem", flex: 1 }}>{item.label}</span>
+                                {existing?.checked && <span style={{ color: "#2f9e44", fontSize: "0.78rem" }}>✓</span>}
+                              </label>
+                            ) : (
+                              <>
+                                <span style={{ flex: 1, fontSize: "0.85rem" }}>{item.label}</span>
+                                {item.min_val != null && <span style={{ fontSize: "0.68rem", color: th.muted, whiteSpace: "nowrap" }}>{item.min_val}–{item.max_val}{item.unit}</span>}
+                                <input type="number" inputMode="decimal"
+                                  value={localVal !== undefined ? localVal : (existing?.value != null ? String(existing.value) : "")}
+                                  onChange={(e) => setLocalAnswers((prev) => ({ ...prev, [key]: e.target.value }))}
+                                  onBlur={(e) => { const v = e.target.value; if (v !== "" && !done && busyId !== tk.id) submitAnswer(tk, item, equip, { value: Number(v) }); }}
+                                  disabled={done || busyId === tk.id}
+                                  style={{ ...inp(th), width: 80, fontSize: "0.85rem", borderColor: outRange ? "#e03131" : undefined }} />
+                                {outRange && <span style={{ color: "#e03131", fontSize: "0.8rem" }}>⚠</span>}
+                                {existing?.in_range === true && <span style={{ color: "#2f9e44", fontSize: "0.8rem" }}>✓</span>}
+                              </>
+                            )}
+                          </div>
+                        );
+                      });
+                    })}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
+                      {done
+                        ? <span style={{ fontSize: "0.76rem", color: "#2f9e44", fontWeight: 700 }}>✓ Complete{tk.completed_by ? ` · ${tk.completed_by}` : ""}</span>
+                        : <span style={{ fontSize: "0.76rem", color: th.muted }}>Tap a checkbox or enter a reading to record</span>
+                      }
+                      {done && (
+                        <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id}
+                          style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" }}>
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                    {busyId === tk.id && <div style={{ fontSize: "0.74rem", color: th.muted, textAlign: "center", paddingTop: "0.3rem" }}>Saving…</div>}
+                  </div>
+                )}
+
+                {/* Simple task actions (no items — Phase 1 compat) */}
+                {!hasItems && (
+                  <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    {done ? (
+                      <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.4rem 0.8rem" }}>Reopen</button>
+                    ) : openEntry === tk.id ? (
+                      <>
+                        <input type="number" inputMode="decimal" autoFocus value={entryVal} onChange={(e) => setEntryVal(e.target.value)}
+                          placeholder={`Reading${tk.unit ? " (" + tk.unit + ")" : ""}`} style={{ ...inp(th), flex: 1, fontSize: "0.85rem" }} />
+                        <button onClick={() => completeTask(tk, entryVal === "" ? null : Number(entryVal))} disabled={busyId === tk.id}
+                          style={{ ...btn(th), fontSize: "0.8rem", padding: "0.45rem 0.9rem" }}>Save</button>
+                        <button onClick={() => { setOpenEntry(null); setEntryVal(""); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.45rem 0.7rem" }}>✕</button>
+                      </>
+                    ) : (
+                      <button onClick={() => { if (isMeas) { setOpenEntry(tk.id); setEntryVal(""); } else { completeTask(tk); } }} disabled={busyId === tk.id}
+                        style={{ ...btn(th), fontSize: "0.82rem", padding: "0.45rem 1rem", width: isMeas ? "auto" : "100%" }}>
+                        {busyId === tk.id ? "…" : isMeas ? "Enter reading" : "✓ Mark complete"}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -25592,13 +25783,58 @@ function OpsTasks({ stores, th, user }) {
           {rollup.stores.map((s) => (
             <div key={s.pc} onClick={() => { setStorePc(String(s.pc)); setView("tasks"); }}
               style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", cursor: "pointer" }}>
-              <TaskRing pct={s.pct} th={th} size={40} />
+              <TaskRing pct={s.pct} th={th} size={40} color={complianceColor(s.pct)} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{s.name} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.78rem" }}>· {s.pc}</span></div>
-                <div style={{ fontSize: "0.75rem", color: th.muted }}>{s.open} open · <span style={{ color: "#e03131" }}>{s.overdue} overdue</span> · {s.completed}/{s.all} done{!isDM ? ` · D${s.district}` : ""}</div>
+                <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                  {s.open} open · <span style={{ color: "#e03131" }}>{s.overdue} overdue</span> · {s.completed}/{s.all} done{!isDM ? ` · D${s.district}` : ""}
+                  {s.open_cas > 0 && <span style={{ color: "#e03131", marginLeft: "0.4rem" }}>· {s.open_cas} CA{s.open_cas !== 1 ? "s" : ""}</span>}
+                </div>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── Corrective Actions (Phase 3) ── */}
+      {view === "cas" && (
+        <div>
+          <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            {[["open", "Open"], ["resolved", "Resolved"], ["all", "All"]].map(([f, lbl]) => (
+              <button key={f} onClick={() => setCaFilter(f)} style={{
+                padding: "0.45rem 0.9rem", borderRadius: 999,
+                border: `1px solid ${caFilter === f ? "#e03131" : th.muted + "55"}`,
+                background: caFilter === f ? "#e031311a" : "transparent",
+                color: caFilter === f ? "#e03131" : th.text,
+                fontSize: "0.8rem", fontWeight: 700, cursor: "pointer",
+              }}>{lbl} ({(cas || []).filter((c) => f === "all" || c.status === f).length})</button>
+            ))}
+            <button onClick={loadCAs} style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.76rem", padding: "0.4rem 0.7rem", marginLeft: "auto" }}>Refresh</button>
+          </div>
+          {loadingCAs && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Loading…</div>}
+          {!loadingCAs && cas !== null && (() => {
+            const filtered = (cas || []).filter((c) => caFilter === "all" || c.status === caFilter);
+            if (!filtered.length) return <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>No {caFilter !== "all" ? caFilter : ""} corrective actions</div>;
+            return filtered.map((ca) => (
+              <div key={ca.id} style={{ ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${ca.status === "resolved" ? "#2f9e44" : "#e03131"}` }}>
+                <div style={{ fontWeight: 700, fontSize: "0.88rem" }}>{ca.title}</div>
+                <div style={{ fontSize: "0.73rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  {!isManager && <span>{ca.store_name}</span>}
+                  <span style={{ color: ca.status === "resolved" ? "#2f9e44" : "#e03131", fontWeight: 700, textTransform: "capitalize" }}>{ca.status}</span>
+                  {ca.created_at && <span>{new Date(ca.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
+                  {ca.due_date && ca.status === "open" && <span style={{ color: "#f59e0b" }}>Due {ca.due_date}</span>}
+                </div>
+                {ca.status === "open" && (
+                  <button onClick={() => resolveCA(ca)} style={{ ...btn(th, { background: "transparent", color: "#2f9e44", border: "1px solid #2f9e4455" }), fontSize: "0.76rem", padding: "0.3rem 0.8rem", marginTop: "0.5rem" }}>
+                    Mark Resolved
+                  </button>
+                )}
+                {ca.status === "resolved" && ca.resolved_by && (
+                  <div style={{ fontSize: "0.72rem", color: "#2f9e44", marginTop: "0.3rem" }}>Resolved by {ca.resolved_by}</div>
+                )}
+              </div>
+            ));
+          })()}
         </div>
       )}
     </div>
