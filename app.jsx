@@ -18500,7 +18500,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v15.91";
+const APP_VERSION = "v15.93";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -25462,6 +25462,32 @@ function TaskRing({ pct, size = 44, th, color }) {
   );
 }
 
+function TaskSkeleton({ th, rows = 3 }) {
+  const shimmerKeyframes = `@keyframes pcg-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`;
+  const bar = (w, h = 11) => ({
+    height: h, borderRadius: 4, width: w, marginBottom: 5,
+    background: `linear-gradient(90deg,${th.cardBorder}28 25%,${th.cardBorder}55 50%,${th.cardBorder}28 75%)`,
+    backgroundSize: "200% 100%", animation: "pcg-shimmer 1.5s ease infinite",
+  });
+  return (
+    <>
+      <style>{shimmerKeyframes}</style>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} style={{ background: th.card, border: `1px solid ${th.cardBorder || th.muted + "22"}`, borderLeft: `4px solid ${th.muted}44`, borderRadius: 8, padding: "0.75rem 0.9rem", marginBottom: "0.5rem", opacity: 1 - i * 0.18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <div style={{ flex: 1 }}>
+              <div style={bar("62%", 14)} />
+              <div style={{ display: "flex", gap: 6 }}><div style={bar(52)} /><div style={bar(38)} /><div style={bar(44)} /></div>
+            </div>
+            <div style={{ width: 40, height: 40, borderRadius: "50%", ...bar(40, 40), marginBottom: 0 }} />
+          </div>
+          <div style={{ marginTop: "0.6rem" }}><div style={bar("100%", 34)} /></div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 function OpsTasks({ stores, th, user }) {
   const isDM = user?.userType === "dm";
   const isManager = user?.userType === "manager";
@@ -25580,19 +25606,22 @@ function OpsTasks({ stores, th, user }) {
 
   const segBtn = (id, label, n) => (
     <button onClick={() => setSeg(id)} style={{
-      flex: 1, padding: "0.55rem 0.4rem", border: "none", background: "transparent", cursor: "pointer",
-      fontSize: "0.85rem", fontWeight: 700, color: seg === id ? O : th.muted,
-      borderBottom: `2px solid ${seg === id ? O : "transparent"}`,
+      flex: 1, padding: "0.6rem 0.5rem", border: "none", borderRadius: 9, cursor: "pointer",
+      fontSize: "0.85rem", fontWeight: 700, minHeight: 44, touchAction: "manipulation",
+      background: seg === id ? O : "transparent",
+      color: seg === id ? "#fff" : th.muted,
+      transition: "background 0.18s, color 0.18s",
+      boxShadow: seg === id ? "0 1px 4px rgba(0,0,0,0.18)" : "none",
     }}>{label}{typeof n === "number" ? ` (${n})` : ""}</button>
   );
 
   const viewTab = (id, label, accent) => (
     <button onClick={() => setView(id)} style={{
-      padding: "0.5rem 0.9rem", borderRadius: 999,
+      padding: "0.62rem 1rem", borderRadius: 999, minHeight: 40,
       border: `1px solid ${view === id ? (accent || O) : th.muted + "55"}`,
       background: view === id ? (accent || O) : "transparent",
       color: view === id ? "#fff" : th.text,
-      fontSize: "0.8rem", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+      fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", touchAction: "manipulation",
     }}>{label}</button>
   );
 
@@ -25623,7 +25652,7 @@ function OpsTasks({ stores, th, user }) {
         </div>
       )}
 
-      {loading && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Loading…</div>}
+      {loading && <TaskSkeleton th={th} rows={3} />}
 
       {/* ── Dashboard ── */}
       {view === "dashboard" && dash && !loading && (
@@ -25660,13 +25689,43 @@ function OpsTasks({ stores, th, user }) {
       {/* ── Tasks list ── */}
       {view === "tasks" && data && !loading && (
         <div>
-          <div style={{ display: "flex", ...card(th), padding: 0, marginBottom: "0.75rem", overflow: "hidden" }}>
+          <div style={{ display: "flex", background: th.muted + "1a", borderRadius: 12, padding: 4, marginBottom: "0.9rem", gap: 4 }}>
             {segBtn("open", "Open", data.counts.open)}
             {segBtn("missed", "Missed", data.counts.missed + data.counts.overdue)}
             {segBtn("all", "All", data.counts.all)}
           </div>
-          {segTasks.length === 0 && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Nothing here</div>}
-          {segTasks.map((tk) => {
+          {segTasks.length === 0 && (
+            <div style={{ textAlign: "center", color: th.muted, padding: "2.5rem 1rem" }}>
+              <div style={{ fontSize: "1.5rem", marginBottom: "0.4rem" }}>—</div>
+              <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>No {seg === "open" ? "open" : seg === "missed" ? "missed" : ""} tasks</div>
+              <div style={{ fontSize: "0.82rem" }}>{seg === "open" ? "All tasks for this shift are complete." : seg === "missed" ? "No missed or overdue tasks." : "No tasks scheduled for this date."}</div>
+            </div>
+          )}
+          {(() => {
+            const SHIFT_ORDER = ["Opening", "Midday", "Closing"];
+            const shiftGroups = segTasks.reduce((acc, tk) => {
+              const k = tk.shift_time || "General";
+              if (!acc[k]) acc[k] = [];
+              acc[k].push(tk);
+              return acc;
+            }, {});
+            const orderedGroups = Object.keys(shiftGroups).sort((a, b) => {
+              const ai = SHIFT_ORDER.findIndex(s => a.startsWith(s));
+              const bi = SHIFT_ORDER.findIndex(s => b.startsWith(s));
+              return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+            });
+            const showHeaders = orderedGroups.length > 1;
+            return orderedGroups.map(group => (
+              <React.Fragment key={group}>
+                {showHeaders && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.45rem", marginTop: "0.25rem" }}>
+                    <div style={{ width: 3, height: 18, borderRadius: 2, background: O, flexShrink: 0 }} />
+                    <span style={{ fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: O }}>{group}</span>
+                    <span style={{ fontSize: "0.72rem", color: th.muted, fontWeight: 500 }}>{shiftGroups[group].length} task{shiftGroups[group].length !== 1 ? "s" : ""}</span>
+                    <div style={{ flex: 1, height: 1, background: O + "22" }} />
+                  </div>
+                )}
+                {shiftGroups[group].map((tk) => {
             const sc = TASK_STATUS_COLOR[tk.statusComputed] || th.muted;
             const done = tk.statusComputed === "completed";
             const hasItems = (tk.items_count || 0) > 0;
@@ -25675,23 +25734,36 @@ function OpsTasks({ stores, th, user }) {
             const itemPct = hasItems ? Math.round(((tk.answers_count || 0) / tk.items_count) * 100) : (done ? 100 : 0);
 
             return (
-              <div key={tk.id} style={{ ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${sc}` }}>
+              <div key={tk.id} style={{ ...card(th), padding: "0.8rem 0.9rem", marginBottom: "0.5rem" }}>
                 {/* Card header */}
-                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", cursor: hasItems ? "pointer" : "default" }}
+                <div style={{ cursor: hasItems ? "pointer" : "default" }}
                   onClick={() => hasItems && setExpandedId(isExpanded ? null : tk.id)}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{tk.name}</div>
-                    <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.25rem", flexWrap: "wrap" }}>
-                      <span style={pill(th.muted, { fontSize: "0.68rem" })}>{tk.category}</span>
-                      {tk.shift_time && <span style={{ fontSize: "0.72rem", color: th.muted }}>{tk.shift_time}</span>}
-                      <span style={{ fontSize: "0.72rem", fontWeight: 700, color: sc, textTransform: "capitalize" }}>{tk.statusComputed}</span>
-                      {hasItems && <span style={{ fontSize: "0.68rem", color: th.muted }}>{tk.answers_count}/{tk.items_count} items</span>}
-                      {!hasItems && isMeas && tk.min_val != null && <span style={{ fontSize: "0.68rem", color: th.muted }}>({tk.min_val}–{tk.max_val}{tk.unit} · tgt {tk.target}{tk.unit})</span>}
-                    </div>
-                    {done && !hasItems && tk.value != null && <div style={{ fontSize: "0.74rem", color: th.muted, marginTop: "0.2rem" }}>Recorded: {tk.value}{tk.unit || ""}{tk.completed_by ? ` · ${tk.completed_by}` : ""}</div>}
+                  {/* Eyebrow row */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+                    <span style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: th.muted }}>
+                      {tk.category}{!showHeaders && tk.shift_time ? ` · ${tk.shift_time}` : ""}
+                    </span>
+                    <span style={{ fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "0.18rem 0.5rem", borderRadius: 99, background: sc + "22", color: sc }}>
+                      {tk.statusComputed}
+                    </span>
                   </div>
-                  <TaskRing pct={itemPct} th={th} size={40} color={hasItems ? complianceColor(itemPct) : undefined} />
-                  {hasItems && <span style={{ color: th.muted, fontSize: "0.85rem", flexShrink: 0 }}>{isExpanded ? "▲" : "▼"}</span>}
+                  {/* Name + ring row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: "1rem", lineHeight: 1.3 }}>{tk.name}</div>
+                      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.25rem", flexWrap: "wrap" }}>
+                        {hasItems && <span style={{ fontSize: "0.75rem", color: th.muted }}>{tk.answers_count}/{tk.items_count} items</span>}
+                        {!hasItems && isMeas && tk.min_val != null && <span style={{ fontSize: "0.73rem", color: th.muted }}>{tk.min_val}–{tk.max_val}{tk.unit}</span>}
+                        {done && !hasItems && tk.value != null && <span style={{ fontSize: "0.73rem", color: th.muted }}>Recorded: {tk.value}{tk.unit || ""}{tk.completed_by ? ` · ${tk.completed_by}` : ""}</span>}
+                      </div>
+                    </div>
+                    <TaskRing pct={itemPct} th={th} size={40} color={hasItems ? complianceColor(itemPct) : undefined} />
+                    {hasItems && (
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "50%", background: isExpanded ? (O + "18") : "transparent", color: isExpanded ? O : th.muted, fontSize: "0.78rem", flexShrink: 0, transition: "background 0.15s, color 0.15s" }}>
+                        {isExpanded ? "▲" : "▼"}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Multi-item expansion (Phase 2) */}
@@ -25735,17 +25807,23 @@ function OpsTasks({ stores, th, user }) {
                     })}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
                       {done
-                        ? <span style={{ fontSize: "0.76rem", color: "#2f9e44", fontWeight: 700 }}>✓ Complete{tk.completed_by ? ` · ${tk.completed_by}` : ""}</span>
-                        : <span style={{ fontSize: "0.76rem", color: th.muted }}>Tap a checkbox or enter a reading to record</span>
+                        ? <span style={{ fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700 }}>Completed{tk.completed_by ? ` · ${tk.completed_by}` : ""}</span>
+                        : <span style={{ fontSize: "0.78rem", color: th.muted }}>Enter readings or check off items to record</span>
                       }
                       {done && (
                         <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id}
-                          style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" }}>
+                          style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.45rem 0.85rem", minHeight: 36, touchAction: "manipulation" }}>
                           Reset
                         </button>
                       )}
                     </div>
-                    {busyId === tk.id && <div style={{ fontSize: "0.74rem", color: th.muted, textAlign: "center", paddingTop: "0.3rem" }}>Saving…</div>}
+                    {busyId === tk.id && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", fontSize: "0.78rem", color: O, paddingTop: "0.4rem", fontWeight: 600 }}>
+                        <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", border: `2px solid ${O}`, borderTopColor: "transparent", animation: "pcg-spin .7s linear infinite" }} />
+                        Saving…
+                      </div>
+                    )}
+                    <style>{`@keyframes pcg-spin{to{transform:rotate(360deg)}}`}</style>
                   </div>
                 )}
 
@@ -25753,19 +25831,20 @@ function OpsTasks({ stores, th, user }) {
                 {!hasItems && (
                   <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
                     {done ? (
-                      <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.4rem 0.8rem" }}>Reopen</button>
+                      <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.55rem 1rem", minHeight: 44, touchAction: "manipulation" }}>Reopen</button>
                     ) : openEntry === tk.id ? (
                       <>
                         <input type="number" inputMode="decimal" autoFocus value={entryVal} onChange={(e) => setEntryVal(e.target.value)}
-                          placeholder={`Reading${tk.unit ? " (" + tk.unit + ")" : ""}`} style={{ ...inp(th), flex: 1, fontSize: "0.85rem" }} />
+                          placeholder={`Reading${tk.unit ? " (" + tk.unit + ")" : ""}`} style={{ ...inp(th), flex: 1, fontSize: "0.9rem", minHeight: 44 }} />
                         <button onClick={() => completeTask(tk, entryVal === "" ? null : Number(entryVal))} disabled={busyId === tk.id}
-                          style={{ ...btn(th), fontSize: "0.8rem", padding: "0.45rem 0.9rem" }}>Save</button>
-                        <button onClick={() => { setOpenEntry(null); setEntryVal(""); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.45rem 0.7rem" }}>✕</button>
+                          style={{ ...btn(th), fontSize: "0.85rem", padding: "0.55rem 1rem", minHeight: 44, touchAction: "manipulation" }}>Save</button>
+                        <button onClick={() => { setOpenEntry(null); setEntryVal(""); }} aria-label="Cancel"
+                          style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.55rem 0.8rem", minHeight: 44, touchAction: "manipulation" }}>✕</button>
                       </>
                     ) : (
                       <button onClick={() => { if (isMeas) { setOpenEntry(tk.id); setEntryVal(""); } else { completeTask(tk); } }} disabled={busyId === tk.id}
-                        style={{ ...btn(th), fontSize: "0.82rem", padding: "0.45rem 1rem", width: isMeas ? "auto" : "100%" }}>
-                        {busyId === tk.id ? "…" : isMeas ? "Enter reading" : "✓ Mark complete"}
+                        style={{ ...btn(th), fontSize: "0.85rem", padding: "0.6rem 1rem", minHeight: 44, width: isMeas ? "auto" : "100%", touchAction: "manipulation" }}>
+                        {busyId === tk.id ? "Saving…" : isMeas ? "Enter reading" : "Mark complete"}
                       </button>
                     )}
                   </div>
@@ -25773,6 +25852,9 @@ function OpsTasks({ stores, th, user }) {
               </div>
             );
           })}
+              </React.Fragment>
+            ));
+          })()}
         </div>
       )}
 
@@ -25802,19 +25884,25 @@ function OpsTasks({ stores, th, user }) {
           <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
             {[["open", "Open"], ["resolved", "Resolved"], ["all", "All"]].map(([f, lbl]) => (
               <button key={f} onClick={() => setCaFilter(f)} style={{
-                padding: "0.45rem 0.9rem", borderRadius: 999,
+                padding: "0.58rem 1rem", borderRadius: 999, minHeight: 40,
                 border: `1px solid ${caFilter === f ? "#e03131" : th.muted + "55"}`,
                 background: caFilter === f ? "#e031311a" : "transparent",
                 color: caFilter === f ? "#e03131" : th.text,
-                fontSize: "0.8rem", fontWeight: 700, cursor: "pointer",
+                fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation",
               }}>{lbl} ({(cas || []).filter((c) => f === "all" || c.status === f).length})</button>
             ))}
-            <button onClick={loadCAs} style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.76rem", padding: "0.4rem 0.7rem", marginLeft: "auto" }}>Refresh</button>
+            <button onClick={loadCAs} style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.5rem 0.85rem", minHeight: 40, marginLeft: "auto", touchAction: "manipulation" }}>Refresh</button>
           </div>
-          {loadingCAs && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Loading…</div>}
+          {loadingCAs && <TaskSkeleton th={th} rows={2} />}
           {!loadingCAs && cas !== null && (() => {
             const filtered = (cas || []).filter((c) => caFilter === "all" || c.status === caFilter);
-            if (!filtered.length) return <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>No {caFilter !== "all" ? caFilter : ""} corrective actions</div>;
+            if (!filtered.length) return (
+              <div style={{ textAlign: "center", color: th.muted, padding: "2.5rem 1rem" }}>
+                <div style={{ fontSize: "1.5rem", marginBottom: "0.4rem" }}>—</div>
+                <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>No {caFilter !== "all" ? caFilter : ""} corrective actions</div>
+                <div style={{ fontSize: "0.82rem" }}>{caFilter === "open" ? "All corrective actions have been resolved." : caFilter === "resolved" ? "No resolved actions yet." : "No corrective actions recorded."}</div>
+              </div>
+            );
             return filtered.map((ca) => (
               <div key={ca.id} style={{ ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${ca.status === "resolved" ? "#2f9e44" : "#e03131"}` }}>
                 <div style={{ fontWeight: 700, fontSize: "0.88rem" }}>{ca.title}</div>
@@ -25825,7 +25913,7 @@ function OpsTasks({ stores, th, user }) {
                   {ca.due_date && ca.status === "open" && <span style={{ color: "#f59e0b" }}>Due {ca.due_date}</span>}
                 </div>
                 {ca.status === "open" && (
-                  <button onClick={() => resolveCA(ca)} style={{ ...btn(th, { background: "transparent", color: "#2f9e44", border: "1px solid #2f9e4455" }), fontSize: "0.76rem", padding: "0.3rem 0.8rem", marginTop: "0.5rem" }}>
+                  <button onClick={() => resolveCA(ca)} style={{ ...btn(th, { background: "transparent", color: "#2f9e44", border: "1px solid #2f9e4455" }), fontSize: "0.82rem", padding: "0.5rem 1rem", minHeight: 40, marginTop: "0.6rem", touchAction: "manipulation" }}>
                     Mark Resolved
                   </button>
                 )}

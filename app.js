@@ -14859,7 +14859,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v15.91";
+  var APP_VERSION = "v15.93";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -19520,6 +19520,19 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       "%"
     ));
   }
+  function TaskSkeleton({ th, rows = 3 }) {
+    const shimmerKeyframes = `@keyframes pcg-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`;
+    const bar = (w, h = 11) => ({
+      height: h,
+      borderRadius: 4,
+      width: w,
+      marginBottom: 5,
+      background: `linear-gradient(90deg,${th.cardBorder}28 25%,${th.cardBorder}55 50%,${th.cardBorder}28 75%)`,
+      backgroundSize: "200% 100%",
+      animation: "pcg-shimmer 1.5s ease infinite"
+    });
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("style", null, shimmerKeyframes), Array.from({ length: rows }).map((_, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card, border: `1px solid ${th.cardBorder || th.muted + "22"}`, borderLeft: `4px solid ${th.muted}44`, borderRadius: 8, padding: "0.75rem 0.9rem", marginBottom: "0.5rem", opacity: 1 - i * 0.18 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: bar("62%", 14) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("div", { style: bar(52) }), /* @__PURE__ */ React.createElement("div", { style: bar(38) }), /* @__PURE__ */ React.createElement("div", { style: bar(44) }))), /* @__PURE__ */ React.createElement("div", { style: { width: 40, height: 40, borderRadius: "50%", ...bar(40, 40), marginBottom: 0 } })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: bar("100%", 34) })))));
+  }
   function OpsTasks({ stores, th, user }) {
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
@@ -19643,120 +19656,148 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     );
     const segBtn = (id, label, n) => /* @__PURE__ */ React.createElement("button", { onClick: () => setSeg(id), style: {
       flex: 1,
-      padding: "0.55rem 0.4rem",
+      padding: "0.6rem 0.5rem",
       border: "none",
-      background: "transparent",
+      borderRadius: 9,
       cursor: "pointer",
       fontSize: "0.85rem",
       fontWeight: 700,
-      color: seg === id ? O : th.muted,
-      borderBottom: `2px solid ${seg === id ? O : "transparent"}`
+      minHeight: 44,
+      touchAction: "manipulation",
+      background: seg === id ? O : "transparent",
+      color: seg === id ? "#fff" : th.muted,
+      transition: "background 0.18s, color 0.18s",
+      boxShadow: seg === id ? "0 1px 4px rgba(0,0,0,0.18)" : "none"
     } }, label, typeof n === "number" ? ` (${n})` : "");
     const viewTab = (id, label, accent) => /* @__PURE__ */ React.createElement("button", { onClick: () => setView(id), style: {
-      padding: "0.5rem 0.9rem",
+      padding: "0.62rem 1rem",
       borderRadius: 999,
+      minHeight: 40,
       border: `1px solid ${view === id ? accent || O : th.muted + "55"}`,
       background: view === id ? accent || O : "transparent",
       color: view === id ? "#fff" : th.text,
-      fontSize: "0.8rem",
+      fontSize: "0.82rem",
       fontWeight: 700,
       cursor: "pointer",
-      whiteSpace: "nowrap"
+      whiteSpace: "nowrap",
+      touchAction: "manipulation"
     } }, label);
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Tasks"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, !isManager && viewTab("dashboard", "Dashboard"), viewTab("tasks", "Tasks"), !isManager && viewTab("stores", "Stores"), viewTab("cas", "Corrective Actions", "#e03131"))), (view === "tasks" || view === "dashboard") && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, !isManager && /* @__PURE__ */ React.createElement("select", { value: storePc, onChange: (e) => setStorePc(e.target.value), style: { ...inp(th), flex: 1, minWidth: 160 } }, scopeStores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: String(s.pc) }, s.pc, " \u2014 ", s.name))), isManager && myStore && /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 } }, myStore.pc, " \u2014 ", myStore.name), /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: { ...inp(th), width: 160 } })), loading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "Loading\u2026"), view === "dashboard" && dash && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" } }, [["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text } }, dash.totals[k] || 0), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 600 } }, lbl)))), dash.open_cas > 0 && /* @__PURE__ */ React.createElement("div", { onClick: () => setView("cas"), style: { ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", borderLeft: "4px solid #e03131" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem", color: "#e03131", fontWeight: 800 } }, dash.open_cas), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text, fontWeight: 600 } }, "Open Corrective Action", dash.open_cas !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.75rem", color: th.muted } }, "View \u2192")), dash.categories.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.category, style: { ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` } }, /* @__PURE__ */ React.createElement(TaskRing, { pct: c.pct, th, size: 40, color: complianceColor(c.pct) }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, c.category), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, c.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, c.overdue, " overdue"), " \xB7 ", c.completed, "/", c.all, " done"))))), view === "tasks" && data && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", ...card(th), padding: 0, marginBottom: "0.75rem", overflow: "hidden" } }, segBtn("open", "Open", data.counts.open), segBtn("missed", "Missed", data.counts.missed + data.counts.overdue), segBtn("all", "All", data.counts.all)), segTasks.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "Nothing here"), segTasks.map((tk) => {
-      const sc = TASK_STATUS_COLOR[tk.statusComputed] || th.muted;
-      const done = tk.statusComputed === "completed";
-      const hasItems = (tk.items_count || 0) > 0;
-      const isExpanded = expandedId === tk.id;
-      const isMeas = !hasItems && (tk.input_type === "temperature" || tk.input_type === "weight" || tk.input_type === "count");
-      const itemPct = hasItems ? Math.round((tk.answers_count || 0) / tk.items_count * 100) : done ? 100 : 0;
-      return /* @__PURE__ */ React.createElement("div", { key: tk.id, style: { ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${sc}` } }, /* @__PURE__ */ React.createElement(
-        "div",
-        {
-          style: { display: "flex", alignItems: "center", gap: "0.75rem", cursor: hasItems ? "pointer" : "default" },
-          onClick: () => hasItems && setExpandedId(isExpanded ? null : tk.id)
-        },
-        /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.95rem" } }, tk.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.25rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: pill(th.muted, { fontSize: "0.68rem" }) }, tk.category), tk.shift_time && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, tk.shift_time), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: sc, textTransform: "capitalize" } }, tk.statusComputed), hasItems && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, tk.answers_count, "/", tk.items_count, " items"), !hasItems && isMeas && tk.min_val != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "(", tk.min_val, "\u2013", tk.max_val, tk.unit, " \xB7 tgt ", tk.target, tk.unit, ")")), done && !hasItems && tk.value != null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginTop: "0.2rem" } }, "Recorded: ", tk.value, tk.unit || "", tk.completed_by ? ` \xB7 ${tk.completed_by}` : "")),
-        /* @__PURE__ */ React.createElement(TaskRing, { pct: itemPct, th, size: 40, color: hasItems ? complianceColor(itemPct) : void 0 }),
-        hasItems && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", flexShrink: 0 } }, isExpanded ? "\u25B2" : "\u25BC")
-      ), hasItems && isExpanded && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}`, paddingTop: "0.5rem" } }, tk.items.map((item) => {
-        const equipList = tk.equipment.length ? tk.equipment : [null];
-        return equipList.map((equip) => {
-          const key = `${tk.id}_${item.id}_${equip?.id || "null"}`;
-          const existing = (tk.answers || []).find((a) => a.item_id === item.id && (equip ? a.equipment_id === equip.id : !a.equipment_id));
-          const localVal = localAnswers[key];
-          const outRange = existing?.in_range === false;
-          return /* @__PURE__ */ React.createElement("div", { key, style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0", borderBottom: `1px solid ${th.cardBorder}33` } }, equip && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, minWidth: 90, flexShrink: 0 } }, equip.unit_name), item.input_type === "bool" ? /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.5rem", alignItems: "center", cursor: done ? "default" : "pointer", flex: 1 } }, /* @__PURE__ */ React.createElement(
-            "input",
-            {
-              type: "checkbox",
-              checked: !!existing?.checked,
-              disabled: done || busyId === tk.id,
-              onChange: (e) => !done && submitAnswer(tk, item, equip, { checked: e.target.checked })
-            }
-          ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", flex: 1 } }, item.label), existing?.checked && /* @__PURE__ */ React.createElement("span", { style: { color: "#2f9e44", fontSize: "0.78rem" } }, "\u2713")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { flex: 1, fontSize: "0.85rem" } }, item.label), item.min_val != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, whiteSpace: "nowrap" } }, item.min_val, "\u2013", item.max_val, item.unit), /* @__PURE__ */ React.createElement(
-            "input",
-            {
-              type: "number",
-              inputMode: "decimal",
-              value: localVal !== void 0 ? localVal : existing?.value != null ? String(existing.value) : "",
-              onChange: (e) => setLocalAnswers((prev) => ({ ...prev, [key]: e.target.value })),
-              onBlur: (e) => {
-                const v = e.target.value;
-                if (v !== "" && !done && busyId !== tk.id) submitAnswer(tk, item, equip, { value: Number(v) });
-              },
-              disabled: done || busyId === tk.id,
-              style: { ...inp(th), width: 80, fontSize: "0.85rem", borderColor: outRange ? "#e03131" : void 0 }
-            }
-          ), outRange && /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131", fontSize: "0.8rem" } }, "\u26A0"), existing?.in_range === true && /* @__PURE__ */ React.createElement("span", { style: { color: "#2f9e44", fontSize: "0.8rem" } }, "\u2713")));
-        });
-      }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" } }, done ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.76rem", color: "#2f9e44", fontWeight: 700 } }, "\u2713 Complete", tk.completed_by ? ` \xB7 ${tk.completed_by}` : "") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.76rem", color: th.muted } }, "Tap a checkbox or enter a reading to record"), done && /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => reopenTask(tk),
-          disabled: busyId === tk.id,
-          style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" }
-        },
-        "Reset"
-      )), busyId === tk.id && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, textAlign: "center", paddingTop: "0.3rem" } }, "Saving\u2026")), !hasItems && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", display: "flex", gap: "0.5rem", alignItems: "center" } }, done ? /* @__PURE__ */ React.createElement("button", { onClick: () => reopenTask(tk), disabled: busyId === tk.id, style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.4rem 0.8rem" } }, "Reopen") : openEntry === tk.id ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          type: "number",
-          inputMode: "decimal",
-          autoFocus: true,
-          value: entryVal,
-          onChange: (e) => setEntryVal(e.target.value),
-          placeholder: `Reading${tk.unit ? " (" + tk.unit + ")" : ""}`,
-          style: { ...inp(th), flex: 1, fontSize: "0.85rem" }
-        }
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => completeTask(tk, entryVal === "" ? null : Number(entryVal)),
-          disabled: busyId === tk.id,
-          style: { ...btn(th), fontSize: "0.8rem", padding: "0.45rem 0.9rem" }
-        },
-        "Save"
-      ), /* @__PURE__ */ React.createElement("button", { onClick: () => {
-        setOpenEntry(null);
-        setEntryVal("");
-      }, style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.45rem 0.7rem" } }, "\u2715")) : /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => {
-            if (isMeas) {
-              setOpenEntry(tk.id);
-              setEntryVal("");
-            } else {
-              completeTask(tk);
-            }
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Tasks"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, !isManager && viewTab("dashboard", "Dashboard"), viewTab("tasks", "Tasks"), !isManager && viewTab("stores", "Stores"), viewTab("cas", "Corrective Actions", "#e03131"))), (view === "tasks" || view === "dashboard") && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, !isManager && /* @__PURE__ */ React.createElement("select", { value: storePc, onChange: (e) => setStorePc(e.target.value), style: { ...inp(th), flex: 1, minWidth: 160 } }, scopeStores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: String(s.pc) }, s.pc, " \u2014 ", s.name))), isManager && myStore && /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 } }, myStore.pc, " \u2014 ", myStore.name), /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: { ...inp(th), width: 160 } })), loading && /* @__PURE__ */ React.createElement(TaskSkeleton, { th, rows: 3 }), view === "dashboard" && dash && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" } }, [["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text } }, dash.totals[k] || 0), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 600 } }, lbl)))), dash.open_cas > 0 && /* @__PURE__ */ React.createElement("div", { onClick: () => setView("cas"), style: { ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", borderLeft: "4px solid #e03131" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem", color: "#e03131", fontWeight: 800 } }, dash.open_cas), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text, fontWeight: 600 } }, "Open Corrective Action", dash.open_cas !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.75rem", color: th.muted } }, "View \u2192")), dash.categories.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.category, style: { ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` } }, /* @__PURE__ */ React.createElement(TaskRing, { pct: c.pct, th, size: 40, color: complianceColor(c.pct) }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, c.category), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, c.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, c.overdue, " overdue"), " \xB7 ", c.completed, "/", c.all, " done"))))), view === "tasks" && data && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", background: th.muted + "1a", borderRadius: 12, padding: 4, marginBottom: "0.9rem", gap: 4 } }, segBtn("open", "Open", data.counts.open), segBtn("missed", "Missed", data.counts.missed + data.counts.overdue), segBtn("all", "All", data.counts.all)), segTasks.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2.5rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", marginBottom: "0.4rem" } }, "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, marginBottom: "0.25rem" } }, "No ", seg === "open" ? "open" : seg === "missed" ? "missed" : "", " tasks"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem" } }, seg === "open" ? "All tasks for this shift are complete." : seg === "missed" ? "No missed or overdue tasks." : "No tasks scheduled for this date.")), (() => {
+      const SHIFT_ORDER = ["Opening", "Midday", "Closing"];
+      const shiftGroups = segTasks.reduce((acc, tk) => {
+        const k = tk.shift_time || "General";
+        if (!acc[k]) acc[k] = [];
+        acc[k].push(tk);
+        return acc;
+      }, {});
+      const orderedGroups = Object.keys(shiftGroups).sort((a, b) => {
+        const ai = SHIFT_ORDER.findIndex((s) => a.startsWith(s));
+        const bi = SHIFT_ORDER.findIndex((s) => b.startsWith(s));
+        return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+      });
+      const showHeaders = orderedGroups.length > 1;
+      return orderedGroups.map((group) => /* @__PURE__ */ React.createElement(React.Fragment, { key: group }, showHeaders && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.45rem", marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 18, borderRadius: 2, background: O, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: O } }, group), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted, fontWeight: 500 } }, shiftGroups[group].length, " task", shiftGroups[group].length !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: O + "22" } })), shiftGroups[group].map((tk) => {
+        const sc = TASK_STATUS_COLOR[tk.statusComputed] || th.muted;
+        const done = tk.statusComputed === "completed";
+        const hasItems = (tk.items_count || 0) > 0;
+        const isExpanded = expandedId === tk.id;
+        const isMeas = !hasItems && (tk.input_type === "temperature" || tk.input_type === "weight" || tk.input_type === "count");
+        const itemPct = hasItems ? Math.round((tk.answers_count || 0) / tk.items_count * 100) : done ? 100 : 0;
+        return /* @__PURE__ */ React.createElement("div", { key: tk.id, style: { ...card(th), padding: "0.8rem 0.9rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            style: { cursor: hasItems ? "pointer" : "default" },
+            onClick: () => hasItems && setExpandedId(isExpanded ? null : tk.id)
           },
-          disabled: busyId === tk.id,
-          style: { ...btn(th), fontSize: "0.82rem", padding: "0.45rem 1rem", width: isMeas ? "auto" : "100%" }
-        },
-        busyId === tk.id ? "\u2026" : isMeas ? "Enter reading" : "\u2713 Mark complete"
-      )));
-    })), view === "stores" && rollup && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" } }, rollup.stores.length, " stores \xB7 ", date, isDM ? ` \xB7 District ${user?.district}` : ""), rollup.stores.map((s) => /* @__PURE__ */ React.createElement(
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: th.muted } }, tk.category, !showHeaders && tk.shift_time ? ` \xB7 ${tk.shift_time}` : ""), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "0.18rem 0.5rem", borderRadius: 99, background: sc + "22", color: sc } }, tk.statusComputed)),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1rem", lineHeight: 1.3 } }, tk.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.25rem", flexWrap: "wrap" } }, hasItems && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, tk.answers_count, "/", tk.items_count, " items"), !hasItems && isMeas && tk.min_val != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.73rem", color: th.muted } }, tk.min_val, "\u2013", tk.max_val, tk.unit), done && !hasItems && tk.value != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.73rem", color: th.muted } }, "Recorded: ", tk.value, tk.unit || "", tk.completed_by ? ` \xB7 ${tk.completed_by}` : ""))), /* @__PURE__ */ React.createElement(TaskRing, { pct: itemPct, th, size: 40, color: hasItems ? complianceColor(itemPct) : void 0 }), hasItems && /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "50%", background: isExpanded ? O + "18" : "transparent", color: isExpanded ? O : th.muted, fontSize: "0.78rem", flexShrink: 0, transition: "background 0.15s, color 0.15s" } }, isExpanded ? "\u25B2" : "\u25BC"))
+        ), hasItems && isExpanded && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}`, paddingTop: "0.5rem" } }, tk.items.map((item) => {
+          const equipList = tk.equipment.length ? tk.equipment : [null];
+          return equipList.map((equip) => {
+            const key = `${tk.id}_${item.id}_${equip?.id || "null"}`;
+            const existing = (tk.answers || []).find((a) => a.item_id === item.id && (equip ? a.equipment_id === equip.id : !a.equipment_id));
+            const localVal = localAnswers[key];
+            const outRange = existing?.in_range === false;
+            return /* @__PURE__ */ React.createElement("div", { key, style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0", borderBottom: `1px solid ${th.cardBorder}33` } }, equip && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, minWidth: 90, flexShrink: 0 } }, equip.unit_name), item.input_type === "bool" ? /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.5rem", alignItems: "center", cursor: done ? "default" : "pointer", flex: 1 } }, /* @__PURE__ */ React.createElement(
+              "input",
+              {
+                type: "checkbox",
+                checked: !!existing?.checked,
+                disabled: done || busyId === tk.id,
+                onChange: (e) => !done && submitAnswer(tk, item, equip, { checked: e.target.checked })
+              }
+            ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", flex: 1 } }, item.label), existing?.checked && /* @__PURE__ */ React.createElement("span", { style: { color: "#2f9e44", fontSize: "0.78rem" } }, "\u2713")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { flex: 1, fontSize: "0.85rem" } }, item.label), item.min_val != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, whiteSpace: "nowrap" } }, item.min_val, "\u2013", item.max_val, item.unit), /* @__PURE__ */ React.createElement(
+              "input",
+              {
+                type: "number",
+                inputMode: "decimal",
+                value: localVal !== void 0 ? localVal : existing?.value != null ? String(existing.value) : "",
+                onChange: (e) => setLocalAnswers((prev) => ({ ...prev, [key]: e.target.value })),
+                onBlur: (e) => {
+                  const v = e.target.value;
+                  if (v !== "" && !done && busyId !== tk.id) submitAnswer(tk, item, equip, { value: Number(v) });
+                },
+                disabled: done || busyId === tk.id,
+                style: { ...inp(th), width: 80, fontSize: "0.85rem", borderColor: outRange ? "#e03131" : void 0 }
+              }
+            ), outRange && /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131", fontSize: "0.8rem" } }, "\u26A0"), existing?.in_range === true && /* @__PURE__ */ React.createElement("span", { style: { color: "#2f9e44", fontSize: "0.8rem" } }, "\u2713")));
+          });
+        }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" } }, done ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700 } }, "Completed", tk.completed_by ? ` \xB7 ${tk.completed_by}` : "") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Enter readings or check off items to record"), done && /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => reopenTask(tk),
+            disabled: busyId === tk.id,
+            style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.45rem 0.85rem", minHeight: 36, touchAction: "manipulation" }
+          },
+          "Reset"
+        )), busyId === tk.id && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", fontSize: "0.78rem", color: O, paddingTop: "0.4rem", fontWeight: 600 } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 10, height: 10, borderRadius: "50%", border: `2px solid ${O}`, borderTopColor: "transparent", animation: "pcg-spin .7s linear infinite" } }), "Saving\u2026"), /* @__PURE__ */ React.createElement("style", null, `@keyframes pcg-spin{to{transform:rotate(360deg)}}`)), !hasItems && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", display: "flex", gap: "0.5rem", alignItems: "center" } }, done ? /* @__PURE__ */ React.createElement("button", { onClick: () => reopenTask(tk), disabled: busyId === tk.id, style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.55rem 1rem", minHeight: 44, touchAction: "manipulation" } }, "Reopen") : openEntry === tk.id ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            type: "number",
+            inputMode: "decimal",
+            autoFocus: true,
+            value: entryVal,
+            onChange: (e) => setEntryVal(e.target.value),
+            placeholder: `Reading${tk.unit ? " (" + tk.unit + ")" : ""}`,
+            style: { ...inp(th), flex: 1, fontSize: "0.9rem", minHeight: 44 }
+          }
+        ), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => completeTask(tk, entryVal === "" ? null : Number(entryVal)),
+            disabled: busyId === tk.id,
+            style: { ...btn(th), fontSize: "0.85rem", padding: "0.55rem 1rem", minHeight: 44, touchAction: "manipulation" }
+          },
+          "Save"
+        ), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => {
+              setOpenEntry(null);
+              setEntryVal("");
+            },
+            "aria-label": "Cancel",
+            style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.55rem 0.8rem", minHeight: 44, touchAction: "manipulation" }
+          },
+          "\u2715"
+        )) : /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => {
+              if (isMeas) {
+                setOpenEntry(tk.id);
+                setEntryVal("");
+              } else {
+                completeTask(tk);
+              }
+            },
+            disabled: busyId === tk.id,
+            style: { ...btn(th), fontSize: "0.85rem", padding: "0.6rem 1rem", minHeight: 44, width: isMeas ? "auto" : "100%", touchAction: "manipulation" }
+          },
+          busyId === tk.id ? "Saving\u2026" : isMeas ? "Enter reading" : "Mark complete"
+        )));
+      })));
+    })()), view === "stores" && rollup && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" } }, rollup.stores.length, " stores \xB7 ", date, isDM ? ` \xB7 District ${user?.district}` : ""), rollup.stores.map((s) => /* @__PURE__ */ React.createElement(
       "div",
       {
         key: s.pc,
@@ -19769,18 +19810,20 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       /* @__PURE__ */ React.createElement(TaskRing, { pct: s.pct, th, size: 40, color: complianceColor(s.pct) }),
       /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, s.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.78rem" } }, "\xB7 ", s.pc)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, s.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, s.overdue, " overdue"), " \xB7 ", s.completed, "/", s.all, " done", !isDM ? ` \xB7 D${s.district}` : "", s.open_cas > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131", marginLeft: "0.4rem" } }, "\xB7 ", s.open_cas, " CA", s.open_cas !== 1 ? "s" : "")))
     ))), view === "cas" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap", alignItems: "center" } }, [["open", "Open"], ["resolved", "Resolved"], ["all", "All"]].map(([f, lbl]) => /* @__PURE__ */ React.createElement("button", { key: f, onClick: () => setCaFilter(f), style: {
-      padding: "0.45rem 0.9rem",
+      padding: "0.58rem 1rem",
       borderRadius: 999,
+      minHeight: 40,
       border: `1px solid ${caFilter === f ? "#e03131" : th.muted + "55"}`,
       background: caFilter === f ? "#e031311a" : "transparent",
       color: caFilter === f ? "#e03131" : th.text,
-      fontSize: "0.8rem",
+      fontSize: "0.82rem",
       fontWeight: 700,
-      cursor: "pointer"
-    } }, lbl, " (", (cas || []).filter((c) => f === "all" || c.status === f).length, ")")), /* @__PURE__ */ React.createElement("button", { onClick: loadCAs, style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.76rem", padding: "0.4rem 0.7rem", marginLeft: "auto" } }, "Refresh")), loadingCAs && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "Loading\u2026"), !loadingCAs && cas !== null && (() => {
+      cursor: "pointer",
+      touchAction: "manipulation"
+    } }, lbl, " (", (cas || []).filter((c) => f === "all" || c.status === f).length, ")")), /* @__PURE__ */ React.createElement("button", { onClick: loadCAs, style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.5rem 0.85rem", minHeight: 40, marginLeft: "auto", touchAction: "manipulation" } }, "Refresh")), loadingCAs && /* @__PURE__ */ React.createElement(TaskSkeleton, { th, rows: 2 }), !loadingCAs && cas !== null && (() => {
       const filtered = (cas || []).filter((c) => caFilter === "all" || c.status === caFilter);
-      if (!filtered.length) return /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "No ", caFilter !== "all" ? caFilter : "", " corrective actions");
-      return filtered.map((ca) => /* @__PURE__ */ React.createElement("div", { key: ca.id, style: { ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${ca.status === "resolved" ? "#2f9e44" : "#e03131"}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.88rem" } }, ca.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, !isManager && /* @__PURE__ */ React.createElement("span", null, ca.store_name), /* @__PURE__ */ React.createElement("span", { style: { color: ca.status === "resolved" ? "#2f9e44" : "#e03131", fontWeight: 700, textTransform: "capitalize" } }, ca.status), ca.created_at && /* @__PURE__ */ React.createElement("span", null, new Date(ca.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })), ca.due_date && ca.status === "open" && /* @__PURE__ */ React.createElement("span", { style: { color: "#f59e0b" } }, "Due ", ca.due_date)), ca.status === "open" && /* @__PURE__ */ React.createElement("button", { onClick: () => resolveCA(ca), style: { ...btn(th, { background: "transparent", color: "#2f9e44", border: "1px solid #2f9e4455" }), fontSize: "0.76rem", padding: "0.3rem 0.8rem", marginTop: "0.5rem" } }, "Mark Resolved"), ca.status === "resolved" && ca.resolved_by && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#2f9e44", marginTop: "0.3rem" } }, "Resolved by ", ca.resolved_by)));
+      if (!filtered.length) return /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2.5rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", marginBottom: "0.4rem" } }, "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, marginBottom: "0.25rem" } }, "No ", caFilter !== "all" ? caFilter : "", " corrective actions"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem" } }, caFilter === "open" ? "All corrective actions have been resolved." : caFilter === "resolved" ? "No resolved actions yet." : "No corrective actions recorded."));
+      return filtered.map((ca) => /* @__PURE__ */ React.createElement("div", { key: ca.id, style: { ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${ca.status === "resolved" ? "#2f9e44" : "#e03131"}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.88rem" } }, ca.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, !isManager && /* @__PURE__ */ React.createElement("span", null, ca.store_name), /* @__PURE__ */ React.createElement("span", { style: { color: ca.status === "resolved" ? "#2f9e44" : "#e03131", fontWeight: 700, textTransform: "capitalize" } }, ca.status), ca.created_at && /* @__PURE__ */ React.createElement("span", null, new Date(ca.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })), ca.due_date && ca.status === "open" && /* @__PURE__ */ React.createElement("span", { style: { color: "#f59e0b" } }, "Due ", ca.due_date)), ca.status === "open" && /* @__PURE__ */ React.createElement("button", { onClick: () => resolveCA(ca), style: { ...btn(th, { background: "transparent", color: "#2f9e44", border: "1px solid #2f9e4455" }), fontSize: "0.82rem", padding: "0.5rem 1rem", minHeight: 40, marginTop: "0.6rem", touchAction: "manipulation" } }, "Mark Resolved"), ca.status === "resolved" && ca.resolved_by && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#2f9e44", marginTop: "0.3rem" } }, "Resolved by ", ca.resolved_by)));
     })()));
   }
   function ImpactRadar({ th, user, dark, salesWeeks }) {
