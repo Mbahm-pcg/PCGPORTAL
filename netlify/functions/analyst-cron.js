@@ -13,7 +13,7 @@ const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
 const { logAudit } = require('./analyst-lib/analyst-audit');
 const { sendDMBriefs, sendExecReport, loadReportSettings } = require('./analyst-lib/analyst-reports');
 const { saveReport } = require('./analyst-lib/analyst-reports-gen');
-const { sql } = require('./db');
+const { sql } = require('./_shared/db');
 const { dcpPct } = require('./ndcp-lib/store-map');
 
 async function generateLeaderboardShoutout(today) {

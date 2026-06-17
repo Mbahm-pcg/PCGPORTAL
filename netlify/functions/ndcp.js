@@ -6,7 +6,7 @@
 // Actions:
 //   list    → latest version of each distinct order (+ version count + original total)
 //   detail  → every version of one order_number (full line items), oldest → newest
-const { sql } = require('./db');
+const { sql } = require('./_shared/db');
 const { enrich } = require('./ndcp-lib/store-map');
 const { summarize } = require('./ndcp-lib/summary');
 

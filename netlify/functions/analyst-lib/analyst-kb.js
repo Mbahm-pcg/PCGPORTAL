@@ -167,7 +167,7 @@ function buildKBContext(kbFiles) {
 
 async function searchKB(query) {
   try {
-    const { sql } = require('../db');
+    const { sql } = require('../_shared/db');
     const db = sql();
     const keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
     if (keywords.length === 0) return null;

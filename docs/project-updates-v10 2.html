@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UOP Technology Update — Projects Module v10.9</title>
+<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700;800;900&family=Source+Sans+3:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  :root{
+    --brand:#FF671F;--brand2:#ff8040;
+    --bg:#0f1117;--card:#1a1d27;--card2:#22252f;--card3:#2a2d38;
+    --text:#e8e8ea;--muted:#8a8d9b;--border:#2e3140;
+    --green:#22c55e;--red:#ef4444;--blue:#3b82f6;--purple:#8b5cf6;
+    --yellow:#f59e0b;--teal:#14b8a6;--indigo:#6366f1;
+  }
+  html{scroll-behavior:smooth;}
+  body{font-family:'Source Sans 3',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden;}
+
+  /* ── Hero ── */
+  .hero{
+    position:relative;padding:80px 60px 60px;text-align:center;
+    background:linear-gradient(160deg,#0f1117 0%,#1a1530 30%,#1a2235 60%,#0f1117 100%);
+    overflow:hidden;
+  }
+  .hero::before{
+    content:'';position:absolute;top:-200px;left:50%;transform:translateX(-50%);
+    width:800px;height:800px;border-radius:50%;
+    background:radial-gradient(circle,rgba(255,103,31,0.08) 0%,transparent 70%);
+    pointer-events:none;
+  }
+  .hero-badge{
+    display:inline-block;padding:6px 18px;border-radius:20px;font-size:11px;font-weight:700;
+    letter-spacing:1.5px;text-transform:uppercase;
+    background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;
+    margin-bottom:20px;box-shadow:0 4px 20px rgba(255,103,31,0.3);
+  }
+  .hero h1{
+    font-family:'Raleway',sans-serif;font-weight:900;font-size:48px;
+    background:linear-gradient(135deg,#fff 0%,#c8c8d0 100%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+    margin-bottom:12px;letter-spacing:-0.5px;
+  }
+  .hero p{font-size:18px;color:var(--muted);max-width:600px;margin:0 auto 30px;}
+  .hero-version{
+    font-family:'Raleway';font-weight:800;font-size:13px;color:var(--brand);
+    letter-spacing:2px;text-transform:uppercase;
+  }
+  .hero-meta{display:flex;justify-content:center;gap:40px;margin-top:30px;font-size:13px;color:var(--muted);}
+  .hero-meta strong{color:var(--text);}
+
+  /* ── Navigation ── */
+  .nav-strip{
+    position:sticky;top:0;z-index:100;
+    display:flex;gap:4px;padding:10px 40px;
+    background:rgba(15,17,23,0.92);backdrop-filter:blur(20px);
+    border-bottom:1px solid var(--border);overflow-x:auto;
+  }
+  .nav-strip a{
+    padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;
+    color:var(--muted);text-decoration:none;white-space:nowrap;
+    transition:all .2s;letter-spacing:0.3px;
+  }
+  .nav-strip a:hover{background:var(--card2);color:var(--text);}
+
+  /* ── Section Layout ── */
+  .section{padding:80px 60px;border-bottom:1px solid var(--border);}
+  .section:nth-child(even){background:rgba(26,29,39,0.5);}
+  .section-header{display:flex;align-items:flex-start;gap:16px;margin-bottom:40px;}
+  .section-icon{
+    width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;
+    font-size:22px;flex-shrink:0;
+  }
+  .section-header h2{
+    font-family:'Raleway';font-weight:800;font-size:28px;color:var(--text);
+    letter-spacing:-0.3px;line-height:1.2;
+  }
+  .section-header p{font-size:14px;color:var(--muted);margin-top:4px;max-width:700px;}
+
+  /* ── Feature Grid ── */
+  .feature-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start;}
+  .feature-text{padding-top:10px;}
+  .feature-text h3{font-family:'Raleway';font-weight:700;font-size:18px;margin-bottom:8px;color:var(--text);}
+  .feature-text p{font-size:14px;color:var(--muted);line-height:1.7;}
+  .feature-list{list-style:none;margin-top:12px;}
+  .feature-list li{
+    font-size:13px;color:var(--muted);padding:6px 0;
+    border-bottom:1px solid rgba(255,255,255,0.04);
+    display:flex;align-items:center;gap:8px;
+  }
+  .feature-list li::before{content:'→';color:var(--brand);font-weight:700;font-size:12px;}
+  .tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;}
+
+  /* ── Mockup Frames ── */
+  .mockup{
+    border-radius:12px;overflow:hidden;
+    border:1px solid var(--border);
+    box-shadow:0 20px 60px rgba(0,0,0,0.4),0 0 0 1px rgba(255,255,255,0.03);
+    background:var(--card);
+  }
+  .mockup-bar{
+    display:flex;align-items:center;gap:6px;padding:10px 14px;
+    background:var(--card2);border-bottom:1px solid var(--border);
+  }
+  .mockup-dot{width:8px;height:8px;border-radius:50%;}
+  .mockup-dot.r{background:#ff5f57;}.mockup-dot.y{background:#febc2e;}.mockup-dot.g{background:#28c840;}
+  .mockup-title{font-size:10px;color:var(--muted);margin-left:8px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;}
+  .mockup-body{padding:16px;}
+
+  /* ── Phase Pipeline Mockup ── */
+  .pipeline{display:flex;gap:3px;margin:8px 0;}
+  .pipeline-step{
+    flex:1;padding:8px 6px;text-align:center;border-radius:6px;position:relative;
+    font-size:9px;font-weight:700;letter-spacing:0.3px;
+  }
+  .pipeline-step .step-icon{font-size:14px;display:block;margin-bottom:2px;}
+  .pipeline-step::after{
+    content:'→';position:absolute;right:-8px;top:50%;transform:translateY(-50%);
+    font-size:10px;color:var(--muted);
+  }
+  .pipeline-step:last-child::after{display:none;}
+
+  /* ── Quick-Nav Tiles Mockup ── */
+  .nav-tiles{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0;}
+  .nav-tile{
+    display:flex;align-items:center;gap:4px;
+    padding:4px 10px;border-radius:6px;font-size:10px;font-weight:700;
+    cursor:default;white-space:nowrap;
+  }
+  .nav-tile .pct{font-size:8px;margin-left:2px;opacity:0.7;}
+
+  /* ── Inspection Card Mockup ── */
+  .insp-card{
+    padding:10px 12px;border-radius:8px;background:var(--card2);
+    border:1px solid var(--border);margin-bottom:6px;
+  }
+  .insp-row{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center;font-size:11px;}
+  .insp-notes{font-size:10px;color:var(--muted);margin-top:6px;padding:6px 8px;background:var(--card3);border-radius:4px;}
+  .insp-attach{
+    display:inline-flex;align-items:center;gap:4px;
+    padding:3px 8px;border-radius:4px;font-size:9px;font-weight:700;
+    margin-top:6px;cursor:default;
+  }
+
+  /* ── Project Header Mockup ── */
+  .proj-header{padding:16px;border-radius:10px;background:var(--card2);margin-bottom:10px;}
+  .proj-name{font-family:'Raleway';font-weight:800;font-size:18px;color:var(--text);}
+  .proj-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px;font-size:11px;}
+  .proj-meta div{color:var(--muted);}
+  .proj-meta strong{color:var(--text);}
+  .proj-progress{margin-top:10px;}
+  .progress-bar{height:6px;border-radius:3px;background:var(--card3);overflow:hidden;}
+  .progress-fill{height:100%;border-radius:3px;transition:width .5s;}
+
+  /* ── At-A-Glance Card Mockup ── */
+  .glance-card{
+    border:1px solid #e2e8f0;border-radius:10px;padding:14px;
+    margin-bottom:10px;background:#fff;color:#1f2937;
+    font-family:'Source Sans 3',sans-serif;
+  }
+  .glance-card.overdue{border-left:4px solid var(--red);}
+  .glance-card.normal{border-left:4px solid var(--purple);}
+  .glance-top{display:flex;justify-content:space-between;align-items:flex-start;}
+  .glance-name{font-family:'Raleway';font-weight:800;font-size:14px;}
+  .glance-addr{font-size:10px;color:#9ca3af;}
+  .glance-phase{
+    padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;
+    display:inline-block;
+  }
+  .glance-pct{font-size:18px;font-weight:900;margin-top:2px;text-align:right;}
+  .glance-dates{display:flex;flex-wrap:wrap;gap:8px;font-size:10px;color:#6b7280;margin:8px 0;}
+  .glance-dates strong{color:#1f2937;}
+  .glance-outstanding{font-size:10px;color:#9ca3af;margin-top:6px;}
+
+  /* ── Doc Viewer Mockup ── */
+  .doc-viewer{
+    border-radius:10px;overflow:hidden;background:#1a365d;
+    box-shadow:0 24px 48px rgba(0,0,0,0.3);
+  }
+  .doc-viewer-bar{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;}
+  .doc-viewer-bar span{color:#fff;font-weight:700;font-size:12px;}
+  .doc-viewer-btns{display:flex;gap:6px;}
+  .doc-viewer-btns button{
+    padding:4px 10px;border-radius:4px;border:none;font-size:10px;font-weight:600;
+    cursor:default;
+  }
+  .doc-viewer-content{
+    background:#f5f5f5;height:180px;display:flex;align-items:center;justify-content:center;
+    position:relative;overflow:hidden;
+  }
+  .doc-viewer-content .blueprint{
+    width:90%;height:85%;border:2px solid #ccc;border-radius:4px;
+    background:linear-gradient(135deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Raleway';font-weight:800;color:#999;font-size:12px;letter-spacing:1px;
+  }
+  .doc-viewer-footer{display:flex;justify-content:space-between;padding:8px 16px;background:var(--card2);font-size:10px;color:var(--muted);}
+
+  /* ── Contractor Roster Mockup ── */
+  .roster-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .roster-card{
+    padding:10px;border-radius:8px;background:var(--card3);
+    border-left:3px solid;font-size:11px;
+  }
+  .roster-card .name{font-weight:700;color:var(--text);font-size:12px;}
+  .roster-card .type{font-size:9px;font-weight:700;margin-top:2px;}
+  .roster-card .info{color:var(--muted);font-size:10px;margin-top:4px;}
+
+  /* ── City Data Mockup ── */
+  .city-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+  .city-card{padding:10px;border-radius:8px;background:var(--card3);text-align:center;}
+  .city-card .val{font-size:20px;font-weight:800;font-family:'Raleway';}
+  .city-card .lbl{font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;}
+
+  /* ── Animations ── */
+  @keyframes fadeUp{from{opacity:0;transform:translateY(30px);}to{opacity:1;transform:translateY(0);}}
+  @keyframes slideIn{from{opacity:0;transform:translateX(-20px);}to{opacity:1;transform:translateX(0);}}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.5;}}
+  .fade-up{animation:fadeUp 0.6s ease-out both;}
+  .slide-in{animation:slideIn 0.5s ease-out both;}
+  .delay-1{animation-delay:0.1s;}.delay-2{animation-delay:0.2s;}.delay-3{animation-delay:0.3s;}.delay-4{animation-delay:0.4s;}
+
+  /* ── Footer ── */
+  .footer{
+    text-align:center;padding:40px 60px;
+    font-size:12px;color:var(--muted);
+    border-top:1px solid var(--border);
+  }
+  .footer .brand{color:var(--brand);font-weight:700;}
+
+  /* ── Responsive ── */
+  @media(max-width:900px){
+    .feature-grid{grid-template-columns:1fr;}
+    .section{padding:40px 24px;}
+    .hero{padding:50px 24px 40px;}
+    .hero h1{font-size:32px;}
+    .nav-strip{padding:8px 16px;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- HERO                                                          -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="hero">
+  <div class="hero-badge">Technology Update</div>
+  <h1>Projects Module</h1>
+  <p>A complete construction management system built into the Unified Operations Portal — from zoning through grand opening.</p>
+  <div class="hero-version">v10.9 — May 2026</div>
+  <div class="hero-meta">
+    <div><strong>7</strong> Pipeline Phases</div>
+    <div><strong>15+</strong> Project Locations</div>
+    <div><strong>6</strong> City Data APIs</div>
+    <div><strong>∞</strong> File Size Support</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- NAV STRIP                                                     -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="nav-strip">
+  <a href="#pipeline">Pipeline</a>
+  <a href="#quicknav">Quick-Nav</a>
+  <a href="#dunkin-date">Dunkin' Date</a>
+  <a href="#inspections">Inspections</a>
+  <a href="#file-upload">Large Files</a>
+  <a href="#doc-viewer">Doc Viewer</a>
+  <a href="#contractors">Contractors</a>
+  <a href="#city-data">City Data</a>
+  <a href="#at-a-glance">At-A-Glance</a>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 1 · 7-PHASE PIPELINE                                          -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="section" id="pipeline">
+  <div class="feature-grid">
+    <div class="feature-text fade-up">
+      <div class="section-header">
+        <div class="section-icon" style="background:#6366f122;">🏗️</div>
+        <div>
+          <h2>7-Phase Pipeline</h2>
+          <p>Every project flows through a structured pipeline — each phase has its own checklist, notes, and file uploads.</p>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li>Zoning — classification, variance, hearing date, approval</li>
+        <li>Land Development — surveys, stormwater, plan filings (skippable)</li>
+        <li>Permitting — building, electrical, plumbing, mechanical permits</li>
+        <li>Pre-Construction — site plans, drawings, PKL approval</li>
+        <li>Equipment Ordering — DCP, NCR/POS, DMB, headsets, cameras</li>
+        <li>Construction / Install — delivery dates, install schedules, contractors</li>
+        <li>Completion — final walkthrough, Dunkin' approval, grand opening</li>
+      </ul>
+    </div>
+    <div class="fade-up delay-2">
+      <div class="mockup">
+        <div class="mockup-bar">
+          <div class="mockup-dot r"></div><div class="mockup-dot y"></div><div class="mockup-dot g"></div>
+          <span class="mockup-title">Project Pipeline View</span>
+        </div>
+        <div class="mockup-body">
+          <div class="pipeline">
+            <div class="pipeline-step" style="background:#6366f122;color:#6366f1;"><span class="step-icon">🏛️</span>Zoning</div>
+            <div class="pipeline-step" style="background:#14b8a622;color:#14b8a6;"><span class="step-icon">🌍</span>Land Dev</div>
+            <div class="pipeline-step" style="background:#f9731622;color:#f97316;"><span class="step-icon">📋</span>Permitting</div>
+            <div class="pipeline-step" style="background:#3b82f622;color:#3b82f6;"><span class="step-icon">📐</span>Pre-Const</div>
+            <div class="pipeline-step" style="background:#f59e0b22;color:#f59e0b;"><span class="step-icon">📦</span>Equipment</div>
+            <div class="pipeline-step" style="background:#8b5cf622;color:#8b5cf6;"><span class="step-icon">🔧</span>Construct</div>
+            <div class="pipeline-step" style="background:#10b98122;color:#10b981;"><span class="step-icon">🏁</span>Complete</div>
+          </div>
+
+          <div class="proj-header" style="margin-top:14px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <span class="proj-name">Lansdowne</span>
+              <span class="tag" style="background:#3b82f622;color:#3b82f6;">Remodel</span>
+            </div>
+            <div class="proj-meta">
+              <div><strong>PC#:</strong> 343832</div>
+              <div><strong>Address:</strong> 23 E Baltimore Ave</div>
+              <div><strong>Due:</strong> Dec 26, 2026</div>
+            </div>
+            <div class="proj-progress">
+              <div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--muted);margin-bottom:3px;">
+                <span>Overall Progress</span><span style="color:var(--brand);">42%</span>
+              </div>
+              <div class="progress-bar"><div class="progress-fill" style="width:42%;background:var(--brand);"></div></div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;">
+            <div style="padding:8px;border-radius:6px;background:var(--card3);font-size:10px;">
+              <div style="font-weight:700;color:var(--text);margin-bottom:4px;">Budget</div>
+              <div style="color:var(--muted);">Total: <strong style="color:var(--text);">$285,000</strong></div>
+            </div>
+            <div style="padding:8px;border-radius:6px;background:var(--card3);font-size:10px;">
+              <div style="font-weight:700;color:var(--text);margin-bottom:4px;">GC</div>
+              <div style="color:var(--muted);">Bittenbender Construction</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 2 · QUICK-NAV TILES                                           -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="section" id="quicknav">
+  <div class="feature-grid">
+    <div class="fade-up delay-1">
+      <div class="mockup">
+        <div class="mockup-bar">
+          <div class="mockup-dot r"></div><div class="mockup-dot y"></div><div class="mockup-dot g"></div>
+          <span class="mockup-title">Quick-Nav Phase Tiles</span>
+        </div>
+        <div class="mockup-body">
+          <div class="nav-tiles">
+            <div class="nav-tile" style="background:#6366f118;color:#6366f1;border:1px solid #6366f133;">🏛️ Zoning <span class="pct" style="color:var(--green);">100%</span></div>
+            <div class="nav-tile" style="background:#14b8a618;color:#14b8a6;border:1px solid #14b8a633;opacity:0.5;">🌍 Land Dev</div>
+            <div class="nav-tile" style="background:#f9731618;color:#f97316;border:1px solid #f9731633;">📋 Permitting <span class="pct">62%</span></div>
+            <div class="nav-tile" style="background:#3b82f618;color:#3b82f6;border:1px solid #3b82f633;">📐 Pre-Const <span class="pct">25%</span></div>
+            <div class="nav-tile" style="background:#f59e0b18;color:#f59e0b;border:1px solid #f59e0b33;">📦 Equipment <span class="pct">0%</span></div>
+            <div class="nav-tile" style="background:#8b5cf618;color:#8b5cf6;border:1px solid #8b5cf633;">🔧 Construction <span class="pct">0%</span></div>
+            <div class="nav-tile" style="background:#10b98118;color:#10b981;border:1px solid #10b98133;">🏁 Completion <span class="pct">0%</span></div>
+            <div class="nav-tile" style="background:#ef444418;color:#ef4444;border:1px solid #ef444433;">🔍 Inspections <span class="pct">3</span></div>
+          </div>
+          <div style="margin-top:14px;padding:12px;border-radius:8px;background:var(--card2);border-left:3px solid var(--indigo);">
+            <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);">
+              <span style="font-size:14px;">☝️</span>
+              <span>Click any tile to <strong style="color:var(--text);">instantly scroll</strong> to that phase — no more hunting through long project pages.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="feature-text fade-up delay-2">
+      <div class="section-header">
+        <div class="section-icon" style="background:#3b82f622;">🧭</div>
+        <div>
+          <h2>Quick-Nav Tiles</h2>
+          <p>Project detail pages can get long. Now there's a row of phase tiles at the top — click any one to jump straight to that section.</p>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li>Shows completion percentage for each phase at a glance</li>
+        <li>Skipped phases appear dimmed (e.g., Land Development)</li>
+        <li>Inspections tile shows total count with its own red accent</li>
+        <li>Smooth scroll animation takes you right to the section</li>
+        <li>Always visible at the top of the Checklist tab</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 3 · DUNKIN' COMPLETION DATE                                   -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="section" id="dunkin-date">
+  <div class="feature-grid">
+    <div class="feature-text fade-up">
+      <div class="section-header">
+        <div class="section-icon" style="background:#ff6b0022;">☕</div>
+        <div>
+          <h2>Dunkin' Completion Date</h2>
+          <p>Track Dunkin's system-of-record completion date alongside your own target date — see at a glance if you're aligned.</p>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li>Separate from "Target Completion" — tracks what Dunkin' has on file</li>
+        <li>Orange-branded label to visually distinguish from internal dates</li>
+        <li>Shows in project header, edit form, and At-A-Glance export</li>
+        <li>Helps catch misalignments between your timeline and Dunkin's</li>
+      </ul>
+    </div>
+    <div class="fade-up delay-2">
+      <div class="mockup">
+        <div class="mockup-bar">
+          <div class="mockup-dot r"></div><div class="mockup-dot y"></div><div class="mockup-dot g"></div>
+          <span class="mockup-title">Project Header — Date Fields</span>
+        </div>
+        <div class="mockup-body">
+          <div class="proj-meta" style="grid-template-columns:1fr 1fr;">
+            <div><strong>PC#:</strong> 310382</div>
+            <div><strong>Address:</strong> 9375 Old Bustleton Ave</div>
+            <div><strong>Due:</strong> Dec 26, 2026</div>
+            <div><strong>Target Completion:</strong> Sep 19, 2026</div>
+            <div style="grid-column:span 2;margin-top:4px;padding:8px 10px;border-radius:6px;background:rgba(255,107,0,0.08);border:1px solid rgba(255,107,0,0.2);">
+              <strong style="color:#ff6b00;">Dunkin' Completion:</strong>
+              <span style="font-weight:700;color:var(--text);margin-left:4px;">Oct 15, 2026</span>
+              <span style="font-size:9px;color:var(--yellow);margin-left:8px;font-weight:700;">⚠ 26 days after target</span>
+            </div>
+          </div>
+          <div style="margin-top:14px;font-size:10px;color:var(--muted);padding:8px;border-radius:6px;background:var(--card3);">
+            <strong style="color:var(--text);">Edit Form</strong> — Set the Dunkin' date when creating or editing any project. Label appears in Dunkin' orange for quick identification.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 4 · INSPECTIONS                                               -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="section" id="inspections">
+  <div class="feature-grid">
+    <div class="fade-up delay-1">
+      <div class="mockup">
+        <div class="mockup-bar">
+          <div class="mockup-dot r"></div><div class="mockup-dot y"></div><div class="mockup-dot g"></div>
+          <span class="mockup-title">Inspections Section</span>
+        </div>
+        <div class="mockup-body">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:16px;">🔍</span>
+              <span style="font-weight:700;font-size:14px;">Inspections</span>
+              <span class="tag" style="background:#ef444422;color:#ef4444;">2/4 Passed</span>
+            </div>
+            <button style="padding:4px 10px;border-radius:6px;background:var(--brand);color:#fff;border:none;font-size:10px;font-weight:700;cursor:default;">+ Add Inspection</button>
+          </div>
+
+          <div class="insp-card" style="border-left:3px solid var(--green);">
+            <div class="insp-row">
+              <span style="font-weight:700;color:var(--text);">Building</span>
+              <span style="color:var(--muted);">May 15, 2026</span>
+              <span style="font-weight:700;color:var(--green);">Passed</span>
+              <span>📄</span>
+            </div>
+            <div class="insp-notes">Framing and foundation approved. Inspector noted excellent work on load-bearing walls.</div>
+            <div class="insp-attach" style="background:#22c55e18;color:#22c55e;border:1px solid #22c55e33;">📄 View: building_inspection_05152026.pdf</div>
+          </div>
+
+          <div class="insp-card" style="border-left:3px solid var(--red);">
+            <div class="insp-row">
+              <span style="font-weight:700;color:var(--text);">Electrical</span>
+              <span style="color:var(--muted);">May 20, 2026</span>
+              <span style="font-weight:700;color:var(--red);">Failed</span>
+              <span>📄</span>
+            </div>
+            <div class="insp-notes">Panel grounding needs correction. Re-inspection scheduled for May 28.</div>
+            <div class="insp-attach" style="background:#ef444418;color:#ef4444;border:1px solid #ef444433;">📄 View: electrical_fail_report.pdf</div>
+          </div>
+
+          <div class="insp-card" style="border-left:3px solid var(--green);">
+            <div class="insp-row">
+              <span style="font-weight:700;color:var(--text);">Plumbing</span>
+              <span style="color:var(--muted);">May 22, 2026</span>
+              <span style="font-weight:700;color:var(--green);">Passed</span>
+              <span></span>
+            </div>
+          </div>
+
+          <div class="insp-card" style="border-left:3px solid var(--yellow);">
+            <div class="insp-row">
+              <span style="font-weight:700;color:var(--text);">Fire</span>
+              <span style="color:var(--muted);">Jun 1, 2026</span>
+              <span style="font-weight:700;color:var(--yellow);">Scheduled</span>
+              <span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="feature-text fade-up delay-2">
+      <div class="section-header">
+        <div class="section-icon" style="background:#ef444422;">🔍</div>
+        <div>
+          <h2>Inspections Tracker</h2>
+          <p>Inspections now have their own dedicated section — no longer buried inside the Completion phase. Track every inspection with full context.</p>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li>11 inspection types: Building, Fire, Health, Electrical, Plumbing, Mechanical, Final, C of O, Rough-In, Framing, ADA</li>
+        <li>Results: Passed, Failed, Conditional, Scheduled, Pending</li>
+        <li>Notes field per inspection — record findings, corrections needed</li>
+        <li>File attachment per inspection — upload photos, PDFs, reports</li>
+        <li>View attachments inline with the full document viewer</li>
+        <li>Color-coded borders: green = passed, red = failed, yellow = pending</li>
+        <li>Header badge shows pass rate (e.g., "2/4 Passed")</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 5 · LARGE FILE UPLOAD                                         -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="section" id="file-upload">
+  <div class="feature-grid">
+    <div class="feature-text fade-up">
+      <div class="section-header">
+        <div class="section-icon" style="background:#3b82f622;">📁</div>
+        <div>
+          <h2>Large File Support</h2>
+          <p>Upload architectural drawings, permit sets, and construction documents of any size — the system automatically chunks files to work within serverless limits.</p>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li>Supports files up to 48 MB (previously capped at ~4.5 MB)</li>
+        <li>Automatic chunking: splits base64 into 4 MB segments</li>
+        <li>Seamless reassembly on download — you never see the chunks</li>
+        <li>Backward compatible with all previously uploaded files</li>
+        <li>Works across Plans & Drawings, Permits, and Inspections</li>
+        <li>Upload progress feedback with file size confirmation</li>
+      </ul>
+    </div>
+    <div class="fade-up delay-2">
+      <div class="mockup">
+        <div class="mockup-bar">
+          <div class="mockup-dot r"></div><div class="mockup-dot y"></div><div class="mockup-dot g"></div>
+          <span class="mockup-title">Chunked Upload System</span>
+        </div>
+        <div class="mockup-body" style="font-size:11px;">
+          <div style="text-align:center;margin-bottom:16px;">
+            <div style="font-size:36px;margin-bottom:4px;">📐</div>
+            <div style="font-weight:700;color:var(--text);">052026_DD LANSDOWNE_PERMIT SET.pdf</div>
+            <div style="color:var(--muted);font-size:10px;">11,827 KB · application/pdf</div>
+          </div>
+
+          <div style="padding:12px;border-radius:8px;background:var(--card3);margin-bottom:8px;">
+            <div style="font-weight:700;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">How It Works</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+              <span style="background:var(--blue);color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;">1</span>
+              <span>File read as base64 → <strong style="color:var(--text);">~15.7 MB</strong></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+              <span style="background:var(--purple);color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;">2</span>
+              <span>Split into <strong style="color:var(--text);">4 chunks</strong> × 4 MB each</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+              <span style="background:var(--brand);color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;">3</span>
+              <span>Each chunk stored as separate blob (under 6 MB limit)</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="background:var(--green);color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;">4</span>
+              <span>Metadata blob tracks name, type, chunk count</span>
+            </div>
+          </div>
+
+          <div style="text-align:center;padding:8px;border-radius:6px;background:var(--green)+'18';border:1px solid rgba(34,197,94,0.2);">
+            <span style="color:var(--green);font-weight:700;font-size:11px;">✓ Architectural Drawings uploaded (11.5 MB)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 6 · DOCUMENT VIEWER                                           -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="section" id="doc-viewer">
+  <div class="feature-grid">
+    <div class="fade-up delay-1">
+      <div class="mockup">
+        <div class="mockup-bar">
+          <div class="mockup-dot r"></div><div class="mockup-dot y"></div><div class="mockup-dot g"></div>
+          <span class="mockup-title">Document Viewer</span>
+        </div>
+        <div class="mockup-body" style="padding:0;">
+          <div class="doc-viewer">
+            <div class="doc-viewer-bar">
+              <span>📄 Architectural Drawings</span>
+              <div class="doc-viewer-btns">
+                <button style="background:rgba(255,255,255,0.15);color:#fff;">Download</button>
+                <button style="background:#ff444444;color:#fff;">✕</button>
+              </div>
+            </div>
+            <div class="doc-viewer-content">
+              <div class="blueprint">
+                <div style="text-align:center;">
+                  <div style="font-size:18px;margin-bottom:4px;">DUNKIN'</div>
+                  <div style="font-size:8px;font-weight:400;color:#aaa;">REMODEL OF AN EXISTING</div>
+                  <div style="font-size:7px;color:#bbb;margin-top:8px;">FLOOR PLAN · ELEVATIONS · SECTIONS</div>
+                  <div style="font-size:6px;color:#ccc;margin-top:4px;">ALBERT TAUS AND ASSOCIATES</div>
+                </div>
+              </div>
+            </div>
+            <div class="doc-viewer-footer">
+              <span>052026_DD LANSDOWNE_PERMIT SET.pdf — 11827 KB</span>
+              <span>Uploaded by Mike Bahm on 5/28/2026</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="feature-text fade-up delay-2">
+      <div class="section-header">
+        <div class="section-icon" style="background:#8b5cf622;">👁️</div>
+        <div>
+          <h2>Inline Document Viewer</h2>
+          <p>View uploaded documents right inside the portal — PDFs render in a full-screen overlay, images display at full resolution. No need to download first.</p>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li>Full-screen modal overlay with dark backdrop</li>
+        <li>PDF rendering via blob URLs — handles files of any size</li>
+        <li>One-click download button for saving to your device</li>
+        <li>Shows filename, file size, uploader name, and upload date</li>
+        <li>Images display with contain-fit scaling</li>
+        <li>Click outside or press ✕ to close</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 7 · CONTRACTOR ROSTER                                         -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="section" id="contractors">
+  <div class="feature-grid">
+    <div class="feature-text fade-up">
+      <div class="section-header">
+        <div class="section-icon" style="background:#f59e0b22;">👷</div>
+        <div>
+          <h2>Contractor Roster</h2>
+          <p>Save your regular contractors once, reuse them on every project. Manage the roster in Settings, auto-fill on project pages via dropdown.</p>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li>Four contractor types: GC, Plumbing, Electrical, Mechanical</li>
+        <li>Save from project: "Save to Roster" button on any contractor card</li>
+        <li>Auto-fill: select a saved contractor from dropdown on any project</li>
+        <li>Manage in Settings → Vendors → Contractors tab</li>
+        <li>Stores company name, contact person, phone, and email</li>
+        <li>Cloud-synced — available across all sessions and users</li>
+      </ul>
+    </div>
+    <div class="fade-up delay-2">
+      <div class="mockup">
+        <div class="mockup-bar">
+          <div class="mockup-dot r"></div><div class="mockup-dot y"></div><div class="mockup-dot g"></div>
+          <span class="mockup-title">Settings → Vendors → Contractors</span>
+        </div>
+        <div class="mockup-body">
+          <div class="roster-grid">
+            <div class="roster-card" style="border-color:var(--brand);">
+              <div class="type" style="color:var(--brand);">General Contractor</div>
+              <div class="name">Bittenbender Construction</div>
+              <div class="info">Tom Bittenbender · (215) 555-0142</div>
+            </div>
+            <div class="roster-card" style="border-color:var(--blue);">
+              <div class="type" style="color:var(--blue);">Plumbing</div>
+              <div class="name">McElroy Plumbing</div>
+              <div class="info">Dave McElroy · (610) 555-0198</div>
+            </div>
+            <div class="roster-card" style="border-color:var(--yellow);">
+              <div class="type" style="color:var(--yellow);">Electrical</div>
+              <div class="name">Carr & Duff Electric</div>
+              <div class="info">Mike Carr · (215) 555-0267</div>
+            </div>
+            <div class="roster-card" style="border-color:var(--purple);">
+              <div class="type" style="color:var(--purple);">Mechanical</div>
+              <div class="name">Climate Masters HVAC</div>
+              <div class="info">Jim Reeves · (856) 555-0334</div>
+            </div>
+          </div>
+
+          <div style="margin-top:12px;padding:10px;border-radius:8px;background:var(--card3);display:flex;align-items:center;gap:8px;">
+            <span style="font-size:14px;">💡</span>
+            <span style="font-size:10px;color:var(--muted);">On project pages, select a saved contractor from the dropdown — company, contact, phone, and email auto-fill instantly.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 8 · CITY DATA                                                 -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="section" id="city-data">
+  <div class="feature-grid">
+    <div class="fade-up delay-1">
+      <div class="mockup">
+        <div class="mockup-bar">
+          <div class="mockup-dot r"></div><div class="mockup-dot y"></div><div class="mockup-dot g"></div>
+          <span class="mockup-title">Philadelphia City Data Integration</span>
+        </div>
+        <div class="mockup-body">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;">
+            <span style="font-size:14px;">🏛️</span>
+            <span style="font-weight:700;font-size:12px;color:var(--indigo);">9367-75 OLD BUSTLETON AVE</span>
+            <span class="tag" style="background:#22c55e22;color:#22c55e;">Resolved</span>
+          </div>
+
+          <div class="city-grid" style="margin-bottom:10px;">
+            <div class="city-card"><div class="val" style="color:var(--blue);">RSA-3</div><div class="lbl">Zoning</div></div>
+            <div class="city-card"><div class="val" style="color:var(--green);">$185K</div><div class="lbl">Market Value</div></div>
+            <div class="city-card"><div class="val" style="color:var(--purple);">1958</div><div class="lbl">Year Built</div></div>
+          </div>
+
+          <div class="city-grid" style="grid-template-columns:1fr 1fr;margin-bottom:10px;">
+            <div class="city-card"><div class="val" style="color:var(--yellow);font-size:16px;">7</div><div class="lbl">Active Licenses</div></div>
+            <div class="city-card"><div class="val" style="color:var(--red);font-size:16px;">3</div><div class="lbl">Open Violations</div></div>
+          </div>
+
+          <div style="padding:8px;border-radius:6px;background:var(--card3);font-size:10px;color:var(--muted);">
+            <div style="font-weight:700;color:var(--text);margin-bottom:4px;">Also Available</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              <span class="tag" style="background:var(--card2);color:var(--muted);">311 Complaints</span>
+              <span class="tag" style="background:var(--card2);color:var(--muted);">Crime (90 days)</span>
+              <span class="tag" style="background:var(--card2);color:var(--muted);">L&I Appeals</span>
+              <span class="tag" style="background:var(--card2);color:var(--muted);">Permit History</span>
+              <span class="tag" style="background:var(--card2);color:var(--muted);">Owner Info</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="feature-text fade-up delay-2">
+      <div class="section-header">
+        <div class="section-icon" style="background:#6366f122;">🏛️</div>
+        <div>
+          <h2>Philadelphia City Data</h2>
+          <p>Pull live data from 6 city APIs for any Philadelphia address. Zoning, property records, permits, violations, 311 complaints, and crime data — all in one click.</p>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li>AIS address resolution — normalizes addresses to city format</li>
+        <li>Property data: market value, sale history, year built, zoning</li>
+        <li>Business licenses: active, expired, type, issue dates</li>
+        <li>L&I violations: code violations, status, resolution dates</li>
+        <li>311 service requests: complaints within 0.25 miles, last 6 months</li>
+        <li>Crime incidents: Part 1 & 2 crimes within 0.25 miles, last 90 days</li>
+        <li>L&I appeals: hearing dates, decisions, project descriptions</li>
+        <li>Auto-populates zoning info on project detail pages</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 9 · AT-A-GLANCE EXPORT                                        -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="section" id="at-a-glance">
+  <div class="feature-grid">
+    <div class="feature-text fade-up">
+      <div class="section-header">
+        <div class="section-icon" style="background:#8b5cf622;">🔎</div>
+        <div>
+          <h2>At-A-Glance Export</h2>
+          <p>A new executive-ready export that gives you everything you need to know about every project on a single printable page — dates, progress, what's outstanding, and who's on it.</p>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li>Per-project cards with phase badge and large progress percentage</li>
+        <li>Key dates: Due, Target, Dunkin' Completion, Grand Opening</li>
+        <li>Contractor summary for each project</li>
+        <li>Budget at a glance</li>
+        <li>Inspection scorecard (passed / failed / total)</li>
+        <li>Top 5 outstanding checklist items — what's still needed</li>
+        <li>Phase distribution pills at top (how many in each stage)</li>
+        <li>Overdue projects highlighted with red accent</li>
+        <li>Purple gradient button in the toolbar — next to Export PDF</li>
+      </ul>
+    </div>
+    <div class="fade-up delay-2">
+      <div class="mockup">
+        <div class="mockup-bar">
+          <div class="mockup-dot r"></div><div class="mockup-dot y"></div><div class="mockup-dot g"></div>
+          <span class="mockup-title">At-A-Glance Export Preview</span>
+        </div>
+        <div class="mockup-body" style="background:#fff;padding:16px;border-radius:0 0 10px 10px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;padding-bottom:10px;border-bottom:3px solid #FF671F;">
+            <div>
+              <div style="font-family:Raleway;font-weight:900;font-size:16px;color:#1f2937;">Project At-A-Glance</div>
+              <div style="font-size:9px;color:#9ca3af;">People Capital Group — Pipeline Snapshot</div>
+            </div>
+            <div style="text-align:right;font-size:9px;color:#9ca3af;">
+              May 28, 2026<br>By: Mike Bahm<br><strong>15</strong> projects
+            </div>
+          </div>
+
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">
+            <span style="background:#f0f0f0;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600;color:#374151;">Zoning: 1</span>
+            <span style="background:#f0f0f0;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600;color:#374151;">Permitting: 3</span>
+            <span style="background:#f0f0f0;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600;color:#374151;">Pre-Const: 2</span>
+            <span style="background:#f0f0f0;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600;color:#374151;">Construction: 4</span>
+            <span style="background:#f0f0f0;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600;color:#374151;">Complete: 5</span>
+          </div>
+
+          <div class="glance-card normal">
+            <div class="glance-top">
+              <div>
+                <div class="glance-name">Rybas</div>
+                <div class="glance-addr">9375 Old Bustleton Ave, Philadelphia · Relocation · PC# 310382</div>
+              </div>
+              <div style="text-align:right;">
+                <div class="glance-phase" style="background:#8b5cf618;color:#8b5cf6;">🔧 Construction</div>
+                <div class="glance-pct" style="color:#1f2937;">68%</div>
+              </div>
+            </div>
+            <div style="height:5px;border-radius:3px;background:#e2e8f0;margin:6px 0;"><div style="height:100%;width:68%;border-radius:3px;background:#FF671F;"></div></div>
+            <div class="glance-dates">
+              <span>Due: <strong>Dec 26, 2026</strong></span> ·
+              <span>Target: <strong>Sep 19, 2026</strong></span> ·
+              <span style="color:#ff6b00;">Dunkin': <strong>Oct 15, 2026</strong></span>
+            </div>
+            <div style="font-size:9px;color:#6b7280;">GC: Bittenbender Construction · Budget: <strong>$285,000</strong></div>
+            <div style="font-size:9px;margin-top:4px;"><span style="color:#22c55e;font-weight:700;">2 passed</span> · <span style="color:#ef4444;font-weight:700;">1 failed</span> · 4 total inspections</div>
+            <div class="glance-outstanding"><span style="font-weight:700;color:#f59e0b;">Outstanding:</span> Camera Reinstall · Interior DMB Install · NCR Re-install</div>
+          </div>
+
+          <div class="glance-card overdue">
+            <div class="glance-top">
+              <div>
+                <div class="glance-name">Lansdowne <span style="color:#ef4444;font-size:9px;font-weight:700;background:#ef444415;padding:1px 6px;border-radius:10px;margin-left:4px;">OVERDUE</span></div>
+                <div class="glance-addr">23 E Baltimore Ave, Lansdowne · Remodel · PC# 343832</div>
+              </div>
+              <div style="text-align:right;">
+                <div class="glance-phase" style="background:#f9731618;color:#f97316;">📋 Permitting</div>
+                <div class="glance-pct" style="color:#1f2937;">42%</div>
+              </div>
+            </div>
+            <div style="height:5px;border-radius:3px;background:#e2e8f0;margin:6px 0;"><div style="height:100%;width:42%;border-radius:3px;background:#FF671F;"></div></div>
+            <div class="glance-dates">
+              <span>Due: <strong style="color:#ef4444;">Dec 26, 2026</strong></span> ·
+              <span>Target: <strong>Dec 19, 2026</strong></span>
+            </div>
+            <div class="glance-outstanding"><span style="font-weight:700;color:#f59e0b;">Outstanding:</span> Electrical Permit · Plumbing Permit · Mechanical Permit · Plans Complete · +3 more</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- FOOTER                                                        -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="footer">
+  <div style="margin-bottom:8px;">
+    <span class="brand">PCG</span> Unified Operations Portal · Projects Module v10.9
+  </div>
+  <div>People Capital Group · May 2026 · Confidential</div>
+</div>
+
+</body>
+</html>

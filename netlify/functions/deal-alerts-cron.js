@@ -10,7 +10,7 @@
 // here because that module is ESM and this function is CommonJS.
 const https = require('https');
 const { getStore } = require('@netlify/blobs');
-const { sql } = require('./db');
+const { sql } = require('./_shared/db');
 const webpush = require('web-push');
 
 const DATE_LABELS = {

@@ -13,7 +13,7 @@
 
 const crypto = require('crypto');
 const { google } = require('googleapis');
-const { sql } = require('./db');
+const { sql } = require('./_shared/db');
 const { ensureTable, upsertMessage } = require('./ndcp-lib/ndcp-ingest');
 
 // Constant-time bearer-token check (avoids leaking length/early-exit timing).

@@ -2,7 +2,7 @@
 // pcg_users_v1 blob, OR a Google ID token), confirms they're in deal_access, and
 // issues a short-lived signed token used by all deal endpoints.
 const { getStore } = require('@netlify/blobs');
-const { sql } = require('./db');
+const { sql } = require('./_shared/db');
 const { signToken } = require('./deal-lib/token');
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Content-Type': 'application/json' };

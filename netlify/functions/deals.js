@@ -1,7 +1,7 @@
 // PCG Deal Pipeline — authenticated deal CRUD. Every request requires a valid
 // deal session token; reads need 'view', writes need 'edit'.
 const https = require('https');
-const { sql } = require('./db');
+const { sql } = require('./_shared/db');
 const { getStore } = require('@netlify/blobs');
 const { verifyToken } = require('./deal-lib/token');
 const { roleSatisfies } = require('./deal-lib/roles');

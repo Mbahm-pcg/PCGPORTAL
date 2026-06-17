@@ -7,7 +7,7 @@
 // It only reads NDCP mail and performs idempotent upserts, so a stray manual POST
 // is harmless. Window is generous so multi-day revision chains are never missed.
 const { google } = require('googleapis');
-const { sql } = require('./db');
+const { sql } = require('./_shared/db');
 const { ensureTable, upsertMessage } = require('./ndcp-lib/ndcp-ingest');
 
 const WINDOW = 'newer_than:4d';

@@ -11,7 +11,7 @@
 // This endpoint is ADDITIVE — nothing calls it until the frontend cutover, so it
 // changes no current behavior.
 const { getStore } = require('@netlify/blobs');
-const { sql } = require('./db');
+const { sql } = require('./_shared/db');
 const { signToken } = require('./deal-lib/token');
 const { hashPassword, verifyPassword } = require('./auth-lib/passwords');
 const { requireUser } = require('./auth-lib/require-user');

@@ -4,7 +4,7 @@
 // cannot read — every read/write here requires a valid deal session token + role.
 // Large files are chunked (≤4 MB base64 per chunk) to stay under the function size limit.
 const { getStore } = require('@netlify/blobs');
-const { sql } = require('./db');
+const { sql } = require('./_shared/db');
 const { verifyToken } = require('./deal-lib/token');
 const { roleSatisfies } = require('./deal-lib/roles');
 

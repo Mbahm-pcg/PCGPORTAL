@@ -6,7 +6,7 @@ const https = require('https');
 const { cacheLoad, cacheSave } = require('./analyst-cache');
 const { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, renderOpsContext } = require('./ops-summaries');
 const { BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, INGREDIENT_COSTS } = require('./cost-lookup');
-const { sql } = require('../db');
+const { sql } = require('../_shared/db');
 
 // ── Pulse POS direct fetcher (same API as pulse-hourly-snapshot.js) ─────────
 const POS_APIS = {
