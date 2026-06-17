@@ -18500,7 +18500,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.00";
+const APP_VERSION = "v16.04";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -25524,6 +25524,8 @@ function OpsTasks({ stores, th, user }) {
   const [loadingCAs, setLoadingCAs] = useState(false);
   // Task compliance alerts (from tasks-cron blob)
   const [taskAlerts, setTaskAlerts] = useState(null);
+  const [photoLightbox, setPhotoLightbox] = useState(null);
+  const [photoUrls, setPhotoUrls] = useState({});
   const byName = user?.name || user?.email || "user";
 
   const api = useCallback(async (action, payload = {}) => {
@@ -25540,12 +25542,32 @@ function OpsTasks({ stores, th, user }) {
     if (view === "dashboard") {
       const [dashData, alertsData] = await Promise.all([
         api("dashboard", { store_pc: storePc, date }),
-        cloudLoad("pcg_task_alerts_v1"),
+        cloudLoad("pcg_task_alerts_v1").catch(() => null),
       ]);
       setDash(dashData);
       setTaskAlerts(alertsData);
     } else {
-      setData(await api("list", { store_pc: storePc, date }));
+      const result = await api("list", { store_pc: storePc, date });
+      setData(result);
+      const photoTasks = (result?.tasks || []).filter((t) => t.has_photo);
+      if (photoTasks.length) {
+        setPhotoUrls((prev) => {
+          const patch = {};
+          photoTasks.forEach((t) => { if (prev[t.id] === undefined) patch[t.id] = null; });
+          return Object.keys(patch).length ? { ...prev, ...patch } : prev;
+        });
+        Promise.all(
+          photoTasks.map((t) =>
+            api("get_task_photo", { instance_id: t.id, store_pc: t.store_pc })
+              .then((r) => ({ id: t.id, url: r.photo_url }))
+              .catch(() => null)
+          )
+        ).then((results) => {
+          const updates = {};
+          results.filter(Boolean).forEach((r) => { if (r.url) updates[r.id] = r.url; });
+          if (Object.keys(updates).length) setPhotoUrls((prev) => ({ ...prev, ...updates }));
+        });
+      }
     }
     if (!silent) setLoading(false);
   }, [api, storePc, date, view]);
@@ -25620,12 +25642,14 @@ function OpsTasks({ stores, th, user }) {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
-    input.capture = "environment";
+    if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) input.capture = "environment";
     input.style.position = "absolute";
     input.style.opacity = "0";
     input.style.pointerEvents = "none";
+    const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
+    window.addEventListener("focus", () => setTimeout(cleanup, 300), { once: true });
     input.onchange = async (e) => {
-      document.body.removeChild(input);
+      cleanup();
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
@@ -25642,11 +25666,61 @@ function OpsTasks({ stores, th, user }) {
             const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
             await api("ca_add_photo", { ca_id: ca.id, photo_url: dataUrl });
             loadCAs();
-          } catch (err) { console.error("CA photo error", err); }
+          } catch (err) {
+            console.error("CA photo error", err);
+            alert("Photo could not be saved. Please try again.");
+          }
         };
-        img.onerror = (err) => console.error("CA photo load error", err);
+        img.onerror = () => alert("Could not read the selected image. Please try again.");
         img.src = ev.target.result;
       };
+      reader.onerror = () => alert("Could not read the selected file. Please try again.");
+      reader.readAsDataURL(file);
+    };
+    document.body.appendChild(input);
+    input.click();
+  }
+  function pickTaskPhoto(tk) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) input.capture = "environment";
+    input.style.position = "absolute";
+    input.style.opacity = "0";
+    input.style.pointerEvents = "none";
+    const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
+    window.addEventListener("focus", () => setTimeout(cleanup, 300), { once: true });
+    input.onchange = async (e) => {
+      cleanup();
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setBusyId(tk.id);
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const img = new window.Image();
+        img.onload = async () => {
+          try {
+            const MAX = 800;
+            const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+            await api("task_add_photo", { instance_id: tk.id, store_pc: tk.store_pc, photo_url: dataUrl });
+            setPhotoUrls((prev) => ({ ...prev, [tk.id]: dataUrl }));
+            await loadStore(true);
+          } catch (err) {
+            console.error("Task photo error", err);
+            alert("Photo could not be saved. Please try again.");
+          } finally {
+            setBusyId(null);
+          }
+        };
+        img.onerror = () => { alert("Could not read the selected image. Please try again."); setBusyId(null); };
+        img.src = ev.target.result;
+      };
+      reader.onerror = () => { alert("Could not read the selected file. Please try again."); setBusyId(null); };
       reader.readAsDataURL(file);
     };
     document.body.appendChild(input);
@@ -25806,6 +25880,7 @@ function OpsTasks({ stores, th, user }) {
             const hasItems = (tk.items_count || 0) > 0;
             const isExpanded = expandedId === tk.id;
             const isMeas = !hasItems && (tk.input_type === "temperature" || tk.input_type === "weight" || tk.input_type === "count");
+            const isPhoto = tk.input_type === "photo";
             const itemPct = hasItems ? Math.round(((tk.answers_count || 0) / tk.items_count) * 100) : (done ? 100 : 0);
 
             return (
@@ -25830,8 +25905,13 @@ function OpsTasks({ stores, th, user }) {
                         {hasItems && <span style={{ fontSize: "0.75rem", color: th.muted }}>{tk.answers_count}/{tk.items_count} items</span>}
                         {!hasItems && isMeas && tk.min_val != null && <span style={{ fontSize: "0.73rem", color: th.muted }}>{tk.min_val}–{tk.max_val}{tk.unit}</span>}
                         {done && !hasItems && tk.value != null && <span style={{ fontSize: "0.73rem", color: th.muted }}>Recorded: {tk.value}{tk.unit || ""}{tk.completed_by ? ` · ${tk.completed_by}` : ""}</span>}
+                        {isPhoto && tk.has_photo && <span style={{ fontSize: "0.73rem", color: "#2f9e44", fontWeight: 700 }}>📷 Photo attached</span>}
+                        {isPhoto && !tk.has_photo && <span style={{ fontSize: "0.73rem", color: th.muted }}>📷 Photo required</span>}
                       </div>
                     </div>
+                    {isPhoto && photoUrls[tk.id] && (
+                      <img src={photoUrls[tk.id]} alt="task photo" onClick={(e) => { e.stopPropagation(); setPhotoLightbox(photoUrls[tk.id]); }} style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
+                    )}
                     <TaskRing pct={itemPct} th={th} size={40} color={hasItems ? complianceColor(itemPct) : undefined} />
                     {hasItems && (
                       <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "50%", background: isExpanded ? (O + "18") : "transparent", color: isExpanded ? O : th.muted, fontSize: "0.78rem", flexShrink: 0, transition: "background 0.15s, color 0.15s" }}>
@@ -25934,6 +26014,20 @@ function OpsTasks({ stores, th, user }) {
                         <button onClick={() => { setOpenEntry(null); setEntryVal(""); }} aria-label="Cancel"
                           style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.55rem 0.8rem", minHeight: 44, touchAction: "manipulation" }}>✕</button>
                       </>
+                    ) : isPhoto ? (
+                      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", width: "100%" }}>
+                        {photoUrls[tk.id]
+                          ? <img src={photoUrls[tk.id]} alt="task photo" onClick={() => setPhotoLightbox(photoUrls[tk.id])} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
+                          : <div style={{ width: 56, height: 56, borderRadius: 8, background: th.bg, border: `1px dashed ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", flexShrink: 0, opacity: photoUrls[tk.id] === null ? 0.4 : 1 }}>📷</div>
+                        }
+                        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                          <button onClick={() => pickTaskPhoto(tk)} disabled={busyId === tk.id}
+                            style={{ ...btn(th, { background: O + "18", color: O, border: `1px solid ${O}44` }), fontSize: "0.85rem", padding: "0.6rem 1rem", minHeight: 44, touchAction: "manipulation" }}>
+                            {busyId === tk.id ? "Saving…" : photoUrls[tk.id] ? "📷 Replace Photo" : "📷 Add Photo"}
+                          </button>
+                          {!tk.has_photo && <span style={{ fontSize: "0.73rem", color: th.muted }}>Photo proof required</span>}
+                        </div>
+                      </div>
                     ) : (
                       <button onClick={() => { if (isMeas) { setOpenEntry(tk.id); setEntryVal(""); } else { completeTask(tk); } }} disabled={busyId === tk.id}
                         style={{ ...btn(th), fontSize: "0.85rem", padding: "0.6rem 1rem", minHeight: 44, width: isMeas ? "auto" : "100%", touchAction: "manipulation" }}>
@@ -26006,7 +26100,7 @@ function OpsTasks({ stores, th, user }) {
                   {ca.due_date && ca.status === "open" && <span style={{ color: "#f59e0b" }}>Due {ca.due_date}</span>}
                 </div>
                 {ca.photo_url && (
-                  <img src={ca.photo_url} alt="CA photo" style={{ marginTop: "0.5rem", width: 80, height: 60, objectFit: "cover", borderRadius: 4, display: "block" }} />
+                  <img src={ca.photo_url} alt="CA photo" onClick={() => setPhotoLightbox(ca.photo_url)} style={{ marginTop: "0.5rem", width: 80, height: 60, objectFit: "cover", borderRadius: 4, display: "block", cursor: "zoom-in" }} />
                 )}
                 <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.6rem", flexWrap: "wrap" }}>
                   {ca.status === "open" && (
@@ -26024,6 +26118,14 @@ function OpsTasks({ stores, th, user }) {
               </div>
             ));
           })()}
+        </div>
+      )}
+
+      {/* Photo lightbox */}
+      {photoLightbox && (
+        <div onClick={() => setPhotoLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+          <button onClick={() => setPhotoLightbox(null)} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+          <img src={photoLightbox} alt="Full size photo" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" }} />
         </div>
       )}
     </div>
@@ -30668,6 +30770,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
   const [pulseViewMode, setPulseViewMode] = React.useState('day');
   const [pulseWtdData, setPulseWtdData] = React.useState({});
   const [pulseWtdLoading, setPulseWtdLoading] = React.useState(false);
+  const [taskAlerts, setTaskAlerts] = React.useState(null);
   const chatEndRef = React.useRef(null);
   const askInputRef = React.useRef(null);
 
@@ -30699,13 +30802,18 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
       setLoading(true);
       try {
         const briefKey = isExec ? `analyst/briefs/${today}_network` : `analyst/briefs/${today}_${district}`;
-        const [briefData, laborData, annData] = await Promise.all([
+        const [briefData, laborData, annData, taskAlertsData] = await Promise.all([
           cloudLoad(briefKey).catch(() => null),
           cloudLoad('pcg_labor_v1').catch(() => null),
           cloudLoad('pcg_announcements_v1').catch(() => null),
+          cloudLoad('pcg_task_alerts_v1').catch(() => null),
         ]);
 
         setBrief(briefData);
+        if (taskAlertsData?.alerts) {
+          const scoped = isExec ? taskAlertsData.alerts : taskAlertsData.alerts.filter(a => Number(a.district) === district);
+          setTaskAlerts({ date: taskAlertsData.date, alerts: scoped });
+        }
 
         // KPI: build district-scoped or network summary
         if (laborData?.stores) {
@@ -31089,6 +31197,54 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
                   </div>
                   <div style={{ fontSize: 13, color: th.text, lineHeight: 1.65 }}>{leaderboard.message}</div>
                   <div style={{ marginTop: 10, fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— {leaderboard.createdBy} · {leaderboard.createdAt ? new Date(leaderboard.createdAt).toLocaleDateString() : ''}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Task Compliance — stores with missed/open tasks */}
+            {taskAlerts && taskAlerts.alerts.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '16px 0 8px' }}>
+                  Task Compliance · {taskAlerts.date}
+                </div>
+                {taskAlerts.alerts.map((a) => {
+                  const sevColor = a.severity === 'high' ? '#ef4444' : a.severity === 'medium' ? '#f97316' : '#22c55e';
+                  return (
+                    <div key={a.storePC} style={{ background: th.card, border: `1px solid ${sevColor}33`, borderLeft: `4px solid ${sevColor}`, borderRadius: 14, padding: '12px 14px', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 14, color: th.text }}>{a.storeName}</span>
+                        <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.7, color: sevColor, background: sevColor + '18', border: `1px solid ${sevColor}44`, borderRadius: 999, padding: '2px 8px' }}>{a.severity}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: th.muted, marginBottom: 6 }}>PC# {a.storePC}{!isExec ? '' : ` · D${a.district}`}</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                        {a.missedYesterday > 0 && (
+                          <div style={{ background: '#ef444418', border: '1px solid #ef444433', borderRadius: 999, padding: '3px 10px', fontSize: 11, color: '#ef4444', fontWeight: 700 }}>
+                            {a.missedYesterday} missed yesterday
+                          </div>
+                        )}
+                        {a.openToday > 0 && (
+                          <div style={{ background: '#f9741618', border: '1px solid #f9741633', borderRadius: 999, padding: '3px 10px', fontSize: 11, color: '#f97416', fontWeight: 700 }}>
+                            {a.openToday} open today
+                          </div>
+                        )}
+                        {a.avgMissed > 0 && (
+                          <div style={{ background: th.bg, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: '3px 10px', fontSize: 11, color: th.muted }}>
+                            avg {a.avgMissed}/day
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: th.text, lineHeight: 1.5 }}>{a.message}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {taskAlerts && taskAlerts.alerts.length === 0 && (
+              <div>
+                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '16px 0 8px' }}>Task Compliance</div>
+                <div style={{ background: th.card, border: `1px solid #22c55e33`, borderRadius: 14, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>✅</span>
+                  <span style={{ fontSize: 13, color: th.text }}>All stores on track — no compliance issues yesterday.</span>
                 </div>
               </div>
             )}

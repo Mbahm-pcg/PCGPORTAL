@@ -222,8 +222,9 @@ async function ensureTable(db) {
   // Partial unique indexes prevent duplicate CAs for the same instance+item, matching the pattern on task_instance_answers
   await db`CREATE UNIQUE INDEX IF NOT EXISTS ca_uq_no_station ON corrective_actions(instance_id, item_id) WHERE station IS NULL`;
   await db`CREATE UNIQUE INDEX IF NOT EXISTS ca_uq_with_station ON corrective_actions(instance_id, item_id, station) WHERE station IS NOT NULL`;
-  // Phase 5: photo evidence on corrective actions
+  // Phase 5: photo evidence on corrective actions + task instances
   await db`ALTER TABLE corrective_actions ADD COLUMN IF NOT EXISTS photo_url TEXT`;
+  await db`ALTER TABLE task_instances ADD COLUMN IF NOT EXISTS photo_url TEXT`;
 }
 
 async function generateInstances(db, storePcs, dateStr) {
@@ -273,6 +274,7 @@ export default async (request, context) => {
         SELECT i.id, i.template_id, i.store_pc, i.business_date::text AS business_date,
                i.shift_time, i.status, i.value, i.note, i.checklist,
                i.completed_by, i.completed_at, i.signed_off_by, i.signed_off_at,
+               (i.photo_url IS NOT NULL) AS has_photo,
                t.name, t.category, t.label, t.input_type, t.task_type,
                t.target, t.min_val, t.max_val, t.unit, t.allow_signoff
         FROM task_instances i JOIN task_templates t ON t.id = i.template_id
@@ -495,8 +497,30 @@ export default async (request, context) => {
     if (action === 'ca_add_photo') {
       const id = +body.ca_id;
       if (!id) return reply(400, { error: 'ca_id required' });
-      await db`UPDATE corrective_actions SET photo_url=${body.photo_url || null} WHERE id=${id}`;
+      const caPhoto = body.photo_url || null;
+      if (caPhoto && caPhoto.length > 400000) return reply(413, { error: 'photo too large' });
+      await db`UPDATE corrective_actions SET photo_url=${caPhoto} WHERE id=${id}`;
       return reply(200, { ok: true, ca_id: id });
+    }
+
+    if (action === 'task_add_photo') {
+      const id = +body.instance_id;
+      const storePc = +body.store_pc;
+      if (!id) return reply(400, { error: 'instance_id required' });
+      if (!storePc) return reply(400, { error: 'store_pc required' });
+      const photoUrl = body.photo_url || null;
+      if (photoUrl && photoUrl.length > 400000) return reply(413, { error: 'photo too large' });
+      await db`UPDATE task_instances SET photo_url=${photoUrl} WHERE id=${id} AND store_pc=${storePc}`;
+      return reply(200, { ok: true, instance_id: id });
+    }
+
+    if (action === 'get_task_photo') {
+      const id = +body.instance_id;
+      const storePc = +body.store_pc;
+      if (!id) return reply(400, { error: 'instance_id required' });
+      if (!storePc) return reply(400, { error: 'store_pc required' });
+      const rows = await db`SELECT photo_url FROM task_instances WHERE id=${id} AND store_pc=${storePc}`;
+      return reply(200, { photo_url: rows[0]?.photo_url || null });
     }
 
     if (action === 'resolve_ca') {
