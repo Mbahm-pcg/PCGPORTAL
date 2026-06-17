@@ -15861,10 +15861,194 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
 }
 
 // ── Admin Console — one flat tab bar, no nested settings page ───────────────
+// ── Admin → Tasks ("Book Task") — full template management (Workpulse parity) ──
+// Create/edit tasks, set type/category/label/time/measurement ranges, toggle active,
+// and assign each task to stores. Backed by netlify/functions/tasks.js admin_* actions.
+const TASK_SHIFTS = ["", "1 AM", "5 AM", "9 AM", "1 PM", "5 PM", "9 PM", "AM", "Noon", "PM"];
+const TASK_LABELS = ["Food Safety", "Facility", "Fresh", "Planning Checklist"];
+const TASK_INPUTS = ["checklist", "temperature", "weight", "count", "photo"];
+const TASK_FREQS = ["daily", "weekly", "general"];
+const TASK_TYPES = ["shift", "general"];
+const NEW_TASK = { name: "", task_type: "shift", category: "", label: "Food Safety", input_type: "checklist", frequency: "daily", shift_time: "", recur_days: null, target: null, min_val: null, max_val: null, unit: "", allow_signoff: false, is_master: false, active: true };
+
+function AdminTaskManager({ th, user, stores, showAlert }) {
+  const [templates, setTemplates] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [q, setQ] = useState("");
+  const [catFilter, setCatFilter] = useState("all");
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [editing, setEditing] = useState(null);
+  const [locFor, setLocFor] = useState(null);
+  const [locPcs, setLocPcs] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const api = useCallback(async (action, payload = {}) => {
+    const r = await fetch("/.netlify/functions/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
+    return r.json();
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { const r = await api("admin_templates"); setTemplates(r.templates || []); }
+    finally { setLoading(false); }
+  }, [api]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
+  const filtered = (templates || []).filter((t) => {
+    if (activeFilter === "active" && !t.active) return false;
+    if (activeFilter === "inactive" && t.active) return false;
+    if (catFilter !== "all" && t.category !== catFilter) return false;
+    if (q && !(`${t.name} ${t.category || ""} ${t.label || ""}`.toLowerCase().includes(q.toLowerCase()))) return false;
+    return true;
+  });
+
+  async function save(t) {
+    if (!t.name.trim()) { showAlert && showAlert("Task name is required"); return; }
+    setBusy(true);
+    try {
+      const r = await api("admin_save_template", { template: t });
+      if (r.ok) { setEditing(null); showAlert && showAlert("Task saved"); await load(); }
+      else showAlert && showAlert(r.error || "Save failed");
+    } finally { setBusy(false); }
+  }
+  async function toggle(t) { await api("admin_toggle_active", { template_id: t.id, active: !t.active }); load(); }
+  async function openLocations(t) { setLocFor(t); setLocPcs([]); const r = await api("admin_get_locations", { template_id: t.id }); setLocPcs(r.store_pcs || []); }
+  async function saveLocations() {
+    setBusy(true);
+    try { await api("admin_set_locations", { template_id: locFor.id, store_pcs: locPcs }); setLocFor(null); await load(); }
+    finally { setBusy(false); }
+  }
+
+  const scoped = (stores || []).filter((s) => s.pc);
+  const byDistrict = {};
+  scoped.forEach((s) => { const d = s.district || "—"; (byDistrict[d] = byDistrict[d] || []).push(s); });
+
+  const field = (label, node) => (
+    <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.72rem", fontWeight: 700, color: th.muted }}>
+      {label}{node}
+    </label>
+  );
+  const num = (v, set) => <input type="number" value={v ?? ""} onChange={(e) => set(e.target.value === "" ? null : Number(e.target.value))} style={{ ...inp(th), fontSize: "0.85rem" }} />;
+  const sel = (v, set, opts) => <select value={v ?? ""} onChange={(e) => set(e.target.value)} style={{ ...inp(th), fontSize: "0.85rem" }}>{opts.map((o) => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? (o === "" ? "—" : o)}</option>)}</select>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.9rem" }}>
+        <h3 style={{ ...sectionTitle(th), margin: 0 }}>Book Task — Task Templates</h3>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button onClick={() => setEditing({ ...NEW_TASK })} style={{ ...btn(th), fontSize: "0.82rem", padding: "0.5rem 1rem" }}>+ New Task</button>
+          <button onClick={async () => { setLoading(true); await api("seed"); await load(); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.5rem 1rem" }}>Re-sync starter catalog</button>
+        </div>
+      </div>
+
+      {/* Editor panel */}
+      {editing && (
+        <div style={{ ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid ${O}66` }}>
+          <div style={{ fontWeight: 800, marginBottom: "0.75rem" }}>{editing.id ? "Edit Task" : "New Task"}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: "0.75rem" }}>
+            {field("Name", <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} style={{ ...inp(th), fontSize: "0.85rem" }} />)}
+            {field("Category", <input value={editing.category || ""} onChange={(e) => setEditing({ ...editing, category: e.target.value })} list="task-cats" style={{ ...inp(th), fontSize: "0.85rem" }} />)}
+            {field("Label", sel(editing.label, (v) => setEditing({ ...editing, label: v }), TASK_LABELS))}
+            {field("Task type", sel(editing.task_type, (v) => setEditing({ ...editing, task_type: v }), TASK_TYPES))}
+            {field("Input type", sel(editing.input_type, (v) => setEditing({ ...editing, input_type: v }), TASK_INPUTS))}
+            {field("Frequency", sel(editing.frequency, (v) => setEditing({ ...editing, frequency: v }), TASK_FREQS))}
+            {field("Shift time", sel(editing.shift_time, (v) => setEditing({ ...editing, shift_time: v }), TASK_SHIFTS))}
+            {editing.frequency === "general" && field("Recur every N days", num(editing.recur_days, (v) => setEditing({ ...editing, recur_days: v })))}
+            {(editing.input_type === "temperature" || editing.input_type === "weight" || editing.input_type === "count") && <>
+              {field("Target", num(editing.target, (v) => setEditing({ ...editing, target: v })))}
+              {field("Min", num(editing.min_val, (v) => setEditing({ ...editing, min_val: v })))}
+              {field("Max", num(editing.max_val, (v) => setEditing({ ...editing, max_val: v })))}
+              {field("Unit", <input value={editing.unit || ""} onChange={(e) => setEditing({ ...editing, unit: e.target.value })} placeholder="°F / oz / ppm" style={{ ...inp(th), fontSize: "0.85rem" }} />)}
+            </>}
+          </div>
+          <div style={{ display: "flex", gap: "1.25rem", margin: "0.85rem 0", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" }}><input type="checkbox" checked={!!editing.allow_signoff} onChange={(e) => setEditing({ ...editing, allow_signoff: e.target.checked })} /> Allow Manager & PCQI Sign-Off</label>
+            <label style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" }}><input type="checkbox" checked={!!editing.is_master} onChange={(e) => setEditing({ ...editing, is_master: e.target.checked })} /> Master task</label>
+            <label style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" }}><input type="checkbox" checked={editing.active !== false} onChange={(e) => setEditing({ ...editing, active: e.target.checked })} /> Active</label>
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button onClick={() => save(editing)} disabled={busy} style={{ ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" }}>{busy ? "Saving…" : "Save"}</button>
+            <button onClick={() => setEditing(null)} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+      <datalist id="task-cats">{categories.map((c) => <option key={c} value={c} />)}</datalist>
+
+      {/* Location assignment panel */}
+      {locFor && (
+        <div style={{ ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid #38bdf866` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+            <div style={{ fontWeight: 800 }}>Assign locations — {locFor.name} <span style={{ color: th.muted, fontWeight: 400 }}>({locPcs.length} selected)</span></div>
+            <div style={{ display: "flex", gap: "0.4rem" }}>
+              <button onClick={() => setLocPcs(scoped.map((s) => String(s.pc)))} style={{ ...pill("#38bdf8", { cursor: "pointer", fontSize: "0.72rem" }) }}>All 45</button>
+              <button onClick={() => setLocPcs([])} style={{ ...pill(th.muted, { cursor: "pointer", fontSize: "0.72rem" }) }}>Clear</button>
+            </div>
+          </div>
+          <div style={{ maxHeight: 300, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "0.75rem" }}>
+            {Object.keys(byDistrict).sort().map((d) => (
+              <div key={d} style={{ ...card(th), padding: "0.6rem" }}>
+                <div style={{ fontSize: "0.72rem", fontWeight: 800, color: th.muted, marginBottom: "0.35rem" }}>District {d}</div>
+                {byDistrict[d].map((s) => {
+                  const pc = String(s.pc); const on = locPcs.includes(pc);
+                  return (
+                    <label key={pc} style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.8rem", padding: "0.15rem 0", cursor: "pointer" }}>
+                      <input type="checkbox" checked={on} onChange={() => setLocPcs((prev) => on ? prev.filter((x) => x !== pc) : [...prev, pc])} />
+                      {s.name} <span style={{ color: th.muted }}>· {pc}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+            <button onClick={saveLocations} disabled={busy} style={{ ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" }}>{busy ? "Saving…" : "Save assignments"}</button>
+            <button onClick={() => setLocFor(null)} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search tasks…" style={{ ...inp(th), flex: 1, minWidth: 160, fontSize: "0.85rem" }} />
+        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={{ ...inp(th), width: 180, fontSize: "0.85rem" }}>
+          <option value="all">All categories</option>
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={activeFilter} onChange={(e) => setActiveFilter(e.target.value)} style={{ ...inp(th), width: 130, fontSize: "0.85rem" }}>
+          <option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option>
+        </select>
+      </div>
+
+      {loading && <div style={{ textAlign: "center", color: th.muted, padding: "1.5rem" }}>Loading…</div>}
+      {!loading && templates && (
+        <div style={{ fontSize: "0.75rem", color: th.muted, marginBottom: "0.5rem" }}>{filtered.length} of {templates.length} tasks</div>
+      )}
+      {!loading && filtered.map((tp) => (
+        <div key={tp.id} style={{ ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.4rem", display: "flex", alignItems: "center", gap: "0.75rem", opacity: tp.active ? 1 : 0.55 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{tp.name}</div>
+            <div style={{ fontSize: "0.72rem", color: th.muted }}>
+              {tp.category} · {tp.label} · {tp.input_type} · {tp.task_type}{tp.shift_time ? " · " + tp.shift_time : ""} · {tp.frequency}
+              {tp.min_val != null ? ` · ${tp.min_val}–${tp.max_val}${tp.unit || ""}` : ""}
+            </div>
+          </div>
+          <button onClick={() => openLocations(tp)} style={{ ...pill("#38bdf8", { cursor: "pointer", fontSize: "0.7rem" }) }}>{tp.location_count} stores</button>
+          {tp.allow_signoff && <span style={pill("#2f9e44", { fontSize: "0.66rem" })}>sign-off</span>}
+          <button onClick={() => toggle(tp)} style={{ ...pill(tp.active ? "#2f9e44" : th.muted, { cursor: "pointer", fontSize: "0.7rem" }) }}>{tp.active ? "Active" : "Inactive"}</button>
+          <button onClick={() => setEditing({ ...tp })} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" }}>Edit</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AdminConsole(props) {
   const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
   const SUBS = [
     { id: 'notifications', label: 'Notifications', icon: '📬', accent: O },
+    { id: 'tasks',         label: 'Tasks',         icon: '✅', accent: '#38bdf8' },
     { id: 'users',         label: 'Users',         icon: '👥', accent: '#a78bfa' },
     { id: 'access',        label: 'Access',        icon: '🔐', accent: '#ef4444' },
     { id: 'orion',         label: 'Orion',         icon: '🟣', accent: '#7C3AED' },
@@ -15902,6 +16086,7 @@ function AdminConsole(props) {
         })}
       </div>
 
+      {sub === 'tasks' && <AdminTaskManager th={th} user={user} stores={stores} showAlert={showAlert} />}
       {sub === 'users' && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
       {sub === 'access' && <AccessMatrix th={th} user={user} users={users} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} showAlert={showAlert} />}
       {SETTINGS_SECTION[sub] && <AdminSettings {...props} embedSection={SETTINGS_SECTION[sub]} />}
@@ -18237,7 +18422,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v15.82";
+const APP_VERSION = "v15.83";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -25198,7 +25383,7 @@ function TaskRing({ pct, size = 44, th, color }) {
 }
 
 function OpsTasks({ stores, th, user }) {
-  const isAdmin = isFullAdmin(user) || user?.userType === "office_staff";
+  // Task management ("Book Task") lives in Admin → Tasks; this tab is consume + monitor only.
   const isDM = user?.userType === "dm";
   const isManager = user?.userType === "manager";
   const myStore = getManagerStore(stores, user);
@@ -25222,7 +25407,6 @@ function OpsTasks({ stores, th, user }) {
   const [data, setData] = useState(null);
   const [dash, setDash] = useState(null);
   const [rollup, setRollup] = useState(null);
-  const [templates, setTemplates] = useState(null);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [openEntry, setOpenEntry] = useState(null); // instance_id being entered
@@ -25253,15 +25437,8 @@ function OpsTasks({ stores, th, user }) {
     setRollup(r); setLoading(false);
   }, [api, date, isDM, user]);
 
-  const loadTemplates = useCallback(async () => {
-    setLoading(true);
-    const r = await api("admin_templates");
-    setTemplates(r.templates || []); setLoading(false);
-  }, [api]);
-
   useEffect(() => { if (view === "tasks" || view === "dashboard") loadStore(); }, [view, loadStore]);
   useEffect(() => { if (view === "stores") loadRollup(); }, [view, loadRollup]);
-  useEffect(() => { if (view === "admin") loadTemplates(); }, [view, loadTemplates]);
 
   // Poll for cross-device sync while a store view is open (~25s).
   useEffect(() => {
@@ -25310,7 +25487,6 @@ function OpsTasks({ stores, th, user }) {
           {!isManager && viewTab("dashboard", "Dashboard")}
           {viewTab("tasks", "Tasks")}
           {!isManager && viewTab("stores", "Stores")}
-          {isAdmin && viewTab("admin", "Manage Tasks")}
         </div>
       </div>
 
@@ -25423,37 +25599,6 @@ function OpsTasks({ stores, th, user }) {
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* ── Manage Tasks (Exec/IT admin) ── */}
-      {view === "admin" && !loading && (
-        <div>
-          {(!templates || templates.length === 0) ? (
-            <div style={{ ...card(th), padding: "1.5rem", textAlign: "center" }}>
-              <div style={{ marginBottom: "0.75rem", color: th.muted }}>No task templates yet.</div>
-              <button onClick={async () => { setLoading(true); await api("seed"); await loadTemplates(); }} style={{ ...btn(th) }}>Load starter catalog</button>
-            </div>
-          ) : (
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                <div style={{ fontSize: "0.8rem", color: th.muted }}>{templates.length} task templates</div>
-                <button onClick={async () => { setLoading(true); await api("seed"); await loadTemplates(); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.4rem 0.8rem" }}>Re-sync catalog</button>
-              </div>
-              {templates.map((tp) => (
-                <div key={tp.id} style={{ ...card(th), padding: "0.65rem 0.9rem", marginBottom: "0.4rem", display: "flex", alignItems: "center", gap: "0.75rem", opacity: tp.active ? 1 : 0.55 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{tp.name}</div>
-                    <div style={{ fontSize: "0.72rem", color: th.muted }}>{tp.category} · {tp.label} · {tp.input_type}{tp.shift_time ? " · " + tp.shift_time : ""} · {tp.location_count} stores</div>
-                  </div>
-                  <button onClick={async () => { await api("admin_toggle_active", { template_id: tp.id, active: !tp.active }); loadTemplates(); }}
-                    style={pill(tp.active ? "#2f9e44" : th.muted, { cursor: "pointer", fontSize: "0.7rem" })}>
-                    {tp.active ? "Active" : "Inactive"}
-                  </button>
-                </div>
-              ))}
-            </>
-          )}
         </div>
       )}
     </div>

@@ -287,6 +287,13 @@ exports.handler = async (event) => {
       return reply(200, { ok: true, id: ins[0].id });
     }
 
+    if (action === 'admin_get_locations') {
+      const id = +body.template_id;
+      if (!id) return reply(400, { error: 'template_id required' });
+      const rows = await db`SELECT store_pc FROM task_template_locations WHERE template_id = ${id}`;
+      return reply(200, { template_id: id, store_pcs: rows.map((r) => r.store_pc) });
+    }
+
     if (action === 'admin_set_locations') {
       const id = +body.template_id;
       const pcs = Array.isArray(body.store_pcs) ? body.store_pcs.map(String) : [];

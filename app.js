@@ -13001,10 +13001,107 @@ ${t2.slice(0, 300)}`);
       })));
     })));
   }
+  var TASK_SHIFTS = ["", "1 AM", "5 AM", "9 AM", "1 PM", "5 PM", "9 PM", "AM", "Noon", "PM"];
+  var TASK_LABELS = ["Food Safety", "Facility", "Fresh", "Planning Checklist"];
+  var TASK_INPUTS = ["checklist", "temperature", "weight", "count", "photo"];
+  var TASK_FREQS = ["daily", "weekly", "general"];
+  var TASK_TYPES = ["shift", "general"];
+  var NEW_TASK = { name: "", task_type: "shift", category: "", label: "Food Safety", input_type: "checklist", frequency: "daily", shift_time: "", recur_days: null, target: null, min_val: null, max_val: null, unit: "", allow_signoff: false, is_master: false, active: true };
+  function AdminTaskManager({ th, user, stores, showAlert }) {
+    const [templates, setTemplates] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [q, setQ] = useState("");
+    const [catFilter, setCatFilter] = useState("all");
+    const [activeFilter, setActiveFilter] = useState("all");
+    const [editing, setEditing] = useState(null);
+    const [locFor, setLocFor] = useState(null);
+    const [locPcs, setLocPcs] = useState([]);
+    const [busy, setBusy] = useState(false);
+    const api = useCallback(async (action, payload = {}) => {
+      const r = await fetch("/.netlify/functions/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
+      return r.json();
+    }, []);
+    const load = useCallback(async () => {
+      setLoading(true);
+      try {
+        const r = await api("admin_templates");
+        setTemplates(r.templates || []);
+      } finally {
+        setLoading(false);
+      }
+    }, [api]);
+    useEffect(() => {
+      load();
+    }, [load]);
+    const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
+    const filtered = (templates || []).filter((t) => {
+      if (activeFilter === "active" && !t.active) return false;
+      if (activeFilter === "inactive" && t.active) return false;
+      if (catFilter !== "all" && t.category !== catFilter) return false;
+      if (q && !`${t.name} ${t.category || ""} ${t.label || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
+      return true;
+    });
+    async function save(t) {
+      if (!t.name.trim()) {
+        showAlert && showAlert("Task name is required");
+        return;
+      }
+      setBusy(true);
+      try {
+        const r = await api("admin_save_template", { template: t });
+        if (r.ok) {
+          setEditing(null);
+          showAlert && showAlert("Task saved");
+          await load();
+        } else showAlert && showAlert(r.error || "Save failed");
+      } finally {
+        setBusy(false);
+      }
+    }
+    async function toggle(t) {
+      await api("admin_toggle_active", { template_id: t.id, active: !t.active });
+      load();
+    }
+    async function openLocations(t) {
+      setLocFor(t);
+      setLocPcs([]);
+      const r = await api("admin_get_locations", { template_id: t.id });
+      setLocPcs(r.store_pcs || []);
+    }
+    async function saveLocations() {
+      setBusy(true);
+      try {
+        await api("admin_set_locations", { template_id: locFor.id, store_pcs: locPcs });
+        setLocFor(null);
+        await load();
+      } finally {
+        setBusy(false);
+      }
+    }
+    const scoped = (stores || []).filter((s) => s.pc);
+    const byDistrict = {};
+    scoped.forEach((s) => {
+      const d = s.district || "\u2014";
+      (byDistrict[d] = byDistrict[d] || []).push(s);
+    });
+    const field = (label, node) => /* @__PURE__ */ React.createElement("label", { style: { display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.72rem", fontWeight: 700, color: th.muted } }, label, node);
+    const num = (v, set) => /* @__PURE__ */ React.createElement("input", { type: "number", value: v ?? "", onChange: (e) => set(e.target.value === "" ? null : Number(e.target.value)), style: { ...inp(th), fontSize: "0.85rem" } });
+    const sel = (v, set, opts) => /* @__PURE__ */ React.createElement("select", { value: v ?? "", onChange: (e) => set(e.target.value), style: { ...inp(th), fontSize: "0.85rem" } }, opts.map((o) => /* @__PURE__ */ React.createElement("option", { key: o.value ?? o, value: o.value ?? o }, o.label ?? (o === "" ? "\u2014" : o))));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { ...sectionTitle(th), margin: 0 } }, "Book Task \u2014 Task Templates"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setEditing({ ...NEW_TASK }), style: { ...btn(th), fontSize: "0.82rem", padding: "0.5rem 1rem" } }, "+ New Task"), /* @__PURE__ */ React.createElement("button", { onClick: async () => {
+      setLoading(true);
+      await api("seed");
+      await load();
+    }, style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.5rem 1rem" } }, "Re-sync starter catalog"))), editing && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid ${O}66` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, marginBottom: "0.75rem" } }, editing.id ? "Edit Task" : "New Task"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: "0.75rem" } }, field("Name", /* @__PURE__ */ React.createElement("input", { value: editing.name, onChange: (e) => setEditing({ ...editing, name: e.target.value }), style: { ...inp(th), fontSize: "0.85rem" } })), field("Category", /* @__PURE__ */ React.createElement("input", { value: editing.category || "", onChange: (e) => setEditing({ ...editing, category: e.target.value }), list: "task-cats", style: { ...inp(th), fontSize: "0.85rem" } })), field("Label", sel(editing.label, (v) => setEditing({ ...editing, label: v }), TASK_LABELS)), field("Task type", sel(editing.task_type, (v) => setEditing({ ...editing, task_type: v }), TASK_TYPES)), field("Input type", sel(editing.input_type, (v) => setEditing({ ...editing, input_type: v }), TASK_INPUTS)), field("Frequency", sel(editing.frequency, (v) => setEditing({ ...editing, frequency: v }), TASK_FREQS)), field("Shift time", sel(editing.shift_time, (v) => setEditing({ ...editing, shift_time: v }), TASK_SHIFTS)), editing.frequency === "general" && field("Recur every N days", num(editing.recur_days, (v) => setEditing({ ...editing, recur_days: v }))), (editing.input_type === "temperature" || editing.input_type === "weight" || editing.input_type === "count") && /* @__PURE__ */ React.createElement(React.Fragment, null, field("Target", num(editing.target, (v) => setEditing({ ...editing, target: v }))), field("Min", num(editing.min_val, (v) => setEditing({ ...editing, min_val: v }))), field("Max", num(editing.max_val, (v) => setEditing({ ...editing, max_val: v }))), field("Unit", /* @__PURE__ */ React.createElement("input", { value: editing.unit || "", onChange: (e) => setEditing({ ...editing, unit: e.target.value }), placeholder: "\xB0F / oz / ppm", style: { ...inp(th), fontSize: "0.85rem" } })))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.25rem", margin: "0.85rem 0", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!editing.allow_signoff, onChange: (e) => setEditing({ ...editing, allow_signoff: e.target.checked }) }), " Allow Manager & PCQI Sign-Off"), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!editing.is_master, onChange: (e) => setEditing({ ...editing, is_master: e.target.checked }) }), " Master task"), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.82rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: editing.active !== false, onChange: (e) => setEditing({ ...editing, active: e.target.checked }) }), " Active")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => save(editing), disabled: busy, style: { ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" } }, busy ? "Saving\u2026" : "Save"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditing(null), style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" } }, "Cancel"))), /* @__PURE__ */ React.createElement("datalist", { id: "task-cats" }, categories.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }))), locFor && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid #38bdf866` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800 } }, "Assign locations \u2014 ", locFor.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400 } }, "(", locPcs.length, " selected)")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setLocPcs(scoped.map((s) => String(s.pc))), style: { ...pill("#38bdf8", { cursor: "pointer", fontSize: "0.72rem" }) } }, "All 45"), /* @__PURE__ */ React.createElement("button", { onClick: () => setLocPcs([]), style: { ...pill(th.muted, { cursor: "pointer", fontSize: "0.72rem" }) } }, "Clear"))), /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 300, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "0.75rem" } }, Object.keys(byDistrict).sort().map((d) => /* @__PURE__ */ React.createElement("div", { key: d, style: { ...card(th), padding: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.muted, marginBottom: "0.35rem" } }, "District ", d), byDistrict[d].map((s) => {
+      const pc = String(s.pc);
+      const on = locPcs.includes(pc);
+      return /* @__PURE__ */ React.createElement("label", { key: pc, style: { display: "flex", gap: "0.4rem", alignItems: "center", fontSize: "0.8rem", padding: "0.15rem 0", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: on, onChange: () => setLocPcs((prev) => on ? prev.filter((x) => x !== pc) : [...prev, pc]) }), s.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\xB7 ", pc));
+    })))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: saveLocations, disabled: busy, style: { ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" } }, busy ? "Saving\u2026" : "Save assignments"), /* @__PURE__ */ React.createElement("button", { onClick: () => setLocFor(null), style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" } }, "Cancel"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search tasks\u2026", style: { ...inp(th), flex: 1, minWidth: 160, fontSize: "0.85rem" } }), /* @__PURE__ */ React.createElement("select", { value: catFilter, onChange: (e) => setCatFilter(e.target.value), style: { ...inp(th), width: 180, fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All categories"), categories.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))), /* @__PURE__ */ React.createElement("select", { value: activeFilter, onChange: (e) => setActiveFilter(e.target.value), style: { ...inp(th), width: 130, fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All"), /* @__PURE__ */ React.createElement("option", { value: "active" }, "Active"), /* @__PURE__ */ React.createElement("option", { value: "inactive" }, "Inactive"))), loading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "1.5rem" } }, "Loading\u2026"), !loading && templates && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.5rem" } }, filtered.length, " of ", templates.length, " tasks"), !loading && filtered.map((tp) => /* @__PURE__ */ React.createElement("div", { key: tp.id, style: { ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.4rem", display: "flex", alignItems: "center", gap: "0.75rem", opacity: tp.active ? 1 : 0.55 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.9rem" } }, tp.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, tp.category, " \xB7 ", tp.label, " \xB7 ", tp.input_type, " \xB7 ", tp.task_type, tp.shift_time ? " \xB7 " + tp.shift_time : "", " \xB7 ", tp.frequency, tp.min_val != null ? ` \xB7 ${tp.min_val}\u2013${tp.max_val}${tp.unit || ""}` : "")), /* @__PURE__ */ React.createElement("button", { onClick: () => openLocations(tp), style: { ...pill("#38bdf8", { cursor: "pointer", fontSize: "0.7rem" }) } }, tp.location_count, " stores"), tp.allow_signoff && /* @__PURE__ */ React.createElement("span", { style: pill("#2f9e44", { fontSize: "0.66rem" }) }, "sign-off"), /* @__PURE__ */ React.createElement("button", { onClick: () => toggle(tp), style: { ...pill(tp.active ? "#2f9e44" : th.muted, { cursor: "pointer", fontSize: "0.7rem" }) } }, tp.active ? "Active" : "Inactive"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditing({ ...tp }), style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" } }, "Edit"))));
+  }
   function AdminConsole(props) {
     const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
     const SUBS = [
       { id: "notifications", label: "Notifications", icon: "\u{1F4EC}", accent: O },
+      { id: "tasks", label: "Tasks", icon: "\u2705", accent: "#38bdf8" },
       { id: "users", label: "Users", icon: "\u{1F465}", accent: "#a78bfa" },
       { id: "access", label: "Access", icon: "\u{1F510}", accent: "#ef4444" },
       { id: "orion", label: "Orion", icon: "\u{1F7E3}", accent: "#7C3AED" },
@@ -13045,7 +13142,7 @@ ${t2.slice(0, 300)}`);
         color: on ? s.accent : th.muted,
         transition: "all .15s"
       } }, /* @__PURE__ */ React.createElement("span", null, s.icon), s.label);
-    })), sub === "users" && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), sub === "access" && /* @__PURE__ */ React.createElement(AccessMatrix, { th, user, users, accessOverrides, setAccessOverrides, showAlert }), SETTINGS_SECTION[sub] && /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: SETTINGS_SECTION[sub] }), sub === "system" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AdminDataPanel, { th, user, users, stores, districts, version }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "admin" }))));
+    })), sub === "tasks" && /* @__PURE__ */ React.createElement(AdminTaskManager, { th, user, stores, showAlert }), sub === "users" && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert }), sub === "access" && /* @__PURE__ */ React.createElement(AccessMatrix, { th, user, users, accessOverrides, setAccessOverrides, showAlert }), SETTINGS_SECTION[sub] && /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: SETTINGS_SECTION[sub] }), sub === "system" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AdminDataPanel, { th, user, users, stores, districts, version }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "admin" }))));
   }
   function AuditLogSection({ th, user, users, accent }) {
     const [open, setOpen] = React.useState(false);
@@ -14642,7 +14739,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v15.82";
+  var APP_VERSION = "v15.83";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -19303,7 +19400,6 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     ));
   }
   function OpsTasks({ stores, th, user }) {
-    const isAdmin = isFullAdmin(user) || user?.userType === "office_staff";
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const myStore = getManagerStore(stores, user);
@@ -19323,7 +19419,6 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [data, setData] = useState(null);
     const [dash, setDash] = useState(null);
     const [rollup, setRollup] = useState(null);
-    const [templates, setTemplates] = useState(null);
     const [loading, setLoading] = useState(false);
     const [busyId, setBusyId] = useState(null);
     const [openEntry, setOpenEntry] = useState(null);
@@ -19350,21 +19445,12 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       setRollup(r);
       setLoading(false);
     }, [api, date, isDM, user]);
-    const loadTemplates = useCallback(async () => {
-      setLoading(true);
-      const r = await api("admin_templates");
-      setTemplates(r.templates || []);
-      setLoading(false);
-    }, [api]);
     useEffect(() => {
       if (view === "tasks" || view === "dashboard") loadStore();
     }, [view, loadStore]);
     useEffect(() => {
       if (view === "stores") loadRollup();
     }, [view, loadRollup]);
-    useEffect(() => {
-      if (view === "admin") loadTemplates();
-    }, [view, loadTemplates]);
     useEffect(() => {
       if (view !== "tasks" && view !== "dashboard") return;
       const id = setInterval(loadStore, 25e3);
@@ -19409,7 +19495,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       cursor: "pointer",
       whiteSpace: "nowrap"
     } }, label);
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Tasks"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, !isManager && viewTab("dashboard", "Dashboard"), viewTab("tasks", "Tasks"), !isManager && viewTab("stores", "Stores"), isAdmin && viewTab("admin", "Manage Tasks"))), (view === "tasks" || view === "dashboard") && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, !isManager && /* @__PURE__ */ React.createElement("select", { value: storePc, onChange: (e) => setStorePc(e.target.value), style: { ...inp(th), flex: 1, minWidth: 160 } }, scopeStores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: String(s.pc) }, s.pc, " \u2014 ", s.name))), isManager && myStore && /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 } }, myStore.pc, " \u2014 ", myStore.name), /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: { ...inp(th), width: 160 } })), loading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "Loading\u2026"), view === "dashboard" && dash && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" } }, [["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text } }, dash.totals[k] || 0), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 600 } }, lbl)))), dash.categories.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.category, style: { ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement(TaskRing, { pct: c.pct, th, size: 40 }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, c.category), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, c.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, c.overdue, " overdue"), " \xB7 ", c.completed, "/", c.all, " done"))))), view === "tasks" && data && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", ...card(th), padding: 0, marginBottom: "0.75rem", overflow: "hidden" } }, segBtn("open", "Open", data.counts.open + data.counts.overdue), segBtn("missed", "Missed", data.counts.missed), segBtn("all", "All", data.counts.all)), segTasks.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "Nothing here \u{1F389}"), segTasks.map((tk) => {
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Tasks"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, !isManager && viewTab("dashboard", "Dashboard"), viewTab("tasks", "Tasks"), !isManager && viewTab("stores", "Stores"))), (view === "tasks" || view === "dashboard") && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, !isManager && /* @__PURE__ */ React.createElement("select", { value: storePc, onChange: (e) => setStorePc(e.target.value), style: { ...inp(th), flex: 1, minWidth: 160 } }, scopeStores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: String(s.pc) }, s.pc, " \u2014 ", s.name))), isManager && myStore && /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 } }, myStore.pc, " \u2014 ", myStore.name), /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: { ...inp(th), width: 160 } })), loading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "Loading\u2026"), view === "dashboard" && dash && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" } }, [["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text } }, dash.totals[k] || 0), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 600 } }, lbl)))), dash.categories.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.category, style: { ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement(TaskRing, { pct: c.pct, th, size: 40 }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, c.category), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, c.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, c.overdue, " overdue"), " \xB7 ", c.completed, "/", c.all, " done"))))), view === "tasks" && data && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", ...card(th), padding: 0, marginBottom: "0.75rem", overflow: "hidden" } }, segBtn("open", "Open", data.counts.open + data.counts.overdue), segBtn("missed", "Missed", data.counts.missed), segBtn("all", "All", data.counts.all)), segTasks.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2rem" } }, "Nothing here \u{1F389}"), segTasks.map((tk) => {
       const sc = TASK_STATUS_COLOR[tk.statusComputed] || th.muted;
       const done = tk.statusComputed === "completed";
       const isMeas = tk.input_type === "temperature" || tk.input_type === "weight" || tk.input_type === "count";
@@ -19463,25 +19549,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       },
       /* @__PURE__ */ React.createElement(TaskRing, { pct: s.pct, th, size: 40 }),
       /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, s.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.78rem" } }, "\xB7 ", s.pc)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, s.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, s.overdue, " overdue"), " \xB7 ", s.completed, "/", s.all, " done", !isDM ? ` \xB7 D${s.district}` : ""))
-    ))), view === "admin" && !loading && /* @__PURE__ */ React.createElement("div", null, !templates || templates.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem", color: th.muted } }, "No task templates yet."), /* @__PURE__ */ React.createElement("button", { onClick: async () => {
-      setLoading(true);
-      await api("seed");
-      await loadTemplates();
-    }, style: { ...btn(th) } }, "Load starter catalog")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, templates.length, " task templates"), /* @__PURE__ */ React.createElement("button", { onClick: async () => {
-      setLoading(true);
-      await api("seed");
-      await loadTemplates();
-    }, style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.4rem 0.8rem" } }, "Re-sync catalog")), templates.map((tp) => /* @__PURE__ */ React.createElement("div", { key: tp.id, style: { ...card(th), padding: "0.65rem 0.9rem", marginBottom: "0.4rem", display: "flex", alignItems: "center", gap: "0.75rem", opacity: tp.active ? 1 : 0.55 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.9rem" } }, tp.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, tp.category, " \xB7 ", tp.label, " \xB7 ", tp.input_type, tp.shift_time ? " \xB7 " + tp.shift_time : "", " \xB7 ", tp.location_count, " stores")), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: async () => {
-          await api("admin_toggle_active", { template_id: tp.id, active: !tp.active });
-          loadTemplates();
-        },
-        style: pill(tp.active ? "#2f9e44" : th.muted, { cursor: "pointer", fontSize: "0.7rem" })
-      },
-      tp.active ? "Active" : "Inactive"
-    ))))));
+    ))));
   }
   function ImpactRadar({ th, user, dark, salesWeeks }) {
     const [eventAddr, setEventAddr] = useState("2310 W Passyunk Ave, Philadelphia, PA 19145");
