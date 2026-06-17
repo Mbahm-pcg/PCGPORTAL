@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCG UOP — Strategic Technology Roadmap: Phases 6–10</title>
+<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700;800;900&family=Source+Sans+3:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --pcg-orange: #FF671F;
+    --pcg-orange-light: #ff8040;
+    --pcg-dark: #0d1117;
+    --pcg-card: #161b22;
+    --pcg-card2: #1c2333;
+    --pcg-card3: #242d3d;
+    --pcg-border: rgba(255,255,255,0.06);
+    --pcg-text: #e6edf3;
+    --pcg-muted: #8b949e;
+    --pcg-green: #4caf50;
+    --pcg-purple: #8b5cf6;
+    --pcg-blue: #3b82f6;
+    --pcg-teal: #14b8a6;
+    --pcg-amber: #f59e0b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--pcg-dark);
+    color: var(--pcg-text);
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 400;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media print {
+    body { background: white; color: #1a1a2e; }
+    .page-break { page-break-before: always; }
+    .hero { background: linear-gradient(135deg, #FF671F, #ff8040) !important; }
+    .phase-card { border-color: #e0e0e0 !important; background: #fafafa !important; }
+    .feature-item { background: #f5f5f5 !important; border-color: #e0e0e0 !important; }
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+
+  /* ── Hero Section ── */
+  .hero {
+    background: linear-gradient(135deg, var(--pcg-dark), #1a1025 40%, #0d1117);
+    padding: 3.5rem 0 3rem;
+    border-bottom: 3px solid var(--pcg-orange);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .hero-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+  }
+
+  .hero-brand {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .hero-brand img {
+    height: 48px;
+    border-radius: 12px;
+  }
+
+  .hero-brand-text {
+    font-family: 'Raleway', sans-serif;
+    font-weight: 800;
+    font-size: 1.1rem;
+    color: var(--pcg-orange);
+    letter-spacing: 1px;
+  }
+
+  .hero-brand-sub {
+    font-size: 0.7rem;
+    color: var(--pcg-muted);
+    font-weight: 400;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+  }
+
+  .hero-date {
+    font-size: 0.75rem;
+    color: var(--pcg-muted);
+    text-align: right;
+  }
+
+  .hero h1 {
+    font-family: 'Raleway', sans-serif;
+    font-weight: 900;
+    font-size: 2.4rem;
+    line-height: 1.15;
+    margin-bottom: 0.75rem;
+    background: linear-gradient(135deg, var(--pcg-text) 0%, var(--pcg-orange-light) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero-subtitle {
+    font-size: 1.1rem;
+    color: var(--pcg-muted);
+    max-width: 700px;
+    line-height: 1.7;
+  }
+
+  .hero-stats {
+    display: flex;
+    gap: 2rem;
+    margin-top: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .hero-stat {
+    text-align: center;
+  }
+
+  .hero-stat-value {
+    font-family: 'Raleway', sans-serif;
+    font-weight: 900;
+    font-size: 1.8rem;
+    color: var(--pcg-orange);
+  }
+
+  .hero-stat-label {
+    font-size: 0.7rem;
+    color: var(--pcg-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+
+  /* ── Vision Section ── */
+  .vision {
+    padding: 3rem 0;
+    border-bottom: 1px solid var(--pcg-border);
+  }
+
+  .vision h2 {
+    font-family: 'Raleway', sans-serif;
+    font-weight: 800;
+    font-size: 1.3rem;
+    color: var(--pcg-orange);
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+
+  .vision p {
+    font-size: 1rem;
+    color: var(--pcg-text);
+    max-width: 900px;
+    line-height: 1.8;
+    margin-bottom: 1rem;
+  }
+
+  .vision-callout {
+    background: var(--pcg-card);
+    border-left: 4px solid var(--pcg-orange);
+    padding: 1.25rem 1.5rem;
+    border-radius: 0 8px 8px 0;
+    margin-top: 1.5rem;
+    font-size: 0.95rem;
+    font-style: italic;
+    color: var(--pcg-muted);
+    line-height: 1.7;
+  }
+
+  /* ── Phase Cards ── */
+  .phase-section {
+    padding: 3rem 0 1rem;
+  }
+
+  .phase-card {
+    background: var(--pcg-card);
+    border: 1px solid var(--pcg-border);
+    border-radius: 16px;
+    padding: 2.5rem;
+    margin-bottom: 2.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .phase-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+  }
+
+  .phase-card.phase-6::before { background: linear-gradient(90deg, var(--pcg-orange), var(--pcg-amber)); }
+  .phase-card.phase-7::before { background: linear-gradient(90deg, var(--pcg-green), var(--pcg-teal)); }
+  .phase-card.phase-8::before { background: linear-gradient(90deg, var(--pcg-blue), var(--pcg-purple)); }
+  .phase-card.phase-9::before { background: linear-gradient(90deg, var(--pcg-amber), var(--pcg-orange)); }
+  .phase-card.phase-10::before { background: linear-gradient(90deg, var(--pcg-purple), #ec4899); }
+
+  .phase-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .phase-number {
+    font-family: 'Raleway', sans-serif;
+    font-weight: 900;
+    font-size: 0.75rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 0.35rem;
+  }
+
+  .phase-6 .phase-number { color: var(--pcg-orange); }
+  .phase-7 .phase-number { color: var(--pcg-green); }
+  .phase-8 .phase-number { color: var(--pcg-blue); }
+  .phase-9 .phase-number { color: var(--pcg-amber); }
+  .phase-10 .phase-number { color: var(--pcg-purple); }
+
+  .phase-title {
+    font-family: 'Raleway', sans-serif;
+    font-weight: 800;
+    font-size: 1.6rem;
+    color: var(--pcg-text);
+    line-height: 1.3;
+  }
+
+  .phase-tagline {
+    font-size: 0.9rem;
+    color: var(--pcg-muted);
+    font-style: italic;
+    margin-top: 0.25rem;
+  }
+
+  .phase-badge {
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .phase-6 .phase-badge { background: rgba(255,103,31,0.15); color: var(--pcg-orange); border: 1px solid rgba(255,103,31,0.3); }
+  .phase-7 .phase-badge { background: rgba(76,175,80,0.15); color: var(--pcg-green); border: 1px solid rgba(76,175,80,0.3); }
+  .phase-8 .phase-badge { background: rgba(59,130,246,0.15); color: var(--pcg-blue); border: 1px solid rgba(59,130,246,0.3); }
+  .phase-9 .phase-badge { background: rgba(245,158,11,0.15); color: var(--pcg-amber); border: 1px solid rgba(245,158,11,0.3); }
+  .phase-10 .phase-badge { background: rgba(139,92,246,0.15); color: var(--pcg-purple); border: 1px solid rgba(139,92,246,0.3); }
+
+  .phase-overview {
+    font-size: 0.95rem;
+    color: var(--pcg-muted);
+    line-height: 1.8;
+    margin-bottom: 2rem;
+    max-width: 850px;
+  }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .feature-item {
+    background: var(--pcg-card2);
+    border: 1px solid var(--pcg-border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    transition: border-color 0.2s;
+  }
+
+  .feature-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .feature-icon {
+    font-size: 1.4rem;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .phase-6 .feature-icon { background: rgba(255,103,31,0.12); }
+  .phase-7 .feature-icon { background: rgba(76,175,80,0.12); }
+  .phase-8 .feature-icon { background: rgba(59,130,246,0.12); }
+  .phase-9 .feature-icon { background: rgba(245,158,11,0.12); }
+  .phase-10 .feature-icon { background: rgba(139,92,246,0.12); }
+
+  .feature-name {
+    font-family: 'Raleway', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--pcg-text);
+  }
+
+  .feature-desc {
+    font-size: 0.88rem;
+    color: var(--pcg-muted);
+    line-height: 1.75;
+    margin-bottom: 0.75rem;
+  }
+
+  .feature-impact {
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    display: inline-block;
+  }
+
+  .phase-6 .feature-impact { background: rgba(255,103,31,0.08); color: var(--pcg-orange); }
+  .phase-7 .feature-impact { background: rgba(76,175,80,0.08); color: var(--pcg-green); }
+  .phase-8 .feature-impact { background: rgba(59,130,246,0.08); color: var(--pcg-blue); }
+  .phase-9 .feature-impact { background: rgba(245,158,11,0.08); color: var(--pcg-amber); }
+  .phase-10 .feature-impact { background: rgba(139,92,246,0.08); color: var(--pcg-purple); }
+
+  /* ── Footer ── */
+  .footer {
+    padding: 2.5rem 0;
+    border-top: 1px solid var(--pcg-border);
+    text-align: center;
+    margin-top: 2rem;
+  }
+
+  .footer-text {
+    font-size: 0.75rem;
+    color: var(--pcg-muted);
+    letter-spacing: 0.5px;
+  }
+
+  .footer-brand {
+    font-family: 'Raleway', sans-serif;
+    font-weight: 800;
+    color: var(--pcg-orange);
+  }
+
+  /* ── Timeline ── */
+  .timeline-bar {
+    display: flex;
+    gap: 0;
+    margin: 2rem 0 1rem;
+    border-radius: 8px;
+    overflow: hidden;
+    height: 8px;
+  }
+
+  .timeline-segment {
+    flex: 1;
+    position: relative;
+  }
+
+  .timeline-labels {
+    display: flex;
+    gap: 0;
+    margin-bottom: 2rem;
+  }
+
+  .timeline-label {
+    flex: 1;
+    text-align: center;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--pcg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 1.6rem; }
+    .phase-card { padding: 1.5rem; }
+    .hero-stats { gap: 1.5rem; }
+    .container { padding: 0 1.25rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════ HERO ═══════════════════════ -->
+<div class="hero">
+  <div class="container">
+    <div class="hero-top">
+      <div class="hero-brand">
+        <div>
+          <div class="hero-brand-text">PEOPLE CAPITAL GROUP</div>
+          <div class="hero-brand-sub">Unified Operations Portal</div>
+        </div>
+      </div>
+      <div class="hero-date">
+        Strategic Technology Roadmap<br>
+        <strong>May 2026</strong> | Confidential
+      </div>
+    </div>
+
+    <h1>From Dashboard to<br>Operations Copilot</h1>
+    <div class="hero-subtitle">
+      Our five-phase strategic plan to transform the UOP from a reporting platform into an intelligent operating system that predicts problems before they happen, tells our teams exactly what to do, and drives measurable bottom-line impact across our entire network.
+    </div>
+
+    <div class="hero-stats">
+      <div class="hero-stat">
+        <div class="hero-stat-value">45+</div>
+        <div class="hero-stat-label">Locations</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-value">8</div>
+        <div class="hero-stat-label">Districts</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-value">675+</div>
+        <div class="hero-stat-label">Employees</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-value">5</div>
+        <div class="hero-stat-label">Phases Ahead</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ VISION ═══════════════════════ -->
+<div class="container">
+  <div class="vision">
+    <h2>The Vision</h2>
+    <p>
+      Over the past year, we've built something that most franchise operators only dream about — a unified platform that connects our POS data, labor management, AI-driven analytics, team communications, and project tracking into a single pane of glass. We have real-time visibility into every store, every shift, every dollar across our network.
+    </p>
+    <p>
+      But visibility is just the starting line. The operators who are winning right now have moved beyond dashboards that show you what happened yesterday. They're running systems that tell them what's going to happen tomorrow — and exactly what to do about it. That's where we're headed.
+    </p>
+    <p>
+      These next five phases represent our evolution from a best-in-class reporting tool to a true operations copilot — a system that reduces cognitive load on our DMs and GMs, drives action instead of just displaying data, connects labor decisions to sales forecasts to P&L outcomes, and ultimately becomes the platform we can't run the business without.
+    </p>
+    <div class="vision-callout">
+      "The goal isn't more data. It's fewer decisions that our operators have to figure out on their own. Every feature in this roadmap should either surface a problem we didn't know we had, or solve one without us having to ask."
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ TIMELINE ═══════════════════════ -->
+  <div class="phase-section">
+    <div class="timeline-bar">
+      <div class="timeline-segment" style="background: linear-gradient(90deg, #FF671F, #f59e0b);"></div>
+      <div class="timeline-segment" style="background: linear-gradient(90deg, #f59e0b, #4caf50);"></div>
+      <div class="timeline-segment" style="background: linear-gradient(90deg, #4caf50, #3b82f6);"></div>
+      <div class="timeline-segment" style="background: linear-gradient(90deg, #3b82f6, #f59e0b);"></div>
+      <div class="timeline-segment" style="background: linear-gradient(90deg, #f59e0b, #8b5cf6);"></div>
+    </div>
+    <div class="timeline-labels">
+      <div class="timeline-label">Phase 6<br>Command Center</div>
+      <div class="timeline-label">Phase 7<br>Financial Mastery</div>
+      <div class="timeline-label">Phase 8<br>People & Compliance</div>
+      <div class="timeline-label">Phase 9<br>Supply & Customer</div>
+      <div class="timeline-label">Phase 10<br>Platform Scale</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ PHASE 6 ═══════════════════════ -->
+  <div class="phase-card phase-6">
+    <div class="phase-header">
+      <div>
+        <div class="phase-number">Phase 6</div>
+        <div class="phase-title">Command Center + Predictive Intelligence</div>
+        <div class="phase-tagline">Stop staring at dashboards. Get told what matters.</div>
+      </div>
+      <div class="phase-badge">Highest Priority</div>
+    </div>
+
+    <div class="phase-overview">
+      This is the inflection point for the entire platform. Right now, our DMs and executives have to open the portal, navigate to different tabs, interpret numbers, and figure out what needs their attention. Phase 6 flips that model completely — the system watches everything in real time and proactively surfaces the issues that matter most, ranked by business impact. We're also introducing predictive analytics for the first time: using our years of POS history combined with weather data and seasonal patterns to forecast what's coming, not just report what happened. This is the foundation that every subsequent phase builds on.
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🎯</div>
+          <div class="feature-name">Action Queue</div>
+        </div>
+        <div class="feature-desc">
+          An AI-prioritized list of everything across the network that needs human attention, ranked by how much money is at stake. Instead of checking six different tabs to find problems, our DMs open one screen and see exactly what needs to be handled — "Store 412 has been running above 28% labor for three consecutive days" ranked higher than "Two stores haven't submitted daily reports." Each item comes with a one-tap action: call the manager, adjust the schedule, acknowledge, or delegate to another DM. We'll also track how quickly each district manager responds to and resolves issues, giving us a measurable way to evaluate operational responsiveness across the network.
+        </div>
+        <div class="feature-impact">Impact: Eliminates 30+ minutes of daily "hunting for problems" per DM</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">📈</div>
+          <div class="feature-name">AI Sales Forecasting Engine</div>
+        </div>
+        <div class="feature-desc">
+          We're sitting on years of daily and hourly sales data from every single store in the network. This feature takes that historical data and combines it with weather forecasts, day-of-week patterns, holiday calendars, and seasonal trends to predict what each store will sell tomorrow, this week, and next week — broken down by the hour. Managers will see a live "Forecast vs. Actual" overlay on their Pulse charts so they know whether they're tracking ahead or behind at any point during the day. More importantly, this forecast becomes the input for smarter labor scheduling, smarter inventory ordering, and smarter prep decisions. Everything flows downstream from getting the forecast right.
+        </div>
+        <div class="feature-impact">Impact: Foundation for all downstream optimization — labor, prep, inventory</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">👥</div>
+          <div class="feature-name">Smart Labor Recommendations</div>
+        </div>
+        <div class="feature-desc">
+          Once we have accurate sales forecasts, we can take every store's Paycor schedule for next week and run it against what we predict the sales will be, hour by hour. The system will show managers and DMs exactly where they're overstaffed and understaffed before the week even starts — "If you run this schedule as-is, your projected labor cost is 27.3%. Drop one crew member from the 2–4 PM Tuesday shift and you'll bring it down to 24.8% with minimal service impact." We'll also flag stores whose schedules are projected to blow past our 26% target so DMs can intervene before the damage is done. Tools like 7shifts charge $3–5 per employee per month for this kind of recommendation engine. We're building one that's tuned specifically to our Dunkin' operations, integrated directly into the portal.
+        </div>
+        <div class="feature-impact">Impact: Projected 1.5–2.5% reduction in network-wide labor cost</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🗺️</div>
+          <div class="feature-name">Real-Time Operations Map</div>
+        </div>
+        <div class="feature-desc">
+          A live interactive map of every store in the network, color-coded in real time based on current performance. Green means on-target, yellow means watch closely, red means someone needs to intervene. Click any store pin and you get an instant snapshot: what they've sold in the current hour, who's clocked in right now, their live labor percentage, and any open alerts or business cases. We'll layer weather conditions on top so you can see at a glance which stores are dealing with weather impacts. This becomes the "CEO view" — the screen that gets pulled up in every operations meeting, the one that lives on a TV in the corporate office. Our executives and DMs will be able to see their entire territory at a glance instead of clicking through store after store.
+        </div>
+        <div class="feature-impact">Impact: The "mission control" view for every operations meeting</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🔍</div>
+          <div class="feature-name">Anomaly Detection 2.0</div>
+        </div>
+        <div class="feature-desc">
+          Our current alerts use static thresholds — labor above 26% turns red, sales below forecast turns yellow. That's a start, but it treats every store the same and misses the nuance. Phase 6 replaces static rules with rolling per-store baselines that learn each location's normal patterns. A 15% sales dip at a store that's consistently volatile might be normal, but the same dip at a store that's rock-steady is a red flag. We'll also add cash handling anomaly detection — flagging unusual void rates, suspicious refund patterns, and cash-to-card ratio shifts that could indicate theft or errors. On the labor side, we'll detect buddy-punching patterns where two employees consistently clock in within seconds of each other, and ghost shifts where scheduled hours don't match actual clock-in activity.
+        </div>
+        <div class="feature-impact">Impact: Catches problems that static thresholds miss — estimated $50K+/year in loss prevention</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ PHASE 7 ═══════════════════════ -->
+  <div class="phase-card phase-7 page-break">
+    <div class="phase-header">
+      <div>
+        <div class="phase-number">Phase 7</div>
+        <div class="phase-title">Financial Mastery</div>
+        <div class="phase-tagline">Know your unit economics in real time, not 30 days later.</div>
+      </div>
+      <div class="phase-badge">Revenue Impact</div>
+    </div>
+
+    <div class="phase-overview">
+      Today we know our sales in real time and our labor costs within a few hours, but the full picture — actual profit per store, per week — takes weeks to assemble from accounting. Phase 7 closes that gap. By combining our existing Pulse POS data with Paycor labor costs and a fully built-out theoretical food cost model, we can show a real-time estimated P&L for every store in the network. This turns the portal from an operations dashboard into a financial management platform — the kind of visibility that investors and lenders ask for and most operators can't provide.
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">💰</div>
+          <div class="feature-name">Live Store P&L</div>
+        </div>
+        <div class="feature-desc">
+          A real-time estimated profit-and-loss statement for every store, updated hourly throughout the day. We're combining three data streams we already have — Pulse net sales, Paycor labor cost, and our Food Cost(T) model — to calculate Revenue minus Labor minus COGS equals Gross Contribution for each location. Weekly and monthly rollups will show trends over time, and we'll rank stores not just by top-line sales but by actual contribution margin. A store doing $8K/day in sales with 30% labor isn't outperforming one doing $6K/day with 20% labor — and this view makes that clear. This is also the data that makes acquisition conversations and lending discussions dramatically easier.
+        </div>
+        <div class="feature-impact">Impact: Real-time financial visibility that typically takes 3-4 weeks to produce</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🧾</div>
+          <div class="feature-name">Full Menu Bill of Materials (Food Cost)</div>
+        </div>
+        <div class="feature-desc">
+          Right now our Food Cost(T) calculator only covers bakery items — donuts, munchkins, muffins, bagels — because those are the only ingredients we have costs for. That gives us about 5–8% of net sales in theoretical food cost, but the real number is closer to 25–30% when you include beverages, sandwiches, wraps, and everything else on the menu. This feature builds out a complete bill of materials for every item we sell. A Bacon Egg & Cheese on Croissant isn't just one item — it's one egg, one cheese slice, four strips of bacon, and one croissant, each with a known ingredient cost. When we multiply that by how many we sold today, we get the true theoretical cost of goods. The difference between theoretical and actual (what we're paying on DCP invoices) is where waste, theft, and overportioning live — and that gap is worth millions across 45 stores.
+        </div>
+        <div class="feature-impact">Impact: Identifies the gap between theoretical and actual food cost — typically 2-4% of revenue</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">⚖️</div>
+          <div class="feature-name">Labor Optimization Simulator</div>
+        </div>
+        <div class="feature-desc">
+          A "what-if" planning tool that lets DMs and operators model staffing changes before committing to them. Select a store, pull up next week's schedule, and ask: "What happens if I cut one person from the 6–10 AM shift on Tuesday?" The system runs that scenario against historical sales data for that specific store, day, and daypart — and tells you the labor savings, the projected service impact, and the break-even point. It also works in reverse: "How much does this store need to sell per hour to justify having six people on the floor?" We'll identify patterns from our best-performing stores and show underperformers what staffing models are working elsewhere in the network.
+        </div>
+        <div class="feature-impact">Impact: Data-driven staffing decisions instead of gut-feel scheduling</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">📊</div>
+          <div class="feature-name">Royalty & Fee Forecasting</div>
+        </div>
+        <div class="feature-desc">
+          Based on where our sales are tracking this month, this feature projects what our royalty payments, advertising fund contributions, and net revenue will be at month-end. If a store or the entire network is trending below where we need to be, we'll flag it early — not after the month is already closed. This gives our finance team and leadership forward-looking cash flow visibility, which is consistently the number-one concern for multi-unit franchise operators. We'll build on the existing Sales Reconciliation tab to add these forward projections alongside historical actuals.
+        </div>
+        <div class="feature-impact">Impact: Eliminates end-of-month financial surprises</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🏆</div>
+          <div class="feature-name">District Manager Scorecard</div>
+        </div>
+        <div class="feature-desc">
+          We manage 45 stores through 8 district managers. The quality of our DMs is the single biggest lever we have over network performance — but right now we don't have a standardized, data-driven way to evaluate and compare their effectiveness. This feature creates a composite scorecard that ranks each DM on the metrics that matter: sales growth, labor efficiency, employee retention rate, project completion, alert response time, and compliance scores. We'll track trends over time so we can see whether each DM is improving, plateauing, or declining. This becomes the foundation for coaching conversations, bonus calculations, and succession planning. What gets measured gets managed.
+        </div>
+        <div class="feature-impact">Impact: Makes DM performance objective, measurable, and actionable</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ PHASE 8 ═══════════════════════ -->
+  <div class="phase-card phase-8 page-break">
+    <div class="phase-header">
+      <div>
+        <div class="phase-number">Phase 8</div>
+        <div class="phase-title">People & Compliance</div>
+        <div class="phase-tagline">Reduce 150% annual turnover. Automate every checklist.</div>
+      </div>
+      <div class="phase-badge">Retention & Risk</div>
+    </div>
+
+    <div class="phase-overview">
+      With approximately 675 employees across our network and industry-standard QSR turnover running at 150% annually, we're hiring roughly 1,000 people per year just to maintain staffing levels. Each hire costs an estimated $3,000–$5,000 in recruiting, onboarding, and training before they're fully productive. Even a modest 20% reduction in turnover would save us over $600,000 per year. Phase 8 tackles this head-on with tools that track the entire employee lifecycle, predict who's at risk of leaving, and give our managers the visibility they need to retain their best people. On the compliance side, we're digitizing every opening checklist, closing checklist, and food safety log — creating an auditable paper trail that protects us from liability while saving 15–20 minutes per shift in paperwork.
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">📋</div>
+          <div class="feature-name">Employee Lifecycle Dashboard</div>
+        </div>
+        <div class="feature-desc">
+          A comprehensive view of every employee's journey from the day they're hired to the day they leave — and everything in between. We'll track tenure milestones, training completion, schedule reliability, hours worked, and pay progression. More importantly, we'll use pattern recognition to identify employees who are at risk of quitting before they give notice. The signals are almost always there: hours getting cut, shifts being dropped, patterns that match what previous departures looked like in their first 30 days before leaving. We'll also calculate a "retention score" for each store and each DM, so we can see which managers are keeping their people and which locations are revolving doors. When we know a high-performing employee is at risk, we can intervene — adjust their schedule, have a conversation, offer a raise — before we lose them and spend $4K replacing them.
+        </div>
+        <div class="feature-impact">Impact: 20% turnover reduction = $600K+ annual savings in hiring/training costs</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🎓</div>
+          <div class="feature-name">Training & Certification Tracker</div>
+        </div>
+        <div class="feature-desc">
+          Every employee in our network needs certain certifications — food handler permits, Dunkin' University modules, safety training, new product rollout training — and right now tracking who's current and who's expired is largely a manual process. This feature centralizes all of it. We'll see at a glance which stores have 100% training completion and which have gaps. We'll get automatic alerts when certifications are expiring, so managers can schedule renewals before they lapse. We're also going to gamify it — leaderboards for training completion by store, badges for milestones, and recognition for stores that maintain 100% compliance. The data tells us that stores with higher training completion rates consistently outperform — we want to prove that correlation with our own numbers and use it to drive accountability.
+        </div>
+        <div class="feature-impact">Impact: Eliminates compliance gaps and correlates training completion with store performance</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">✅</div>
+          <div class="feature-name">Digital Checklists & Task Management</div>
+        </div>
+        <div class="feature-desc">
+          Every Dunkin' location runs on checklists — opening procedures, closing procedures, mid-day food safety temperature checks, cleaning verification, equipment checks. Today most of this is done on paper that gets filed in a binder and never looked at again. We're bringing all of it into the portal: digital checklists that are timestamped, GPS-verified, and require photo evidence for key items like drive-thru cleanliness or product display setup. If an opening checklist isn't completed by 6:30 AM, the DM gets an automatic notification. If food safety temps aren't logged by the required intervals, it escalates. When a health inspector walks in, we don't have to dig through a filing cabinet — we pull up 90 days of digital records instantly. This isn't just about convenience; it's about creating a documented, auditable trail that protects us from liability and demonstrates brand standards compliance.
+        </div>
+        <div class="feature-impact">Impact: Saves 15-20 min/shift in paperwork + creates auditable compliance trail</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🔄</div>
+          <div class="feature-name">Shift Marketplace</div>
+        </div>
+        <div class="feature-desc">
+          Schedule flexibility is the number-one job perk for hourly workers under 25 — ahead of pay rate in most surveys. Right now if one of our crew members needs to swap or drop a shift, it's a manual process of texting coworkers and hoping someone responds. The Shift Marketplace lets employees post shifts they need covered, and crew members from the same store or nearby stores in the district can pick them up — with DM approval required but available as a one-tap action from their phone. The system will also proactively identify cross-store optimization opportunities: "Store A is overstaffed Tuesday morning, Store B needs coverage that same morning — here's a suggested swap." This is essentially what platforms like 7shifts and HotSchedules have built multi-million-dollar businesses around, and we can build a version that's integrated directly into our operations ecosystem.
+        </div>
+        <div class="feature-impact">Impact: Reduces no-shows, improves employee satisfaction, enables cross-store labor sharing</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">💬</div>
+          <div class="feature-name">Crew Pulse Surveys</div>
+        </div>
+        <div class="feature-desc">
+          The stores with the highest turnover almost always have underlying communication or morale issues that nobody sees until people start walking out the door. Crew Pulse Surveys are a lightweight weekly check-in — three questions maximum, takes 30 seconds to complete. "How was your week? Rate 1–5." Plus one open-ended question that rotates weekly. We aggregate the responses by store and district to create a morale heat map across the network. When a store's average drops below 3.0 for two consecutive weeks, that's an early warning signal that something is wrong — and we can address it before it turns into a wave of resignations. Combined with the Employee Lifecycle Dashboard, this gives us both the leading indicators (sentiment) and lagging indicators (actual departures) we need to manage retention proactively.
+        </div>
+        <div class="feature-impact">Impact: Early warning system for morale problems — surfaces issues before they become exits</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ PHASE 9 ═══════════════════════ -->
+  <div class="phase-card phase-9 page-break">
+    <div class="phase-header">
+      <div>
+        <div class="phase-number">Phase 9</div>
+        <div class="phase-title">Supply Chain & Customer Intelligence</div>
+        <div class="phase-tagline">Know what you're selling, wasting, and missing.</div>
+      </div>
+      <div class="phase-badge">Margin Optimization</div>
+    </div>
+
+    <div class="phase-overview">
+      Cost of goods sold is typically 28–32% of revenue at a Dunkin' franchise. On $50 million in annual network revenue, that's $14–16 million in product costs. A 2% improvement — achievable through better waste management, smarter ordering, and identifying overportioning — puts over $1 million straight to the bottom line. Phase 9 gives us the tools to see exactly where product is going, compare what we should be using against what we're actually using, and identify the menu mix and daypart strategies that our best stores are executing that the rest aren't.
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">📉</div>
+          <div class="feature-name">Waste & Variance Tracking</div>
+        </div>
+        <div class="feature-desc">
+          Using the theoretical food cost model from Phase 7, we can calculate exactly how much of every ingredient each store should have used based on what they sold. Then we compare that against what they actually ordered and consumed. The difference is variance — and variance comes from three places: waste (overproduction, expired product), theft, and overportioning. If Store X sold 200 coffees today and each coffee uses 0.5 oz of grounds, they should have used 100 oz. If they actually used 130 oz, we've got a 30% variance that's worth investigating. This feature surfaces these outliers automatically, ranked by dollar impact, so DMs know exactly which stores and which products to focus on. Across 45 stores, even small per-unit improvements compound into significant savings.
+        </div>
+        <div class="feature-impact">Impact: 2% COGS reduction on $50M revenue = $1M+ annual savings</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">📦</div>
+          <div class="feature-name">Par Level Optimizer</div>
+        </div>
+        <div class="feature-desc">
+          Every store sets par levels — how much of each product to have on hand for each day. Today that's based on experience and gut feel. With our AI sales forecasting engine from Phase 6, we can make it data-driven. If we predict tomorrow will be 15% above the typical Tuesday at Store 310, we can recommend increasing the donut par by a specific number of dozen and brewing more coffee during the morning daypart. On the flip side, if the forecast shows a slow day, we can suggest lower pars to reduce waste. We'll also detect stockout events — when a menu item's sales suddenly drop to zero mid-day, it likely means the store ran out. Stockouts are invisible lost revenue that nobody tracks today. Between reducing waste from overordering and capturing lost sales from stockouts, the sweet spot is worth hundreds of thousands annually across the network.
+        </div>
+        <div class="feature-impact">Impact: Reduces waste from overordering while eliminating revenue-losing stockouts</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🍩</div>
+          <div class="feature-name">Sales Mix Intelligence</div>
+        </div>
+        <div class="feature-desc">
+          We have incredibly granular data on what every store sells, broken down by item, daypart, and day of week — but we're not yet using it to identify operational opportunities. Sales Mix Intelligence analyzes menu item performance across the network and surfaces actionable insights. If Store 220 is selling 40% fewer espresso drinks than the district average, that might be an equipment issue (their espresso machine is slow or broken), a training issue (crew doesn't know how to make the drinks), or a merchandising issue (they're not promoting espresso in the drive-thru menu board). When we spot a new product launch that's performing well at some stores but not others, we can identify what the top stores are doing differently and replicate it. Menu optimization is consistently the highest-ROI lever that most operators never pull because they don't have the data organized to see the opportunities.
+        </div>
+        <div class="feature-impact">Impact: Identifies revenue opportunities hiding in product mix data</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🧮</div>
+          <div class="feature-name">Guest Check Analytics</div>
+        </div>
+        <div class="feature-desc">
+          Average check size is one of the most powerful levers in our business, and it varies dramatically across our stores. If Store 345 averages $8.20 per check while the network average is $7.10, that store is doing something differently at the register — better upselling, more combo orders, more add-ons. This feature tracks check size trends over time by store, district, daypart, and day of week. We'll see items-per-transaction metrics (are guests ordering one item or three?), combo attachment rates (how often is a drink added to a food order?), and identify which stores and which crew members are best at driving larger checks. A $0.50 increase in average check across 45 stores — with thousands of transactions per day — adds up to a significant revenue lift with zero incremental labor cost.
+        </div>
+        <div class="feature-impact">Impact: $0.50 avg check increase = hundreds of thousands in annual revenue, zero added cost</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🔥</div>
+          <div class="feature-name">Daypart Performance Matrix</div>
+        </div>
+        <div class="feature-desc">
+          A heat map visualization showing every store's sales performance broken down by hour of day and day of week. This reveals patterns that are invisible when you only look at daily totals. Maybe Store 410 does great mornings but has almost no late-afternoon business — is that a market characteristic (residential area, no foot traffic after 2 PM), or is it an operational issue (afternoon crew isn't engaging drive-thru customers, store looks closed from the outside)? The matrix also identifies staffing mismatches: periods where we're paying for labor that isn't matched by traffic, and periods where we're understaffed and likely losing sales. Most Dunkin' operators manage by the day. The best ones manage by the daypart — and this tool makes that possible for every DM in our network.
+        </div>
+        <div class="feature-impact">Impact: Reveals hidden revenue opportunities and staffing mismatches by time of day</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ PHASE 10 ═══════════════════════ -->
+  <div class="phase-card phase-10 page-break">
+    <div class="phase-header">
+      <div>
+        <div class="phase-number">Phase 10</div>
+        <div class="phase-title">Platform & Moonshots</div>
+        <div class="phase-tagline">From franchise dashboard to franchise operating system.</div>
+      </div>
+      <div class="phase-badge">Long-Term Vision</div>
+    </div>
+
+    <div class="phase-overview">
+      Phase 10 is where we step back and think about what this platform could become beyond our own network. We've built something that solves real problems for a 45-store Dunkin' franchise operation — but the underlying architecture is largely brand-agnostic. Stores, districts, labor costs, sales data, project tracking, team communication — these are universal to every multi-unit restaurant operator. Phase 10 includes the "moonshot" features that push the technology envelope (voice interfaces, IoT integration, competitive intelligence) alongside the architectural work needed to make this a platform that could serve other operators, other brands, and other markets.
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🎙️</div>
+          <div class="feature-name">Voice-First GM Mode</div>
+        </div>
+        <div class="feature-desc">
+          Our GMs do a store walkthrough every morning — checking displays, verifying opening procedures, inspecting cleanliness. During that walkthrough, they shouldn't have to pull out their phone, navigate to the portal, and read through data. Voice-First mode lets them speak naturally: "Hey Orion, how did we do last night?" and get a 30-second spoken summary — yesterday's sales versus forecast, labor percentage, any overnight anomalies, who's scheduled to open today, and any alerts that need attention. It uses browser-based speech recognition to capture the question, sends it to our existing Orion AI backend, and reads the response back. Hands-free, eyes-free, during the walkthrough. This is the kind of feature that makes a GM say "I literally can't start my day without this."
+        </div>
+        <div class="feature-impact">Impact: Hands-free morning intelligence for GMs during store walkthroughs</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🚗</div>
+          <div class="feature-name">Drive-Thru Performance Analytics</div>
+        </div>
+        <div class="feature-desc">
+          Drive-thru represents over 70% of revenue at most of our locations. Speed of service directly impacts guest satisfaction, repeat visits, and the number of cars we can serve during peak hours. If we can integrate with the HME or similar drive-thru timer systems in our stores, we unlock a goldmine of data: average service time by hour, cars served per hour, peak wait times, and how those metrics change based on staffing levels. The insight we're after: "When Store 345 has four people on shift, drive-thru averages 180 seconds. With five people, it drops to 140 seconds. The revenue from serving more cars during that peak hour justifies the additional labor cost." This connects directly to the Labor Optimization Simulator from Phase 7 — now staffing decisions aren't just about labor cost, they're about throughput and revenue capture.
+        </div>
+        <div class="feature-impact">Impact: Shaving 20 seconds off drive-thru time = measurable revenue increase at 70%+ of locations</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">📐</div>
+          <div class="feature-name">Benchmarking Engine</div>
+        </div>
+        <div class="feature-desc">
+          Every metric we track should be contextual — not just "Store 345 did $7,200 today" but "Store 345 is in the 85th percentile for daily sales among all our locations, and in the 92nd percentile for labor efficiency." The Benchmarking Engine ranks every store on every metric against the district, the network, and (where available) against Dunkin' system averages. It creates internal competition — stores want to move up the rankings — and makes "good" and "bad" objective rather than subjective. The most powerful output: "If your bottom 10 stores improved to median performance across these five metrics, the network would gain $X per year." That quantifies the exact opportunity cost of underperformance and focuses improvement efforts where they'll have the most impact.
+        </div>
+        <div class="feature-impact">Impact: Quantifies the exact dollar value of closing performance gaps</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🏗️</div>
+          <div class="feature-name">New Store & Remodel ROI Tracker</div>
+        </div>
+        <div class="feature-desc">
+          We're constantly making capital decisions — which stores to remodel, where to open new locations, which equipment to upgrade. Today those decisions are based on a mix of brand requirements, lease timelines, and judgment. The ROI Tracker adds data to that equation. For every completed project in our Projects tab, we'll automatically track pre-project versus post-project performance: sales lift, labor efficiency change, guest count impact, and review score improvement. "The Drexel Hill remodel completed three months ago: sales are up 12%, labor is down 1.5%, and guest count is up 8%. At this rate, the investment pays back in 14 months." When we're deciding which of our 45 stores to invest in next, this data makes the case. It's the difference between running restaurants and managing a portfolio.
+        </div>
+        <div class="feature-impact">Impact: Data-driven capital allocation — shows actual ROI on every investment</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🎯</div>
+          <div class="feature-name">Competitive Intelligence Layer</div>
+        </div>
+        <div class="feature-desc">
+          A sales decline at one of our stores means something very different depending on context. If a Starbucks just opened 0.3 miles away, that's a competitive issue — and the response is different than if it's an operational problem. The Competitive Intelligence Layer lets us track nearby competitor openings and closings (starting with manual entry, potentially evolving to automated public data monitoring) and correlate them with our store performance. When we see a meaningful sales change at a location, we can immediately check whether there's a competitive explanation. Over time, we'll build a picture of competitive density around each of our locations, which directly informs decisions about marketing investment, staffing strategy, and whether certain locations need menu or service differentiation to compete effectively.
+        </div>
+        <div class="feature-impact">Impact: Adds market context to performance data — differentiates competitive vs operational problems</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-header">
+          <div class="feature-icon">🌐</div>
+          <div class="feature-name">White-Label / Multi-Brand Architecture</div>
+        </div>
+        <div class="feature-desc">
+          Everything we've built — the store management model, district hierarchy, labor tracking, sales monitoring, AI analytics, project management, team communications — is fundamentally brand-agnostic. A 45-store Dunkin' network has the same operational challenges as a 45-store Wingstop, Subway, or Jersey Mike's network. Phase 10 includes the architectural abstraction work needed to make the portal configurable for any franchise brand: swap the logo, adjust the POS integration, configure the metrics, and the platform works. This is the feature that transforms what we've built from an internal tool into a licensable platform. It's the difference between "we built a great dashboard for our franchise" and "we built an operating system for franchise operators." The TAM for multi-unit franchise management software is enormous, and most existing solutions are fragmented, expensive, and decades behind in technology.
+        </div>
+        <div class="feature-impact">Impact: Transforms an internal tool into a licensable platform with enterprise market potential</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ FOOTER ═══════════════════════ -->
+  <div class="footer">
+    <div class="footer-text">
+      <span class="footer-brand">PEOPLE CAPITAL GROUP</span> &nbsp;|&nbsp; Unified Operations Portal &nbsp;|&nbsp; Strategic Technology Roadmap &nbsp;|&nbsp; Confidential
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

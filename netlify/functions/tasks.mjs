@@ -1,0 +1,615 @@
+// tasks.mjs — Ops Task & Checklist system API (portal-native, Workpulse-independent).
+// See docs/TASK_CHECKLIST_SYSTEM_PLAN.md.
+//
+// Phase 1: single-value completion per instance.
+// Phase 2: task_template_items + task_template_equipment + task_instance_answers
+//           (multi-item per-task completion, per-item ranges, equipment units).
+// Phase 3: corrective_actions (auto-created when answer out of range).
+//
+// Actions
+//   ── Manager / DM / Exec (consume) ──
+//   list        {store_pc, date}
+//   complete    {instance_id, value?, note?, by?, checklist?}   ← simple tasks (no items)
+//   submit_answers {instance_id, answers[], by}                  ← multi-item tasks
+//   reopen      {instance_id}
+//   dashboard   {store_pc, date}
+//   rollup      {date, district?}
+//   list_corrective_actions {store_pc?, district?, status?}
+//   resolve_ca  {ca_id, resolved_by}
+//   ── Exec / IT (admin "Book Task") ──
+//   admin_templates
+//   admin_save_template  {template}
+//   admin_get_locations  {template_id}
+//   admin_set_locations  {template_id, store_pcs[]}
+//   admin_toggle_active  {template_id, active}
+//   admin_get_items      {template_id}
+//   admin_save_items     {template_id, items[], equipment[]}
+//   seed                 (idempotent catalog load)
+//   seed_items           (seed sub-items from ITEMS_CATALOG)
+
+import { sql } from './_shared/db.mjs';
+import { STORE_BY_PC } from './ndcp-lib/store-map.js';
+import { CATALOG, SHIFT_WINDOWS, ITEMS_CATALOG } from './tasks-lib/catalog.js';
+
+let _tableEnsured = false;
+
+const ALLOWED_ORIGINS = ['https://uop.peoplecapitalgroup.com', 'https://pcg-ops.netlify.app'];
+function corsFor(request) {
+  const origin = request.headers.get('origin') || '';
+  const allow = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return { 'Access-Control-Allow-Origin': allow, 'Access-Control-Allow-Headers': 'Content-Type', 'Content-Type': 'application/json' };
+}
+
+// ── Date / time helpers (ET) ──
+function etNow() {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const p = {}; for (const part of fmt.formatToParts(new Date())) p[part.type] = part.value;
+  return { date: `${p.year}-${p.month}-${p.day}`, hour: +p.hour % 24, minute: +p.minute };
+}
+function dowOf(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay();
+}
+function daysSinceEpoch(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+}
+
+function computeStatus(row, now) {
+  if (row.status === 'completed') return 'completed';
+  const isPast = row.business_date < now.date;
+  if (isPast) return 'missed';
+  if (row.business_date === now.date && row.shift_time) {
+    const w = SHIFT_WINDOWS[row.shift_time];
+    if (w && (now.hour > w.endHour || (now.hour === w.endHour && now.minute > w.endMin))) return 'overdue';
+  }
+  return 'open';
+}
+
+function tally(rows, now, keyFn) {
+  const blank = () => ({ open: 0, overdue: 0, missed: 0, completed: 0, all: 0 });
+  const withPct = (o) => ({ ...o, pct: o.all ? Math.round((o.completed / o.all) * 100) : 0 });
+  const totals = blank();
+  const groups = {};
+  for (const r of rows) {
+    const s = computeStatus(r, now);
+    totals[s]++; totals.all++;
+    if (keyFn) {
+      const k = keyFn(r) || 'Other';
+      if (!groups[k]) groups[k] = { key: k, ...blank() };
+      groups[k][s]++; groups[k].all++;
+    }
+  }
+  return { totals: withPct(totals), groups: Object.values(groups).map(withPct) };
+}
+
+async function ensureTable(db) {
+  // ── Phase 1 tables ──
+  await db`
+    CREATE TABLE IF NOT EXISTS task_templates (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      task_type TEXT DEFAULT 'shift',
+      category TEXT,
+      label TEXT,
+      input_type TEXT DEFAULT 'checklist',
+      frequency TEXT DEFAULT 'daily',
+      shift_time TEXT,
+      recur_days INT,
+      target NUMERIC, min_val NUMERIC, max_val NUMERIC, unit TEXT,
+      allow_signoff BOOL DEFAULT false,
+      is_master BOOL DEFAULT false,
+      active BOOL DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    )`;
+  await db`CREATE UNIQUE INDEX IF NOT EXISTS task_templates_name_idx ON task_templates(name)`;
+  await db`
+    CREATE TABLE IF NOT EXISTS task_template_locations (
+      template_id INT NOT NULL REFERENCES task_templates(id) ON DELETE CASCADE,
+      store_pc TEXT NOT NULL,
+      PRIMARY KEY (template_id, store_pc)
+    )`;
+  await db`
+    CREATE TABLE IF NOT EXISTS task_instances (
+      id SERIAL PRIMARY KEY,
+      template_id INT NOT NULL REFERENCES task_templates(id) ON DELETE CASCADE,
+      store_pc TEXT NOT NULL,
+      business_date DATE NOT NULL,
+      shift_time TEXT,
+      status TEXT DEFAULT 'open',
+      value NUMERIC,
+      note TEXT,
+      checklist JSONB,
+      completed_by TEXT, completed_at TIMESTAMPTZ,
+      signed_off_by TEXT, signed_off_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (template_id, store_pc, business_date)
+    )`;
+  await db`CREATE INDEX IF NOT EXISTS task_instances_store_date_idx ON task_instances(store_pc, business_date)`;
+
+  // ── Phase 2 tables ──
+  await db`
+    CREATE TABLE IF NOT EXISTS task_template_items (
+      id SERIAL PRIMARY KEY,
+      template_id INT NOT NULL REFERENCES task_templates(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      sort_order INT DEFAULT 0,
+      input_type TEXT DEFAULT 'bool',
+      group_name TEXT,
+      target NUMERIC, min_val NUMERIC, max_val NUMERIC, unit TEXT,
+      requires_photo BOOL DEFAULT false
+    )`;
+  await db`CREATE INDEX IF NOT EXISTS tti_template_idx ON task_template_items(template_id)`;
+  await db`
+    CREATE TABLE IF NOT EXISTS task_template_equipment (
+      id SERIAL PRIMARY KEY,
+      template_id INT NOT NULL REFERENCES task_templates(id) ON DELETE CASCADE,
+      unit_name TEXT NOT NULL,
+      sort_order INT DEFAULT 0
+    )`;
+  await db`CREATE INDEX IF NOT EXISTS tte_template_idx ON task_template_equipment(template_id)`;
+  await db`
+    CREATE TABLE IF NOT EXISTS task_instance_answers (
+      id SERIAL PRIMARY KEY,
+      instance_id INT NOT NULL REFERENCES task_instances(id) ON DELETE CASCADE,
+      item_id INT NOT NULL REFERENCES task_template_items(id) ON DELETE CASCADE,
+      equipment_id INT REFERENCES task_template_equipment(id) ON DELETE SET NULL,
+      checked BOOL,
+      value NUMERIC,
+      note TEXT,
+      in_range BOOL,
+      by TEXT,
+      at TIMESTAMPTZ DEFAULT now()
+    )`;
+  await db`CREATE UNIQUE INDEX IF NOT EXISTS tia_uq_no_equip ON task_instance_answers(instance_id, item_id) WHERE equipment_id IS NULL`;
+  await db`CREATE UNIQUE INDEX IF NOT EXISTS tia_uq_with_equip ON task_instance_answers(instance_id, item_id, equipment_id) WHERE equipment_id IS NOT NULL`;
+  await db`CREATE INDEX IF NOT EXISTS tia_instance_idx ON task_instance_answers(instance_id)`;
+
+  // ── Phase 3 table ──
+  await db`
+    CREATE TABLE IF NOT EXISTS corrective_actions (
+      id SERIAL PRIMARY KEY,
+      instance_id INT REFERENCES task_instances(id) ON DELETE SET NULL,
+      item_id INT REFERENCES task_template_items(id) ON DELETE SET NULL,
+      store_pc TEXT NOT NULL,
+      station TEXT,
+      title TEXT NOT NULL,
+      measured_value NUMERIC,
+      target NUMERIC, min_val NUMERIC, max_val NUMERIC, unit TEXT,
+      assignee TEXT,
+      due_date DATE,
+      status TEXT DEFAULT 'open',
+      resolved_by TEXT, resolved_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )`;
+  await db`CREATE INDEX IF NOT EXISTS ca_store_status_idx ON corrective_actions(store_pc, status)`;
+  // Partial unique indexes prevent duplicate CAs for the same instance+item, matching the pattern on task_instance_answers
+  await db`CREATE UNIQUE INDEX IF NOT EXISTS ca_uq_no_station ON corrective_actions(instance_id, item_id) WHERE station IS NULL`;
+  await db`CREATE UNIQUE INDEX IF NOT EXISTS ca_uq_with_station ON corrective_actions(instance_id, item_id, station) WHERE station IS NOT NULL`;
+}
+
+async function generateInstances(db, storePcs, dateStr) {
+  const pcs = (Array.isArray(storePcs) ? storePcs : [storePcs]).map(String);
+  if (!pcs.length) return;
+  const dow = dowOf(dateStr);
+  const dayNum = daysSinceEpoch(dateStr);
+  await db`
+    INSERT INTO task_instances (template_id, store_pc, business_date, shift_time)
+    SELECT t.id, l.store_pc, ${dateStr}::date, t.shift_time
+    FROM task_templates t
+    JOIN task_template_locations l ON l.template_id = t.id
+    WHERE t.active = true AND l.store_pc = ANY(${pcs})
+      AND (
+        t.frequency = 'daily'
+        OR (t.frequency = 'weekly'  AND ${dow} = 1)
+        OR (t.frequency = 'general' AND t.recur_days IS NOT NULL AND t.recur_days > 0
+            AND ${dayNum} >= floor(extract(epoch FROM t.created_at) / 86400)
+            AND ((${dayNum} - floor(extract(epoch FROM t.created_at) / 86400))::int % t.recur_days) = 0)
+      )
+    ON CONFLICT (template_id, store_pc, business_date) DO NOTHING`;
+}
+
+export default async (request, context) => {
+  const cors = corsFor(request);
+  const reply = (code, obj) => new Response(JSON.stringify(obj), { status: code, headers: cors });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+
+  let body = {};
+  try { body = await request.json().catch(() => ({})); } catch { return reply(400, { error: 'bad json' }); }
+  const action = body.action || 'list';
+  const db = sql();
+
+  try {
+    if (!_tableEnsured) { await ensureTable(db); _tableEnsured = true; }
+    const now = etNow();
+
+    // ───────────────────────── consume ─────────────────────────
+
+    if (action === 'list') {
+      const storePc = String(body.store_pc || '');
+      const date = String(body.date || now.date);
+      if (!storePc) return reply(400, { error: 'store_pc required' });
+      await generateInstances(db, storePc, date);
+
+      const rows = await db`
+        SELECT i.id, i.template_id, i.store_pc, i.business_date::text AS business_date,
+               i.shift_time, i.status, i.value, i.note, i.checklist,
+               i.completed_by, i.completed_at, i.signed_off_by, i.signed_off_at,
+               t.name, t.category, t.label, t.input_type, t.task_type,
+               t.target, t.min_val, t.max_val, t.unit, t.allow_signoff
+        FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+        WHERE i.store_pc = ${storePc} AND i.business_date = ${date}
+        ORDER BY t.category, t.name`;
+
+      // Fetch items, equipment, and answers for this store/date batch
+      const templateIds = [...new Set(rows.map((r) => r.template_id))];
+      const instanceIds = rows.map((r) => r.id);
+      let allItems = [], allEquip = [], allAnswers = [];
+
+      if (templateIds.length) {
+        allItems = await db`SELECT * FROM task_template_items WHERE template_id = ANY(${templateIds}) ORDER BY template_id, sort_order`;
+        allEquip = await db`SELECT * FROM task_template_equipment WHERE template_id = ANY(${templateIds}) ORDER BY template_id, sort_order`;
+      }
+      if (instanceIds.length) {
+        allAnswers = await db`SELECT * FROM task_instance_answers WHERE instance_id = ANY(${instanceIds})`;
+      }
+
+      const itemsByTpl = {}, equipByTpl = {}, anssByInst = {};
+      allItems.forEach((i) => { (itemsByTpl[i.template_id] = itemsByTpl[i.template_id] || []).push(i); });
+      allEquip.forEach((e) => { (equipByTpl[e.template_id] = equipByTpl[e.template_id] || []).push(e); });
+      allAnswers.forEach((a) => { (anssByInst[a.instance_id] = anssByInst[a.instance_id] || []).push(a); });
+
+      const tasks = rows.map((r) => {
+        const items = itemsByTpl[r.template_id] || [];
+        const equipment = equipByTpl[r.template_id] || [];
+        const answers = anssByInst[r.id] || [];
+        const totalExpected = items.length > 0 ? items.length * Math.max(1, equipment.length) : 0;
+        return {
+          ...r, statusComputed: computeStatus(r, now),
+          items, equipment, answers,
+          items_count: totalExpected,
+          answers_count: answers.length,
+        };
+      });
+
+      const { totals } = tally(rows, now);
+      return reply(200, { store_pc: storePc, date, counts: totals, tasks });
+    }
+
+    if (action === 'complete') {
+      // Simple completion for tasks without items (Phase 1 compat)
+      const id = +body.instance_id;
+      if (!id) return reply(400, { error: 'instance_id required' });
+      await db`
+        UPDATE task_instances SET
+          status = 'completed',
+          value = ${body.value ?? null},
+          note = ${body.note ?? null},
+          checklist = ${body.checklist ? JSON.stringify(body.checklist) : null}::jsonb,
+          completed_by = ${body.by ?? null},
+          completed_at = now()
+        WHERE id = ${id}`;
+      return reply(200, { ok: true, instance_id: id });
+    }
+
+    if (action === 'submit_answers') {
+      const instanceId = +body.instance_id;
+      const answers = Array.isArray(body.answers) ? body.answers : [];
+      const by = body.by || null;
+      if (!instanceId || !answers.length) return reply(400, { error: 'instance_id and answers required' });
+
+      const instRows = await db`
+        SELECT i.*, t.name AS task_name
+        FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+        WHERE i.id = ${instanceId}`;
+      if (!instRows.length) return reply(404, { error: 'instance not found' });
+      const inst = instRows[0];
+
+      const items = await db`SELECT * FROM task_template_items WHERE template_id = ${inst.template_id} ORDER BY sort_order`;
+      const itemMap = Object.fromEntries(items.map((it) => [it.id, it]));
+      const equip = await db`SELECT * FROM task_template_equipment WHERE template_id = ${inst.template_id}`;
+      const equipMap = Object.fromEntries(equip.map((e) => [e.id, e]));
+
+      const casCreated = [];
+
+      for (const ans of answers) {
+        const item = itemMap[+ans.item_id];
+        if (!item) continue;
+        const equipId = ans.equipment_id ? +ans.equipment_id : null;
+        const checked = ans.checked != null ? Boolean(ans.checked) : null;
+        const value = ans.value != null && ans.value !== '' ? Number(ans.value) : null;
+        const note = ans.note || null;
+
+        // Per-item range check
+        let inRange = null;
+        if (item.min_val != null && item.max_val != null && value != null) {
+          inRange = value >= Number(item.min_val) && value <= Number(item.max_val);
+        }
+
+        // DELETE + INSERT (avoids UNIQUE NULL complications)
+        if (equipId !== null) {
+          await db`DELETE FROM task_instance_answers WHERE instance_id = ${instanceId} AND item_id = ${item.id} AND equipment_id = ${equipId}`;
+        } else {
+          await db`DELETE FROM task_instance_answers WHERE instance_id = ${instanceId} AND item_id = ${item.id} AND equipment_id IS NULL`;
+        }
+        await db`
+          INSERT INTO task_instance_answers (instance_id, item_id, equipment_id, checked, value, note, in_range, by, at)
+          VALUES (${instanceId}, ${item.id}, ${equipId}, ${checked}, ${value}, ${note}, ${inRange}, ${by}, now())`;
+
+        // Auto-create corrective action for out-of-range numeric answers
+        if (inRange === false) {
+          const station = equipId ? (equipMap[equipId]?.unit_name || null) : null;
+          const title = `${inst.task_name} — ${item.label}${station ? ` (${station})` : ''}: ${value}${item.unit || ''} (expected ${item.min_val}–${item.max_val}${item.unit || ''})`;
+          const due = new Date(); due.setDate(due.getDate() + 1);
+          const caResult = await db`
+            INSERT INTO corrective_actions (instance_id, item_id, store_pc, station, title, measured_value, target, min_val, max_val, unit, status, due_date)
+            VALUES (${instanceId}, ${item.id}, ${inst.store_pc}, ${station}, ${title}, ${value}, ${item.target}, ${item.min_val}, ${item.max_val}, ${item.unit}, 'open', ${due.toISOString().slice(0, 10)})
+            ON CONFLICT DO NOTHING
+            RETURNING id`;
+          if (caResult.length) casCreated.push({ label: item.label, value, unit: item.unit || '' });
+        }
+      }
+
+      // Auto-complete instance when all items × equipment are answered
+      if (items.length > 0) {
+        const totalExpected = items.length * Math.max(1, equip.length);
+        const answeredCnt = (await db`SELECT COUNT(*) AS cnt FROM task_instance_answers WHERE instance_id = ${instanceId}`)[0]?.cnt || 0;
+        if (+answeredCnt >= totalExpected) {
+          await db`UPDATE task_instances SET status='completed', completed_by=${by}, completed_at=now() WHERE id=${instanceId} AND status != 'completed'`;
+        }
+      }
+
+      return reply(200, { ok: true, corrective_actions_created: casCreated });
+    }
+
+    if (action === 'reopen') {
+      const id = +body.instance_id;
+      if (!id) return reply(400, { error: 'instance_id required' });
+      await db`UPDATE task_instances SET status='open', completed_by=null, completed_at=null WHERE id=${id}`;
+      // Remove answers so the form resets
+      await db`DELETE FROM task_instance_answers WHERE instance_id = ${id}`;
+      return reply(200, { ok: true, instance_id: id });
+    }
+
+    if (action === 'dashboard') {
+      const storePc = String(body.store_pc || '');
+      const date = String(body.date || now.date);
+      if (!storePc) return reply(400, { error: 'store_pc required' });
+      await generateInstances(db, storePc, date);
+      const rows = await db`
+        SELECT i.id, i.status, i.business_date::text AS business_date, i.shift_time, t.category
+        FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+        WHERE i.store_pc = ${storePc} AND i.business_date = ${date}`;
+      // CA count for this store (open)
+      const caRows = await db`SELECT COUNT(*) AS cnt FROM corrective_actions WHERE store_pc = ${storePc} AND status = 'open'`;
+      const openCAs = +(caRows[0]?.cnt || 0);
+      const { totals, groups } = tally(rows, now, (r) => r.category || 'Other');
+      const categories = groups.map((g) => ({ category: g.key, open: g.open, overdue: g.overdue, missed: g.missed, completed: g.completed, all: g.all, pct: g.pct }))
+        .sort((a, b) => b.all - a.all);
+      return reply(200, { store_pc: storePc, date, totals, categories, open_cas: openCAs });
+    }
+
+    if (action === 'rollup') {
+      const date = String(body.date || now.date);
+      const district = body.district ? +body.district : null;
+      const stores = Object.values(STORE_BY_PC).filter((s) => !district || s.district === district);
+      await generateInstances(db, stores.map((s) => s.pc), date);
+      const rows = await db`
+        SELECT i.store_pc, i.status, i.business_date::text AS business_date, i.shift_time
+        FROM task_instances i
+        WHERE i.business_date = ${date}
+          AND i.store_pc = ANY(${stores.map((s) => s.pc)})`;
+      // Open CA counts per store
+      const caRows = await db`SELECT store_pc, COUNT(*) AS cnt FROM corrective_actions WHERE store_pc = ANY(${stores.map((s) => s.pc)}) AND status='open' GROUP BY store_pc`;
+      const caByStore = Object.fromEntries(caRows.map((r) => [r.store_pc, +r.cnt]));
+
+      const { groups } = tally(rows, now, (r) => r.store_pc);
+      const gmap = {}; groups.forEach((g) => { gmap[g.key] = g; });
+      const list = stores.map((s) => {
+        const g = gmap[s.pc] || { open: 0, overdue: 0, missed: 0, completed: 0, all: 0, pct: 0 };
+        return { pc: s.pc, name: s.name, district: s.district, dmName: s.dmName, open: g.open, overdue: g.overdue, missed: g.missed, completed: g.completed, all: g.all, pct: g.pct, open_cas: caByStore[s.pc] || 0 };
+      }).sort((a, b) => a.pct - b.pct);
+      return reply(200, { date, district, stores: list });
+    }
+
+    if (action === 'list_corrective_actions') {
+      const storePc = body.store_pc ? String(body.store_pc) : null;
+      const district = body.district ? +body.district : null;
+      const status = body.status || null;
+
+      let storePcs;
+      if (storePc) {
+        storePcs = [storePc];
+      } else if (district) {
+        storePcs = Object.values(STORE_BY_PC).filter((s) => s.district === district).map((s) => s.pc);
+      } else {
+        storePcs = Object.values(STORE_BY_PC).map((s) => s.pc);
+      }
+
+      const rows = status
+        ? await db`SELECT ca.*, t.name AS task_name FROM corrective_actions ca LEFT JOIN task_instances ti ON ti.id = ca.instance_id LEFT JOIN task_templates t ON t.id = ti.template_id WHERE ca.store_pc = ANY(${storePcs}) AND ca.status = ${status} ORDER BY ca.created_at DESC LIMIT 200`
+        : await db`SELECT ca.*, t.name AS task_name FROM corrective_actions ca LEFT JOIN task_instances ti ON ti.id = ca.instance_id LEFT JOIN task_templates t ON t.id = ti.template_id WHERE ca.store_pc = ANY(${storePcs}) ORDER BY ca.created_at DESC LIMIT 200`;
+
+      const caList = rows.map((ca) => ({ ...ca, store_name: STORE_BY_PC[ca.store_pc]?.name || ca.store_pc }));
+      return reply(200, { corrective_actions: caList });
+    }
+
+    if (action === 'resolve_ca') {
+      const id = +body.ca_id;
+      if (!id) return reply(400, { error: 'ca_id required' });
+      await db`UPDATE corrective_actions SET status='resolved', resolved_by=${body.resolved_by || null}, resolved_at=now() WHERE id=${id}`;
+      return reply(200, { ok: true, ca_id: id });
+    }
+
+    // ───────────────────────── admin (Exec/IT) ─────────────────────────
+
+    if (action === 'admin_templates') {
+      const rows = await db`
+        SELECT t.*, COALESCE(l.cnt, 0)::int AS location_count, COALESCE(it.cnt, 0)::int AS items_count
+        FROM task_templates t
+        LEFT JOIN (SELECT template_id, count(*) cnt FROM task_template_locations GROUP BY template_id) l ON l.template_id = t.id
+        LEFT JOIN (SELECT template_id, count(*) cnt FROM task_template_items GROUP BY template_id) it ON it.template_id = t.id
+        ORDER BY t.category, t.name`;
+      return reply(200, { templates: rows });
+    }
+
+    if (action === 'admin_save_template') {
+      const x = body.template || {};
+      if (!x.name) return reply(400, { error: 'name required' });
+      if (x.id) {
+        await db`
+          UPDATE task_templates SET
+            name=${x.name}, task_type=${x.task_type || 'shift'}, category=${x.category || null},
+            label=${x.label || null}, input_type=${x.input_type || 'checklist'},
+            frequency=${x.frequency || 'daily'}, shift_time=${x.shift_time || null}, recur_days=${x.recur_days ?? null},
+            target=${x.target ?? null}, min_val=${x.min_val ?? null}, max_val=${x.max_val ?? null}, unit=${x.unit || null},
+            allow_signoff=${!!x.allow_signoff}, is_master=${!!x.is_master}, active=${x.active !== false},
+            updated_at=now()
+          WHERE id=${+x.id}`;
+        return reply(200, { ok: true, id: +x.id });
+      }
+      const ins = await db`
+        INSERT INTO task_templates
+          (name, task_type, category, label, input_type, frequency, shift_time, recur_days,
+           target, min_val, max_val, unit, allow_signoff, is_master, active)
+        VALUES
+          (${x.name}, ${x.task_type || 'shift'}, ${x.category || null}, ${x.label || null},
+           ${x.input_type || 'checklist'}, ${x.frequency || 'daily'}, ${x.shift_time || null}, ${x.recur_days ?? null},
+           ${x.target ?? null}, ${x.min_val ?? null}, ${x.max_val ?? null}, ${x.unit || null},
+           ${!!x.allow_signoff}, ${!!x.is_master}, ${x.active !== false})
+        ON CONFLICT (name) DO UPDATE SET
+          task_type=EXCLUDED.task_type, category=EXCLUDED.category, label=EXCLUDED.label,
+          input_type=EXCLUDED.input_type, frequency=EXCLUDED.frequency, shift_time=EXCLUDED.shift_time,
+          recur_days=EXCLUDED.recur_days, target=EXCLUDED.target, min_val=EXCLUDED.min_val,
+          max_val=EXCLUDED.max_val, unit=EXCLUDED.unit, allow_signoff=EXCLUDED.allow_signoff,
+          is_master=EXCLUDED.is_master, active=EXCLUDED.active, updated_at=now()
+        RETURNING id`;
+      return reply(200, { ok: true, id: ins[0].id });
+    }
+
+    if (action === 'admin_get_locations') {
+      const id = +body.template_id;
+      if (!id) return reply(400, { error: 'template_id required' });
+      const rows = await db`SELECT store_pc FROM task_template_locations WHERE template_id = ${id}`;
+      return reply(200, { template_id: id, store_pcs: rows.map((r) => r.store_pc) });
+    }
+
+    if (action === 'admin_set_locations') {
+      const id = +body.template_id;
+      const pcs = Array.isArray(body.store_pcs) ? body.store_pcs.map(String) : [];
+      if (!id) return reply(400, { error: 'template_id required' });
+      await db`DELETE FROM task_template_locations WHERE template_id = ${id}`;
+      if (pcs.length) {
+        await db`
+          INSERT INTO task_template_locations (template_id, store_pc)
+          SELECT ${id}, pc FROM unnest(${pcs}::text[]) AS pc
+          ON CONFLICT DO NOTHING`;
+      }
+      return reply(200, { ok: true, template_id: id, count: pcs.length });
+    }
+
+    if (action === 'admin_toggle_active') {
+      const id = +body.template_id;
+      if (!id) return reply(400, { error: 'template_id required' });
+      await db`UPDATE task_templates SET active=${!!body.active}, updated_at=now() WHERE id=${id}`;
+      return reply(200, { ok: true, template_id: id, active: !!body.active });
+    }
+
+    if (action === 'admin_get_items') {
+      const id = +body.template_id;
+      if (!id) return reply(400, { error: 'template_id required' });
+      const items = await db`SELECT * FROM task_template_items WHERE template_id = ${id} ORDER BY sort_order`;
+      const equipment = await db`SELECT * FROM task_template_equipment WHERE template_id = ${id} ORDER BY sort_order`;
+      return reply(200, { template_id: id, items, equipment });
+    }
+
+    if (action === 'admin_save_items') {
+      const id = +body.template_id;
+      const items = Array.isArray(body.items) ? body.items : [];
+      const equipment = Array.isArray(body.equipment) ? body.equipment : [];
+      if (!id) return reply(400, { error: 'template_id required' });
+
+      await db`DELETE FROM task_template_items WHERE template_id = ${id}`;
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (!it.label) continue;
+        await db`
+          INSERT INTO task_template_items (template_id, label, sort_order, input_type, group_name, target, min_val, max_val, unit, requires_photo)
+          VALUES (${id}, ${it.label}, ${i}, ${it.input_type || 'bool'}, ${it.group_name || null}, ${it.target ?? null}, ${it.min_val ?? null}, ${it.max_val ?? null}, ${it.unit || null}, ${!!it.requires_photo})`;
+      }
+      await db`DELETE FROM task_template_equipment WHERE template_id = ${id}`;
+      for (let i = 0; i < equipment.length; i++) {
+        const e = equipment[i];
+        if (!e.unit_name) continue;
+        await db`INSERT INTO task_template_equipment (template_id, unit_name, sort_order) VALUES (${id}, ${e.unit_name}, ${i})`;
+      }
+      return reply(200, { ok: true, items: items.length, equipment: equipment.length });
+    }
+
+    if (action === 'seed') {
+      const all45 = Object.values(STORE_BY_PC).map((s) => s.pc);
+      const col = (k, map) => CATALOG.map((c) => (map ? map(c[k]) : c[k]) ?? null);
+      await db`
+        INSERT INTO task_templates
+          (name, task_type, category, label, input_type, frequency, shift_time, recur_days,
+           target, min_val, max_val, unit, allow_signoff, is_master, active)
+        SELECT * FROM unnest(
+          ${col('name')}::text[], ${col('task_type')}::text[], ${col('category')}::text[], ${col('label')}::text[],
+          ${col('input_type')}::text[], ${col('frequency')}::text[], ${col('shift_time')}::text[], ${col('recur_days')}::int[],
+          ${col('target')}::numeric[], ${col('min_val')}::numeric[], ${col('max_val')}::numeric[], ${col('unit')}::text[],
+          ${col('allow_signoff', Boolean)}::bool[], ${col('is_master', Boolean)}::bool[], ${col('active', (v) => v !== false)}::bool[]
+        )
+        ON CONFLICT (name) DO UPDATE SET category=EXCLUDED.category`;
+      const all45Names = CATALOG.filter((c) => c.all45).map((c) => c.name);
+      let assigned = 0;
+      if (all45Names.length) {
+        await db`
+          INSERT INTO task_template_locations (template_id, store_pc)
+          SELECT t.id, pc
+          FROM task_templates t
+          CROSS JOIN unnest(${all45}::text[]) AS pc
+          WHERE t.name = ANY(${all45Names}::text[])
+          ON CONFLICT DO NOTHING`;
+        assigned = all45Names.length * all45.length;
+      }
+      return reply(200, { ok: true, templates: CATALOG.length, assignments: assigned });
+    }
+
+    if (action === 'seed_items') {
+      let totalTemplates = 0, totalItems = 0;
+      for (const entry of ITEMS_CATALOG) {
+        const templates = entry.matchType === 'prefix'
+          ? await db`SELECT id FROM task_templates WHERE name LIKE ${entry.namePattern + '%'}`
+          : await db`SELECT id FROM task_templates WHERE name = ${entry.namePattern}`;
+
+        for (const tmpl of templates) {
+          // Replace items for this template
+          await db`DELETE FROM task_template_items WHERE template_id = ${tmpl.id}`;
+          for (let i = 0; i < (entry.items || []).length; i++) {
+            const it = entry.items[i];
+            await db`
+              INSERT INTO task_template_items (template_id, label, sort_order, input_type, group_name, target, min_val, max_val, unit, requires_photo)
+              VALUES (${tmpl.id}, ${it.label}, ${i}, ${it.input_type || 'bool'}, ${it.group_name || null}, ${it.target ?? null}, ${it.min_val ?? null}, ${it.max_val ?? null}, ${it.unit || null}, ${!!it.requires_photo})`;
+          }
+          // Always replace equipment (unconditional delete clears stale rows when catalog entry removes equipment)
+          await db`DELETE FROM task_template_equipment WHERE template_id = ${tmpl.id}`;
+          for (let i = 0; i < (entry.equipment || []).length; i++) {
+            await db`INSERT INTO task_template_equipment (template_id, unit_name, sort_order) VALUES (${tmpl.id}, ${entry.equipment[i]}, ${i})`;
+          }
+          totalTemplates++;
+          totalItems += (entry.items || []).length;
+        }
+      }
+      return reply(200, { ok: true, templates: totalTemplates, items: totalItems });
+    }
+
+    return reply(400, { error: 'unknown action: ' + action });
+  } catch (e) {
+    console.error('[tasks] error:', e.message);
+    return reply(500, { error: 'server error', detail: e.message });
+  }
+};
