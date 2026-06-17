@@ -78,6 +78,12 @@
 [functions.pnl-cron]
   schedule = "0 11 1 * *"
 
+# Daily task instance pre-generation — 5 AM ET (9:00 UTC)
+# Pre-creates all scheduled task instances for the day so DM/Exec roll-ups
+# are populated before any store opens. Idempotent (ON CONFLICT DO NOTHING).
+[functions.tasks-cron]
+  schedule = "0 9 * * *"
+
 # Schedule risk alerts — Mon + Thu at 6 AM ET (10:00 UTC)
 # Checks projected labor % for upcoming days, alerts DMs + managers when ≥26%
 [functions.schedule-alerts]

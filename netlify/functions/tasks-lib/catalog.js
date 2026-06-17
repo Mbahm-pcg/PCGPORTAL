@@ -348,6 +348,14 @@ const ITEMS_CATALOG = [
       { label: 'Ice Water Calibration Reading', input_type: 'temperature', target: 32, min_val: 30, max_val: 34, unit: '°F' },
     ],
   },
+  {
+    namePattern: 'TAPS',
+    items: [
+      { label: 'Cooler Temperature', input_type: 'temperature', target: 38, min_val: 36, max_val: 40, unit: '°F' },
+      { label: 'Lines Flushed (Daily)', input_type: 'bool' },
+      { label: 'Lines Sanitized (Weekly)', input_type: 'bool' },
+    ],
+  },
 ];
 
 module.exports = { CATALOG, SHIFT_WINDOWS, ITEMS_CATALOG };

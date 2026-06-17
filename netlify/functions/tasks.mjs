@@ -27,11 +27,43 @@
 //   seed                 (idempotent catalog load)
 //   seed_items           (seed sub-items from ITEMS_CATALOG)
 
+import webpush from 'web-push';
+import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { STORE_BY_PC } from './ndcp-lib/store-map.js';
 import { CATALOG, SHIFT_WINDOWS, ITEMS_CATALOG } from './tasks-lib/catalog.js';
 
 let _tableEnsured = false;
+
+async function blobLoad(key) {
+  const store = getStore({ name: 'pcg-portal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
+  const result = await store.get(key, { type: 'json' });
+  return (result && result.data) ? result.data : null;
+}
+
+async function sendCAPush(storePc, cas) {
+  if (!cas.length || !process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
+  const storeInfo = STORE_BY_PC[storePc];
+  if (!storeInfo) return;
+  const [users, subs] = await Promise.all([blobLoad('pcg_users_v1'), blobLoad('pcg_push_subscriptions_v1')]);
+  const userList = Array.isArray(users) ? users : [];
+  const subMap = (subs && typeof subs === 'object') ? subs : {};
+  const dm = userList.find((u) => u.active !== false && u.userType === 'dm' && String(u.district) === String(storeInfo.district));
+  if (!dm) return;
+  webpush.setVapidDetails(
+    `mailto:${process.env.VAPID_EMAIL || 'noreply@pcgops.com'}`,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY,
+  );
+  const title = `⚠ Corrective Action — ${storeInfo.name}`;
+  const body = cas.length === 1
+    ? `${cas[0].label}: ${cas[0].value}${cas[0].unit} out of range`
+    : `${cas.length} readings out of range`;
+  const pushPayload = JSON.stringify({ title, body, icon: '/icon-192.png', url: 'https://pcg-ops.netlify.app', tag: `ca-${storePc}` });
+  for (const sub of (subMap[String(dm.id)] || [])) {
+    await webpush.sendNotification(sub, pushPayload).catch(() => {});
+  }
+}
 
 const ALLOWED_ORIGINS = ['https://uop.peoplecapitalgroup.com', 'https://pcg-ops.netlify.app'];
 function corsFor(request) {
@@ -345,13 +377,19 @@ export default async (request, context) => {
           const station = equipId ? (equipMap[equipId]?.unit_name || null) : null;
           const title = `${inst.task_name} — ${item.label}${station ? ` (${station})` : ''}: ${value}${item.unit || ''} (expected ${item.min_val}–${item.max_val}${item.unit || ''})`;
           const due = new Date(); due.setDate(due.getDate() + 1);
+          const assignee = STORE_BY_PC[inst.store_pc]?.mgr || null;
           const caResult = await db`
-            INSERT INTO corrective_actions (instance_id, item_id, store_pc, station, title, measured_value, target, min_val, max_val, unit, status, due_date)
-            VALUES (${instanceId}, ${item.id}, ${inst.store_pc}, ${station}, ${title}, ${value}, ${item.target}, ${item.min_val}, ${item.max_val}, ${item.unit}, 'open', ${due.toISOString().slice(0, 10)})
+            INSERT INTO corrective_actions (instance_id, item_id, store_pc, station, title, measured_value, target, min_val, max_val, unit, assignee, status, due_date)
+            VALUES (${instanceId}, ${item.id}, ${inst.store_pc}, ${station}, ${title}, ${value}, ${item.target}, ${item.min_val}, ${item.max_val}, ${item.unit}, ${assignee}, 'open', ${due.toISOString().slice(0, 10)})
             ON CONFLICT DO NOTHING
             RETURNING id`;
           if (caResult.length) casCreated.push({ label: item.label, value, unit: item.unit || '' });
         }
+      }
+
+      // Push DM if any corrective actions were created (fire-and-forget)
+      if (casCreated.length) {
+        sendCAPush(inst.store_pc, casCreated).catch((e) => console.warn('[tasks] CA push:', e.message));
       }
 
       // Auto-complete instance when all items × equipment are answered
