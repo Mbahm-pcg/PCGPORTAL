@@ -17400,6 +17400,7 @@ const getTabs = (user) => {
   // Executive & IT → full admin suite
   if (ut === "executive" || ut === "it") return [
     ...BASE_TABS,
+    { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
@@ -17422,6 +17423,7 @@ const getTabs = (user) => {
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
     ...BASE_TABS,
+    { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
     { id: "map",       label: "Map",       icon: '🗺️' },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -17441,6 +17443,7 @@ const getTabs = (user) => {
   // District Managers → base + their locations + their district analytics + projects (view-only)
   if (ut === "dm") return [
     ...BASE_TABS,
+    { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
@@ -17456,6 +17459,7 @@ const getTabs = (user) => {
   // Store managers see only their assigned stores.
   if (ut === "manager") return [
     ...BASE_TABS,
+    { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "labor",     label: "My Labor",     icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
@@ -18233,7 +18237,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v15.73";
+const APP_VERSION = "v15.81";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -25170,6 +25174,291 @@ function PnLStoreDetail({ store, th, onClose }) {
 // latest version of each order with a revision badge + dollar delta; click through
 // for the full version history and line items. Read-only (data from ndcp.js).
 const COORDS_BLOB = 'pcg_store_coords_v1';
+
+// ───────────────────────── Ops Tasks & Checklists ─────────────────────────
+// Portal-native task / checklist / corrective system (Workpulse-independent).
+// See docs/TASK_CHECKLIST_SYSTEM_PLAN.md. Backed by netlify/functions/tasks.js.
+// Mobile-first: Manager completes their store's tasks; DM/Exec monitor roll-ups;
+// Exec/IT manage the task catalog ("Book Task").
+const TASK_STATUS_COLOR = { open: O, overdue: "#e03131", missed: "#868e96", completed: "#2f9e44" };
+
+function TaskRing({ pct, size = 44, th, color }) {
+  const r = (size - 6) / 2, c = 2 * Math.PI * r, off = c * (1 - (pct || 0) / 100);
+  const stroke = color || (pct >= 100 ? "#2f9e44" : pct > 0 ? O : th.muted);
+  return (
+    <svg width={size} height={size} style={{ flexShrink: 0 }}>
+      <circle cx={size / 2} cy={size / 2} r={r} stroke={th.muted + "33"} strokeWidth={4} fill="none" />
+      <circle cx={size / 2} cy={size / 2} r={r} stroke={stroke} strokeWidth={4} fill="none"
+        strokeDasharray={c} strokeDashoffset={off} strokeLinecap="round"
+        transform={`rotate(-90 ${size / 2} ${size / 2})`} style={{ transition: "stroke-dashoffset .4s" }} />
+      <text x="50%" y="51%" textAnchor="middle" dominantBaseline="middle"
+        fontSize={size * 0.26} fontWeight={700} fill={th.text}>{pct || 0}%</text>
+    </svg>
+  );
+}
+
+function OpsTasks({ stores, th, user }) {
+  const isAdmin = isFullAdmin(user) || user?.userType === "office_staff";
+  const isDM = user?.userType === "dm";
+  const isManager = user?.userType === "manager";
+  const myStore = getManagerStore(stores, user);
+
+  // Stores this user may view.
+  const scopeStores = (stores || []).filter((s) => {
+    if (isManager) return myStore && String(s.pc) === String(myStore.pc);
+    if (isDM) return String(s.district) === String(user?.district);
+    return true;
+  }).filter((s) => s.pc);
+
+  const todayET = () => {
+    const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+    return f.format(new Date());
+  };
+
+  const [view, setView] = useState(isManager ? "tasks" : "dashboard"); // tasks | dashboard | stores | admin
+  const [storePc, setStorePc] = useState(isManager && myStore ? String(myStore.pc) : (scopeStores[0]?.pc ? String(scopeStores[0].pc) : ""));
+  const [date, setDate] = useState(todayET());
+  const [seg, setSeg] = useState("open"); // open | missed | all
+  const [data, setData] = useState(null);
+  const [dash, setDash] = useState(null);
+  const [rollup, setRollup] = useState(null);
+  const [templates, setTemplates] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [openEntry, setOpenEntry] = useState(null); // instance_id being entered
+  const [entryVal, setEntryVal] = useState("");
+  const byName = user?.name || user?.email || "user";
+
+  const api = useCallback(async (action, payload = {}) => {
+    const r = await fetch("/.netlify/functions/tasks", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return r.json();
+  }, []);
+
+  // Fetch only the panel that's actually visible (avoids doubling function/Neon load on
+  // every 25s poll). Tasks view needs `list`; Dashboard view needs `dashboard`.
+  const loadStore = useCallback(async () => {
+    if (!storePc) return;
+    setLoading(true);
+    if (view === "dashboard") setDash(await api("dashboard", { store_pc: storePc, date }));
+    else setData(await api("list", { store_pc: storePc, date }));
+    setLoading(false);
+  }, [api, storePc, date, view]);
+
+  const loadRollup = useCallback(async () => {
+    setLoading(true);
+    const r = await api("rollup", { date, district: isDM ? user?.district : null });
+    setRollup(r); setLoading(false);
+  }, [api, date, isDM, user]);
+
+  const loadTemplates = useCallback(async () => {
+    setLoading(true);
+    const r = await api("admin_templates");
+    setTemplates(r.templates || []); setLoading(false);
+  }, [api]);
+
+  useEffect(() => { if (view === "tasks" || view === "dashboard") loadStore(); }, [view, loadStore]);
+  useEffect(() => { if (view === "stores") loadRollup(); }, [view, loadRollup]);
+  useEffect(() => { if (view === "admin") loadTemplates(); }, [view, loadTemplates]);
+
+  // Poll for cross-device sync while a store view is open (~25s).
+  useEffect(() => {
+    if (view !== "tasks" && view !== "dashboard") return;
+    const id = setInterval(loadStore, 25000);
+    return () => clearInterval(id);
+  }, [view, loadStore]);
+
+  async function completeTask(tk, value) {
+    setBusyId(tk.id);
+    await api("complete", { instance_id: tk.id, value: value ?? null, by: byName });
+    setOpenEntry(null); setEntryVal("");
+    await loadStore(); setBusyId(null);
+  }
+  async function reopenTask(tk) {
+    setBusyId(tk.id); await api("reopen", { instance_id: tk.id }); await loadStore(); setBusyId(null);
+  }
+
+  // Open = still-actionable (open + overdue); Missed = truly past-date. Badge counts and
+  // this filter must agree, so overdue lives only in Open (matching the badges below).
+  const segTasks = (data?.tasks || []).filter((t) =>
+    seg === "all" ? true : seg === "missed" ? t.statusComputed === "missed" : (t.statusComputed === "open" || t.statusComputed === "overdue")
+  );
+
+  const segBtn = (id, label, n) => (
+    <button onClick={() => setSeg(id)} style={{
+      flex: 1, padding: "0.55rem 0.4rem", border: "none", background: "transparent", cursor: "pointer",
+      fontSize: "0.85rem", fontWeight: 700, color: seg === id ? O : th.muted,
+      borderBottom: `2px solid ${seg === id ? O : "transparent"}`,
+    }}>{label}{typeof n === "number" ? ` (${n})` : ""}</button>
+  );
+
+  const viewTab = (id, label) => (
+    <button onClick={() => setView(id)} style={{
+      padding: "0.5rem 0.9rem", borderRadius: 999, border: `1px solid ${view === id ? O : th.muted + "55"}`,
+      background: view === id ? O : "transparent", color: view === id ? "#fff" : th.text,
+      fontSize: "0.8rem", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+    }}>{label}</button>
+  );
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
+        <h2 style={{ ...pageTitle(th), margin: 0 }}>Tasks</h2>
+        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+          {!isManager && viewTab("dashboard", "Dashboard")}
+          {viewTab("tasks", "Tasks")}
+          {!isManager && viewTab("stores", "Stores")}
+          {isAdmin && viewTab("admin", "Manage Tasks")}
+        </div>
+      </div>
+
+      {/* Controls */}
+      {(view === "tasks" || view === "dashboard") && (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+          {!isManager && (
+            <select value={storePc} onChange={(e) => setStorePc(e.target.value)} style={{ ...inp(th), flex: 1, minWidth: 160 }}>
+              {scopeStores.map((s) => <option key={s.pc} value={String(s.pc)}>{s.pc} — {s.name}</option>)}
+            </select>
+          )}
+          {isManager && myStore && (
+            <div style={{ ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 }}>{myStore.pc} — {myStore.name}</div>
+          )}
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp(th), width: 160 }} />
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Loading…</div>}
+
+      {/* ── Dashboard ── */}
+      {view === "dashboard" && dash && !loading && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" }}>
+            {[["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => (
+              <div key={k} style={{ ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" }}>
+                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text }}>{dash.totals[k] || 0}</div>
+                <div style={{ fontSize: "0.7rem", color: th.muted, fontWeight: 600 }}>{lbl}</div>
+              </div>
+            ))}
+          </div>
+          {dash.categories.map((c) => (
+            <div key={c.category} style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <TaskRing pct={c.pct} th={th} size={40} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700 }}>{c.category}</div>
+                <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                  {c.open} open · <span style={{ color: "#e03131" }}>{c.overdue} overdue</span> · {c.completed}/{c.all} done
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Tasks list ── */}
+      {view === "tasks" && data && !loading && (
+        <div>
+          <div style={{ display: "flex", ...card(th), padding: 0, marginBottom: "0.75rem", overflow: "hidden" }}>
+            {segBtn("open", "Open", data.counts.open + data.counts.overdue)}
+            {segBtn("missed", "Missed", data.counts.missed)}
+            {segBtn("all", "All", data.counts.all)}
+          </div>
+          {segTasks.length === 0 && <div style={{ textAlign: "center", color: th.muted, padding: "2rem" }}>Nothing here 🎉</div>}
+          {segTasks.map((tk) => {
+            const sc = TASK_STATUS_COLOR[tk.statusComputed] || th.muted;
+            const done = tk.statusComputed === "completed";
+            const isMeas = tk.input_type === "temperature" || tk.input_type === "weight" || tk.input_type === "count";
+            return (
+              <div key={tk.id} style={{ ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${sc}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{tk.name}</div>
+                    <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.25rem", flexWrap: "wrap" }}>
+                      <span style={pill(th.muted, { fontSize: "0.68rem" })}>{tk.category}</span>
+                      {tk.shift_time && <span style={{ fontSize: "0.72rem", color: th.muted }}>{tk.shift_time}</span>}
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, color: sc, textTransform: "capitalize" }}>{tk.statusComputed}</span>
+                      {isMeas && tk.min_val != null && <span style={{ fontSize: "0.68rem", color: th.muted }}>({tk.min_val}–{tk.max_val}{tk.unit} · tgt {tk.target}{tk.unit})</span>}
+                    </div>
+                    {done && tk.value != null && <div style={{ fontSize: "0.74rem", color: th.muted, marginTop: "0.2rem" }}>Recorded: {tk.value}{tk.unit || ""}{tk.completed_by ? ` · ${tk.completed_by}` : ""}</div>}
+                  </div>
+                  <TaskRing pct={done ? 100 : 0} th={th} size={40} />
+                </div>
+                {/* actions */}
+                <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  {done ? (
+                    <button onClick={() => reopenTask(tk)} disabled={busyId === tk.id} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.4rem 0.8rem" }}>Reopen</button>
+                  ) : openEntry === tk.id ? (
+                    <>
+                      <input type="number" inputMode="decimal" autoFocus value={entryVal} onChange={(e) => setEntryVal(e.target.value)}
+                        placeholder={`Reading${tk.unit ? " (" + tk.unit + ")" : ""}`} style={{ ...inp(th), flex: 1, fontSize: "0.85rem" }} />
+                      <button onClick={() => completeTask(tk, entryVal === "" ? null : Number(entryVal))} disabled={busyId === tk.id}
+                        style={{ ...btn(th), fontSize: "0.8rem", padding: "0.45rem 0.9rem" }}>Save</button>
+                      <button onClick={() => { setOpenEntry(null); setEntryVal(""); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.8rem", padding: "0.45rem 0.7rem" }}>✕</button>
+                    </>
+                  ) : (
+                    <button onClick={() => { if (isMeas) { setOpenEntry(tk.id); setEntryVal(""); } else { completeTask(tk); } }} disabled={busyId === tk.id}
+                      style={{ ...btn(th), fontSize: "0.82rem", padding: "0.45rem 1rem", width: isMeas ? "auto" : "100%" }}>
+                      {busyId === tk.id ? "…" : isMeas ? "Enter reading" : "✓ Mark complete"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Stores roll-up (DM / Exec) ── */}
+      {view === "stores" && rollup && !loading && (
+        <div>
+          <div style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" }}>{rollup.stores.length} stores · {date}{isDM ? ` · District ${user?.district}` : ""}</div>
+          {rollup.stores.map((s) => (
+            <div key={s.pc} onClick={() => { setStorePc(String(s.pc)); setView("tasks"); }}
+              style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", cursor: "pointer" }}>
+              <TaskRing pct={s.pct} th={th} size={40} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700 }}>{s.name} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.78rem" }}>· {s.pc}</span></div>
+                <div style={{ fontSize: "0.75rem", color: th.muted }}>{s.open} open · <span style={{ color: "#e03131" }}>{s.overdue} overdue</span> · {s.completed}/{s.all} done{!isDM ? ` · D${s.district}` : ""}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Manage Tasks (Exec/IT admin) ── */}
+      {view === "admin" && !loading && (
+        <div>
+          {(!templates || templates.length === 0) ? (
+            <div style={{ ...card(th), padding: "1.5rem", textAlign: "center" }}>
+              <div style={{ marginBottom: "0.75rem", color: th.muted }}>No task templates yet.</div>
+              <button onClick={async () => { setLoading(true); await api("seed"); await loadTemplates(); }} style={{ ...btn(th) }}>Load starter catalog</button>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "0.8rem", color: th.muted }}>{templates.length} task templates</div>
+                <button onClick={async () => { setLoading(true); await api("seed"); await loadTemplates(); }} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.78rem", padding: "0.4rem 0.8rem" }}>Re-sync catalog</button>
+              </div>
+              {templates.map((tp) => (
+                <div key={tp.id} style={{ ...card(th), padding: "0.65rem 0.9rem", marginBottom: "0.4rem", display: "flex", alignItems: "center", gap: "0.75rem", opacity: tp.active ? 1 : 0.55 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{tp.name}</div>
+                    <div style={{ fontSize: "0.72rem", color: th.muted }}>{tp.category} · {tp.label} · {tp.input_type}{tp.shift_time ? " · " + tp.shift_time : ""} · {tp.location_count} stores</div>
+                  </div>
+                  <button onClick={async () => { await api("admin_toggle_active", { template_id: tp.id, active: !tp.active }); loadTemplates(); }}
+                    style={pill(tp.active ? "#2f9e44" : th.muted, { cursor: "pointer", fontSize: "0.7rem" })}>
+                    {tp.active ? "Active" : "Inactive"}
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ImpactRadar({ th, user, dark, salesWeeks }) {
   const [eventAddr, setEventAddr] = useState('2310 W Passyunk Ave, Philadelphia, PA 19145');
@@ -35486,6 +35775,7 @@ function PCGPortal() {
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && <AdminNdcp th={th} user={user} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
+          {tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <OpsTasks stores={stores} th={th} user={user} />}
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
