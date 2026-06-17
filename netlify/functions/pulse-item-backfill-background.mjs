@@ -1,4 +1,4 @@
-// pulse-item-backfill-background.js
+// pulse-item-backfill-background.mjs
 // One-time (re-runnable) backfill of donut/munchkin sales history.
 //
 // Replays past Pulse guest checks to build pcg_item_history_{pc} entries for dates
@@ -13,12 +13,14 @@
 // Trigger:  POST /.netlify/functions/pulse-item-backfill-background
 //   body (optional): { "days": 90, "reset": true }   reset=true restarts from scratch.
 
-const https = require('https');
-const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
-const {
+import https from 'node:https';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
+import {
   STORES, DISTRICT_COORDS, MAX_HISTORY_DAYS, apiRoute, APIS,
   postJSON, getJSON, wmoToCondition, buildBakeryClassMap, extractBakery, dowFor,
-} = require('./pulse-hourly-snapshot');
+} from './pulse-hourly-snapshot.mjs';
+
+export const config = { background: true };
 
 const STORES_PER_RUN = 5;     // stores processed per invocation (keeps each run ~3 min)
 const DATE_CONCURRENCY = 6;   // concurrent getGuestChecks per store
@@ -146,9 +148,8 @@ async function historyCount(pc) {
 // safe to trigger repeatedly and safe if two runs overlap (idempotent merge by date).
 // Each run does up to STORES_PER_RUN stores, then self-chains while work remains; if the
 // self-chain ever drops, just POST again and it resumes exactly where coverage left off.
-exports.handler = async (event) => {
-  let body = {};
-  try { body = JSON.parse((event && event.body) || '{}'); } catch {}
+export default async (request, context) => {
+  const body = await request.json().catch(() => ({}));
   const days = Math.min(Math.max(parseInt(body.days, 10) || 90, 1), MAX_HISTORY_DAYS);
   const force = body.reset === true || body.force === true; // reprocess even complete stores
 
@@ -158,7 +159,7 @@ exports.handler = async (event) => {
 
   if (needed.length === 0) {
     console.log('[item-backfill] all stores complete');
-    return { statusCode: 200, body: JSON.stringify({ complete: true, stores: STORES.length }) };
+    return new Response(JSON.stringify({ complete: true, stores: STORES.length }), { status: 200 });
   }
 
   const batch = needed.slice(0, STORES_PER_RUN);
@@ -191,8 +192,8 @@ exports.handler = async (event) => {
   if (remaining > 0) {
     console.log(`[item-backfill] ${processed.length} done this run; ~${remaining} remaining — chaining`);
     await triggerNextRun();
-    return { statusCode: 202, body: JSON.stringify({ processed, remaining, errors }) };
+    return new Response(JSON.stringify({ processed, remaining, errors }), { status: 202 });
   }
   console.log(`[item-backfill] COMPLETE: all stores covered`);
-  return { statusCode: 200, body: JSON.stringify({ complete: true, processed, errors }) };
+  return new Response(JSON.stringify({ complete: true, processed, errors }), { status: 200 });
 };

@@ -1,13 +1,13 @@
-// Background function for on-demand report sending.
-// Returns 202 immediately; generates and sends the report asynchronously.
-// Supports: exec (weekly), daily, dm
+// Background function for on-demand report sending. Returns 202 immediately;
+// generates and sends the report asynchronously. Supports: exec (weekly), daily, dm.
+import { sendExecReport, sendExecDailyReport, sendDMBriefs, loadReportSettings } from './analyst-lib/analyst-reports.js';
+import { cacheLoad, cacheSave } from './analyst-lib/analyst-cache.js';
 
-const { sendExecReport, sendExecDailyReport, sendDMBriefs, loadReportSettings } = require('./analyst-lib/analyst-reports');
-const { cacheLoad, cacheSave } = require('./analyst-lib/analyst-cache');
+export const config = { background: true };
 
-exports.handler = async (event) => {
+export default async (request) => {
   let payload = {};
-  try { payload = JSON.parse(event.body || '{}'); } catch {}
+  try { payload = await request.json(); } catch {}
 
   const { reportType, laborAdjusted } = payload;
   const settings = await loadReportSettings();

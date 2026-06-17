@@ -1,20 +1,22 @@
-// analyst-cron.js — Scheduled function: anomalies, briefs, cases, AND email reports
-// Schedule: runs at multiple times (see netlify.toml)
+// analyst-cron.mjs — Scheduled function: anomalies, briefs, cases, AND email reports
+// Schedule: runs at multiple times (see config below)
 // DM briefs: 7 AM ET daily (11:00 UTC)
 // Exec report: Sunday 10 AM ET (14:00 UTC) + Tuesday 10 AM ET (14:00 UTC)
 // Anomaly detection: every run
 
-const { detectAnomalies } = require('./analyst-lib/analyst-anomaly');
-const { createCaseFromAnomaly, getCases } = require('./analyst-lib/analyst-cases');
-const { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentimentContext, buildEmailContext } = require('./analyst-lib/analyst-data');
-const { generateStructured } = require('./analyst-lib/analyst-claude');
-const { PERSONA, buildBriefPrompt, REPORT_SYSTEM, buildReportPrompt } = require('./analyst-lib/analyst-prompts');
-const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
-const { logAudit } = require('./analyst-lib/analyst-audit');
-const { sendDMBriefs, sendExecReport, loadReportSettings } = require('./analyst-lib/analyst-reports');
-const { saveReport } = require('./analyst-lib/analyst-reports-gen');
-const { sql } = require('./_shared/db');
-const { dcpPct } = require('./ndcp-lib/store-map');
+import { detectAnomalies } from './analyst-lib/analyst-anomaly.js';
+import { createCaseFromAnomaly, getCases } from './analyst-lib/analyst-cases.js';
+import { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentimentContext, buildEmailContext } from './analyst-lib/analyst-data.js';
+import { generateStructured } from './analyst-lib/analyst-claude.js';
+import { PERSONA, buildBriefPrompt, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.js';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
+import { logAudit } from './analyst-lib/analyst-audit.js';
+import { sendDMBriefs, sendExecReport, loadReportSettings } from './analyst-lib/analyst-reports.js';
+import { saveReport } from './analyst-lib/analyst-reports-gen.js';
+import { sql } from './_shared/db.js';
+import { dcpPct } from './ndcp-lib/store-map.js';
+
+export const config = { schedule: "0 11,14 * * *" };
 
 async function generateLeaderboardShoutout(today) {
   const laborData = await cacheLoad('pcg_labor_v1');
@@ -232,15 +234,17 @@ async function computeAndSaveDMScores(today) {
   }
 }
 
-exports.handler = async (event) => {
+export default async (request, context) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',
   };
 
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 
-  const isManual = event.httpMethod === 'POST';
+  const body = await request.json().catch(() => ({}));
+  const scheduled = request.headers.get('x-pcg-invocation') === 'scheduled' || !!body?.next_run;
+  const isManual = request.method === 'POST' && !scheduled;
   const startedAt = new Date().toISOString();
   const today = startedAt.slice(0, 10);
   console.log('[analyst-cron] triggered at', startedAt, isManual ? '(manual)' : '(scheduled)');
@@ -497,14 +501,14 @@ exports.handler = async (event) => {
     console.log('[analyst-cron] complete:', JSON.stringify(summary));
 
     return isManual
-      ? { statusCode: 200, headers, body: JSON.stringify(summary) }
+      ? new Response(JSON.stringify(summary), { status: 200, headers })
       : undefined;
 
   } catch (err) {
     console.error('[analyst-cron] fatal error:', err);
     await logAudit({ type: 'cron_error', error: err.message }).catch(() => {});
     return isManual
-      ? { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) }
+      ? new Response(JSON.stringify({ error: err.message }), { status: 500, headers })
       : undefined;
   }
 };

@@ -3,10 +3,12 @@
 // cross-references with Pulse POS sales data, computes labor costs and
 // percentages, and stores results in Netlify Blobs under 'pcg-labor'.
 
-const https = require('https');
-const { getStore } = require('@netlify/blobs');
-const { lookupUnitCost } = require('./analyst-lib/cost-lookup');
-const { computeStorePnL, DEFAULT_COGS_PCT } = require('./analyst-lib/pnl-calc');
+import https from 'node:https';
+import { getStore } from '@netlify/blobs';
+import { lookupUnitCost } from './analyst-lib/cost-lookup.js';
+import { computeStorePnL, DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.js';
+
+export const config = { schedule: "0 9-23,0-3 * * *" };
 
 // ── Store configs (pc = Dunkin store number, paycor = Paycor legal entity ID) ──
 const STORES = [
@@ -910,7 +912,7 @@ function cogsPctFor(cfg, store) {
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
-exports.handler = async (event) => {
+export default async (request, context) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -918,35 +920,37 @@ exports.handler = async (event) => {
     'Content-Type': 'application/json',
   };
 
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 
-  const isManual = event.httpMethod === 'POST';
+  const body = await request.json().catch(() => ({}));
+  const scheduled = request.headers.get('x-pcg-invocation') === 'scheduled' || !!body?.next_run;
+  const isManual = request.method === 'POST' && !scheduled;
   const startedAt = new Date().toISOString();
 
   // ── Scoped single-store refresh (for manager/DM mobile Refresh button) ──────
   // When POST body contains { storePC: "332941" }, only process that one store.
   // Fast enough for the 26-second HTTP timeout. Updates per-store blob + network entry.
   let scopedPC = null;
-  if (isManual && event.body) {
-    try { scopedPC = JSON.parse(event.body).storePC || null; } catch {}
+  if (isManual && body) {
+    scopedPC = body.storePC || null;
   }
 
   if (scopedPC) {
     const storeConfig = STORES.find(s => String(s.pc) === String(scopedPC));
-    if (!storeConfig) return { statusCode: 404, headers, body: JSON.stringify({ error: `Store ${scopedPC} not found` }) };
+    if (!storeConfig) return new Response(JSON.stringify({ error: `Store ${scopedPC} not found` }), { status: 404, headers });
 
     console.log('[labor-cron] scoped refresh for store', scopedPC, storeConfig.name);
     try {
       const busDt = await fetchLatestBusDt(scopedPC).catch(() => todayET());
       const result = await processStore(storeConfig, busDt, { skipSchedules: false });
-      if (result.error) return { statusCode: 500, headers, body: JSON.stringify({ error: result.error }) };
+      if (result.error) return new Response(JSON.stringify({ error: result.error }), { status: 500, headers });
 
       // Safety guard: never overwrite good existing data with zeros.
       // If Paycor returned no punches (e.g. slow API), keep the old blob intact.
       const hasNewData = result.today.sales > 0 || result.today.laborDollars > 0;
       if (!hasNewData) {
         console.warn('[labor-cron] scoped refresh returned zero data for', scopedPC, '— keeping existing blob');
-        return { statusCode: 200, headers, body: JSON.stringify({ ok: true, store: scopedPC, busDt, skipped: true, reason: 'zero data from Paycor' }) };
+        return new Response(JSON.stringify({ ok: true, store: scopedPC, busDt, skipped: true, reason: 'zero data from Paycor' }), { status: 200, headers });
       }
 
       const blobStore = getLaborStore();
@@ -965,10 +969,10 @@ exports.handler = async (event) => {
       // The full cron (every 4h) will pick up this store's fresh data on its next run.
 
       console.log('[labor-cron] scoped refresh complete for', scopedPC, '— labor', result.today.laborPct?.toFixed(1), '% sales $', Math.round(result.today.sales));
-      return { statusCode: 200, headers, body: JSON.stringify({ ok: true, store: scopedPC, busDt, laborPct: result.today.laborPct, laborDollars: result.today.laborDollars, sales: result.today.sales }) };
+      return new Response(JSON.stringify({ ok: true, store: scopedPC, busDt, laborPct: result.today.laborPct, laborDollars: result.today.laborDollars, sales: result.today.sales }), { status: 200, headers });
     } catch (e) {
       console.error('[labor-cron] scoped refresh error:', e.message);
-      return { statusCode: 500, headers, body: JSON.stringify({ error: e.message }) };
+      return new Response(JSON.stringify({ error: e.message }), { status: 500, headers });
     }
   }
 
@@ -1216,13 +1220,13 @@ exports.handler = async (event) => {
 
     console.log('[labor-cron] complete:', JSON.stringify(summary));
     return isManual
-      ? { statusCode: 200, headers, body: JSON.stringify(summary) }
+      ? new Response(JSON.stringify(summary), { status: 200, headers })
       : undefined;
 
   } catch (err) {
     console.error('[labor-cron] fatal error:', err);
     return isManual
-      ? { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) }
+      ? new Response(JSON.stringify({ error: err.message }), { status: 500, headers })
       : undefined;
   }
 };

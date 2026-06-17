@@ -1,9 +1,10 @@
-// kb-sync.js — Syncs Google Drive "PCG-KB" folder → Netlify Blobs (for Orion)
+// kb-sync.mjs — Syncs Google Drive "PCG-KB" folder → Netlify Blobs (for Orion)
 // Portal KB articles are read directly from blobs by analyst-kb.js (no Drive push needed)
 // Supports: Google Docs, Sheets, Slides, PDFs, plain text, HTML
+// No schedule config here — the kb-sync-background wrapper carries the schedule.
 
-const { google } = require('googleapis');
-const { getStore } = require('@netlify/blobs');
+import { google } from 'googleapis';
+import { getStore } from '@netlify/blobs';
 
 const FOLDER_ID = '1T9YE1DkWZ4OVkKoF5j94aKFqc1SmUNIF';
 const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
@@ -61,7 +62,7 @@ async function extractText(drive, file) {
     }
     if (mimeType === 'application/pdf') {
       const res = await drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'arraybuffer' });
-      const pdfParse = require('pdf-parse');
+      const { default: pdfParse } = await import('pdf-parse');
       const parsed = await pdfParse(Buffer.from(res.data));
       return parsed.text || '';
     }
@@ -80,7 +81,7 @@ async function extractText(drive, file) {
   }
 }
 
-exports.handler = async () => {
+export default async () => {
   try {
     const drive = await getDriveClient();
 
@@ -95,7 +96,7 @@ exports.handler = async () => {
     console.log(`[kb-sync] Found ${files.length} file(s) in Drive folder`);
 
     if (files.length === 0) {
-      return { statusCode: 200, body: JSON.stringify({ ok: true, synced: 0, total: 0, message: 'No files found — verify service account has Viewer access to the PCG-KB folder' }) };
+      return new Response(JSON.stringify({ ok: true, synced: 0, total: 0, message: 'No files found — verify service account has Viewer access to the PCG-KB folder' }), { status: 200 });
     }
 
     const results = [];
@@ -132,10 +133,10 @@ exports.handler = async () => {
 
     const synced = results.filter(r => r.status === 'synced').length;
     console.log(`[kb-sync] Synced ${synced}/${files.length} files`);
-    return { statusCode: 200, body: JSON.stringify({ ok: true, synced, total: files.length, results }) };
+    return new Response(JSON.stringify({ ok: true, synced, total: files.length, results }), { status: 200 });
 
   } catch (err) {
     console.error('[kb-sync] error:', err);
-    return { statusCode: 500, body: err.message };
+    return new Response(err.message, { status: 500 });
   }
 };

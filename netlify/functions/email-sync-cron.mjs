@@ -1,6 +1,8 @@
-// email-sync-cron.js — Hourly: poll shared Gmail inbox via service account
-const { google } = require('googleapis');
-const { cacheSave, cacheLoad } = require('./analyst-lib/analyst-cache');
+// email-sync-cron.mjs — Hourly: poll shared Gmail inbox via service account
+// NOTE: intentionally unscheduled (dormant). No export const config = { schedule }.
+// Manual-invoke only via POST /.netlify/functions/email-sync-cron.
+import { google } from 'googleapis';
+import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.js';
 
 const CATEGORY_KEYWORDS = {
   vendor: ['invoice', 'delivery', 'order', 'shipment', 'supply', 'dcp', 'sysco'],
@@ -43,8 +45,10 @@ function getHeader(headers, name) {
   return h?.value || '';
 }
 
-exports.handler = async (event) => {
-  const isManual = event?.httpMethod === 'POST';
+export default async (request, context) => {
+  const body = await request.json().catch(() => ({}));
+  const scheduled = request.headers.get('x-pcg-invocation') === 'scheduled' || !!body?.next_run;
+  const isManual = request.method === 'POST' && !scheduled;
   console.log('[email-sync] Starting', isManual ? '(manual)' : '(scheduled)');
 
   const SERVICE_ACCOUNT_KEY = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -52,13 +56,13 @@ exports.handler = async (event) => {
 
   if (!SERVICE_ACCOUNT_KEY || !SHARED_MAILBOX) {
     console.warn('[email-sync] Missing GOOGLE_SERVICE_ACCOUNT_KEY or GOOGLE_SHARED_MAILBOX');
-    return isManual ? { statusCode: 200, body: JSON.stringify({ ok: false, error: 'Not configured' }) } : undefined;
+    return isManual ? new Response(JSON.stringify({ ok: false, error: 'Not configured' }), { status: 200 }) : undefined;
   }
 
   let credentials;
   try { credentials = JSON.parse(SERVICE_ACCOUNT_KEY); } catch {
     console.error('[email-sync] Invalid GOOGLE_SERVICE_ACCOUNT_KEY JSON');
-    return isManual ? { statusCode: 500, body: JSON.stringify({ error: 'Invalid credentials' }) } : undefined;
+    return isManual ? new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 500 }) : undefined;
   }
 
   const auth = new google.auth.JWT({
@@ -135,13 +139,13 @@ exports.handler = async (event) => {
     console.log(`[email-sync] Complete: ${emails.length} new, ${allEmails.length} total`);
 
     return isManual
-      ? { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: true, new: emails.length, total: allEmails.length }) }
+      ? new Response(JSON.stringify({ ok: true, new: emails.length, total: allEmails.length }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       : undefined;
 
   } catch (e) {
     console.error('[email-sync] Gmail API error:', e.message);
     return isManual
-      ? { statusCode: 500, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: e.message }) }
+      ? new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { 'Content-Type': 'application/json' } })
       : undefined;
   }
 };

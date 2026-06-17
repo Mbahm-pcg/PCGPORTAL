@@ -1,4 +1,4 @@
-// mcp.js — Model Context Protocol endpoint for PCG Portal
+// mcp.mjs — Model Context Protocol endpoint for PCG Portal
 // Exposes Pulse, Labor, and Orion Analyst data as MCP tools
 // Compatible with Claude Desktop, Claude Code, and any MCP client
 //
@@ -23,10 +23,10 @@
 // Set PCG_MCP_SECRET in Netlify env vars. Requests must include:
 //   Authorization: Bearer <PCG_MCP_SECRET>
 
-const { cacheLoad } = require('./analyst-lib/analyst-cache');
-const { buildDataContext, buildKPISnapshot } = require('./analyst-lib/analyst-data');
-const { buildAskPrompt, PERSONA } = require('./analyst-lib/analyst-prompts');
-const { askAnalyst } = require('./analyst-lib/analyst-claude');
+import { cacheLoad } from './analyst-lib/analyst-cache.js';
+import { buildDataContext, buildKPISnapshot } from './analyst-lib/analyst-data.js';
+import { buildAskPrompt, PERSONA } from './analyst-lib/analyst-prompts.js';
+import { askAnalyst } from './analyst-lib/analyst-claude.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: 'PCG Portal', version: '7.7' };
@@ -174,16 +174,16 @@ function rpcErr(id, code, message) {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-function isAuthorized(event) {
+function isAuthorized(request) {
   const secret = process.env.PCG_MCP_SECRET;
   if (!secret) return true; // open if not configured (dev)
-  const auth = event.headers?.authorization || event.headers?.Authorization || '';
+  const auth = request.headers.get('authorization') || '';
   return auth === `Bearer ${secret}`;
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
-exports.handler = async (event) => {
+export default async (request, context) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -191,18 +191,18 @@ exports.handler = async (event) => {
     'Content-Type': 'application/json',
   };
 
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
-  if (event.httpMethod !== 'POST') return { statusCode: 405, headers, body: JSON.stringify(rpcErr(null, -32600, 'POST only')) };
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+  if (request.method !== 'POST') return new Response(JSON.stringify(rpcErr(null, -32600, 'POST only')), { status: 405, headers });
 
-  if (!isAuthorized(event)) {
-    return { statusCode: 401, headers, body: JSON.stringify(rpcErr(null, -32600, 'Unauthorized')) };
+  if (!isAuthorized(request)) {
+    return new Response(JSON.stringify(rpcErr(null, -32600, 'Unauthorized')), { status: 401, headers });
   }
 
   let req;
   try {
-    req = JSON.parse(event.body || '{}');
+    req = await request.json();
   } catch {
-    return { statusCode: 400, headers, body: JSON.stringify(rpcErr(null, -32700, 'Parse error')) };
+    return new Response(JSON.stringify(rpcErr(null, -32700, 'Parse error')), { status: 400, headers });
   }
 
   const { id, method, params } = req;
@@ -210,54 +210,42 @@ exports.handler = async (event) => {
   try {
     // ── initialize ────────────────────────────────────────────────────────────
     if (method === 'initialize') {
-      return {
-        statusCode: 200, headers,
-        body: JSON.stringify(rpcOk(id, {
-          protocolVersion: PROTOCOL_VERSION,
-          capabilities: { tools: {} },
-          serverInfo: SERVER_INFO,
-        })),
-      };
+      return new Response(JSON.stringify(rpcOk(id, {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: SERVER_INFO,
+      })), { status: 200, headers });
     }
 
     // ── notifications/initialized (no response needed) ────────────────────────
     if (method === 'notifications/initialized') {
-      return { statusCode: 204, headers, body: '' };
+      return new Response(null, { status: 204, headers });
     }
 
     // ── tools/list ────────────────────────────────────────────────────────────
     if (method === 'tools/list') {
-      return {
-        statusCode: 200, headers,
-        body: JSON.stringify(rpcOk(id, { tools: TOOLS })),
-      };
+      return new Response(JSON.stringify(rpcOk(id, { tools: TOOLS })), { status: 200, headers });
     }
 
     // ── tools/call ────────────────────────────────────────────────────────────
     if (method === 'tools/call') {
       const { name, arguments: args } = params || {};
       if (!name) {
-        return { statusCode: 400, headers, body: JSON.stringify(rpcErr(id, -32602, 'Missing tool name')) };
+        return new Response(JSON.stringify(rpcErr(id, -32602, 'Missing tool name')), { status: 400, headers });
       }
       const result = await handleTool(name, args || {});
-      return { statusCode: 200, headers, body: JSON.stringify(rpcOk(id, result)) };
+      return new Response(JSON.stringify(rpcOk(id, result)), { status: 200, headers });
     }
 
     // ── ping ──────────────────────────────────────────────────────────────────
     if (method === 'ping') {
-      return { statusCode: 200, headers, body: JSON.stringify(rpcOk(id, {})) };
+      return new Response(JSON.stringify(rpcOk(id, {})), { status: 200, headers });
     }
 
-    return {
-      statusCode: 400, headers,
-      body: JSON.stringify(rpcErr(id, -32601, `Method not found: ${method}`)),
-    };
+    return new Response(JSON.stringify(rpcErr(id, -32601, `Method not found: ${method}`)), { status: 400, headers });
 
   } catch (err) {
     console.error('[mcp] error:', err);
-    return {
-      statusCode: 500, headers,
-      body: JSON.stringify(rpcErr(id, -32603, err.message || 'Internal error')),
-    };
+    return new Response(JSON.stringify(rpcErr(id, -32603, err.message || 'Internal error')), { status: 500, headers });
   }
 };

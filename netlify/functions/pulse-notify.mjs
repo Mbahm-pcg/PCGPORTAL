@@ -412,8 +412,9 @@ export default async (request) => {
 
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 
-  // Also allow manual trigger via POST for testing
-  const isManual = request.method === 'POST';
+  // Also allow manual trigger via POST for testing. The scheduled pulse-cron entry
+  // calls us with x-pcg-invocation:scheduled so dedup + disabled-config checks apply.
+  const isManual = request.method === 'POST' && request.headers.get('x-pcg-invocation') !== 'scheduled';
 
   console.log('Pulse notify triggered at', new Date().toISOString());
 
