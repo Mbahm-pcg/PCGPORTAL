@@ -17645,7 +17645,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
 
 // ── Tab definitions ────────────────────────────────────────────────────────
 const BASE_TABS = [
-  { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c) },
+  { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c), noPinToggle: true },
   { id: "links",    label: "Links Hub", icon: (c) => ICONS.links(c) },
   { id: "contacts", label: "Contacts",  icon: (c) => ICONS.contacts(c) },
   { id: "notes",    label: "Notes",     icon: (c) => ICONS.notes(c) },
@@ -17764,7 +17764,7 @@ const filterNotifsByRole = (notifs, user) => {
   return notifs;
 };
 
-function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onLogout }) {
+function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onLogout }) {
   const store = getManagerStore(stores, user) || {};
   const pc = store.pc;
   const todayStr = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
@@ -18110,6 +18110,10 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
             </button>
             <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
               <IconButton onClick={handleToggle} title={dark ? "Switch to light" : "Switch to dark"} btnRef={toggleBtnRef}>{dark ? ICONS.sun("#f59e0b") : ICONS.moon(th.muted)}</IconButton>
+              <button onClick={onFullPortal} title="Full Portal" style={{ height: 34, borderRadius: 8, background: dark ? th.card : "#ffffff", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, boxShadow: dark ? "none" : "0 1px 4px rgba(0,0,0,0.08)", color: O, display: "flex", alignItems: "center", cursor: "pointer", padding: "0 8px", fontSize: "0.6rem", fontWeight: 800, letterSpacing: 0.4, fontFamily: "'Source Sans 3'", gap: 4 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={O} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Portal
+              </button>
               <IconButton onClick={onLogout} title="Sign out">{ICONS.logout(th.muted)}</IconButton>
             </div>
           </div>
@@ -18418,9 +18422,14 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       )}
 
       <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
-        <button onClick={() => fetchAll(true)} disabled={refreshing} title="Refresh" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: refreshing ? "default" : "pointer", color: refreshing ? th.muted : th.text }}>
-          <span style={{ fontSize: "1.15rem", lineHeight: 1 }}>{refreshing ? "·" : "↻"}</span>
-          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Refresh</span>
+        <button onClick={onTasks} title="Tasks" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O, position: "relative" }}>
+          <span style={{ position: "relative", display: "flex" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={O} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+            <span style={{ position: "absolute", top: -2, right: -3, width: 7, height: 7, borderRadius: "50%", background: "#ef4444", zIndex: 2, pointerEvents: "none" }}>
+              <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#ef4444", animation: "navDotPing 1.4s ease-out infinite", pointerEvents: "none" }} />
+            </span>
+          </span>
+          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Tasks</span>
         </button>
         {/* Orion Voice — center mic button */}
         <button onClick={startVoice} title="Ask Orion" style={{ background: voiceState === 'listening' ? O : voiceState === 'thinking' ? '#f59e0b' : voiceState === 'speaking' ? '#22c55e' : voiceState === 'error' ? '#ef4444' : O + '18', border: `2px solid ${voiceState === 'idle' ? O + '55' : 'transparent'}`, borderRadius: "50%", width: 48, height: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: voiceState === 'thinking' ? "default" : "pointer", alignSelf: "center", flexShrink: 0, boxShadow: voiceState === 'listening' ? `0 0 0 6px ${O}33, 0 0 0 12px ${O}18` : voiceState === 'speaking' ? '0 0 0 6px #22c55e33' : 'none', transition: "all 0.2s" }}>
@@ -18431,9 +18440,9 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
             <line x1="8" y1="22" x2="16" y2="22"/>
           </svg>
         </button>
-        <button onClick={onFullPortal} title="Full Portal" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O }}>
-          <span style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>{ICONS.dashboard(O)}</span>
-          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Full Portal</span>
+        <button onClick={onTickets} title="Tickets" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: "#ef4444" }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Tickets</span>
         </button>
       </div>
 
@@ -18500,7 +18509,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.04";
+const APP_VERSION = "v16.15";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -25522,8 +25531,6 @@ function OpsTasks({ stores, th, user }) {
   const [cas, setCas] = useState(null);
   const [caFilter, setCaFilter] = useState("open");
   const [loadingCAs, setLoadingCAs] = useState(false);
-  // Task compliance alerts (from tasks-cron blob)
-  const [taskAlerts, setTaskAlerts] = useState(null);
   const [photoLightbox, setPhotoLightbox] = useState(null);
   const [photoUrls, setPhotoUrls] = useState({});
   const byName = user?.name || user?.email || "user";
@@ -25540,12 +25547,8 @@ function OpsTasks({ stores, th, user }) {
     if (!storePc) return;
     if (!silent) setLoading(true);
     if (view === "dashboard") {
-      const [dashData, alertsData] = await Promise.all([
-        api("dashboard", { store_pc: storePc, date }),
-        cloudLoad("pcg_task_alerts_v1").catch(() => null),
-      ]);
+      const dashData = await api("dashboard", { store_pc: storePc, date });
       setDash(dashData);
-      setTaskAlerts(alertsData);
     } else {
       const result = await api("list", { store_pc: storePc, date });
       setData(result);
@@ -25784,28 +25787,6 @@ function OpsTasks({ stores, th, user }) {
       {/* ── Dashboard ── */}
       {view === "dashboard" && dash && !loading && (
         <div>
-          {/* Task compliance alerts from tasks-cron */}
-          {taskAlerts?.alerts?.length > 0 && (() => {
-            const scopedAlerts = (taskAlerts.alerts || []).filter((a) => {
-              if (isManager) return String(a.storePC) === String(myStore?.pc);
-              if (isDM) return String(a.district) === String(user?.district);
-              return true;
-            });
-            if (!scopedAlerts.length) return null;
-            return (
-              <div style={{ marginBottom: "0.9rem" }}>
-                {scopedAlerts.map((a) => (
-                  <div key={a.storePC} style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${a.severity === "high" ? "#e03131" : a.severity === "medium" ? "#f59e0b" : th.muted}`, display: "flex", gap: "0.6rem", alignItems: "flex-start" }}>
-                    <span style={{ fontSize: "1rem", flexShrink: 0 }}>{a.severity === "high" ? "⚠" : "ℹ"}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "0.82rem", fontWeight: 700, color: th.text, marginBottom: "0.15rem" }}>{!isManager ? a.storeName : "Task Alert"}</div>
-                      <div style={{ fontSize: "0.78rem", color: th.muted, lineHeight: 1.4 }}>{a.message}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" }}>
             {[["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => (
               <div key={k} style={{ ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" }}>
@@ -30746,7 +30727,7 @@ function EmailTab({ th, user }) {
 
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
-function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull, todos, projects, users }) {
+function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull, onTickets, onTasks, todos, projects, users }) {
   const O = '#FF671F';
   const [activeTab, setActiveTab] = React.useState('brief');
   const [brief, setBrief] = React.useState(null);
@@ -30771,8 +30752,60 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
   const [pulseWtdData, setPulseWtdData] = React.useState({});
   const [pulseWtdLoading, setPulseWtdLoading] = React.useState(false);
   const [taskAlerts, setTaskAlerts] = React.useState(null);
+  const [alertSending, setAlertSending] = React.useState(new Set());
+  const [alertSent, setAlertSent] = React.useState(new Set());
+  const [alertErrors, setAlertErrors] = React.useState(new Set());
   const chatEndRef = React.useRef(null);
   const askInputRef = React.useRef(null);
+
+  const getStoreContacts = (a) => {
+    const storeInfo = (stores || []).find(s => String(s.pc) === String(a.storePC));
+    const managerUser = (users || []).find(u => u.userType === 'manager' && (String(u.storePC) === String(a.storePC) || storeInfo?.mgr === u.name));
+    const dmUser = (users || []).find(u => u.userType === 'dm' && String(u.district) === String(a.district));
+    return { storeInfo, managerUser, dmUser };
+  };
+
+  const sendAlert = async (a, type) => {
+    const { storeInfo, managerUser, dmUser } = getStoreContacts(a);
+    const key = type + '_' + a.storePC;
+    if (type === 'email') {
+      const toList = [storeInfo?.email, dmUser?.email].filter(Boolean);
+      if (!toList.length) return;
+      setAlertSending(prev => new Set([...prev, key]));
+      try {
+        await fetch('/.netlify/functions/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: toList,
+            subject: `Task Follow-Up: ${a.storeName} — ${taskAlerts?.date || 'Yesterday'}`,
+            body: `<p>Hi ${storeInfo?.mgr || 'Team'},</p><p>We noticed <strong>${a.missedYesterday} task${a.missedYesterday !== 1 ? 's' : ''} were not completed yesterday</strong> at <strong>${a.storeName}</strong> (PC# ${a.storePC}).</p>${a.message ? `<p>${a.message}</p>` : ''}<p>Please reply with the reason(s) these tasks were incomplete so we can follow up accordingly.</p><p style="color:#999;font-size:12px;">Sent from PCG Portal · Task Compliance</p>`,
+          }),
+        });
+        setAlertSent(prev => new Set([...prev, key]));
+      } catch {
+        setAlertErrors(prev => new Set([...prev, key]));
+      }
+      setAlertSending(prev => { const n = new Set(prev); n.delete(key); return n; });
+    } else {
+      const userIds = [managerUser?.id, dmUser?.id].filter(Boolean);
+      if (!userIds.length) return;
+      setAlertSending(prev => new Set([...prev, key]));
+      try {
+        await sendPushNotification(
+          userIds,
+          `Task Alert — ${a.storeName}`,
+          `${a.missedYesterday} task${a.missedYesterday !== 1 ? 's' : ''} missed yesterday${a.openToday > 0 ? ` · ${a.openToday} still open today` : ''}`,
+          '/?tab=tasks',
+          `task-compliance-${a.storePC}`
+        );
+        setAlertSent(prev => new Set([...prev, key]));
+      } catch {
+        setAlertErrors(prev => new Set([...prev, key]));
+      }
+      setAlertSending(prev => { const n = new Set(prev); n.delete(key); return n; });
+    }
+  };
 
   const today = new Date().toISOString().slice(0, 10);
   const district = user?.district ? Number(user.district) : null;
@@ -30979,11 +31012,12 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
   const fmtDollars = n => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
 
   const NAV_ITEMS = [
-    { id: 'brief', label: 'Brief', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8M8 8h5M8 16h6"/></svg> },
-    { id: 'pulse', label: 'Pulse', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
-    { id: 'cases', label: 'Cases', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12l2 2 4-4"/></svg> },
-    { id: 'calendar', label: 'Calendar', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
-    { id: 'ask', label: 'Ask', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> },
+    { id: 'brief',    label: 'Brief',    color: '#a855f7', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8M8 8h5M8 16h6"/></svg> },
+    { id: 'pulse',    label: 'Pulse',    color: '#00d084', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
+    { id: 'tickets',  label: 'Tickets',  color: '#ef4444', portal: true, icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg> },
+    { id: 'tasks',    label: 'Tasks',    color: '#FF671F', portal: true, icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg> },
+    { id: 'calendar', label: 'Calendar', color: '#3b82f6', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
+    { id: 'ask',      label: 'Ask',      color: '#06b6d4', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> },
   ];
 
   const SUGGESTIONS = [
@@ -31174,7 +31208,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
                   <span style={{ fontSize: 11, color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                   <span style={{ background: O + '22', color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: '2px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8 }}>{isExec ? 'Network' : `District ${district}`}</span>
                 </div>
-                <div style={{ fontSize: 13.5, color: th.text, lineHeight: 1.65 }}>{renderAnalystMarkdown(brief.content, th)}</div>
+                <div style={{ fontSize: 13, color: th.text, lineHeight: 1.6 }}>{renderAnalystMarkdown(brief.content, th)}</div>
                 <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${th.cardBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— Orion, {brief.generatedAt ? new Date(brief.generatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'today'}</span>
                   <button onClick={() => sendAsk('Give me a quick recap of today\'s brief')} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '3px 10px', color: th.muted, fontSize: 11, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Ask follow-up</button>
@@ -31201,53 +31235,59 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
               </div>
             )}
 
-            {/* Task Compliance — stores with missed/open tasks */}
-            {taskAlerts && taskAlerts.alerts.length > 0 && (
-              <div>
-                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '16px 0 8px' }}>
-                  Task Compliance · {taskAlerts.date}
-                </div>
-                {taskAlerts.alerts.map((a) => {
-                  const sevColor = a.severity === 'high' ? '#ef4444' : a.severity === 'medium' ? '#f97316' : '#22c55e';
-                  return (
-                    <div key={a.storePC} style={{ background: th.card, border: `1px solid ${sevColor}33`, borderLeft: `4px solid ${sevColor}`, borderRadius: 14, padding: '12px 14px', marginBottom: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 14, color: th.text }}>{a.storeName}</span>
-                        <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.7, color: sevColor, background: sevColor + '18', border: `1px solid ${sevColor}44`, borderRadius: 999, padding: '2px 8px' }}>{a.severity}</span>
+            {/* Task Compliance — compact by district */}
+            {taskAlerts?.alerts?.length > 0 && (() => {
+              const grouped = {};
+              taskAlerts.alerts.forEach(a => {
+                const key = isExec ? `District ${a.district}` : 'Missed Yesterday';
+                if (!grouped[key]) grouped[key] = [];
+                grouped[key].push(a);
+              });
+
+              return (
+                <div style={{ marginTop: 16 }}>
+                  {Object.entries(grouped).map(([groupLabel, alerts]) => (
+                    <div key={groupLabel} style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>
+                        {groupLabel}{taskAlerts.date ? ` · ${taskAlerts.date}` : ''}
                       </div>
-                      <div style={{ fontSize: 11, color: th.muted, marginBottom: 6 }}>PC# {a.storePC}{!isExec ? '' : ` · D${a.district}`}</div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-                        {a.missedYesterday > 0 && (
-                          <div style={{ background: '#ef444418', border: '1px solid #ef444433', borderRadius: 999, padding: '3px 10px', fontSize: 11, color: '#ef4444', fontWeight: 700 }}>
-                            {a.missedYesterday} missed yesterday
-                          </div>
-                        )}
-                        {a.openToday > 0 && (
-                          <div style={{ background: '#f9741618', border: '1px solid #f9741633', borderRadius: 999, padding: '3px 10px', fontSize: 11, color: '#f97416', fontWeight: 700 }}>
-                            {a.openToday} open today
-                          </div>
-                        )}
-                        {a.avgMissed > 0 && (
-                          <div style={{ background: th.bg, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: '3px 10px', fontSize: 11, color: th.muted }}>
-                            avg {a.avgMissed}/day
-                          </div>
-                        )}
+                      <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, overflow: 'hidden' }}>
+                        {alerts.map((a, idx) => {
+                          const sevColor = a.severity === 'high' ? '#ef4444' : a.severity === 'medium' ? '#f97316' : '#22c55e';
+                          const pushSending = alertSending.has('push_' + a.storePC);
+                          const pushSent = alertSent.has('push_' + a.storePC);
+                          const pushError = alertErrors.has('push_' + a.storePC);
+                          const mailSending = alertSending.has('email_' + a.storePC);
+                          const mailSent = alertSent.has('email_' + a.storePC);
+                          const mailError = alertErrors.has('email_' + a.storePC);
+                          return (
+                            <div key={a.storePC} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderTop: idx > 0 ? `1px solid ${th.cardBorder}` : 'none' }}>
+                              <div style={{ width: 6, height: 6, borderRadius: '50%', background: sevColor, flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.storeName}</div>
+                                <div style={{ fontSize: 11, color: th.muted }}>{a.missedYesterday} missed · {a.openToday > 0 ? `${a.openToday} open today` : 'on track today'}</div>
+                              </div>
+                              {/* Push button */}
+                              <button onClick={() => sendAlert(a, 'push')} disabled={pushSending || pushSent || pushError}
+                                title="Send push notification to manager & DM"
+                                style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, border: `1px solid ${pushSent ? '#22c55e44' : pushError ? '#ef444444' : '#a855f744'}`, background: pushSent ? '#22c55e18' : pushError ? '#ef444418' : '#a855f718', cursor: pushSending || pushSent || pushError ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
+                                {pushSending ? <span style={{ fontSize: 10, color: '#a855f7' }}>…</span> : pushSent ? <span style={{ fontSize: 12 }}>✓</span> : pushError ? <span style={{ fontSize: 12, color: '#ef4444' }}>✗</span> : '🔔'}
+                              </button>
+                              {/* Email button */}
+                              <button onClick={() => sendAlert(a, 'email')} disabled={mailSending || mailSent || mailError}
+                                title="Send email to manager & DM"
+                                style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, border: `1px solid ${mailSent ? '#22c55e44' : mailError ? '#ef444444' : O + '44'}`, background: mailSent ? '#22c55e18' : mailError ? '#ef444418' : `${O}18`, cursor: mailSending || mailSent || mailError ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
+                                {mailSending ? <span style={{ fontSize: 10, color: O }}>…</span> : mailSent ? <span style={{ fontSize: 12 }}>✓</span> : mailError ? <span style={{ fontSize: 12, color: '#ef4444' }}>✗</span> : '📧'}
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div style={{ fontSize: 12, color: th.text, lineHeight: 1.5 }}>{a.message}</div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-            {taskAlerts && taskAlerts.alerts.length === 0 && (
-              <div>
-                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '16px 0 8px' }}>Task Compliance</div>
-                <div style={{ background: th.card, border: `1px solid #22c55e33`, borderRadius: 14, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 18 }}>✅</span>
-                  <span style={{ fontSize: 13, color: th.text }}>All stores on track — no compliance issues yesterday.</span>
+                  ))}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Action Queue — DM only, shown below the brief */}
             {user?.userType === 'dm' && (
@@ -31417,13 +31457,29 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
       )}
 
       {/* Bottom nav — floating glass pill */}
-      <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 420, background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', border: `1px solid ${dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.55)'}`, borderRadius: 999, padding: '6px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 200, boxShadow: `0 8px 40px rgba(0,0,0,0.15), inset 0 1px 0 ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.7)'}` }}>
+      <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 24px)', maxWidth: 460, background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', border: `1px solid ${dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.55)'}`, borderRadius: 999, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 200, boxShadow: `0 8px 40px rgba(0,0,0,0.15), inset 0 1px 0 ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.7)'}` }}>
         {NAV_ITEMS.map(item => {
           const active = activeTab === item.id;
+          const handleClick = () => {
+            if (item.id === 'tickets' && onTickets) { onTickets(); return; }
+            if (item.id === 'tasks' && onTasks) { onTasks(); return; }
+            setActiveTab(item.id);
+          };
+          const C = item.color || O;
+          const lit = active || item.portal;
+          const showRedDot = item.id === 'tasks';
+          const showGreenDot = item.id === 'pulse';
           return (
-            <button key={item.id} onClick={() => setActiveTab(item.id)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 14px', borderRadius: 999, border: 'none', background: active ? `linear-gradient(135deg, ${O}55, ${O}33)` : 'transparent', cursor: 'pointer', transition: 'background 0.2s', boxShadow: active ? `0 2px 12px ${O}44` : 'none' }}>
-              <span style={{ display: 'flex', color: active ? O : dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>{item.icon}</span>
-              <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: active ? O : dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>{item.label}</span>
+            <button key={item.id} onClick={handleClick} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 8px', borderRadius: 999, border: 'none', background: active ? `${C}28` : 'transparent', cursor: 'pointer', transition: 'background 0.2s', boxShadow: active ? `0 2px 12px ${C}44` : 'none', position: 'relative' }}>
+              <span style={{ display: 'flex', position: 'relative', color: lit ? C : dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>
+                {item.icon}
+                {(showRedDot || showGreenDot) && (
+                  <span style={{ position: 'absolute', top: -2, right: -3, width: 7, height: 7, borderRadius: '50%', background: showRedDot ? '#ef4444' : '#00d084', zIndex: 2, pointerEvents: 'none' }}>
+                    <span style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: showRedDot ? '#ef4444' : '#00d084', animation: 'navDotPing 1.4s ease-out infinite', pointerEvents: 'none' }} />
+                  </span>
+                )}
+              </span>
+              <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: lit ? C : dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>{item.label}</span>
             </button>
           );
         })}
@@ -33904,6 +33960,16 @@ function PCGPortal() {
   const sidebarScrollPos = useRef(0);            // persisted scroll position across re-renders
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem('pcg_sidebar_collapsed') === 'true'; } catch { return false; } });
   const [showMoreSheet, setShowMoreSheet] = useState(false);
+  const [showPinEditor, setShowPinEditor] = useState(false);
+  const [mobileNavPins, setMobileNavPins] = useState(null); // null = use role default
+  useEffect(() => {
+    if (!user?.id) { setMobileNavPins(null); return; }
+    try {
+      const saved = localStorage.getItem('pcg_nav_pins_' + user.id);
+      if (saved) setMobileNavPins(JSON.parse(saved));
+      else setMobileNavPins(null);
+    } catch { setMobileNavPins(null); }
+  }, [user?.id]);
   const [sidebarGroupsOpen, setSidebarGroupsOpen] = useState(() => {
     try {
       const saved = localStorage.getItem('pcg_sidebar_groups');
@@ -34073,6 +34139,7 @@ function PCGPortal() {
   const pinnedNavIds = (pinnedTabIds ?? (PINNED_DEFAULTS[user?.userType] || []))
     .filter(id => TABS.some(t => t.id === id));
   const togglePinNav = (id) => {
+    if (TABS.find(t => t.id === id)?.noPinToggle) return;
     setPinnedTabIds(prev => {
       const base = prev ?? (PINNED_DEFAULTS[user?.userType] || []);
       const next = base.includes(id) ? base.filter(x => x !== id) : [...base, id];
@@ -35339,7 +35406,8 @@ function PCGPortal() {
         salesWeeks={salesWeeks}
         cashDeposits={cashDeposits}
         onFullPortal={() => togglePortalMode(true)}
-        onOrion={() => { togglePortalMode(true); setTab("chat"); }}
+        onTickets={() => { togglePortalMode(true); setTab("tickets"); }}
+        onTasks={() => { togglePortalMode(true); setTab("tasks"); }}
         onLogout={handleLogout}
       />
     );
@@ -35455,7 +35523,7 @@ function PCGPortal() {
         </span>
         {!collapsed && <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tabDef.label}</span>}
         {/* Pin / unpin toggle — appears on row hover, stays lit when pinned */}
-        {!collapsed && onTogglePin && (
+        {!collapsed && onTogglePin && !tabDef.noPinToggle && (
           <span
             className={"nav-pin" + (pinned ? " pinned" : "")}
             role="button"
@@ -36086,7 +36154,7 @@ function PCGPortal() {
   );
 
   if (user && isMobile && !preferFullPortal && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
-    return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} todos={todos} projects={projects} users={users} />;
+    return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} onTickets={() => { togglePortalMode(true); setTab("tickets"); }} onTasks={() => { togglePortalMode(true); setTab("tasks"); }} todos={todos} projects={projects} users={users} />;
   }
 
   return (
@@ -36155,13 +36223,14 @@ function PCGPortal() {
       <div style={{ flex: 1, overflow: "auto", transition: "background .3s", paddingBottom: isMobile ? 72 : 0 }}>
 
         {/* Top bar */}
-        <div className="mobile-topbar-padding" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.4vw 5vw", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "sticky", top: 0, zIndex: 10, transition: "background .3s, border .3s" }}>
+        <div className="mobile-topbar-padding" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "0.6rem 1rem" : "1.4vw 5vw", minHeight: isMobile ? 52 : "unset", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "sticky", top: 0, zIndex: 10, transition: "background .3s, border .3s" }}>
           <div style={{ display: "flex", alignItems: "center", gap:"0.75rem" }}>
             {/* Hamburger — mobile only */}
             {isMobile && (
               <button onClick={() => setDrawerOpen(o => !o)} style={{
-                background: "none", border: "none", cursor: "pointer", padding: 4,
-                display: "flex", alignItems: "center", color: th.text
+                background: "none", border: "none", cursor: "pointer",
+                width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center",
+                color: th.text, borderRadius: 8, flexShrink: 0, touchAction: "manipulation",
               }}>
                 {ICONS.menu(th.text)}
               </button>
@@ -36523,18 +36592,30 @@ function PCGPortal() {
       {(() => {
         // Pick 4 pinned tabs based on role
         const ut = user?.userType;
-        const pinnedIds = (ut === "executive" || ut === "it")
-          ? ["dashboard", "pulse", "labor", "chat"]
+        // Role defaults (3 slots — dashboard is always slot 1, locked)
+        const roleDefaults = (ut === "executive" || ut === "it")
+          ? ["pulse", "labor", "chat"]
           : ut === "office_staff"
-          ? ["dashboard", "pulse", "labor", "chat"]
+          ? ["pulse", "tickets", "chat"]
           : ut === "dm"
-          ? ["dashboard", "labor", "chat", "tickets"]
+          ? ["tasks", "labor", "chat"]
           : ut === "manager"
-          ? ["dashboard", "labor", "chat", "tickets"]
-          : ["dashboard", "chat", "announcements", "tickets"];
+          ? ["tasks", "chat", "tickets"]
+          : ut === "maintenance"
+          ? ["tickets", "calendar", "chat"]
+          : ut === "construction"
+          ? ["projects", "chat", "tickets"]
+          : ["chat", "announcements", "tickets"];
 
+        const savePins = (pins) => {
+          setMobileNavPins(pins);
+          try { localStorage.setItem('pcg_nav_pins_' + user.id, JSON.stringify(pins)); } catch {}
+        };
+
+        const customPins3 = mobileNavPins || roleDefaults;
+        const pinnedIds = ["dashboard", ...customPins3];
         const pinnedTabs = pinnedIds.map(id => TABS.find(t => t.id === id)).filter(Boolean);
-        const moreTabs = TABS.filter(t => !pinnedIds.includes(t.id));
+        const moreTabs = TABS.filter(t => !pinnedIds.includes(t.id) && t.id !== "dashboard");
         const moreHasActive = moreTabs.some(t => t.id === tab);
 
         const MobileNavBtn = ({ t, onClick: oc }) => {
@@ -36543,22 +36624,30 @@ function PCGPortal() {
           const badge = t.id === "chat" && chatUnreadCount > 0 ? chatUnreadCount
             : t.id === "cash" && cashMissingCount > 0 ? cashMissingCount
             : null;
+          const showRedDot = t.id === "tasks" && !badge;
+          const showGreenDot = t.id === "pulse";
           return (
             <button onClick={oc || (() => setTab(t.id))} style={{
               flex: 1, display: "flex", flexDirection: "column",
               alignItems: "center", justifyContent: "center",
               gap: "0.2rem", background: "none", border: "none", cursor: "pointer",
               padding: "6px 4px 4px", color,
-              fontFamily: "'Source Sans 3'", fontSize: "0.6rem", fontWeight: active ? 700 : 400,
+              fontFamily: "'Source Sans 3'", fontSize: "0.65rem", fontWeight: active ? 700 : 400,
               transition: "color .15s", position: "relative",
               borderTop: active ? `2.5px solid ${color}` : "2.5px solid transparent",
+              touchAction: "manipulation",
             }}>
-              <span style={{ fontSize: "1.15rem", display: "flex", alignItems: "center", lineHeight: 1 }}>
+              <span style={{ fontSize: "1.25rem", display: "flex", alignItems: "center", lineHeight: 1, position: "relative" }}>
                 {typeof t.icon === "function" ? t.icon(color) : t.icon}
+                {(showRedDot || showGreenDot) && (
+                  <span style={{ position: "absolute", top: -1, right: -4, width: 7, height: 7, borderRadius: "50%", background: showRedDot ? "#ef4444" : "#00d084", zIndex: 2, pointerEvents: "none" }}>
+                    <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: showRedDot ? "#ef4444" : "#00d084", animation: "navDotPing 1.4s ease-out infinite", pointerEvents: "none" }} />
+                  </span>
+                )}
               </span>
               <span style={{ lineHeight: 1.1, maxWidth: 56, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
               {badge > 0 && (
-                <span style={{ position: "absolute", top: 5, right: "calc(50% - 18px)", width: 8, height: 8, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" }} />
+                <span style={{ position: "absolute", top: 4, right: "calc(50% - 20px)", minWidth: 16, height: 16, borderRadius: 8, background: "#ef4444", color: "#fff", fontSize: "0.55rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", boxShadow: "0 1px 4px #ef4444aa" }}>{badge > 9 ? "9+" : badge}</span>
               )}
             </button>
           );
@@ -36581,9 +36670,10 @@ function PCGPortal() {
                 gap: "0.2rem", background: "none", border: "none", cursor: "pointer",
                 padding: "6px 4px 4px",
                 color: (showMoreSheet || moreHasActive) ? O : th.muted,
-                fontFamily: "'Source Sans 3'", fontSize: "0.6rem", fontWeight: (showMoreSheet || moreHasActive) ? 700 : 400,
+                fontFamily: "'Source Sans 3'", fontSize: "0.65rem", fontWeight: (showMoreSheet || moreHasActive) ? 700 : 400,
                 borderTop: (showMoreSheet || moreHasActive) ? `2.5px solid ${O}` : "2.5px solid transparent",
                 position: "relative",
+                touchAction: "manipulation",
               }}>
                 <Icon color={(showMoreSheet || moreHasActive) ? O : th.muted} size={18}
                   d={<><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></>} />
@@ -36597,10 +36687,12 @@ function PCGPortal() {
             {/* More sheet — slides up from bottom */}
             {showMoreSheet && (
               <>
+                <style>{`@keyframes moreSheetUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
                 {/* Backdrop */}
                 <div onClick={() => setShowMoreSheet(false)} style={{
                   position: "fixed", inset: 0, zIndex: 110,
                   background: "#00000066",
+                  animation: "fadeIn .15s ease",
                 }} />
                 {/* Sheet */}
                 <div style={{
@@ -36610,12 +36702,13 @@ function PCGPortal() {
                   maxHeight: "65vh", overflowY: "auto",
                   padding: "0 0 8px",
                   boxShadow: "0 -8px 32px #00000044",
+                  animation: "moreSheetUp 200ms cubic-bezier(0.25,0.46,0.45,0.94) both",
                 }}>
                   {/* Handle */}
                   <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 4px" }}>
                     <div style={{ width: 36, height: 4, borderRadius: 999, background: th.subtle, opacity: 0.5 }} />
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", padding: "4px 8px 8px", gap: "2px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", padding: "4px 8px 8px", gap: "4px" }}>
                     {moreTabs.map(t => {
                       const active = tab === t.id;
                       const color = active ? (t.green ? "#00d084" : O) : th.muted;
@@ -36626,18 +36719,20 @@ function PCGPortal() {
                         <button key={t.id} onClick={() => { setTab(t.id); setShowMoreSheet(false); }} style={{
                           display: "flex", flexDirection: "column", alignItems: "center",
                           justifyContent: "center", gap: "0.3rem",
-                          padding: "14px 6px 12px",
+                          padding: "16px 8px 14px",
+                          minHeight: 72,
                           background: active ? `${color}12` : "transparent",
                           border: `1px solid ${active ? `${color}33` : "transparent"}`,
                           borderRadius: "12px", cursor: "pointer", position: "relative",
-                          fontFamily: "'Source Sans 3'", fontSize: "0.65rem",
+                          fontFamily: "'Source Sans 3'", fontSize: "0.68rem",
                           fontWeight: active ? 700 : 400, color,
                           transition: "all .15s",
+                          touchAction: "manipulation",
                         }}>
-                          <span style={{ fontSize: "1.3rem", display: "flex", lineHeight: 1 }}>
+                          <span style={{ fontSize: "1.4rem", display: "flex", lineHeight: 1 }}>
                             {typeof t.icon === "function" ? t.icon(color) : t.icon}
                           </span>
-                          <span style={{ textAlign: "center", lineHeight: 1.2, maxWidth: 64, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
+                          <span style={{ textAlign: "center", lineHeight: 1.25, maxWidth: 80, wordBreak: "break-word", hyphens: "auto" }}>{t.label}</span>
                           {badge > 0 && (
                             <span style={{ position: "absolute", top: 8, right: 8, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" }} />
                           )}
