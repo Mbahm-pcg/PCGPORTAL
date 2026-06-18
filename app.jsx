@@ -942,7 +942,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
         {/* ── LEFT: Brand panel ── */}
         <div style={{
           padding: narrow
-            ? (tinyScreen ? "3rem 1.25rem 1rem" : "3.5rem 1.5rem 1rem")
+            ? (tinyScreen ? "5rem 1.25rem 1rem" : "4.5rem 1.5rem 1rem")
             : "4rem 3rem 4rem 5rem",
           textAlign: narrow ? "center" : "left",
           opacity: mounted ? 1 : 0,
@@ -1365,8 +1365,8 @@ function Login({ onLogin, dark, toggleDark, users }) {
               style={{
                 display: "flex",
                 width: "100%",
-                padding: "1rem 1rem",
-                minHeight: 48,
+                padding: "1.1rem 1rem",
+                minHeight: 52,
                 fontSize: "0.9rem",
                 fontWeight: 800,
                 fontFamily: "'Source Sans 3'",
@@ -1423,7 +1423,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
               ) : (
                 <div onClick={() => tokenClientRef.current?.requestAccessToken({ prompt: "select_account" })} style={{
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    gap: "0.625rem", width: "100%", padding: "0.72rem 1rem",
+                    gap: "0.625rem", width: "100%", padding: "0.85rem 1rem",
                     borderRadius: "2rem", cursor: "pointer",
                     border: `1.5px solid ${dark ? "rgba(255,255,255,0.15)" : "#dadce0"}`,
                     background: dark ? "rgba(255,255,255,0.07)" : "#fff",
@@ -3992,6 +3992,7 @@ const LOCATION_TOOLS = [
 // Popover: enter an address → rank the 10 nearest stores (straight-line, instant)
 // on a Leaflet map, with real driving distance/time fetched per store on click.
 function ClosestToFinder({ th, onClose }) {
+  const O = '#FF671F';
   const [addr, setAddr] = useState('');
   const [origin, setOrigin] = useState(null);   // { lat, lng, label }
   const [ranked, setRanked] = useState([]);      // [{ pc, name, address, miles }]
@@ -3999,13 +4000,58 @@ function ClosestToFinder({ th, onClose }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [hoverPc, setHoverPc] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [activeSugIdx, setActiveSugIdx] = useState(-1);
+  const suggestTimer = useRef(null);
   const mapDiv = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef({});
 
+  function handleAddrChange(val) {
+    setAddr(val);
+    setActiveSugIdx(-1);
+    clearTimeout(suggestTimer.current);
+    if (val.trim().length < 3) { setSuggestions([]); setShowSuggestions(false); return; }
+    suggestTimer.current = setTimeout(async () => {
+      setSuggestLoading(true);
+      try {
+        const r = await fetch('/.netlify/functions/geocode-suggest', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: val.trim() }),
+        }).then(x => x.json());
+        setSuggestions(r.suggestions || []);
+        setShowSuggestions((r.suggestions || []).length > 0);
+      } catch { setSuggestions([]); setShowSuggestions(false); }
+      setSuggestLoading(false);
+    }, 420);
+  }
+
+  function pickSuggestion(s) {
+    setAddr(s.label);
+    setSuggestions([]); setShowSuggestions(false); setActiveSugIdx(-1);
+    const o = { lat: s.lat, lng: s.lng, label: s.label };
+    const rows = STORES_SEED
+      .filter((st) => STORE_COORDS[st.pc])
+      .map((st) => ({ pc: st.pc, name: st.name, address: `${st.address}, ${st.city}, ${st.state} ${st.zip}`,
+                       miles: haversineMiles(o, STORE_COORDS[st.pc]) }))
+      .sort((a, b) => a.miles - b.miles).slice(0, 10);
+    setOrigin(o); setRanked(rows); setStatus(''); setDrive({});
+  }
+
+  function handleKeyDown(e) {
+    if (!showSuggestions || suggestions.length === 0) { if (e.key === 'Enter') find(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveSugIdx(i => Math.min(i + 1, suggestions.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveSugIdx(i => Math.max(i - 1, -1)); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (activeSugIdx >= 0 && suggestions[activeSugIdx]) pickSuggestion(suggestions[activeSugIdx]); else { setShowSuggestions(false); find(); } }
+    else if (e.key === 'Escape') { setShowSuggestions(false); setActiveSugIdx(-1); }
+  }
+
   async function find() {
     const q = addr.trim();
     if (!q) return;
+    setShowSuggestions(false);
     setBusy(true); setStatus('Locating address…'); setDrive({});
     try {
       const r = await fetch('/.netlify/functions/geocode', {
@@ -4076,10 +4122,34 @@ function ClosestToFinder({ th, onClose }) {
           <div style={{ fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: '1.05rem' }}>📍 Closest stores to an address</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '1.4rem', lineHeight: 1, cursor: 'pointer' }}>×</button>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', padding: '0.85rem 1.25rem', borderBottom: `1px solid ${th.cardBorder}`, flexWrap: 'wrap' }}>
-          <input style={{ ...inp(th), flex: '1 1 320px' }} placeholder="Enter an address, city, or ZIP…" value={addr}
-            onChange={(e) => setAddr(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') find(); }} autoFocus />
-          <button onClick={find} disabled={busy} style={{ ...btn(th), background: `linear-gradient(135deg, ${O}, #ff8040)`, color: '#fff', fontWeight: 800, border: 'none' }}>{busy ? '…' : 'Find'}</button>
+        <div style={{ padding: '0.85rem 1.25rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 320px', position: 'relative' }}>
+              <input style={{ ...inp(th), width: '100%', paddingRight: suggestLoading ? '2.2rem' : undefined }}
+                placeholder="Start typing an address, city, or ZIP…" value={addr}
+                onChange={(e) => handleAddrChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 160)}
+                onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                autoFocus />
+              {suggestLoading && (
+                <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, border: `2px solid ${O}44`, borderTopColor: O, borderRadius: '50%', animation: 'loginMeshShift 0.7s linear infinite', display: 'inline-block' }} />
+              )}
+              {showSuggestions && suggestions.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9999, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.625rem', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', marginTop: 4, overflow: 'hidden' }}>
+                  {suggestions.map((s, i) => (
+                    <div key={i} onMouseDown={() => pickSuggestion(s)}
+                      style={{ padding: '0.6rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem', color: th.text, background: i === activeSugIdx ? `${O}18` : 'transparent', borderBottom: i < suggestions.length - 1 ? `1px solid ${th.cardBorder}` : 'none', display: 'flex', alignItems: 'center', gap: '0.5rem', transition: 'background 0.1s' }}
+                      onMouseEnter={() => setActiveSugIdx(i)} onMouseLeave={() => setActiveSugIdx(-1)}>
+                      <span style={{ color: i === activeSugIdx ? O : th.muted, flexShrink: 0, fontSize: '0.9rem' }}>📍</span>
+                      <span>{s.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={find} disabled={busy} style={{ ...btn(th), background: `linear-gradient(135deg, ${O}, #ff8040)`, color: '#fff', fontWeight: 800, border: 'none', flexShrink: 0 }}>{busy ? '…' : 'Find'}</button>
+          </div>
         </div>
         {status && <div style={{ padding: '0.5rem 1.25rem', color: th.muted, fontSize: '0.8rem' }}>{status}</div>}
         <div style={{ display: 'flex', flex: 1, minHeight: 0, flexWrap: 'wrap' }}>
@@ -18285,7 +18355,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
           <Label right={<Chip color={isLive ? (loading ? "#f59e0b" : "#22c55e") : "#64748b"}>{isLive ? (loading ? "Syncing" : "Live") : "History"}</Chip>}>{isLive ? "Today's Sales" : (dayOffset === 1 ? "Yesterday's Sales" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))}</Label>
           {(isLive && loading) || histLoading ? <div style={{ color: th.muted, fontSize: "0.82rem", textAlign: "center", padding: "0.75rem" }}>Loading...</div> : (
             <>
-              <div style={{ color: O, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.1rem", lineHeight: 1, letterSpacing: 0 }}>{displaySalesAmt != null ? fmt(displaySalesAmt) : "--"}</div>
+              <div style={{ color: O, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.75rem", lineHeight: 1, letterSpacing: -1 }}>{displaySalesAmt != null ? fmt(displaySalesAmt) : "--"}</div>
               {(isLive || displayGuests != null) && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.85rem" }}>
                   <MiniStat label="Guests" value={displayGuests != null ? Math.round(displayGuests).toLocaleString() : "--"} color="#74c0fc" />
@@ -18647,7 +18717,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.27";
+const APP_VERSION = "v16.31";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -19834,7 +19904,7 @@ function FirstLoginSetup({ user, setUser, setUsers, th }) {
   };
 
   return (
-    <div style={{ minHeight:"100vh", background:th.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, transition:"background .3s" }}>
+    <div style={{ minHeight:"100vh", background:th.bg, color:th.text, display:"flex", alignItems:"center", justifyContent:"center", padding:20, transition:"background .3s, color .3s" }}>
       <div style={{ width:"100%", maxWidth:480 }}>
         <div style={{ textAlign:"center", marginBottom:"2rem" }}>
           <div style={{ fontSize:"2.5rem", marginBottom:"0.5rem" }}>👋</div>
@@ -31261,17 +31331,20 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: th.bg, fontFamily: "'Source Sans 3', sans-serif", overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: th.bg, color: th.text, fontFamily: "'Source Sans 3', sans-serif", overflow: 'hidden' }}>
 
       {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px 8px', background: th.sidebar, borderBottom: `1px solid ${th.sidebarBorder}`, flexShrink: 0 }}>
-        <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 19, color: O, letterSpacing: -0.5 }}>
-          Orion{!isExec && district && <span style={{ color: th.muted, fontWeight: 600, fontSize: 14 }}> · D{district}</span>}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px 8px', background: dark ? 'rgba(15,15,15,0.88)' : 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: O, boxShadow: `0 0 0 3px ${O}33`, flexShrink: 0 }} />
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 18, color: th.text, letterSpacing: -0.5 }}>
+            Orion{!isExec && district && <span style={{ color: O, fontWeight: 700, fontSize: 13, letterSpacing: 0 }}> · D{district}</span>}
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={onSwitchToFull} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 7, color: th.muted, cursor: 'pointer', fontSize: 11, fontFamily: "'Source Sans 3'", padding: '3px 8px', fontWeight: 600 }}>Full Portal</button>
-          <button onClick={onLogout} style={{ background: 'none', border: 'none', color: th.muted, cursor: 'pointer', fontSize: 12, fontFamily: "'Source Sans 3'", padding: '4px 8px' }}>Sign out</button>
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: `linear-gradient(135deg, ${O}, #ff9d6e)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Raleway'", fontWeight: 800, fontSize: 12, color: '#fff' }}>{initials}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={onSwitchToFull} style={{ background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)', border: 'none', borderRadius: 8, color: th.muted, cursor: 'pointer', fontSize: 11, fontFamily: "'Source Sans 3'", padding: '4px 10px', fontWeight: 600 }}>Full Portal</button>
+          <button onClick={onLogout} style={{ background: 'none', border: 'none', color: th.muted, cursor: 'pointer', fontSize: 12, fontFamily: "'Source Sans 3'", padding: '4px 6px' }}>Sign out</button>
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: `linear-gradient(135deg, ${O}, #ff9d6e)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Raleway'", fontWeight: 800, fontSize: 12, color: '#fff', boxShadow: `0 2px 8px ${O}55` }}>{initials}</div>
         </div>
       </div>
 
@@ -31414,21 +31487,49 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
         {/* ── BRIEF TAB ── */}
         {activeTab === 'brief' && (
           <div>
-            {/* KPI row */}
-            {kpi && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14, marginBottom: 12 }}>
-                <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: '13px 14px 11px' }}>
-                  <div style={{ fontSize: 10, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 5 }}>{isExec ? 'Network' : `D${district}`} WTD Sales</div>
-                  <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 22, color: th.text, lineHeight: 1 }}>{fmtDollars(kpi.totalSales)}</div>
-                  <div style={{ fontSize: 11, color: th.muted, marginTop: 4 }}>{kpi.storeCount} stores</div>
+            {/* Hero banner */}
+            {(() => {
+              const hour = new Date().getHours();
+              const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+              const firstName = (user?.name || user?.username || '').split(' ')[0];
+              const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+              const lColor = laborColor(kpi?.avgLaborPct);
+              return (
+                <div style={{ marginTop: 14, marginBottom: 12, borderRadius: 18, overflow: 'hidden', background: th.card, border: `1px solid ${th.cardBorder}`, position: 'relative' }}>
+                  {/* Gradient top stripe */}
+                  <div style={{ height: 4, background: `linear-gradient(90deg, ${O}, #a855f7, #00d084)` }} />
+                  <div style={{ padding: '14px 16px 16px' }}>
+                    {/* Greeting row */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+                      <div>
+                        <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 18, color: th.text, lineHeight: 1.15, letterSpacing: -0.3 }}>
+                          {greeting}{firstName ? `, ${firstName}` : ''} 👋
+                        </div>
+                        <div style={{ fontSize: 12, color: th.muted, marginTop: 3 }}>{todayLabel}</div>
+                      </div>
+                      <div style={{ background: `${O}20`, border: `1px solid ${O}44`, borderRadius: 999, padding: '3px 12px', fontSize: 11, fontWeight: 800, color: O, textTransform: 'uppercase', letterSpacing: 0.8, flexShrink: 0 }}>
+                        {isExec ? 'Network' : `District ${district}`}
+                      </div>
+                    </div>
+                    {/* KPI pair */}
+                    {kpi && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <div style={{ background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 12, padding: '10px 12px' }}>
+                          <div style={{ fontSize: 9, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>WTD Sales</div>
+                          <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 26, color: th.text, lineHeight: 1, letterSpacing: -1 }}>{fmtDollars(kpi.totalSales)}</div>
+                          <div style={{ fontSize: 11, color: th.muted, marginTop: 4 }}>{kpi.storeCount} stores</div>
+                        </div>
+                        <div style={{ background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 12, padding: '10px 12px' }}>
+                          <div style={{ fontSize: 9, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Avg Labor</div>
+                          <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 26, color: lColor, lineHeight: 1, letterSpacing: -1 }}>{kpi.avgLaborPct > 0 ? kpi.avgLaborPct.toFixed(1) + '%' : '—'}</div>
+                          <div style={{ fontSize: 11, color: th.muted, marginTop: 4 }}>WTD avg</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: '13px 14px 11px' }}>
-                  <div style={{ fontSize: 10, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 5 }}>Avg Labor %</div>
-                  <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 22, color: laborColor(kpi.avgLaborPct), lineHeight: 1 }}>{kpi.avgLaborPct > 0 ? kpi.avgLaborPct.toFixed(1) + '%' : '—'}</div>
-                  <div style={{ fontSize: 11, color: th.muted, marginTop: 4 }}>WTD avg</div>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Brief card */}
             <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '14px 0 8px' }}>Today's Brief</div>
@@ -31692,34 +31793,52 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
         </div>
       )}
 
-      {/* Bottom nav — floating glass pill */}
-      <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 24px)', maxWidth: 460, background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', border: `1px solid ${dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.55)'}`, borderRadius: 999, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 200, boxShadow: `0 8px 40px rgba(0,0,0,0.15), inset 0 1px 0 ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.7)'}` }}>
-        {NAV_ITEMS.map(item => {
-          const active = activeTab === item.id;
-          const handleClick = () => {
-            if (item.id === 'tickets' && onTickets) { onTickets(); return; }
-            if (item.id === 'tasks' && onTasks) { onTasks(); return; }
-            setActiveTab(item.id);
-          };
-          const C = item.color || O;
-          const lit = active || item.portal;
-          const showRedDot = item.id === 'tasks';
-          const showGreenDot = item.id === 'pulse';
-          return (
-            <button key={item.id} onClick={handleClick} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 8px', borderRadius: 999, border: 'none', background: active ? `${C}28` : 'transparent', cursor: 'pointer', transition: 'background 0.2s', boxShadow: active ? `0 2px 12px ${C}44` : 'none', position: 'relative' }}>
-              <span style={{ display: 'flex', position: 'relative', color: lit ? C : dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>
-                {item.icon}
-                {(showRedDot || showGreenDot) && (
-                  <span style={{ position: 'absolute', top: -2, right: -3, width: 7, height: 7, borderRadius: '50%', background: showRedDot ? '#ef4444' : '#00d084', zIndex: 2, pointerEvents: 'none' }}>
-                    <span style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: showRedDot ? '#ef4444' : '#00d084', animation: 'navDotPing 1.4s ease-out infinite', pointerEvents: 'none' }} />
-                  </span>
-                )}
-              </span>
-              <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: lit ? C : dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>{item.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Bottom nav — animated floating circle glass pill */}
+      {(() => {
+        const activeIdx = NAV_ITEMS.findIndex(n => n.id === activeTab);
+        const safeIdx = activeIdx >= 0 ? activeIdx : 0;
+        const activeColor = NAV_ITEMS[safeIdx]?.color || O;
+        const circleLeft = `calc(${(safeIdx + 0.5) * (100 / 6)}% - 27px)`;
+        const spring = '0.38s cubic-bezier(0.34, 1.4, 0.64, 1)';
+        return (
+          <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 24px)', maxWidth: 460, zIndex: 200 }}>
+            {/* Floating active icon circle */}
+            <div style={{ position: 'absolute', width: 54, height: 54, borderRadius: '50%', background: `linear-gradient(135deg, ${activeColor}, ${activeColor}bb)`, top: -36, left: circleLeft, transition: `left ${spring}, background 0.25s ease`, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 6px 24px ${activeColor}88`, color: '#fff', pointerEvents: 'none' }}>
+              <span style={{ transform: 'scale(1.2)', display: 'flex' }}>{NAV_ITEMS[safeIdx]?.icon}</span>
+            </div>
+            {/* Glass pill bar */}
+            <div style={{ background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.22)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', border: `1px solid ${dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.6)'}`, borderRadius: 999, display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', height: 62, position: 'relative', zIndex: 0, boxShadow: `0 8px 40px rgba(0,0,0,0.15), inset 0 1px 0 ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.7)'}` }}>
+              {NAV_ITEMS.map((item) => {
+                const isActive = item.id === activeTab;
+                const handleClick = () => {
+                  if (item.id === 'tickets' && onTickets) { onTickets(); return; }
+                  if (item.id === 'tasks' && onTasks) { onTasks(); return; }
+                  setActiveTab(item.id);
+                };
+                const showRedDot = item.id === 'tasks';
+                const showGreenDot = item.id === 'pulse';
+                return (
+                  <button key={item.id} onClick={handleClick}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '0 2px 10px', gap: 2, position: 'relative', WebkitTapHighlightColor: 'transparent' }}>
+                    {!isActive && (
+                      <span style={{ color: dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.4)', display: 'flex', position: 'relative' }}>
+                        {item.icon}
+                        {(showRedDot || showGreenDot) && (
+                          <span style={{ position: 'absolute', top: -2, right: -3, width: 7, height: 7, borderRadius: '50%', background: showRedDot ? '#ef4444' : '#00d084', zIndex: 2, pointerEvents: 'none' }}>
+                            <span style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: showRedDot ? '#ef4444' : '#00d084', animation: 'navDotPing 1.4s ease-out infinite', pointerEvents: 'none' }} />
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {isActive && <div style={{ height: 22 }} />}
+                    <span style={{ fontSize: '0.52rem', fontWeight: isActive ? 800 : 400, letterSpacing: 0.4, textTransform: 'uppercase', lineHeight: 1, color: isActive ? activeColor : dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.4)', fontFamily: "'Source Sans 3'" }}>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -32304,7 +32423,7 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: th.bg, fontFamily: "'Source Sans 3', sans-serif", overflow: 'hidden', maxWidth: 480, margin: '0 auto', position: 'relative' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: th.bg, color: th.text, fontFamily: "'Source Sans 3', sans-serif", overflow: 'hidden', maxWidth: 480, margin: '0 auto', position: 'relative' }}>
 
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px 8px', background: th.sidebar, borderBottom: `1px solid ${th.sidebarBorder}`, flexShrink: 0 }}>
@@ -32868,7 +32987,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
     const dayProjects  = projForDay(dayStr);
     const weekStr = `${MONTHS_ABR[weekStart.getMonth()]} ${weekStart.getDate()} - ${MONTHS_ABR[new Date(weekStart.getFullYear(),weekStart.getMonth(),weekStart.getDate()+6).getMonth()]} ${new Date(weekStart.getFullYear(),weekStart.getMonth(),weekStart.getDate()+6).getDate()}, ${weekStart.getFullYear()}`;
     return (
-      <div style={{background:th.bg,minHeight:'100vh',paddingBottom:90,fontFamily:"'Source Sans 3',sans-serif"}}>
+      <div style={{background:th.bg,color:th.text,minHeight:'100vh',paddingBottom:90,fontFamily:"'Source Sans 3',sans-serif"}}>
         {/* Header */}
         <div style={{background:th.sidebar,padding:'52px 16px 0',borderBottom:`1px solid ${th.sidebarBorder}`}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
@@ -32943,26 +33062,15 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
           </>}
         </div>
 
-        {/* Bottom nav */}
-        <div style={{position:'fixed',bottom:0,left:0,right:0,background:th.sidebar,borderTop:`1px solid ${th.sidebarBorder}`,display:'flex',padding:'8px 0 24px',zIndex:50}}>
-          {[{label:'Projects',icon:ICONS.projects,tab:'projects'},{label:'Calendar',icon:ICONS.calendar,tab:'calendar'},{label:'Chat',icon:ICONS.chat,tab:'chat'}].map(({label,icon,tab})=>(
-            <div key={label} onClick={()=>{ if(tab==='chat'){onOpenChat?.();}else{setNavTab(tab); if(tab==='projects') setScreen('list');} }} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer'}}>
-              <div style={{color:navTab===tab?O:th.muted}}>{icon(navTab===tab?O:th.muted)}</div>
-              <div style={{fontSize:10,fontWeight:700,color:navTab===tab?O:th.muted}}>{label}</div>
-            </div>
-          ))}
-          <div onClick={onFullPortal} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer'}}>
-            <div style={{color:th.muted}}>{ICONS.dashboard(th.muted)}</div>
-            <div style={{fontSize:10,fontWeight:700,color:th.muted}}>Full Portal</div>
-          </div>
-        </div>
+        {/* Bottom nav — floating glass pill */}
+        {(()=>{const CNAV=[{id:'projects',label:'Projects',icon:(c)=>ICONS.projects(c)},{id:'calendar',label:'Calendar',icon:(c)=>ICONS.calendar(c)},{id:'chat',label:'Chat',icon:(c)=>ICONS.chat(c)},{id:'portal',label:'Portal',icon:(c)=>ICONS.dashboard(c)}];const activeIdx=navTab==='projects'?0:navTab==='calendar'?1:-1;const spring='0.38s cubic-bezier(0.34,1.4,0.64,1)';return(<div style={{position:'fixed',bottom:16,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:420,zIndex:100}}>{activeIdx>=0&&<div style={{position:'absolute',width:54,height:54,borderRadius:'50%',background:'linear-gradient(135deg,#FF671F,#ff9a5c)',top:-36,left:`calc(${(activeIdx+0.5)*25}% - 28px)`,transition:`left ${spring}`,zIndex:2,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 6px 24px #FF671F88',color:'#fff',pointerEvents:'none'}}>{CNAV[activeIdx].icon('#fff')}</div>}<div style={{background:'rgba(255,255,255,0.10)',backdropFilter:'blur(40px) saturate(180%)',WebkitBackdropFilter:'blur(40px) saturate(180%)',border:'1px solid rgba(255,255,255,0.18)',borderRadius:999,display:'grid',gridTemplateColumns:'repeat(4,1fr)',height:62,position:'relative',zIndex:0,boxShadow:'0 8px 40px rgba(0,0,0,0.18),inset 0 1px 0 rgba(255,255,255,0.12)'}}>{CNAV.map((item,i)=>{const isActive=i===activeIdx;const handleClick=()=>{if(item.id==='chat'){onOpenChat?.();}else if(item.id==='portal'){onFullPortal();}else{setNavTab(item.id);if(item.id==='projects')setScreen('list');}};return(<button key={item.id} onClick={handleClick} style={{background:'none',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',padding:'0 4px 10px',gap:2,fontFamily:"'Source Sans 3'",position:'relative',WebkitTapHighlightColor:'transparent'}}>{!isActive&&<div style={{transition:'opacity 0.2s'}}>{item.icon('rgba(255,255,255,0.45)')}</div>}{isActive&&<div style={{height:22}}/>}<span style={{fontSize:'0.57rem',fontWeight:isActive?800:400,letterSpacing:0.5,textTransform:'uppercase',lineHeight:1,color:isActive?'#fff':'rgba(255,255,255,0.45)'}}>{item.label}</span></button>);})}</div></div>);})()}
       </div>
     );
   }
 
   // ── Screen: Project List ────────────────────────────────────────────────────
   if (screen === 'list') return (
-    <div style={{background:th.bg, minHeight:'100vh', paddingBottom:90, fontFamily:"'Source Sans 3',sans-serif"}}>
+    <div style={{background:th.bg, color:th.text, minHeight:'100vh', paddingBottom:90, fontFamily:"'Source Sans 3',sans-serif"}}>
       <div style={{background:th.sidebar, padding:'52px 20px 14px', borderBottom:`1px solid ${th.sidebarBorder}`}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
           <div>
@@ -33029,22 +33137,8 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
         </>}
       </div>
 
-      <div style={{position:'fixed',bottom:0,left:0,right:0,background:th.sidebar,borderTop:`1px solid ${th.sidebarBorder}`,display:'flex',padding:'8px 0 24px',zIndex:50}}>
-        {[
-          {label:'Projects', icon:ICONS.projects, tab:'projects'},
-          {label:'Calendar', icon:ICONS.calendar, tab:'calendar'},
-          {label:'Chat',     icon:ICONS.chat,     tab:'chat'},
-        ].map(({label,icon,tab})=>(
-          <div key={label} onClick={()=>{ if(tab==='chat'){onOpenChat?.();}else{setNavTab(tab); if(tab==='projects') setScreen('list');} }} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer'}}>
-            <div style={{color:navTab===tab?O:th.muted}}>{icon(navTab===tab?O:th.muted)}</div>
-            <div style={{fontSize:10,fontWeight:700,color:navTab===tab?O:th.muted}}>{label}</div>
-          </div>
-        ))}
-        <div onClick={onFullPortal} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer'}}>
-          <div style={{color:th.muted}}>{ICONS.dashboard(th.muted)}</div>
-          <div style={{fontSize:10,fontWeight:700,color:th.muted}}>Full Portal</div>
-        </div>
-      </div>
+      {/* Bottom nav — floating glass pill */}
+      {(()=>{const CNAV=[{id:'projects',label:'Projects',icon:(c)=>ICONS.projects(c)},{id:'calendar',label:'Calendar',icon:(c)=>ICONS.calendar(c)},{id:'chat',label:'Chat',icon:(c)=>ICONS.chat(c)},{id:'portal',label:'Portal',icon:(c)=>ICONS.dashboard(c)}];const activeIdx=navTab==='projects'?0:navTab==='calendar'?1:-1;const spring='0.38s cubic-bezier(0.34,1.4,0.64,1)';return(<div style={{position:'fixed',bottom:16,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:420,zIndex:100}}>{activeIdx>=0&&<div style={{position:'absolute',width:54,height:54,borderRadius:'50%',background:'linear-gradient(135deg,#FF671F,#ff9a5c)',top:-36,left:`calc(${(activeIdx+0.5)*25}% - 28px)`,transition:`left ${spring}`,zIndex:2,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 6px 24px #FF671F88',color:'#fff',pointerEvents:'none'}}>{CNAV[activeIdx].icon('#fff')}</div>}<div style={{background:'rgba(255,255,255,0.10)',backdropFilter:'blur(40px) saturate(180%)',WebkitBackdropFilter:'blur(40px) saturate(180%)',border:'1px solid rgba(255,255,255,0.18)',borderRadius:999,display:'grid',gridTemplateColumns:'repeat(4,1fr)',height:62,position:'relative',zIndex:0,boxShadow:'0 8px 40px rgba(0,0,0,0.18),inset 0 1px 0 rgba(255,255,255,0.12)'}}>{CNAV.map((item,i)=>{const isActive=i===activeIdx;const handleClick=()=>{if(item.id==='chat'){onOpenChat?.();}else if(item.id==='portal'){onFullPortal();}else{setNavTab(item.id);if(item.id==='projects')setScreen('list');}};return(<button key={item.id} onClick={handleClick} style={{background:'none',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',padding:'0 4px 10px',gap:2,fontFamily:"'Source Sans 3'",position:'relative',WebkitTapHighlightColor:'transparent'}}>{!isActive&&<div style={{transition:'opacity 0.2s'}}>{item.icon('rgba(255,255,255,0.45)')}</div>}{isActive&&<div style={{height:22}}/>}<span style={{fontSize:'0.57rem',fontWeight:isActive?800:400,letterSpacing:0.5,textTransform:'uppercase',lineHeight:1,color:isActive?'#fff':'rgba(255,255,255,0.45)'}}>{item.label}</span></button>);})}</div></div>);})()}
     </div>
   );
 
@@ -33052,7 +33146,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
   if (screen === 'detail' && selectedProject) {
     const p = selectedProject; const phase = phaseInfo(p); const pct = phasePct(p);
     return (
-      <div style={{background:th.bg,minHeight:'100vh',paddingBottom:90,fontFamily:"'Source Sans 3',sans-serif"}}>
+      <div style={{background:th.bg,color:th.text,minHeight:'100vh',paddingBottom:90,fontFamily:"'Source Sans 3',sans-serif"}}>
         <div onClick={()=>goTo('list')} style={{display:'flex',alignItems:'center',gap:6,color:O,fontSize:14,fontWeight:700,cursor:'pointer',padding:'54px 20px 10px',background:th.sidebar,borderBottom:`1px solid ${th.sidebarBorder}`}}>
           &lt; Back to Projects
         </div>
@@ -33135,7 +33229,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
       rentedEquipment:'Any equipment rented on site?',
     };
     return (
-      <div style={{minHeight:'100vh',background:th.bg,fontFamily:"'Source Sans 3',sans-serif",paddingBottom:40}}>
+      <div style={{minHeight:'100vh',background:th.bg,color:th.text,fontFamily:"'Source Sans 3',sans-serif",paddingBottom:40}}>
         {/* Header */}
         <div style={{background:th.sidebar,borderBottom:`1px solid ${th.sidebarBorder}`,padding:'10px 14px',position:'sticky',top:0,zIndex:10}}>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
@@ -33313,7 +33407,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
   if (screen === 'report' && selectedProject) {
     const p = selectedProject;
     return (
-      <div style={{background:th.bg,minHeight:'100vh',fontFamily:"'Source Sans 3',sans-serif"}}>
+      <div style={{background:th.bg,color:th.text,minHeight:'100vh',fontFamily:"'Source Sans 3',sans-serif"}}>
         <div onClick={()=>goTo('detail')} style={{display:'flex',alignItems:'center',gap:6,color:O,fontSize:14,fontWeight:700,cursor:'pointer',padding:'54px 20px 10px',background:th.sidebar,borderBottom:`1px solid ${th.sidebarBorder}`}}>
           &lt; Back to {p.nickname||p.address}
         </div>
@@ -35728,7 +35822,7 @@ function PCGPortal() {
   // ── Kiosk: Pulse TV ─────────────────────────────────────────────────────────
   if (user.userType === "kiosk_pulse") {
     return (
-      <div style={{ minHeight:"100vh", background:th.bg, transition:"background .3s" }}>
+      <div style={{ minHeight:"100vh", background:th.bg, color:th.text, transition:"background .3s, color .3s" }}>
         {/* Lock button */}
         <button onClick={handleLogout} style={{
           position:"fixed", top:16, right:16, zIndex:100,
@@ -35751,7 +35845,7 @@ function PCGPortal() {
   // ── Kiosk: Upload Station ───────────────────────────────────────────────────
   if (user.userType === "kiosk_upload") {
     return (
-      <div style={{ minHeight:"100vh", background:th.bg, transition:"background .3s", display:"flex", alignItems:"center", justifyContent:"center" }}>
+      <div style={{ minHeight:"100vh", background:th.bg, color:th.text, transition:"background .3s, color .3s", display:"flex", alignItems:"center", justifyContent:"center" }}>
         {/* Lock button */}
         <button onClick={handleLogout} style={{
           position:"fixed", top:16, right:16, zIndex:100,
@@ -36470,7 +36564,7 @@ function PCGPortal() {
   }
 
   return (
-    <div className="dash-enter" style={{ display: "flex", minHeight: "100vh", background: th.bg, transition: "background .3s" }}>
+    <div className="dash-enter" style={{ display: "flex", minHeight: "100vh", background: th.bg, color: th.text, transition: "background .3s, color .3s" }}>
 
       {/* Session timeout warning banner */}
       {showTimeoutWarning && (
