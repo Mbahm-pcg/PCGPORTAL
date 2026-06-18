@@ -403,7 +403,7 @@ const canViewProjects = (u) => u && u.userType !== "manager";
 const ADMIN_2FA_TYPES = [];
 const isAdminTwoFactorLocked = (u) => !!u && ADMIN_2FA_TYPES.includes(u.userType);
 const isTwoFactorRequired = (u) => !!u && (isAdminTwoFactorLocked(u) || u.twoFactorRequired === true);
-const TRUSTED_DEVICE_TOKEN_PREFIX = "pcg_device_token_v2_";
+const TRUSTED_DEVICE_TOKEN_PREFIX = "pcg_device_token_v3_";
 const TRUSTED_2FA_MS = 7 * 24 * 60 * 60 * 1000;
 const TOTP_BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
@@ -478,8 +478,23 @@ function generateDeviceToken() {
 
 async function isTwoFactorDeviceTrusted(user) {
   if (!user?.twoFactorSecret) return false;
-  const token = localStorage.getItem(getTrustedDeviceStorageKey(user));
-  if (!token) return false;
+  const storageKey = getTrustedDeviceStorageKey(user);
+  const raw = localStorage.getItem(storageKey);
+  if (!raw) return false;
+  let token, expiresAt;
+  try {
+    const parsed = JSON.parse(raw);
+    token = parsed.token;
+    expiresAt = parsed.expiresAt;
+  } catch {
+    // old plain-string format — treat as expired
+    localStorage.removeItem(storageKey);
+    return false;
+  }
+  if (!token || !expiresAt || Date.now() >= expiresAt) {
+    localStorage.removeItem(storageKey);
+    return false;
+  }
   try {
     const userId = String(user?.id ?? user?.username ?? "unknown");
     const res = await fetch("/.netlify/functions/trusted-devices", {
@@ -488,6 +503,7 @@ async function isTwoFactorDeviceTrusted(user) {
       body: JSON.stringify({ action: "check", userId, token }),
     });
     const json = await res.json();
+    if (!json.trusted) localStorage.removeItem(storageKey);
     return json.trusted === true;
   } catch {
     return false;
@@ -505,7 +521,7 @@ async function trustTwoFactorDevice(user) {
       body: JSON.stringify({ action: "trust", userId, token, expiresAt }),
     });
     if ((await res.json()).ok) {
-      localStorage.setItem(getTrustedDeviceStorageKey(user), token);
+      localStorage.setItem(getTrustedDeviceStorageKey(user), JSON.stringify({ token, expiresAt }));
     }
   } catch {
     // non-fatal — user just gets prompted for 2FA again next time
@@ -18717,7 +18733,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.33";
+const APP_VERSION = "v16.34";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -34660,6 +34676,30 @@ function PCGPortal() {
     return () => {
       EVENTS.forEach(e => window.removeEventListener(e, resetActivity));
       clearInterval(interval);
+    };
+  }, [user]);
+
+  // 2FA trust re-check — fires every 4 hours and whenever the tab becomes visible.
+  // If the trusted-device record has expired server-side, force logout immediately.
+  useEffect(() => {
+    if (!user || !isTwoFactorRequired(user)) return;
+    const check = async () => {
+      const trusted = await isTwoFactorDeviceTrusted(user).catch(() => false);
+      if (!trusted) {
+        logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: '2fa_trust_expired', name: user?.name });
+        try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
+        setPreferFullPortal(false);
+        setUser(null);
+        setTab("dashboard");
+        tabHistoryRef.current = ["dashboard"];
+      }
+    };
+    const interval = setInterval(check, 4 * 60 * 60 * 1000);
+    const onVisibility = () => { if (!document.hidden) check(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [user]);
 

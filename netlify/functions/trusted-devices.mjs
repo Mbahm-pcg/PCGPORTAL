@@ -27,10 +27,13 @@ async function loadDevices(store) {
   const result = await store.get(BLOB_KEY, { type: 'json' });
   const now = Date.now();
   const devices = result?.data || {};
-  // Prune expired entries on every read
   const fresh = Object.fromEntries(
     Object.entries(devices).filter(([, r]) => r.expiresAt > now)
   );
+  // Write back if any expired entries were pruned
+  if (Object.keys(fresh).length < Object.keys(devices).length) {
+    store.setJSON(BLOB_KEY, { savedAt: new Date().toISOString(), data: fresh }).catch(() => {});
+  }
   return fresh;
 }
 
@@ -58,7 +61,7 @@ export default async (request, context) => {
 
     if (action === 'trust') {
       if (!token || !expiresAt) return new Response(JSON.stringify({ error: 'Missing token or expiresAt' }), { status: 400, headers });
-      const maxExpiry = Date.now() + 8 * 24 * 60 * 60 * 1000; // server caps at 8 days
+      const maxExpiry = Date.now() + 7 * 24 * 60 * 60 * 1000; // server cap matches client (7 days)
       const devices = await loadDevices(store);
       devices[token] = { userId, trustedAt: Date.now(), expiresAt: Math.min(expiresAt, maxExpiry) };
       await store.setJSON(BLOB_KEY, { savedAt: new Date().toISOString(), data: devices });

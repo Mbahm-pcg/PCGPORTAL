@@ -1390,7 +1390,7 @@
   var ADMIN_2FA_TYPES = [];
   var isAdminTwoFactorLocked = (u) => !!u && ADMIN_2FA_TYPES.includes(u.userType);
   var isTwoFactorRequired = (u) => !!u && (isAdminTwoFactorLocked(u) || u.twoFactorRequired === true);
-  var TRUSTED_DEVICE_TOKEN_PREFIX = "pcg_device_token_v2_";
+  var TRUSTED_DEVICE_TOKEN_PREFIX = "pcg_device_token_v3_";
   var TRUSTED_2FA_MS = 7 * 24 * 60 * 60 * 1e3;
   var TOTP_BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   function createTotpSecret(length = 20) {
@@ -1458,8 +1458,22 @@
   }
   async function isTwoFactorDeviceTrusted(user) {
     if (!user?.twoFactorSecret) return false;
-    const token = localStorage.getItem(getTrustedDeviceStorageKey(user));
-    if (!token) return false;
+    const storageKey = getTrustedDeviceStorageKey(user);
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return false;
+    let token, expiresAt;
+    try {
+      const parsed = JSON.parse(raw);
+      token = parsed.token;
+      expiresAt = parsed.expiresAt;
+    } catch {
+      localStorage.removeItem(storageKey);
+      return false;
+    }
+    if (!token || !expiresAt || Date.now() >= expiresAt) {
+      localStorage.removeItem(storageKey);
+      return false;
+    }
     try {
       const userId = String(user?.id ?? user?.username ?? "unknown");
       const res = await fetch("/.netlify/functions/trusted-devices", {
@@ -1468,6 +1482,7 @@
         body: JSON.stringify({ action: "check", userId, token })
       });
       const json = await res.json();
+      if (!json.trusted) localStorage.removeItem(storageKey);
       return json.trusted === true;
     } catch {
       return false;
@@ -1484,7 +1499,7 @@
         body: JSON.stringify({ action: "trust", userId, token, expiresAt })
       });
       if ((await res.json()).ok) {
-        localStorage.setItem(getTrustedDeviceStorageKey(user), token);
+        localStorage.setItem(getTrustedDeviceStorageKey(user), JSON.stringify({ token, expiresAt }));
       }
     } catch {
     }
@@ -15059,7 +15074,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v16.33";
+  var APP_VERSION = "v16.34";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -26063,6 +26078,32 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       return () => {
         EVENTS.forEach((e) => window.removeEventListener(e, resetActivity));
         clearInterval(interval);
+      };
+    }, [user]);
+    useEffect(() => {
+      if (!user || !isTwoFactorRequired(user)) return;
+      const check = async () => {
+        const trusted = await isTwoFactorDeviceTrusted(user).catch(() => false);
+        if (!trusted) {
+          logClientEvent(user?.id, user?.userType, "session_timeout", { reason: "2fa_trust_expired", name: user?.name });
+          try {
+            localStorage.removeItem("pcg_prefer_full_portal");
+          } catch {
+          }
+          setPreferFullPortal(false);
+          setUser(null);
+          setTab("dashboard");
+          tabHistoryRef.current = ["dashboard"];
+        }
+      };
+      const interval = setInterval(check, 4 * 60 * 60 * 1e3);
+      const onVisibility = () => {
+        if (!document.hidden) check();
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+      return () => {
+        clearInterval(interval);
+        document.removeEventListener("visibilitychange", onVisibility);
       };
     }, [user]);
     useEffect(() => {
