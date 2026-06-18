@@ -62,73 +62,7 @@ const LOGOS = {
 //                     (Users: can only add/edit dm + manager, cannot touch executive/it)
 //   dm              → links, contacts, notes, todos, locations (district-filtered)
 //   manager         → links, contacts, notes, todos only
-const USERS_SEED = [
-  // ── Executive Team ──────────────────────────────────────────────────────────
-  { id:1,  username:"mike.bahm",          password:"PCG2024!",   name:"Mike Bahm",             role:"Vice President",  initials:"MB", isAdmin:true,  userType:"executive",    district:null, active:true,  darkMode:true  },
-  // ── IT Team ─────────────────────────────────────────────────────────────────
-  { id:2,  username:"it.admin",           password:"Hr0#8AtQ!f", name:"IT Admin",               role:"IT Administrator",  initials:"IT", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false },
-  { id:3,  username:"hr.admin",           password:"!19uPAs@iV", name:"HR Admin",               role:"HR / IT Staff",     initials:"HR", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false },
-  { id:92, username:"ahmed@peoplecapitalgroup.com", password:"", name:"Ahmed Bhuiyan",          role:"IT Administrator",  initials:"AB", isAdmin:true,  userType:"it",           district:null, active:true,  darkMode:false, region:"All", email:"ahmed@peoplecapitalgroup.com", phone:"", twoFactorRequired:true },
-  // ── Office Staff ────────────────────────────────────────────────────────────
-  { id:4,  username:"office.staff",       password:"w@!O7Z5vJq", name:"Office Staff",           role:"Office Staff",      initials:"OS", isAdmin:false, userType:"office_staff", district:null, active:true,  darkMode:false },
-  // ── District Managers ───────────────────────────────────────────────────────
-  { id:5,  username:"taylor.cormier",     password:"65#JERbs@r", name:"Taylor Cormier",         role:"District Manager",  initials:"TC", isAdmin:false, userType:"dm",           district:1,    active:true,  darkMode:false, email:"taylor@peoplecapitalgroup.com" },
-  { id:6,  username:"jay.patel",          password:"!KB4$8fsoX", name:"Jay Patel",              role:"District Manager",  initials:"JP", isAdmin:false, userType:"dm",           district:2,    active:true,  darkMode:false, email:"jay@peoplecapitalgroup.com" },
-  { id:7,  username:"sonia.khalique",     password:"1DtMdZ#w6@", name:"Sonia Khalique",         role:"District Manager",  initials:"SK", isAdmin:false, userType:"dm",           district:3,    active:true,  darkMode:false, email:"sonia@peoplecapitalgroup.com" },
-  { id:8,  username:"yolicet.grin",       password:"1%gC5LLy%w", name:"Yolicet Grin-Martinez",  role:"District Manager",  initials:"YG", isAdmin:false, userType:"dm",           district:4,    active:true,  darkMode:false, email:"yolicet@peoplecapitalgroup.com" },
-  { id:9,  username:"shreyes.mehta",      password:"M5u2zg$J!C", name:"Shreyes Mehta",          role:"District Manager",  initials:"SM", isAdmin:false, userType:"dm",           district:5,    active:true,  darkMode:false, email:"sunny@peoplecapitalgroup.com" },
-  { id:10, username:"mohamed.dm6",        password:"%k63sZTY#r", name:"Mohamed",                role:"District Manager",  initials:"MO", isAdmin:false, userType:"dm",           district:6,    active:true,  darkMode:false, email:"Mohamed@peoplecapitalgroup.com" },
-  { id:11, username:"sharmin.akter",      password:"aBASi#5b2#", name:"Sharmin Akter",          role:"District Manager",  initials:"SA", isAdmin:false, userType:"dm",           district:7,    active:true,  darkMode:false, email:"sharmin@peoplecapitalgroup.com" },
-  { id:12, username:"mike.d8",            password:"KRq60b%$wJ", name:"Mike (District 8)",      role:"District Manager",  initials:"MD", isAdmin:false, userType:"dm",           district:8,    active:true,  darkMode:false },
-  // ── Store Managers ──────────────────────────────────────────────────────────
-  { id:13, username:"clarence.jackson",   password:"w%HoG9%0Yl", name:"Clarence Jackson",       role:"Store Manager",     initials:"CJ", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:14, username:"siani.lopez",        password:"#9$k9JZluG", name:"Siani Lopez",            role:"Store Manager",     initials:"SL", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:15, username:"sefali.patel",       password:"y$NB#1eP0w", name:"Sefali Patel",           role:"Store Manager",     initials:"SP", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:16, username:"muska.mahboobi",     password:"$N23@fyKPs", name:"Muska Mahboobi",         role:"Store Manager",     initials:"MM", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:17, username:"md.obaid",           password:"5b4JD%hgN@", name:"MD Obaid",               role:"Store Manager",     initials:"MO", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:18, username:"sara.elhagar",       password:"rf@i%H58ET", name:"Sara Elhagar",           role:"Store Manager",     initials:"SE", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:19, username:"kirtida.singh",      password:"0l#8QGoT%a", name:"Kirtida Singh",          role:"Store Manager",     initials:"KS", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:20, username:"satpal.kaur",        password:"w6uc!FX4%G", name:"Satpal Kaur",            role:"Store Manager",     initials:"SK", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:21, username:"mosammat.akhtar",    password:"w48C@UfG$w", name:"Mosammat Akhtar",        role:"Store Manager",     initials:"MA", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:22, username:"mahfuja.tajrin",     password:"n%19Qk!HZz", name:"Mahfuja Tajrin",         role:"Store Manager",     initials:"MT", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:23, username:"ijaz.ali",           password:"7Ks$aG$O5y", name:"Ijaz Ali",               role:"Store Manager",     initials:"IA", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:24, username:"moslima.akhter",     password:"kHh4$S%1kI", name:"Moslima Akhter",         role:"Store Manager",     initials:"MA", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:25, username:"mosammat.akter",     password:"l$79IPUn$r", name:"Mosammat Akter",         role:"Store Manager",     initials:"MA", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:26, username:"mahmuda.akter",      password:"$bkG#16AMw", name:"Mahmuda Akter",          role:"Store Manager",     initials:"MA", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:27, username:"thai.banh",          password:"BrWGlu59%%", name:"Thai Banh",              role:"Store Manager",     initials:"TB", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:28, username:"rajiv.kumar",        password:"uLVh$24T@m", name:"Rajiv Kumar",            role:"Store Manager",     initials:"RK", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:29, username:"norberto.rodriguez", password:"k#BofKS94$", name:"Norberto Rodriguez",     role:"Store Manager",     initials:"NR", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:30, username:"paulina.sierra",     password:"kHMu%8r7M%", name:"Paulina Sierra",         role:"Store Manager",     initials:"PS", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:31, username:"chris.brown",        password:"Bj$7%iD3Mf", name:"Chris Brown",            role:"Store Manager",     initials:"CB", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:32, username:"edmonds.brandy",     password:"!QyU0Qf1t$", name:"Edmonds Brandy",         role:"Store Manager",     initials:"EB", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:33, username:"torres.katiuska",    password:"3%9UyIoEp!", name:"Torres Katiuska",        role:"Store Manager",     initials:"TK", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:34, username:"jessica.garcia",     password:"J$n%iwL8J1", name:"Jessica Garcia",         role:"Store Manager",     initials:"JG", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:35, username:"radha.rao",          password:"$g4#VPiMy2", name:"Radha Rao",              role:"Store Manager",     initials:"RR", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:36, username:"syncere.myer",       password:"9IhWaU#$0s", name:"Syncere Myer",           role:"Store Manager",     initials:"SM", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:37, username:"joseph.allen",       password:"7$@RP3lHmn", name:"Joseph Allen",           role:"Store Manager",     initials:"JA", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:38, username:"vinit.patel",        password:"T@p9p@8HEt", name:"Vinit Patel",            role:"Store Manager",     initials:"VP", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:39, username:"ashley.dinardo",     password:"@C9mhQa3%T", name:"Ashley DiNardo",         role:"Store Manager",     initials:"AD", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:40, username:"safiya.eshag",       password:"Yg@Vk$C5o6", name:"Safiya Eshag",           role:"Store Manager",     initials:"SE", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:41, username:"franyi.leiva",       password:"F##00eFrYe", name:"Franyi Leiva",           role:"Store Manager",     initials:"FL", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:42, username:"olivia.lilley",      password:"r%%ly65QYU", name:"Olivia Lilley",          role:"Store Manager",     initials:"OL", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:43, username:"nurani.chowdhury",   password:"8$K$5olhHM", name:"Nurani Chowdhury",       role:"Store Manager",     initials:"NC", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:44, username:"andrea.robison",     password:"l%nTO%E9h4", name:"Andrea Robison",         role:"Store Manager",     initials:"AR", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:45, username:"tejal.soni",         password:"lo3YH#v3S%", name:"Tejal Soni",             role:"Store Manager",     initials:"TS", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:46, username:"iqbal.komal",        password:"T%l$6Q1yFo", name:"Iqbal Komal",            role:"Store Manager",     initials:"IK", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:47, username:"dilara.begum",       password:"7ZLm@Xv%d5", name:"Dilara Begum",           role:"Store Manager",     initials:"DB", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:48, username:"nitin.patel",        password:"WHn8@ky#U2", name:"Nitin Patel",            role:"Store Manager",     initials:"NP", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:49, username:"kenny.fontano",      password:"$og0ILsE$7", name:"Kenny Fontano",          role:"Store Manager",     initials:"KF", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:50, username:"kintan.patel",       password:"CA@dw7$zX0", name:"Kintan Patel",           role:"Store Manager",     initials:"KP", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:51, username:"cheri.patel",        password:"7q$xW!zB4A", name:"Cheri Patel",            role:"Store Manager",     initials:"CP", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  { id:52, username:"perry.patel",        password:"oH1u%$JD0n", name:"Perry Patel",            role:"Store Manager",     initials:"PP", isAdmin:false, userType:"manager",      district:null, active:true,  darkMode:false },
-  // ── Maintenance Team ───────────────────────────────────────────────────────
-  { id:93, username:"omar.maintenance",   password:"Mx7#kP2$nQ", name:"Omar",   role:"Maintenance", initials:"OM", isAdmin:false, userType:"maintenance", district:null, active:true, darkMode:false },
-  { id:94, username:"dan.maintenance",    password:"Wd4@jR9!vL", name:"Dan",    role:"Maintenance", initials:"DN", isAdmin:false, userType:"maintenance", district:null, active:true, darkMode:false },
-  { id:95, username:"miguel.maintenance", password:"Ht6$bN3#zS", name:"Miguel", role:"Maintenance", initials:"MG", isAdmin:false, userType:"maintenance", district:null, active:true, darkMode:false },
-  // ── Kiosk Users ────────────────────────────────────────────────────────────
-  { id:90, username:"TV",               password:"PCG$2026",   name:"Pulse TV",               role:"Kiosk — Pulse",     initials:"TV", isAdmin:false, userType:"kiosk_pulse",  district:null, active:true,  darkMode:true  },
-  { id:91, username:"Upload",           password:"PCG#2025!",  name:"Upload Station",         role:"Kiosk — Upload",    initials:"UP", isAdmin:false, userType:"kiosk_upload", district:null, active:true,  darkMode:true  },
-];
+// Users are loaded from Neon via /.netlify/functions/users after login.
 
 const CAT_ICONS = {
   "Dunkin'": "☕",
@@ -765,20 +699,34 @@ function Login({ onLogin, dark, toggleDark, users }) {
         : Promise.resolve(false),
     ]);
     let found = null;
-    if (res.ok) {
-      // Server verified + issued a token (stored in portal-auth.mjs). Prefer the
-      // local identity; synthesize a minimal one if this account is server-only.
-      found = localAcct || (res.user ? {
-        username: res.user.username, name: res.user.name, userType: res.user.userType,
-        district: res.user.district, email: res.user.email, active: true,
-      } : null);
-    } else if (res.unreachable) {
-      // GRACE (Phase B): endpoint unreachable → fall back to the legacy client
-      // compare so no one is locked out. Removed in Phase D.
-      console.warn("[portal-auth] login endpoint unreachable — using legacy client compare (grace)");
-      found = users.find(u => u.username === form.u && u.password === form.p && u.active !== false) || null;
+    if (res.unreachable) {
+      setLoading(false);
+      setErr("Login service is temporarily unavailable. Please try again in a moment.");
+      return;
     }
-    // res.ok === false && !res.unreachable → server actively rejected: invalid creds.
+    if (res.ok) {
+      // Server verified + issued a token. Prefer the rich local identity if available;
+      // otherwise synthesize from the server response (which now includes all key fields).
+      found = localAcct || (res.user ? {
+        id: res.user.id,
+        username: res.user.username,
+        name: res.user.name,
+        userType: res.user.userType,
+        district: res.user.district,
+        email: res.user.email,
+        isAdmin: res.user.isAdmin || false,
+        storePC: res.user.storePC || null,
+        region: res.user.region || null,
+        darkMode: res.user.darkMode || false,
+        initials: res.user.initials || null,
+        twoFactorRequired: res.user.twoFactorRequired || false,
+        twoFactorEnabled: res.user.twoFactorEnabled || false,
+        twoFactorSecret: res.twoFactorSecret || null,
+        mustSetup: res.user.mustSetup || false,
+        active: true,
+      } : null);
+    }
+    // res.ok === false → server actively rejected: invalid creds.
 
     if (found) {
       // Use the pre-fetched device trust result to avoid a second sequential await.
@@ -2886,7 +2834,7 @@ const DISTRICTS_SEED = {
 
 // ─── Admin: User Management ──────────────────────────────────────────────────
 
-function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
+function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const [view, setView] = useState('list'); // 'list' | 'edit'
   const [editId, setEditId] = useState(null);
   const [showPw, setShowPw]   = useState(false);
@@ -3003,30 +2951,36 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
     setTimeout(() => window.scrollTo({ top: savedScrollY.current, behavior: 'instant' }), 0);
   };
 
-  const save = () => {
+  const save = async () => {
     if (!form.username || !form.name) return;
     const ini = form.initials || initials(form.name);
-    const securedForm = { ...form, twoFactorRequired: isTwoFactorRequired(form) };
+    const securedForm = { ...form, initials: ini, twoFactorRequired: isTwoFactorRequired(form) };
     if (editId) {
       const old = users.find(u => u.id === editId) || {};
-      setUsers(us => us.map(u => u.id === editId ? { ...u, ...securedForm, initials: ini } : u));
-      // Log general edit
+      const res = await fetch('/.netlify/functions/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'update', id: editId, patch: securedForm }),
+      });
+      const json = await res.json();
+      if (!res.ok) { showAlert('error', json.error || 'Save failed'); return; }
+      setUsers(us => us.map(u => u.id === editId ? { ...u, ...json.user } : u));
       logClientEvent(currentUser?.id, currentUser?.userType, 'user_edited', { targetName: form.name, targetId: editId, targetRole: form.userType });
-      // Log specific sensitive field changes
-      if (form.password && form.password !== old.password)
-        logClientEvent(currentUser?.id, currentUser?.userType, 'user_password_changed', { targetName: form.name, targetId: editId });
-      if (form.username !== old.username)
-        logClientEvent(currentUser?.id, currentUser?.userType, 'user_username_changed', { targetName: form.name, targetId: editId, from: old.username, to: form.username });
-      if ((form.email || '') !== (old.email || ''))
-        logClientEvent(currentUser?.id, currentUser?.userType, 'user_email_changed', { targetName: form.name, targetId: editId, from: old.email || '', to: form.email || '' });
-      if (securedForm.twoFactorRequired !== old.twoFactorRequired)
-        logClientEvent(currentUser?.id, currentUser?.userType, securedForm.twoFactorRequired ? 'user_2fa_enabled' : 'user_2fa_disabled', { targetName: form.name, targetId: editId });
-      if (form.userType !== old.userType)
-        logClientEvent(currentUser?.id, currentUser?.userType, 'user_role_changed', { targetName: form.name, targetId: editId, from: old.userType, to: form.userType });
+      if (form.password) logClientEvent(currentUser?.id, currentUser?.userType, 'user_password_changed', { targetName: form.name, targetId: editId });
+      if (form.username !== old.username) logClientEvent(currentUser?.id, currentUser?.userType, 'user_username_changed', { targetName: form.name, targetId: editId, from: old.username, to: form.username });
+      if ((form.email || '') !== (old.email || '')) logClientEvent(currentUser?.id, currentUser?.userType, 'user_email_changed', { targetName: form.name, targetId: editId });
+      if (securedForm.twoFactorRequired !== old.twoFactorRequired) logClientEvent(currentUser?.id, currentUser?.userType, securedForm.twoFactorRequired ? 'user_2fa_enabled' : 'user_2fa_disabled', { targetName: form.name, targetId: editId });
+      if (form.userType !== old.userType) logClientEvent(currentUser?.id, currentUser?.userType, 'user_role_changed', { targetName: form.name, targetId: editId, from: old.userType, to: form.userType });
     } else {
-      const newUser = { ...securedForm, id: nextId(), initials: ini, mustSetup: true };
-      setUsers(us => [...us, newUser]);
-      sendWelcomeEmail(newUser);
+      const res = await fetch('/.netlify/functions/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'create', user: { ...securedForm, mustSetup: true } }),
+      });
+      const json = await res.json();
+      if (!res.ok) { showAlert('error', json.error || 'Create failed'); return; }
+      setUsers(us => [...us, json.user]);
+      sendWelcomeEmail(json.user);
       logClientEvent(currentUser?.id, currentUser?.userType, 'user_created', { targetName: form.name, targetRole: form.userType });
     }
     setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
@@ -3035,17 +2989,31 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
   };
 
   const startEdit = (u) => openEditPage(u);
-  const toggleActive = (id) => {
+  const toggleActive = async (id) => {
     const target = users.find(u => u.id === id);
-    const newActive = !target?.active;
-    setUsers(us => us.map(u => u.id === id ? { ...u, active: newActive } : u));
-    logClientEvent(currentUser?.id, currentUser?.userType, newActive ? 'user_activated' : 'user_deactivated', { targetName: target?.name, targetRole: target?.userType });
+    const res = await fetch('/.netlify/functions/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'toggle-active', id }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      setUsers(us => us.map(u => u.id === id ? { ...u, ...json.user } : u));
+      logClientEvent(currentUser?.id, currentUser?.userType, json.user?.active ? 'user_activated' : 'user_deactivated', { targetName: target?.name, targetRole: target?.userType });
+    }
   };
-  const del = (id) => {
+  const del = async (id) => {
     const target = users.find(u => u.id === id);
     if (!canManageUser(currentUser, target)) return;
-    setUsers(us => us.filter(u => u.id !== id));
-    logClientEvent(currentUser?.id, currentUser?.userType, 'user_deleted', { targetName: target?.name, targetRole: target?.userType });
+    const res = await fetch('/.netlify/functions/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'delete', id }),
+    });
+    if (res.ok) {
+      setUsers(us => us.map(u => u.id === id ? { ...u, active: false } : u));
+      logClientEvent(currentUser?.id, currentUser?.userType, 'user_deleted', { targetName: target?.name, targetRole: target?.userType });
+    }
   };
 
   const filtered = users.filter(u => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
@@ -3156,6 +3124,36 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
                     <input type="checkbox" checked={formTwoFactorLocked && isAhmed(form) ? true : !!form.twoFactorRequired} disabled={formTwoFactorLocked} onChange={e=>setForm(f=>({...f,twoFactorRequired:e.target.checked}))} style={{ accentColor:"#FF671F", width:15, height:15 }} /> Require 2FA{formTwoFactorLocked ? ` (${isAhmed(form) ? "always on" : "IT admin only"})` : ""}
                   </label>
                 </div>
+                {/* Store Assignment — managers only */}
+                {form.userType === "manager" && (<>
+                  <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
+                    <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
+                    <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Store Assignment</span>
+                  </div>
+                  <div style={{ marginBottom:"1.25rem" }}>
+                    <select
+                      style={{ ...inp(th), width:"100%" }}
+                      value={form.storePC || ""}
+                      onChange={e => setForm(f => ({ ...f, storePC: e.target.value || undefined }))}
+                    >
+                      <option value="">— Unassigned —</option>
+                      {(stores || [])
+                        .slice()
+                        .sort((a, b) => a.district - b.district || a.name.localeCompare(b.name))
+                        .map(s => (
+                          <option key={s.pc} value={String(s.pc)}>
+                            D{s.district} · {s.name} · {s.address}
+                          </option>
+                        ))
+                      }
+                    </select>
+                    <div style={{ fontSize:"0.68rem", color: form.storePC ? "#3b82f6" : th.muted, marginTop:"0.4rem", paddingLeft:"0.2rem" }}>
+                      {form.storePC
+                        ? `Assigned — manager will see this store's data on login.`
+                        : "No store selected. Manager will see a blank view on login."}
+                    </div>
+                  </div>
+                </>)}
                 {/* Contact section */}
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                   <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
@@ -3256,6 +3254,14 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert }) {
                     2FA required{u.twoFactorSecret ? " and set up" : " - setup pending"}
                   </div>
                 )}
+                {u.userType === "manager" && (() => {
+                  const assigned = u.storePC
+                    ? (stores || []).find(s => String(s.pc) === String(u.storePC))
+                    : (stores || []).find(s => isManagersStore(s, u));
+                  return assigned
+                    ? <div style={{ fontSize:"0.68rem", color:"#3b82f6", fontWeight:700, marginTop:"0.15rem" }}>📍 {assigned.name} · D{assigned.district}</div>
+                    : <div style={{ fontSize:"0.68rem", color:"#f59e0b", fontWeight:600, marginTop:"0.15rem" }}>⚠️ No store assigned</div>;
+                })()}
               </div>
 
               {/* Card actions */}
@@ -16350,7 +16356,7 @@ function AdminConsole(props) {
       </div>
 
       {sub === 'tasks' && <AdminTaskManager th={th} user={user} stores={stores} showAlert={showAlert} />}
-      {sub === 'users' && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
+      {sub === 'users' && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
       {sub === 'access' && <AccessMatrix th={th} user={user} users={users} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} showAlert={showAlert} />}
       {SETTINGS_SECTION[sub] && <AdminSettings {...props} embedSection={SETTINGS_SECTION[sub]} />}
       {sub === 'system' && <>
@@ -18733,7 +18739,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.34";
+const APP_VERSION = "v16.38";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -34406,7 +34412,7 @@ function PCGPortal() {
   const [links, setLinks]       = useState(() => { const s=loadFromStorage(); return s?.links    || INIT_LINKS; });
   const [notes, setNotes]       = useState(() => { const s=loadFromStorage(); return s?.notes    || {}; });
   const [todos, setTodos]       = useState(() => { const s=loadFromStorage(); return s?.todos    || []; });
-  const [users, setUsers]       = useState(() => { const s=loadFromStorage(); return s?.users    || USERS_SEED; });
+  const [users, setUsers]       = useState([]);
   const [stores, setStores]     = useState(() => { const s=loadFromStorage(); return s?.stores   || STORES_SEED; });
   const [districts, setDistricts] = useState(() => { const s=loadFromStorage(); return s?.districts || DISTRICTS_SEED; });
   const [contacts, setContacts] = useState(() => { const s=loadFromStorage(); return s?.contacts || CONTACTS_SEED; });
@@ -34433,7 +34439,7 @@ function PCGPortal() {
 
   // Flags to prevent cloud save effects from firing before initial cloud load completes
   const cloudProjectsLoaded = useRef(false);
-  const cloudUsersLoaded = useRef(false);
+
   const cloudDailyReportsLoaded = useRef(false);
   const cloudChatLoaded = useRef(false);
   const cloudAnnouncementsLoaded = useRef(false);
@@ -34839,23 +34845,14 @@ function PCGPortal() {
     return missing;
   }, [cashDeposits, stores, user]);
 
-  // Migration: add email/phone fields to users + merge new seed users
+
+  // Load users from Neon on mount — fires before login so Google OAuth has users ready.
+  // Auth header may be present if sessionStorage holds a prior session token.
   useEffect(() => {
-    let updated = [...users];
-    let changed = false;
-    // Add email/phone defaults
-    if (updated.some(u => u.email === undefined)) {
-      updated = updated.map(u => ({ ...u, email: u.email || "", phone: u.phone || "" }));
-      changed = true;
-    }
-    // Merge any new USERS_SEED entries (e.g. kiosk users) not yet in saved data
-    for (const seed of USERS_SEED) {
-      if (!updated.find(u => u.id === seed.id)) {
-        updated.push({ ...seed, email: seed.email || "", phone: seed.phone || "" });
-        changed = true;
-      }
-    }
-    if (changed) setUsers(updated);
+    fetch('/.netlify/functions/users?action=list', { headers: { ...authHeader() } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (Array.isArray(data) && data.length > 0) setUsers(data); })
+      .catch(() => {});
   }, []);
 
   // Migrate project data from seed data + fix stale timestamps
@@ -34910,8 +34907,8 @@ function PCGPortal() {
 
   // Auto-save all data to localStorage whenever anything changes
   useEffect(() => {
-    saveToStorage({ links, notes, todos, users, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails });
-  }, [links, notes, todos, users, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails]);
+    saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails });
+  }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails]);
 
   // Save sales data separately (can be large)
   // Load from cloud on mount, fallback to localStorage
@@ -35035,31 +35032,6 @@ function PCGPortal() {
     cloudSave('pcg_projects_v1', projects);
   }, [projects]);
 
-  // Cloud sync users
-  useEffect(() => {
-    cloudLoad('pcg_users_v1').then(data => {
-      cloudUsersLoaded.current = true;
-      if (data && Array.isArray(data) && data.length > 0) {
-        // Merge: cloud users win for existing IDs, keep any local-only users too
-        setUsers(localUsers => {
-          const cloudMap = new Map(data.map(u => [u.id, u]));
-          const localMap = new Map(localUsers.map(u => [u.id, u]));
-          // Cloud wins for profile fields, but never lose a password stored locally
-          const merged = data.map(u => {
-            const local = localMap.get(u.id);
-            return (!u.password && local?.password) ? { ...u, password: local.password } : u;
-          });
-          localUsers.forEach(u => { if (!cloudMap.has(u.id)) merged.push(u); });
-          return merged;
-        });
-      }
-    }).catch(() => { cloudUsersLoaded.current = true; });
-  }, []);
-  useEffect(() => {
-    if (!cloudUsersLoaded.current) return;
-    if (users.length === 0) return;
-    cloudSave('pcg_users_v1', users);
-  }, [users]);
 
   // ── Daily Reports cloud sync — read-merge-write to prevent overwrites ──
 
@@ -35790,7 +35762,27 @@ function PCGPortal() {
     setAnnGateIdx(0);
   }, [user?.id, user?.userType, announcements, annGateDone]);
 
-  if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.userType === "vendor") setTab("projects"); if (u.userType === "construction") { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); } if (window.innerWidth <= 768 && (u.userType === 'dm' || u.userType === 'executive' || u.userType === 'it')) { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); } logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType }); }} dark={dark} users={users} toggleDark={() => {
+  if (!user) return <Login onLogin={(u) => {
+    const now = new Date().toISOString();
+    const assignedStore = getManagerStore(stores, u);
+    const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) };
+    setUser(updated);
+    setUsers(us => {
+      // Optimistically update the logged-in user's lastLogin in the list
+      const existing = us.find(x => x.id === u.id);
+      return existing ? us.map(x => x.id === u.id ? { ...x, ...updated } : x) : us;
+    });
+    setManagerMode(u.userType === "manager" ? "embed" : "full");
+    if (u.userType === "vendor") setTab("projects");
+    if (u.userType === "construction") { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); }
+    if (window.innerWidth <= 768 && (u.userType === 'dm' || u.userType === 'executive' || u.userType === 'it')) { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); }
+    logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType });
+    // Reload full users list from Neon now that we have an auth token
+    fetch('/.netlify/functions/users?action=list', { headers: { ...authHeader() } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (Array.isArray(data) && data.length > 0) setUsers(data); })
+      .catch(() => {});
+  }} dark={dark} users={users} toggleDark={() => {
     const newDark = !dark;
     setDark(newDark);
   }} />;
@@ -37011,7 +37003,7 @@ function PCGPortal() {
           {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={stores} salesWeeks={salesWeeks} />}
           {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
-          {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} />}
+          {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}

@@ -154,6 +154,39 @@ export default async (request) => {
     ON CONFLICT (user_key) DO NOTHING
   `;
 
+  // ── Users table — canonical user store (replaces pcg_users_v1 blob + portal_users) ──
+  await db`
+    CREATE TABLE IF NOT EXISTS users (
+      id          SERIAL PRIMARY KEY,
+      username    VARCHAR(100) NOT NULL UNIQUE,
+      name        VARCHAR(255) NOT NULL,
+      email       VARCHAR(255),
+      phone       VARCHAR(30),
+      role        VARCHAR(100),
+      user_type   VARCHAR(50) NOT NULL DEFAULT 'manager',
+      district    INTEGER,
+      store_pc    VARCHAR(20),
+      active      BOOLEAN NOT NULL DEFAULT true,
+      dark_mode   BOOLEAN DEFAULT false,
+      avatar_url  TEXT,
+      google_id   VARCHAR(255),
+      last_login  TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ DEFAULT now(),
+      updated_at  TIMESTAMPTZ DEFAULT now()
+    )
+  `;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change BOOLEAN NOT NULL DEFAULT false`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_required BOOLEAN NOT NULL DEFAULT false`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT false`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS initials VARCHAR(4)`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_setup BOOLEAN NOT NULL DEFAULT false`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS region VARCHAR(10)`;
+  await db`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`;
+  await db`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`;
+
   return new Response(
     JSON.stringify({ ok: true, message: 'Migration complete' }),
     { status: 200, headers: { 'Content-Type': 'application/json' } }

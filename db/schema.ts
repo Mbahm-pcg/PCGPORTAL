@@ -12,12 +12,23 @@ export const users = pgTable("users", {
   district: integer("district"),
   storePC: varchar("store_pc", { length: 20 }),
   active: boolean("active").notNull().default(true),
-  darkMode: boolean("dark_mode").default(true),
+  darkMode: boolean("dark_mode").default(false),
   avatarUrl: text("avatar_url"),
   googleId: varchar("google_id", { length: 255 }),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  // Auth & 2FA fields
+  passwordHash: text("password_hash"),
+  mustChange: boolean("must_change").default(false),
+  twoFactorRequired: boolean("two_factor_required").default(false),
+  twoFactorSecret: text("two_factor_secret"),
+  twoFactorEnabled: boolean("two_factor_enabled").default(false),
+  // Profile extras
+  initials: varchar("initials", { length: 4 }),
+  isAdmin: boolean("is_admin").default(false),
+  mustSetup: boolean("must_setup").default(false),
+  region: varchar("region", { length: 10 }),
 });
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
