@@ -588,7 +588,8 @@ function spawnTransitionFX(cx, cy, newDark) {
 
 function Login({ onLogin, dark, toggleDark, users }) {
   const th = getTheme(dark);
-  const [form, setForm] = useState({ u: "", p: "" });
+  const [form, setForm] = useState({ u: (() => { try { return localStorage.getItem('pcg_remember_username') || ''; } catch { return ''; } })(), p: "" });
+  const [rememberMe, setRememberMe] = useState(() => { try { return !!localStorage.getItem('pcg_remember_username'); } catch { return false; } });
   const [authStage, setAuthStage] = useState("password");
   const [pendingUser, setPendingUser] = useState(null);
   const [twoFactorCode, setTwoFactorCode] = useState("");
@@ -688,6 +689,13 @@ function Login({ onLogin, dark, toggleDark, users }) {
     }, 400);
   }, [onLogin]);
 
+  const applyRememberMe = useCallback((username) => {
+    try {
+      if (rememberMe && username) localStorage.setItem('pcg_remember_username', username);
+      else localStorage.removeItem('pcg_remember_username');
+    } catch {}
+  }, [rememberMe]);
+
   const verifyTwoFactorAndLogin = async () => {
     if (loading || !pendingUser) return;
     const secret = pendingUser.twoFactorSecret || twoFactorSetupSecret;
@@ -708,6 +716,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
       };
       const verifiedUser = { ...pendingUser, ...updates };
       if (trustDevice) await trustTwoFactorDevice(verifiedUser);
+      applyRememberMe(verifiedUser.username);
       finishLogin(verifiedUser);
     } catch (e) {
       setErr(e.message || "Could not verify 2FA code.");
@@ -762,6 +771,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
       if (isTwoFactorRequired(found) && !trusted) {
         beginTwoFactor(found);
       } else {
+        applyRememberMe(found.username);
         finishLogin(found);
       }
     } else {
@@ -801,13 +811,13 @@ function Login({ onLogin, dark, toggleDark, users }) {
             });
             if (!found) { setErr("Google login worked, but this email is not active in the portal users list."); return; }
             if (await shouldPromptTwoFactor(found)) beginTwoFactor(found);
-            else finishLogin(found);
+            else { applyRememberMe(found.username); finishLogin(found); }
           } catch (e) { setErr(e.message || "Google sign-in failed."); }
         }
       });
     };
     init();
-  }, [beginTwoFactor, finishLogin, users]);
+  }, [beginTwoFactor, finishLogin, applyRememberMe, users]);
 
   const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -1195,6 +1205,36 @@ function Login({ onLogin, dark, toggleDark, users }) {
                 {show ? "Hide" : "Show"}
               </button>
             </div>
+
+            {/* Remember me */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = !rememberMe;
+                setRememberMe(next);
+                if (!next) { try { localStorage.removeItem('pcg_remember_username'); } catch {} }
+              }}
+              style={{
+                display: "flex", alignItems: "center", gap: "0.6rem",
+                background: "none", border: "none", cursor: "pointer",
+                padding: "0.1rem 0", marginBottom: "1.1rem",
+                fontFamily: "'Source Sans 3'", fontSize: "0.82rem",
+                color: rememberMe ? "#FF671F" : palette.textFaint,
+                transition: "color .15s",
+                userSelect: "none",
+              }}
+            >
+              <span style={{
+                width: 18, height: 18, borderRadius: 5, flexShrink: 0,
+                border: `2px solid ${rememberMe ? "#FF671F" : palette.inputBorder}`,
+                background: rememberMe ? "#FF671F" : "transparent",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "all .15s",
+              }}>
+                {rememberMe && <span style={{ color: "#fff", fontSize: 11, lineHeight: 1, fontWeight: 900 }}>✓</span>}
+              </span>
+              Remember me
+            </button>
               </>
             ) : (
               <>
@@ -14301,7 +14341,7 @@ function PnlAccessPanel({ th, user, users, showAlert }) {
   );
 }
 
-function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
+function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
   const [notifyLog, setNotifyLog] = useState(null);
@@ -14311,6 +14351,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [notifyInfoOpen, setNotifyInfoOpen] = useState(false);
   const [globalNotifyOpen, setGlobalNotifyOpen] = useState(false);
   const [ticketNotifyOpen, setTicketNotifyOpen] = useState(false);
+  const [userNotifsOpen, setUserNotifsOpen] = useState(false);
 
   // ── Orion Report Settings ──────────────────────────────────────────
   const [reportSettings, setReportSettings] = useState(null);
@@ -14529,6 +14570,64 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             <button onClick={addTicketEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
           </div>
         </>}
+      </div>
+
+      {/* User Notification Settings */}
+      <div style={{ ...accentCard(th, "#3b82f6", { padding: "1.5rem", marginBottom: "1.25rem" }) }}>
+        <div onClick={() => setUserNotifsOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: userNotifsOpen ? "1rem" : 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "1.125rem" }}>🔔</span>
+            <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>User Notification Settings</span>
+            <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(users || []).filter(u => u.active !== false && !u.userType?.startsWith('kiosk')).length} users)</span>
+          </div>
+          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{userNotifsOpen ? "▲ Hide" : "▼ Show"}</span>
+        </div>
+        {userNotifsOpen && (() => {
+          const ROLE_COLORS = { executive: "#10b981", it: "#3b82f6", office_staff: "#8b5cf6", dm: "#f59e0b", manager: "#9ca3af", construction: "#fb923c", maintenance: "#0891b2", vendor: "#06b6d4" };
+          const ROLE_LABELS = { executive: "Executive", it: "IT Team", office_staff: "Office", dm: "District Mgr", manager: "Manager", construction: "Construction", maintenance: "Maintenance", vendor: "Vendor" };
+          const ROLE_ORDER = ["executive", "it", "office_staff", "dm", "manager", "construction", "maintenance", "vendor"];
+          const activeUsers = (users || []).filter(u => u.active !== false && !u.userType?.startsWith('kiosk')).sort((a, b) => {
+            const ai = ROLE_ORDER.indexOf(a.userType); const bi = ROLE_ORDER.indexOf(b.userType);
+            if (ai !== bi) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+            return (a.name || "").localeCompare(b.name || "");
+          });
+          const toggleNotif = (userId, field) => {
+            if (!setUsers) return;
+            setUsers(prev => prev.map(u => String(u.id) === String(userId) ? { ...u, [field]: !u[field] } : u));
+          };
+          const Tog = ({ on, onToggle, accent }) => (
+            <button onClick={onToggle} style={{ width: 34, height: 19, borderRadius: 10, border: "none", cursor: "pointer", background: on ? (accent || O) : th.muted + "44", position: "relative", transition: "background .18s", flexShrink: 0, padding: 0 }}>
+              <span style={{ position: "absolute", top: 2, left: on ? 16 : 2, width: 15, height: 15, borderRadius: "50%", background: "#fff", transition: "left .18s", boxShadow: "0 1px 3px rgba(0,0,0,0.25)", display: "block" }} />
+            </button>
+          );
+          return (
+            <div>
+              <p style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" }}>Control which notification channels each user receives. Changes take effect immediately.</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 0.75rem", alignItems: "center", marginBottom: "0.4rem", paddingBottom: "0.4rem", borderBottom: `1px solid ${th.cardBorder}` }}>
+                <span style={{ fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>User</span>
+                {["Push", "Email", "SMS"].map(l => <span key={l} style={{ fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "center" }}>{l}</span>)}
+              </div>
+              {activeUsers.map(u => {
+                const rc = ROLE_COLORS[u.userType] || th.muted;
+                const rl = ROLE_LABELS[u.userType] || u.userType;
+                return (
+                  <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 0.75rem", alignItems: "center", padding: "0.55rem 0", borderBottom: `1px solid ${th.cardBorder}22` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: rc, flexShrink: 0 }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: "0.82rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name || u.username}</div>
+                        <div style={{ fontSize: "0.68rem", color: rc, fontWeight: 600 }}>{rl}</div>
+                      </div>
+                    </div>
+                    <Tog on={!!u.pushNotify} onToggle={() => toggleNotif(u.id, "pushNotify")} accent="#f59e0b" />
+                    <Tog on={u.emailNotify !== false} onToggle={() => toggleNotif(u.id, "emailNotify")} accent="#3b82f6" />
+                    <Tog on={!!u.smsNotify} onToggle={() => toggleNotif(u.id, "smsNotify")} accent="#10b981" />
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Test Notifications */}
@@ -16391,10 +16490,22 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
   const [addMode, setAddMode] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newMsg, setNewMsg] = useState("");
+  const [newTargets, setNewTargets] = useState([]);
 
   const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
+  const ANN_ROLES = [
+    { value: "dm", label: "District Mgrs", color: "#f59e0b" },
+    { value: "manager", label: "Managers", color: "#9ca3af" },
+    { value: "executive", label: "Executive", color: "#10b981" },
+    { value: "it", label: "IT Team", color: "#3b82f6" },
+    { value: "office_staff", label: "Office Staff", color: "#8b5cf6" },
+    { value: "construction", label: "Construction", color: "#fb923c" },
+    { value: "maintenance", label: "Maintenance", color: "#0891b2" },
+    { value: "vendor", label: "Vendors", color: "#06b6d4" },
+  ];
   const myDist = user?.district ? Number(user.district) : null;
   const visibleAnnouncements = canManage ? announcements : announcements.filter(a => {
+    if (a.type === 'leaderboard' && user?.userType !== 'dm' && user?.userType !== 'executive') return false;
     if (!a.targets) return true;
     const { roles, districts } = a.targets;
     if (roles?.includes(user?.userType)) return true;
@@ -16405,9 +16516,9 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
 
   const postAnnouncement = () => {
     if (!newTitle.trim() || !newMsg.trim()) { showAlert("error", "Title and message required"); return; }
-    const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: new Date().toISOString(), createdBy: user.name, active: true };
+    const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: new Date().toISOString(), createdBy: user.name, active: true, targets: newTargets.length > 0 ? { roles: newTargets } : null };
     setAnnouncements(prev => [ann, ...prev]);
-    setNewTitle(""); setNewMsg(""); setAddMode(false);
+    setNewTitle(""); setNewMsg(""); setNewTargets([]); setAddMode(false);
     showAlert("success", "Announcement posted!");
   };
 
@@ -16447,6 +16558,22 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
             style={{ ...inp(th), width: "100%", boxSizing: "border-box", marginBottom: "0.6rem", fontSize: "0.85rem" }} />
           <textarea placeholder="Write your announcement message..." value={newMsg} onChange={e => setNewMsg(e.target.value)} rows={4}
             style={{ ...inp(th), width: "100%", boxSizing: "border-box", marginBottom: "0.75rem", resize: "vertical", fontFamily: "'Source Sans 3'", fontSize: "0.85rem" }} />
+          <div style={{ marginBottom: "0.75rem" }}>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.4rem" }}>
+              Send to: <span style={{ color: newTargets.length === 0 ? "#2f9e44" : O, fontWeight: 700 }}>{newTargets.length === 0 ? "Everyone" : ANN_ROLES.filter(r => newTargets.includes(r.value)).map(r => r.label).join(", ")}</span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+              {ANN_ROLES.map(r => {
+                const on = newTargets.includes(r.value);
+                return (
+                  <button key={r.value} onClick={() => setNewTargets(prev => on ? prev.filter(x => x !== r.value) : [...prev, r.value])}
+                    style={{ padding: "0.28rem 0.7rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600, cursor: "pointer", border: `1px solid ${on ? r.color : th.cardBorder}`, background: on ? r.color + "22" : "transparent", color: on ? r.color : th.muted, transition: "all .15s" }}>
+                    {r.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <button onClick={postAnnouncement} style={{ ...btn(th), padding: "0.5rem 1.5rem", background: O, color: "#fff", border: "none", fontWeight: 600 }}>Post Announcement</button>
         </div>
       )}
@@ -16492,6 +16619,17 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
                           {dateStr} at {timeStr} · by {a.createdBy}
                           {a.editedAt && <span> · edited {new Date(a.editedAt).toLocaleDateString()}</span>}
                         </div>
+                        {a.targets?.roles?.length > 0 && (
+                          <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
+                            {a.targets.roles.map(r => {
+                              const opt = ANN_ROLES.find(o => o.value === r);
+                              return opt ? <span key={r} style={{ fontSize: "0.62rem", fontWeight: 700, padding: "0.12rem 0.45rem", borderRadius: 99, background: opt.color + "22", color: opt.color }}>{opt.label}</span> : null;
+                            })}
+                          </div>
+                        )}
+                        {!a.targets?.roles?.length && canManage && (
+                          <span style={{ fontSize: "0.62rem", color: "#2f9e44", fontWeight: 600 }}>Everyone</span>
+                        )}
                       </div>
                       {canManage && (
                         <div style={{ display: "flex", gap: "0.35rem", flexShrink: 0 }}>
@@ -18509,7 +18647,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.23";
+const APP_VERSION = "v16.27";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -21782,7 +21920,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
 
       {/* ─── Today's Brief ───────────────────────────────────────────────────── */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
-        <TodayBrief user={user} th={th} setAnnouncements={setAnnouncements} showAlert={showAlert} />
+        <TodayBrief user={user} th={th} setAnnouncements={setAnnouncements} showAlert={showAlert} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} />
       )}
 
       {/* ─── Action Queue ────────────────────────────────────────────────────── */}
@@ -28983,7 +29121,7 @@ function exportCasesPDF(cases, totalOpp, scope, user) {
 }
 
 /** TodayBrief — "Today's Brief from Orion" band at top of dashboard */
-function TodayBrief({ user, th, setAnnouncements, showAlert }) {
+function TodayBrief({ user, th, setAnnouncements, showAlert, announcementsDismissed, setAnnouncementsDismissed }) {
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -31315,13 +31453,17 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
               </div>
             )}
 
-            {/* Leaderboard card — only if exists */}
-            {leaderboard && (
+            {/* Leaderboard card — only for DM/Exec, only if not acknowledged */}
+            {leaderboard && (user?.userType === 'dm' || user?.userType === 'executive') && !announcementsDismissed?.[`${user?.id}_${leaderboard.id}`] && (
               <div>
                 <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '16px 0 8px' }}>Weekly Leaderboard</div>
                 <div style={{ background: th.card, border: `1px solid ${O}33`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
                     <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 12, color: O, textTransform: 'uppercase', letterSpacing: 0.8 }}>{leaderboard.title}</span>
+                    <button
+                      onClick={() => setAnnouncementsDismissed && setAnnouncementsDismissed(prev => ({ ...prev, [`${user?.id}_${leaderboard.id}`]: true }))}
+                      style={{ background: O, border: 'none', borderRadius: '2rem', color: '#fff', fontSize: 11, fontWeight: 700, padding: '0.2rem 0.65rem', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap', flexShrink: 0 }}
+                    >Got it 👍</button>
                   </div>
                   <div style={{ fontSize: 13, color: th.text, lineHeight: 1.65 }}>{leaderboard.message}</div>
                   <div style={{ marginTop: 10, fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— {leaderboard.createdBy} · {leaderboard.createdAt ? new Date(leaderboard.createdAt).toLocaleDateString() : ''}</div>
@@ -34013,6 +34155,54 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
   );
 }
 
+function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
+  const ann = anns[idx];
+  const isLast = idx === anns.length - 1;
+  const total = anns.length;
+  const dateStr = ann ? new Date(ann.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+  return (
+    <div style={{ position: "fixed", inset: 0, background: th.bg, color: th.text, display: "flex", flexDirection: "column", zIndex: 9999 }}>
+      {/* Header */}
+      <div style={{ padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: th.sidebar }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          <span style={{ fontSize: "1.2rem" }}>📢</span>
+          <span style={{ fontWeight: 800, fontSize: "1rem", fontFamily: "'Raleway'", color: th.text }}>Announcement</span>
+        </div>
+        {total > 1 && (
+          <span style={{ fontSize: "0.78rem", color: th.muted, fontWeight: 600 }}>{idx + 1} of {total}</span>
+        )}
+      </div>
+      {/* Progress bar */}
+      {total > 1 && (
+        <div style={{ display: "flex", gap: "0.3rem", padding: "0.75rem 1.5rem 0" }}>
+          {anns.map((_, i) => (
+            <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= idx ? O : th.muted + "33", transition: "background .25s" }} />
+          ))}
+        </div>
+      )}
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem 1.25rem" }}>
+        <div style={{ maxWidth: 560, width: "100%" }}>
+          <div style={{ ...card(th), padding: "1.75rem 2rem", borderLeft: `4px solid ${O}` }}>
+            <div style={{ fontWeight: 800, fontSize: "1.2rem", color: th.text, marginBottom: "0.75rem", fontFamily: "'Raleway'", lineHeight: 1.3 }}>{ann?.title}</div>
+            <div style={{ fontSize: "0.9rem", color: th.text, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{ann?.message}</div>
+            <div style={{ fontSize: "0.72rem", color: th.muted, marginTop: "1.25rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` }}>
+              Posted by {ann?.createdBy} · {dateStr}
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* Footer */}
+      <div style={{ padding: "1.25rem 1.5rem", borderTop: `1px solid ${th.cardBorder}`, background: th.sidebar, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: "0.78rem", color: th.muted }}>Please read before continuing</span>
+        <button onClick={isLast ? onDone : onNext} style={{ background: O, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 2rem", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" }}>
+          {isLast ? "Got it ✓" : "Next →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
@@ -34123,6 +34313,9 @@ function PCGPortal() {
   const [chatReadState, setChatReadState] = useState({});
   const [announcements, setAnnouncements] = useState([]);
   const [announcementsDismissed, setAnnouncementsDismissed] = useState({});
+  const [annGateQueue, setAnnGateQueue] = useState([]);
+  const [annGateIdx, setAnnGateIdx] = useState(0);
+  const [annGateDone, setAnnGateDone] = useState(false);
   // IT/exec-managed per-role tab visibility overrides: { [userType]: { [tabId]: false } }
   const [accessOverrides, setAccessOverrides] = useState({});
   const cloudAccessLoaded = useRef(false);
@@ -35450,6 +35643,18 @@ function PCGPortal() {
     }
   }, [dark]);
 
+  // Announcement gate — compute queue whenever user or announcements change
+  useEffect(() => {
+    if (!user || annGateDone || isFullAdmin(user) || user.userType?.startsWith('kiosk')) return;
+    const queue = announcements.filter(a => {
+      if (!a.active) return false;
+      if (a.targets?.roles?.length > 0 && !a.targets.roles.includes(user.userType)) return false;
+      try { return !localStorage.getItem(`pcg_ann_ack_${user.id}_${a.id}`); } catch { return false; }
+    }).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    setAnnGateQueue(queue);
+    setAnnGateIdx(0);
+  }, [user?.id, user?.userType, announcements, annGateDone]);
+
   if (!user) return <Login onLogin={(u) => { const now = new Date().toISOString(); const assignedStore = getManagerStore(stores, u); const updated = { ...u, ...(assignedStore ? { storePC: assignedStore.pc } : {}), lastLogin: now, twoFactorRequired: isTwoFactorRequired(u) }; setUser(updated); setUsers(us => us.map(x => x.id === u.id ? { ...x, ...updated } : x)); setManagerMode(u.userType === "manager" ? "embed" : "full"); if (u.userType === "vendor") setTab("projects"); if (u.userType === "construction") { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); } if (window.innerWidth <= 768 && (u.userType === 'dm' || u.userType === 'executive' || u.userType === 'it')) { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); } logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType }); }} dark={dark} users={users} toggleDark={() => {
     const newDark = !dark;
     setDark(newDark);
@@ -35458,6 +35663,19 @@ function PCGPortal() {
   // ── First-Login Setup ──────────────────────────────────────────────────────
   if (user.mustSetup) {
     return <FirstLoginSetup user={user} setUser={setUser} setUsers={setUsers} th={th} />;
+  }
+
+  // ── Announcement Gate ──────────────────────────────────────────────────────
+  if (!annGateDone && annGateQueue.length > 0 && annGateIdx < annGateQueue.length) {
+    const handleAnnNext = () => {
+      try { localStorage.setItem(`pcg_ann_ack_${user.id}_${annGateQueue[annGateIdx].id}`, "1"); } catch {}
+      setAnnGateIdx(i => i + 1);
+    };
+    const handleAnnDone = () => {
+      try { localStorage.setItem(`pcg_ann_ack_${user.id}_${annGateQueue[annGateIdx].id}`, "1"); } catch {}
+      setAnnGateDone(true);
+    };
+    return <AnnouncementGate anns={annGateQueue} idx={annGateIdx} onNext={handleAnnNext} onDone={handleAnnDone} th={th} />;
   }
 
   if (user.userType === "maintenance" && isMobile && !preferFullPortal) {
@@ -36550,6 +36768,7 @@ function PCGPortal() {
           const myDist = user.district ? Number(user.district) : null;
           const pending = announcements.filter(a => {
             if (!a.active || announcementsDismissed[`${user.id}_${a.id}`]) return false;
+            if (a.type === 'leaderboard' && user.userType !== 'dm' && user.userType !== 'executive') return false;
             if (!a.targets) return true; // no targeting = show everyone
             const { roles, districts } = a.targets;
             if (roles?.includes(user.userType)) return true;
