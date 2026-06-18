@@ -18509,7 +18509,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.15";
+const APP_VERSION = "v16.23";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -25533,7 +25533,23 @@ function OpsTasks({ stores, th, user }) {
   const [loadingCAs, setLoadingCAs] = useState(false);
   const [photoLightbox, setPhotoLightbox] = useState(null);
   const [photoUrls, setPhotoUrls] = useState({});
+  const [photoDetail, setPhotoDetail] = useState(null); // { task, url }
+  const photoDetailRef = useRef(null);
+  useEffect(() => { if (photoDetail && photoDetailRef.current) photoDetailRef.current.scrollTop = 0; }, [photoDetail]);
   const byName = user?.name || user?.email || "user";
+
+  // Client-side shift window start hours (mirrors catalog.js SHIFT_WINDOWS)
+  const SHIFT_WINDOWS_CLIENT = {
+    "1 AM":  0,  "5 AM":  5,  "9 AM":  9,
+    "1 PM":  13, "2 PM":  14, "5 PM":  17,
+    "8 PM":  20, "9 PM":  21,
+    "AM":    0,  "Noon":  11, "PM":    16,
+  };
+
+  const nowHourET = () => {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }).formatToParts(new Date());
+    return parseInt(parts.find((p) => p.type === "hour").value) || 0;
+  };
 
   const api = useCallback(async (action, payload = {}) => {
     const r = await fetch("/.netlify/functions/tasks", {
@@ -25646,13 +25662,9 @@ function OpsTasks({ stores, th, user }) {
     input.type = "file";
     input.accept = "image/*";
     if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) input.capture = "environment";
-    input.style.position = "absolute";
-    input.style.opacity = "0";
-    input.style.pointerEvents = "none";
-    const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
-    window.addEventListener("focus", () => setTimeout(cleanup, 300), { once: true });
+    input.style.cssText = "position:absolute;opacity:0;pointer-events:none";
     input.onchange = async (e) => {
-      cleanup();
+      if (document.body.contains(input)) document.body.removeChild(input);
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
@@ -25688,13 +25700,9 @@ function OpsTasks({ stores, th, user }) {
     input.type = "file";
     input.accept = "image/*";
     if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) input.capture = "environment";
-    input.style.position = "absolute";
-    input.style.opacity = "0";
-    input.style.pointerEvents = "none";
-    const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
-    window.addEventListener("focus", () => setTimeout(cleanup, 300), { once: true });
+    input.style.cssText = "position:absolute;opacity:0;pointer-events:none";
     input.onchange = async (e) => {
-      cleanup();
+      if (document.body.contains(input)) document.body.removeChild(input);
       const file = e.target.files?.[0];
       if (!file) return;
       setBusyId(tk.id);
@@ -25710,7 +25718,7 @@ function OpsTasks({ stores, th, user }) {
             canvas.height = Math.round(img.height * scale);
             canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
             const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-            await api("task_add_photo", { instance_id: tk.id, store_pc: tk.store_pc, photo_url: dataUrl });
+            await api("task_add_photo", { instance_id: tk.id, store_pc: tk.store_pc, photo_url: dataUrl, by: byName });
             setPhotoUrls((prev) => ({ ...prev, [tk.id]: dataUrl }));
             await loadStore(true);
           } catch (err) {
@@ -25730,9 +25738,19 @@ function OpsTasks({ stores, th, user }) {
     input.click();
   }
 
-  const segTasks = (data?.tasks || []).filter((t) =>
-    seg === "all" ? true : seg === "missed" ? (t.statusComputed === "missed" || t.statusComputed === "overdue") : t.statusComputed === "open"
-  );
+  const isToday = date === todayET();
+  const curHour = nowHourET();
+  const windowStarted = (shift_time) => {
+    if (!shift_time) return true;
+    const startHour = SHIFT_WINDOWS_CLIENT[shift_time];
+    return startHour === undefined ? true : curHour >= startHour;
+  };
+  const segTasks = (data?.tasks || []).filter((t) => {
+    if (seg === "all") return true;
+    if (seg === "missed") return t.statusComputed === "missed" || t.statusComputed === "overdue";
+    return t.statusComputed === "open" && (!isToday || windowStarted(t.shift_time));
+  });
+  const nowCount = (data?.tasks || []).filter((t) => t.statusComputed === "open" && (!isToday || windowStarted(t.shift_time))).length;
 
   const segBtn = (id, label, n) => (
     <button onClick={() => setSeg(id)} style={{
@@ -25820,19 +25838,22 @@ function OpsTasks({ stores, th, user }) {
       {view === "tasks" && data && !loading && (
         <div>
           <div style={{ display: "flex", background: th.muted + "1a", borderRadius: 12, padding: 4, marginBottom: "0.9rem", gap: 4 }}>
-            {segBtn("open", "Open", data.counts.open)}
-            {segBtn("missed", "Missed", data.counts.missed + data.counts.overdue)}
+            {segBtn("open", "Now", nowCount)}
+            {segBtn("missed", "Missing", data.counts.missed + data.counts.overdue)}
             {segBtn("all", "All", data.counts.all)}
           </div>
           {segTasks.length === 0 && (
             <div style={{ textAlign: "center", color: th.muted, padding: "2.5rem 1rem" }}>
               <div style={{ fontSize: "1.5rem", marginBottom: "0.4rem" }}>—</div>
-              <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>No {seg === "open" ? "open" : seg === "missed" ? "missed" : ""} tasks</div>
-              <div style={{ fontSize: "0.82rem" }}>{seg === "open" ? "All tasks for this shift are complete." : seg === "missed" ? "No missed or overdue tasks." : "No tasks scheduled for this date."}</div>
+              <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
+                {seg === "open" ? "No active tasks right now" : seg === "missed" ? "Nothing missing" : "No tasks scheduled"}
+              </div>
+              <div style={{ fontSize: "0.82rem" }}>
+                {seg === "open" ? "Tasks for the current shift window will appear here as they open." : seg === "missed" ? "All tasks from previous windows were completed on time." : "No tasks scheduled for this date."}
+              </div>
             </div>
           )}
           {(() => {
-            const SHIFT_ORDER = ["Opening", "Midday", "Closing"];
             const shiftGroups = segTasks.reduce((acc, tk) => {
               const k = tk.shift_time || "General";
               if (!acc[k]) acc[k] = [];
@@ -25840,9 +25861,9 @@ function OpsTasks({ stores, th, user }) {
               return acc;
             }, {});
             const orderedGroups = Object.keys(shiftGroups).sort((a, b) => {
-              const ai = SHIFT_ORDER.findIndex(s => a.startsWith(s));
-              const bi = SHIFT_ORDER.findIndex(s => b.startsWith(s));
-              return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+              const ah = a === "General" ? 999 : (SHIFT_WINDOWS_CLIENT[a] !== undefined ? SHIFT_WINDOWS_CLIENT[a] : 998);
+              const bh = b === "General" ? 999 : (SHIFT_WINDOWS_CLIENT[b] !== undefined ? SHIFT_WINDOWS_CLIENT[b] : 998);
+              return ah - bh;
             });
             const showHeaders = orderedGroups.length > 1;
             return orderedGroups.map(group => (
@@ -25862,7 +25883,8 @@ function OpsTasks({ stores, th, user }) {
             const isExpanded = expandedId === tk.id;
             const isMeas = !hasItems && (tk.input_type === "temperature" || tk.input_type === "weight" || tk.input_type === "count");
             const isPhoto = tk.input_type === "photo";
-            const itemPct = hasItems ? Math.round(((tk.answers_count || 0) / tk.items_count) * 100) : (done ? 100 : 0);
+            const rawItemPct = hasItems ? Math.round(((tk.answers_count || 0) / tk.items_count) * 100) : (done ? 100 : 0);
+            const itemPct = isPhoto && !tk.has_photo ? Math.min(rawItemPct, 99) : rawItemPct;
 
             return (
               <div key={tk.id} style={{ ...card(th), padding: "0.8rem 0.9rem", marginBottom: "0.5rem" }}>
@@ -25891,7 +25913,7 @@ function OpsTasks({ stores, th, user }) {
                       </div>
                     </div>
                     {isPhoto && photoUrls[tk.id] && (
-                      <img src={photoUrls[tk.id]} alt="task photo" onClick={(e) => { e.stopPropagation(); setPhotoLightbox(photoUrls[tk.id]); }} style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
+                      <img src={photoUrls[tk.id]} alt="task photo" onClick={(e) => { e.stopPropagation(); setPhotoDetail({ task: tk, url: photoUrls[tk.id] }); }} style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
                     )}
                     <TaskRing pct={itemPct} th={th} size={40} color={hasItems ? complianceColor(itemPct) : undefined} />
                     {hasItems && (
@@ -25941,6 +25963,21 @@ function OpsTasks({ stores, th, user }) {
                         );
                       });
                     })}
+                    {/* Photo required banner for multi-item photo tasks */}
+                    {isPhoto && !done && (
+                      <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                        {tk.has_photo
+                          ? <span style={{ fontSize: "0.75rem", color: "#2f9e44", fontWeight: 700 }}>📷 Photo attached</span>
+                          : <>
+                              <span style={{ fontSize: "0.75rem", color: "#f59e0b", fontWeight: 700 }}>📷 Photo required to complete</span>
+                              <button onClick={() => pickTaskPhoto(tk)} disabled={busyId === tk.id}
+                                style={{ ...btn(th, { background: O + "18", color: O, border: `1px solid ${O}44` }), fontSize: "0.75rem", padding: "0.35rem 0.75rem", minHeight: 34, touchAction: "manipulation" }}>
+                                {busyId === tk.id ? "Saving…" : "Add Photo"}
+                              </button>
+                            </>
+                        }
+                      </div>
+                    )}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
                       {done
                         ? <span style={{ fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700 }}>Completed{tk.completed_by ? ` · ${tk.completed_by}` : ""}{tk.signed_off_by ? ` · Signed off` : ""}</span>
@@ -25998,7 +26035,7 @@ function OpsTasks({ stores, th, user }) {
                     ) : isPhoto ? (
                       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", width: "100%" }}>
                         {photoUrls[tk.id]
-                          ? <img src={photoUrls[tk.id]} alt="task photo" onClick={() => setPhotoLightbox(photoUrls[tk.id])} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
+                          ? <img src={photoUrls[tk.id]} alt="task photo" onClick={() => setPhotoDetail({ task: tk, url: photoUrls[tk.id] })} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
                           : <div style={{ width: 56, height: 56, borderRadius: 8, background: th.bg, border: `1px dashed ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", flexShrink: 0, opacity: photoUrls[tk.id] === null ? 0.4 : 1 }}>📷</div>
                         }
                         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.35rem" }}>
@@ -26102,7 +26139,64 @@ function OpsTasks({ stores, th, user }) {
         </div>
       )}
 
-      {/* Photo lightbox */}
+      {/* Photo detail page */}
+      {photoDetail && (() => {
+        const tk = photoDetail.task;
+        const completedAt = tk.completed_at ? new Date(tk.completed_at) : null;
+        const completedStr = completedAt ? completedAt.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : null;
+        return (
+          <div ref={photoDetailRef} style={{ position: "fixed", inset: 0, zIndex: 9990, background: th.bg, color: th.text, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+            {/* Header bar */}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.9rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, background: th.sidebar, position: "sticky", top: 0, zIndex: 1 }}>
+              <button onClick={() => setPhotoDetail(null)} style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "transparent", border: "none", color: O, fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", padding: "0.35rem 0.5rem", borderRadius: 8, minHeight: 40, touchAction: "manipulation" }}>
+                ← Back
+              </button>
+              <span style={{ flex: 1, fontWeight: 700, fontSize: "0.9rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Task Photo</span>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: "1.25rem 1rem", display: "flex", flexDirection: "column", gap: "1rem", maxWidth: 600, width: "100%", margin: "0 auto" }}>
+              {/* Task info card */}
+              <div style={{ ...card(th), padding: "1rem 1.1rem" }}>
+                <div style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: th.muted, marginBottom: "0.3rem" }}>
+                  {tk.category}{tk.shift_time ? ` · ${tk.shift_time}` : ""}
+                </div>
+                <div style={{ fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.75rem" }}>{tk.name}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    <span style={{ fontSize: "0.75rem", color: th.muted, minWidth: 100 }}>Status</span>
+                    <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#2f9e44", background: "#2f9e4418", padding: "0.15rem 0.6rem", borderRadius: 99 }}>Completed</span>
+                  </div>
+                  {tk.completed_by && (
+                    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                      <span style={{ fontSize: "0.75rem", color: th.muted, minWidth: 100 }}>Completed by</span>
+                      <span style={{ fontSize: "0.82rem", fontWeight: 600, color: th.text }}>{tk.completed_by}</span>
+                    </div>
+                  )}
+                  {completedStr && (
+                    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                      <span style={{ fontSize: "0.75rem", color: th.muted, minWidth: 100 }}>Completed at</span>
+                      <span style={{ fontSize: "0.82rem", color: th.text }}>{completedStr}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Full image */}
+              <div style={{ borderRadius: 14, overflow: "hidden", border: `1px solid ${th.cardBorder}`, background: th.card }}>
+                <img
+                  src={photoDetail.url}
+                  alt="Task photo proof"
+                  style={{ width: "100%", display: "block", objectFit: "contain", maxHeight: "65vh" }}
+                />
+              </div>
+              <div style={{ fontSize: "0.73rem", color: th.muted, textAlign: "center" }}>Photo proof of task completion</div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Photo lightbox (CA photos only) */}
       {photoLightbox && (
         <div onClick={() => setPhotoLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
           <button onClick={() => setPhotoLightbox(null)} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>

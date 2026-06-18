@@ -41,6 +41,32 @@ async function blobLoad(key) {
   return (result && result.data) ? result.data : null;
 }
 
+async function sendPhotoPush(storePc, taskName, by) {
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
+  const storeInfo = STORE_BY_PC[storePc];
+  if (!storeInfo) return;
+  const [users, subs] = await Promise.all([blobLoad('pcg_users_v1'), blobLoad('pcg_push_subscriptions_v1')]);
+  const userList = Array.isArray(users) ? users : [];
+  const subMap = (subs && typeof subs === 'object') ? subs : {};
+  const dm = userList.find((u) => u.active !== false && u.userType === 'dm' && String(u.district) === String(storeInfo.district));
+  if (!dm) return;
+  webpush.setVapidDetails(
+    `mailto:${process.env.VAPID_EMAIL || 'noreply@pcgops.com'}`,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY,
+  );
+  const pushPayload = JSON.stringify({
+    title: `📷 Task Photo — ${storeInfo.name}`,
+    body: `${taskName}${by ? ` · submitted by ${by}` : ''}`,
+    icon: '/icon-192.png',
+    url: 'https://pcg-ops.netlify.app',
+    tag: `task-photo-${storePc}`,
+  });
+  for (const sub of (subMap[String(dm.id)] || [])) {
+    await webpush.sendNotification(sub, pushPayload).catch(() => {});
+  }
+}
+
 async function sendCAPush(storePc, cas) {
   if (!cas.length || !process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
   const storeInfo = STORE_BY_PC[storePc];
@@ -339,7 +365,7 @@ export default async (request, context) => {
       if (!instanceId || !answers.length) return reply(400, { error: 'instance_id and answers required' });
 
       const instRows = await db`
-        SELECT i.*, t.name AS task_name
+        SELECT i.*, t.name AS task_name, t.input_type
         FROM task_instances i JOIN task_templates t ON t.id = i.template_id
         WHERE i.id = ${instanceId}`;
       if (!instRows.length) return reply(404, { error: 'instance not found' });
@@ -400,7 +426,11 @@ export default async (request, context) => {
       if (items.length > 0) {
         const totalExpected = items.length * Math.max(1, equip.length);
         const answeredCnt = (await db`SELECT COUNT(*) AS cnt FROM task_instance_answers WHERE instance_id = ${instanceId}`)[0]?.cnt || 0;
-        if (+answeredCnt >= totalExpected) {
+        const allItemsDone = +answeredCnt >= totalExpected;
+        // Photo tasks also require a photo before auto-completing
+        const photoRequired = inst.input_type === 'photo';
+        const photoSatisfied = !photoRequired || !!inst.photo_url;
+        if (allItemsDone && photoSatisfied) {
           await db`UPDATE task_instances SET status='completed', completed_by=${by}, completed_at=now() WHERE id=${instanceId} AND status != 'completed'`;
         }
       }
@@ -510,7 +540,25 @@ export default async (request, context) => {
       if (!storePc) return reply(400, { error: 'store_pc required' });
       const photoUrl = body.photo_url || null;
       if (photoUrl && photoUrl.length > 400000) return reply(413, { error: 'photo too large' });
-      await db`UPDATE task_instances SET photo_url=${photoUrl} WHERE id=${id} AND store_pc=${storePc}`;
+      const by = body.by || null;
+      // Fetch task name for the DM notification
+      const taskRow = await db`
+        SELECT t.name FROM task_instances i
+        JOIN task_templates t ON t.id = i.template_id
+        WHERE i.id = ${id} AND i.store_pc = ${storePc}
+        LIMIT 1`;
+      const taskName = taskRow[0]?.name || 'Task';
+      // Auto-complete photo tasks when a photo is saved
+      await db`
+        UPDATE task_instances
+        SET photo_url=${photoUrl},
+            status='completed',
+            completed_by=${by},
+            completed_at=NOW()
+        WHERE id=${id} AND store_pc=${storePc}
+      `;
+      // Notify DM (fire-and-forget)
+      sendPhotoPush(storePc, taskName, by).catch((e) => console.warn('[tasks] photo push:', e.message));
       return reply(200, { ok: true, instance_id: id });
     }
 

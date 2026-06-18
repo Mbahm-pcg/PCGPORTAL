@@ -84,6 +84,12 @@
 [functions.tasks-cron]
   schedule = "0 9 * * *"
 
+# Task shift-open notifications — 5am/9am/1pm/5pm ET (10,14,18,22 UTC)
+# Sends push to each store manager when their shift window's tasks go live.
+# Runs one hour after tasks-cron so instances are guaranteed to exist.
+[functions.task-notify-cron]
+  schedule = "0 10,14,18,22 * * *"
+
 # Schedule risk alerts — Mon + Thu at 6 AM ET (10:00 UTC)
 # Checks projected labor % for upcoming days, alerts DMs + managers when ≥26%
 [functions.schedule-alerts]
