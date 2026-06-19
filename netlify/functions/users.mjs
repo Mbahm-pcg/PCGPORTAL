@@ -188,7 +188,7 @@ export default async (request) => {
       return reply(200, { user: toClient(updated) });
     }
 
-    // ── DELETE (soft) ───────────────────────────────────────────────────────────
+    // ── DELETE ──────────────────────────────────────────────────────────────────
     if (action === 'delete') {
       if (!isFullAdmin(claims)) return reply(403, { error: 'only admins can delete users' });
       const { id } = body;
@@ -196,7 +196,10 @@ export default async (request) => {
       const [target] = await db`SELECT id, user_type FROM users WHERE id = ${id}`;
       if (!target) return reply(404, { error: 'user not found' });
       if (!canManage(claims, target.user_type)) return reply(403, { error: 'forbidden' });
-      await db`UPDATE users SET active = false, updated_at = now() WHERE id = ${id}`;
+      // Null out nullable FK references before hard delete to avoid orphaned rows
+      await db`UPDATE tickets SET assigned_to = NULL WHERE assigned_to = ${id}`;
+      await db`UPDATE notifications SET recipient_id = NULL WHERE recipient_id = ${id}`;
+      await db`DELETE FROM users WHERE id = ${id}`;
       return reply(200, { ok: true });
     }
 

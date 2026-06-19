@@ -3742,7 +3742,7 @@
         body: JSON.stringify({ action: "delete", id })
       });
       if (res.ok) {
-        setUsers((us) => us.map((u) => u.id === id ? { ...u, active: false } : u));
+        setUsers((us) => us.filter((u) => u.id !== id));
         logClientEvent(currentUser?.id, currentUser?.userType, "user_deleted", { targetName: target?.name, targetRole: target?.userType });
       }
     };
@@ -15072,7 +15072,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v16.39";
+  var APP_VERSION = "v16.40";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
