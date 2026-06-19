@@ -411,7 +411,6 @@ function generateDeviceToken() {
 }
 
 async function isTwoFactorDeviceTrusted(user) {
-  if (!user?.twoFactorSecret) return false;
   const storageKey = getTrustedDeviceStorageKey(user);
   const raw = localStorage.getItem(storageKey);
   if (!raw) return false;
@@ -3025,7 +3024,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
       body: JSON.stringify({ action: 'delete', id }),
     });
     if (res.ok) {
-      setUsers(us => us.map(u => u.id === id ? { ...u, active: false } : u));
+      setUsers(us => us.filter(u => u.id !== id));
       logClientEvent(currentUser?.id, currentUser?.userType, 'user_deleted', { targetName: target?.name, targetRole: target?.userType });
     }
   };
@@ -18753,7 +18752,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.39";
+const APP_VERSION = "v16.44";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -25303,9 +25302,9 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
 
   useEffect(() => { fetchLaborData(); }, [fetchLaborData]);
 
-  // Auto-refresh: re-pull the labor blob every hour (labor-cron refreshes it hourly)
+  // Auto-refresh: re-pull the labor blob every 15 min while the tab is open
   useEffect(() => {
-    const id = setInterval(fetchLaborData, 60 * 60 * 1000);
+    const id = setInterval(fetchLaborData, 15 * 60 * 1000);
     return () => clearInterval(id);
   }, [fetchLaborData]);
 
@@ -25381,17 +25380,24 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
     return () => { cancelled = true; };
   }, [laborData]);
 
-  // Manual refresh — triggers background cron then polls blob for fresh data
+  // Manual refresh — shows current blob immediately, then syncs fresh Paycor data in background
   const handleRefresh = async () => {
     setRefreshing(true);
-    const prevUpdated = laborData?.lastUpdated || '';
     try {
-      // Fire-and-forget: trigger background function (returns 202 immediately)
+      // Step 1: reload current blob immediately so the UI shows up-to-date cached data
+      const current = await cloudLoad('pcg_labor_v1');
+      if (current) setLaborData(typeof current === 'string' ? JSON.parse(current) : current);
+      // Capture prevUpdated AFTER the immediate load so the poll only fires
+      // when the background Paycor sync actually produces newer data.
+      const prevUpdated = current?.lastUpdated || laborData?.lastUpdated || '';
+
+      // Step 2: trigger background Paycor sync (fire-and-forget, returns 202 instantly)
       fetch('/.netlify/functions/labor-cron-background', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manual: true }),
       }).catch(() => {});
-      // Poll blob every 5s for up to 3 minutes until lastUpdated changes
+
+      // Step 3: poll every 5s for up to 3 min — update again if Paycor data comes in newer
       for (let i = 0; i < 36; i++) {
         await new Promise(r => setTimeout(r, 5000));
         const fresh = await cloudLoad('pcg_labor_v1');
@@ -25459,9 +25465,12 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
         <h2 style={{ ...pageTitle(th), margin: 0 }}>Labor</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <span style={{ fontSize: '0.75rem', color: th.muted }}>Updated {timeAgo(laborData?.lastUpdated)}</span>
-          <button onClick={handleRefresh} disabled={refreshing} style={{ ...btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem', opacity: refreshing ? 0.5 : 1 }) }}>
-            {refreshing ? 'Refreshing...' : 'Refresh'}
+          <span style={{ fontSize: '0.75rem', color: th.muted }}>
+            {refreshing ? 'Syncing Paycor…' : `Updated ${timeAgo(laborData?.lastUpdated)}`}
+          </span>
+          <button onClick={handleRefresh} disabled={refreshing} style={{ ...btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem', opacity: refreshing ? 0.6 : 1 }) }}>
+            <span style={{ display: 'inline-block', animation: refreshing ? 'pcg-spin .9s linear infinite' : 'none', marginRight: refreshing ? 4 : 0 }}>↺</span>
+            {refreshing ? 'Syncing…' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -25782,6 +25791,9 @@ function OpsTasks({ stores, th, user }) {
   useEffect(() => { if (photoDetail && photoDetailRef.current) photoDetailRef.current.scrollTop = 0; }, [photoDetail]);
   const byName = user?.name || user?.email || "user";
 
+  const isMobile = useIsMobile();  // shared hook — breakpoint 768px, consistent with rest of app
+  const isTablet = !isMobile;      // alias: any non-phone screen
+
   // Client-side shift window start hours (mirrors catalog.js SHIFT_WINDOWS)
   const SHIFT_WINDOWS_CLIENT = {
     "1 AM":  0,  "5 AM":  5,  "9 AM":  9,
@@ -26018,10 +26030,10 @@ function OpsTasks({ stores, th, user }) {
   );
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
-        <h2 style={{ ...pageTitle(th), margin: 0 }}>Tasks</h2>
-        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+    <div style={{ maxWidth: isTablet ? 960 : "100%", margin: "0 auto", paddingBottom: "max(3rem, env(safe-area-inset-bottom, 3rem))" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem", flexWrap: isMobile ? "wrap" : "nowrap" }}>
+        <h2 style={{ ...pageTitle(th), margin: 0, flexShrink: 0 }}>Tasks</h2>
+        <div style={{ display: "flex", gap: "0.4rem", overflowX: "auto", WebkitOverflowScrolling: "touch", scrollbarWidth: "none", msOverflowStyle: "none", paddingBottom: 2 }}>
           {!isManager && viewTab("dashboard", "Dashboard")}
           {viewTab("tasks", "Tasks")}
           {!isManager && viewTab("stores", "Stores")}
@@ -26031,16 +26043,16 @@ function OpsTasks({ stores, th, user }) {
 
       {/* Controls */}
       {(view === "tasks" || view === "dashboard") && (
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: "0.5rem", marginBottom: "0.75rem" }}>
           {!isManager && (
-            <select value={storePc} onChange={(e) => setStorePc(e.target.value)} style={{ ...inp(th), flex: 1, minWidth: 160 }}>
+            <select value={storePc} onChange={(e) => setStorePc(e.target.value)} style={{ ...inp(th), flex: 1 }}>
               {scopeStores.map((s) => <option key={s.pc} value={String(s.pc)}>{s.pc} — {s.name}</option>)}
             </select>
           )}
           {isManager && myStore && (
-            <div style={{ ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 }}>{myStore.pc} — {myStore.name}</div>
+            <div style={{ ...inp(th), flex: 1, display: "flex", alignItems: "center", fontWeight: 700 }}>{myStore.pc} — {myStore.name}</div>
           )}
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp(th), width: 160 }} />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp(th), width: isMobile ? "100%" : 160 }} />
         </div>
       )}
 
@@ -26049,7 +26061,7 @@ function OpsTasks({ stores, th, user }) {
       {/* ── Dashboard ── */}
       {view === "dashboard" && dash && !loading && (
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" }}>
             {[["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => (
               <div key={k} style={{ ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" }}>
                 <div style={{ fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text }}>{dash.totals[k] || 0}</div>
@@ -26064,17 +26076,19 @@ function OpsTasks({ stores, th, user }) {
               <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: th.muted }}>View →</span>
             </div>
           )}
-          {dash.categories.map((c) => (
-            <div key={c.category} style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` }}>
-              <TaskRing pct={c.pct} th={th} size={40} color={complianceColor(c.pct)} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700 }}>{c.category}</div>
-                <div style={{ fontSize: "0.75rem", color: th.muted }}>
-                  {c.open} open · <span style={{ color: "#e03131" }}>{c.overdue} overdue</span> · {c.completed}/{c.all} done
+          <div style={{ display: "grid", gridTemplateColumns: isTablet && !isMobile ? "repeat(2,1fr)" : "1fr", gap: "0.5rem" }}>
+            {dash.categories.map((c) => (
+              <div key={c.category} style={{ ...card(th), padding: "0.7rem 0.9rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` }}>
+                <TaskRing pct={c.pct} th={th} size={40} color={complianceColor(c.pct)} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700 }}>{c.category}</div>
+                  <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                    {c.open} open · <span style={{ color: "#e03131" }}>{c.overdue} overdue</span> · {c.completed}/{c.all} done
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
@@ -26131,7 +26145,7 @@ function OpsTasks({ stores, th, user }) {
             const itemPct = isPhoto && !tk.has_photo ? Math.min(rawItemPct, 99) : rawItemPct;
 
             return (
-              <div key={tk.id} style={{ ...card(th), padding: "0.8rem 0.9rem", marginBottom: "0.5rem" }}>
+              <div key={tk.id} style={{ ...card(th), padding: isTablet ? "1rem 1.1rem" : "0.8rem 0.9rem", marginBottom: "0.5rem" }}>
                 {/* Card header */}
                 <div style={{ cursor: hasItems ? "pointer" : "default" }}
                   onClick={() => hasItems && setExpandedId(isExpanded ? null : tk.id)}>
@@ -26152,8 +26166,8 @@ function OpsTasks({ stores, th, user }) {
                         {hasItems && <span style={{ fontSize: "0.75rem", color: th.muted }}>{tk.answers_count}/{tk.items_count} items</span>}
                         {!hasItems && isMeas && tk.min_val != null && <span style={{ fontSize: "0.73rem", color: th.muted }}>{tk.min_val}–{tk.max_val}{tk.unit}</span>}
                         {done && !hasItems && tk.value != null && <span style={{ fontSize: "0.73rem", color: th.muted }}>Recorded: {tk.value}{tk.unit || ""}{tk.completed_by ? ` · ${tk.completed_by}` : ""}</span>}
-                        {isPhoto && tk.has_photo && <span style={{ fontSize: "0.73rem", color: "#2f9e44", fontWeight: 700 }}>📷 Photo attached</span>}
-                        {isPhoto && !tk.has_photo && <span style={{ fontSize: "0.73rem", color: th.muted }}>📷 Photo required</span>}
+                        {isPhoto && tk.has_photo && <span style={{ fontSize: "0.73rem", color: "#2f9e44", fontWeight: 700 }}>Photo attached</span>}
+                        {isPhoto && !tk.has_photo && <span style={{ fontSize: "0.73rem", color: th.muted }}>Photo required</span>}
                       </div>
                     </div>
                     {isPhoto && photoUrls[tk.id] && (
@@ -26211,9 +26225,9 @@ function OpsTasks({ stores, th, user }) {
                     {isPhoto && !done && (
                       <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
                         {tk.has_photo
-                          ? <span style={{ fontSize: "0.75rem", color: "#2f9e44", fontWeight: 700 }}>📷 Photo attached</span>
+                          ? <span style={{ fontSize: "0.75rem", color: "#2f9e44", fontWeight: 700 }}>Photo attached</span>
                           : <>
-                              <span style={{ fontSize: "0.75rem", color: "#f59e0b", fontWeight: 700 }}>📷 Photo required to complete</span>
+                              <span style={{ fontSize: "0.75rem", color: "#f59e0b", fontWeight: 700 }}>Photo required to complete</span>
                               <button onClick={() => pickTaskPhoto(tk)} disabled={busyId === tk.id}
                                 style={{ ...btn(th, { background: O + "18", color: O, border: `1px solid ${O}44` }), fontSize: "0.75rem", padding: "0.35rem 0.75rem", minHeight: 34, touchAction: "manipulation" }}>
                                 {busyId === tk.id ? "Saving…" : "Add Photo"}
@@ -26280,12 +26294,12 @@ function OpsTasks({ stores, th, user }) {
                       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", width: "100%" }}>
                         {photoUrls[tk.id]
                           ? <img src={photoUrls[tk.id]} alt="task photo" onClick={() => setPhotoDetail({ task: tk, url: photoUrls[tk.id] })} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
-                          : <div style={{ width: 56, height: 56, borderRadius: 8, background: th.bg, border: `1px dashed ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", flexShrink: 0, opacity: photoUrls[tk.id] === null ? 0.4 : 1 }}>📷</div>
+                          : <div style={{ width: 56, height: 56, borderRadius: 8, background: th.bg, border: `1px dashed ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: photoUrls[tk.id] === null ? 0.4 : 1 }}><svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={th.muted} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
                         }
                         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.35rem" }}>
                           <button onClick={() => pickTaskPhoto(tk)} disabled={busyId === tk.id}
                             style={{ ...btn(th, { background: O + "18", color: O, border: `1px solid ${O}44` }), fontSize: "0.85rem", padding: "0.6rem 1rem", minHeight: 44, touchAction: "manipulation" }}>
-                            {busyId === tk.id ? "Saving…" : photoUrls[tk.id] ? "📷 Replace Photo" : "📷 Add Photo"}
+                            {busyId === tk.id ? "Saving…" : photoUrls[tk.id] ? "Replace Photo" : "Add Photo"}
                           </button>
                           {!tk.has_photo && <span style={{ fontSize: "0.73rem", color: th.muted }}>Photo proof required</span>}
                         </div>
@@ -26311,19 +26325,21 @@ function OpsTasks({ stores, th, user }) {
       {view === "stores" && rollup && !loading && (
         <div>
           <div style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" }}>{rollup.stores.length} stores · {date}{isDM ? ` · District ${user?.district}` : ""}</div>
-          {rollup.stores.map((s) => (
-            <div key={s.pc} onClick={() => { setStorePc(String(s.pc)); setView("tasks"); }}
-              style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", cursor: "pointer" }}>
-              <TaskRing pct={s.pct} th={th} size={40} color={complianceColor(s.pct)} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700 }}>{s.name} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.78rem" }}>· {s.pc}</span></div>
-                <div style={{ fontSize: "0.75rem", color: th.muted }}>
-                  {s.open} open · <span style={{ color: "#e03131" }}>{s.overdue} overdue</span> · {s.completed}/{s.all} done{!isDM ? ` · D${s.district}` : ""}
-                  {s.open_cas > 0 && <span style={{ color: "#e03131", marginLeft: "0.4rem" }}>· {s.open_cas} CA{s.open_cas !== 1 ? "s" : ""}</span>}
+          <div style={{ display: "grid", gridTemplateColumns: isTablet && !isMobile ? "repeat(2,1fr)" : "1fr", gap: "0.5rem" }}>
+            {rollup.stores.map((s) => (
+              <div key={s.pc} onClick={() => { setStorePc(String(s.pc)); setView("tasks"); }}
+                style={{ ...card(th), padding: "0.7rem 0.9rem", display: "flex", alignItems: "center", gap: "0.75rem", cursor: "pointer" }}>
+                <TaskRing pct={s.pct} th={th} size={40} color={complianceColor(s.pct)} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.78rem" }}>· {s.pc}</span></div>
+                  <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                    {s.open} open · <span style={{ color: "#e03131" }}>{s.overdue} overdue</span> · {s.completed}/{s.all} done{!isDM ? ` · D${s.district}` : ""}
+                    {s.open_cas > 0 && <span style={{ color: "#e03131", marginLeft: "0.4rem" }}>· {s.open_cas} CA{s.open_cas !== 1 ? "s" : ""}</span>}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
@@ -26371,7 +26387,7 @@ function OpsTasks({ stores, th, user }) {
                     </button>
                   )}
                   <button onClick={() => pickCaPhoto(ca)} style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}44` }), fontSize: "0.82rem", padding: "0.5rem 0.85rem", minHeight: 40, touchAction: "manipulation" }}>
-                    📷 {ca.photo_url ? "Replace Photo" : "Add Photo"}
+                    {ca.photo_url ? "Replace Photo" : "Add Photo"}
                   </button>
                 </div>
                 {ca.status === "resolved" && ca.resolved_by && (
@@ -34704,9 +34720,6 @@ function PCGPortal() {
   useEffect(() => {
     if (!user || !isTwoFactorRequired(user)) return;
     const check = async () => {
-      // Skip if secret isn't available client-side — device trust was already
-      // verified at login time and we can't re-verify TOTP without the secret.
-      if (!user.twoFactorSecret) return;
       const trusted = await isTwoFactorDeviceTrusted(user).catch(() => false);
       if (!trusted) {
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: '2fa_trust_expired', name: user?.name });

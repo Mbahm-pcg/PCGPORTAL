@@ -334,7 +334,7 @@ export default async (request, context) => {
           ...r, statusComputed: computeStatus(r, now),
           items, equipment, answers,
           items_count: totalExpected,
-          answers_count: answers.length,
+          answers_count: answers.filter((a) => a.checked === true || a.value !== null).length,
         };
       });
 
