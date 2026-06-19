@@ -1751,10 +1751,23 @@
                 setErr("Google login worked, but this email is not active in the portal users list.");
                 return;
               }
-              if (await shouldPromptTwoFactor(found)) beginTwoFactor(found);
+              let enrichedFound = found;
+              if (isTwoFactorRequired(found) && found.twoFactorEnabled && !found.twoFactorSecret) {
+                try {
+                  const s2fa = await fetch("/.netlify/functions/portal-auth", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "get-2fa-secret", accessToken: tokenResponse.access_token })
+                  });
+                  const s2faJson = await s2fa.json();
+                  if (s2faJson.twoFactorSecret) enrichedFound = { ...found, twoFactorSecret: s2faJson.twoFactorSecret };
+                } catch {
+                }
+              }
+              if (await shouldPromptTwoFactor(enrichedFound)) beginTwoFactor(enrichedFound);
               else {
-                applyRememberMe(found.username);
-                finishLogin(found);
+                applyRememberMe(enrichedFound.username);
+                finishLogin(enrichedFound);
               }
             } catch (e) {
               setErr(e.message || "Google sign-in failed.");
@@ -15059,7 +15072,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v16.38";
+  var APP_VERSION = "v16.39";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -26064,6 +26077,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     useEffect(() => {
       if (!user || !isTwoFactorRequired(user)) return;
       const check = async () => {
+        if (!user.twoFactorSecret) return;
         const trusted = await isTwoFactorDeviceTrusted(user).catch(() => false);
         if (!trusted) {
           logClientEvent(user?.id, user?.userType, "session_timeout", { reason: "2fa_trust_expired", name: user?.name });

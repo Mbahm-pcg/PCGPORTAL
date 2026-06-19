@@ -186,6 +186,34 @@ export default async (request, context) => {
       return reply(200, out);
     }
 
+    // Returns twoFactorSecret for Google-authenticated users who already have 2FA set up.
+    // Requires a valid Google access token — verified live with Google userinfo endpoint.
+    if (action === 'get-2fa-secret') {
+      const { accessToken } = body;
+      if (!accessToken) return reply(400, { error: 'accessToken required' });
+      try {
+        const gRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!gRes.ok) return reply(401, { error: 'invalid Google token' });
+        const profile = await gRes.json();
+        if (!profile.email_verified) return reply(401, { error: 'email not verified' });
+        const email = lc(profile.email);
+        const [row] = await db`
+          SELECT two_factor_required, two_factor_enabled, two_factor_secret
+          FROM users WHERE lower(email) = ${email} AND active = true LIMIT 1
+        `;
+        if (!row) return reply(404, { error: 'user not found' });
+        return reply(200, {
+          twoFactorRequired: row.two_factor_required || false,
+          twoFactorEnabled:  row.two_factor_enabled  || false,
+          twoFactorSecret:   row.two_factor_required ? (row.two_factor_secret || null) : null,
+        });
+      } catch (e) {
+        return reply(500, { error: 'verification failed' });
+      }
+    }
+
     if (action === 'change-password') {
       const claims = requireUser(eventShim);
       if (!claims) return reply(401, { error: 'unauthorized' });

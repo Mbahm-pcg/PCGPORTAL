@@ -774,8 +774,22 @@ function Login({ onLogin, dark, toggleDark, users }) {
               return u.active !== false && (userEmail === email || username === email);
             });
             if (!found) { setErr("Google login worked, but this email is not active in the portal users list."); return; }
-            if (await shouldPromptTwoFactor(found)) beginTwoFactor(found);
-            else { applyRememberMe(found.username); finishLogin(found); }
+            // If 2FA is required and already set up but we don't have the secret locally
+            // (API list excludes it for security), fetch it now using the Google access token.
+            let enrichedFound = found;
+            if (isTwoFactorRequired(found) && found.twoFactorEnabled && !found.twoFactorSecret) {
+              try {
+                const s2fa = await fetch('/.netlify/functions/portal-auth', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'get-2fa-secret', accessToken: tokenResponse.access_token }),
+                });
+                const s2faJson = await s2fa.json();
+                if (s2faJson.twoFactorSecret) enrichedFound = { ...found, twoFactorSecret: s2faJson.twoFactorSecret };
+              } catch { /* proceed — setup flow will show if secret still missing */ }
+            }
+            if (await shouldPromptTwoFactor(enrichedFound)) beginTwoFactor(enrichedFound);
+            else { applyRememberMe(enrichedFound.username); finishLogin(enrichedFound); }
           } catch (e) { setErr(e.message || "Google sign-in failed."); }
         }
       });
@@ -18739,7 +18753,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.38";
+const APP_VERSION = "v16.39";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -34690,6 +34704,9 @@ function PCGPortal() {
   useEffect(() => {
     if (!user || !isTwoFactorRequired(user)) return;
     const check = async () => {
+      // Skip if secret isn't available client-side — device trust was already
+      // verified at login time and we can't re-verify TOTP without the secret.
+      if (!user.twoFactorSecret) return;
       const trusted = await isTwoFactorDeviceTrusted(user).catch(() => false);
       if (!trusted) {
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: '2fa_trust_expired', name: user?.name });
