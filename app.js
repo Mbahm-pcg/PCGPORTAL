@@ -1779,6 +1779,36 @@
     }, [beginTwoFactor, finishLogin, applyRememberMe, users]);
     const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
     const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    const rememberedUser = React.useMemo(() => {
+      try {
+        const uname = (localStorage.getItem("pcg_remember_username") || "").trim().toLowerCase();
+        if (!uname) return null;
+        return (users || []).find(
+          (x) => (x.username || "").trim().toLowerCase() === uname || (x.email || "").trim().toLowerCase() === uname
+        ) || null;
+      } catch {
+        return null;
+      }
+    }, [users]);
+    const firstName = React.useMemo(() => {
+      const full = (rememberedUser?.name || "").trim();
+      if (!full) return null;
+      const first = full.split(/\s+/)[0];
+      return first ? first.charAt(0).toUpperCase() + first.slice(1) : null;
+    }, [rememberedUser]);
+    const lastLoginStr = React.useMemo(() => {
+      const ts = rememberedUser?.lastLogin;
+      if (!ts) return null;
+      const d = new Date(ts);
+      if (isNaN(d.getTime())) return null;
+      const today = /* @__PURE__ */ new Date();
+      const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      if (d.toDateString() === today.toDateString()) return `today at ${time}`;
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      if (d.toDateString() === yesterday.toDateString()) return `yesterday at ${time}`;
+      return `${d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} at ${time}`;
+    }, [rememberedUser]);
     const palette = dark ? {
       bg: "#0a0e17",
       text: "#ffffff",
@@ -1836,7 +1866,7 @@
       background: palette.bg,
       color: palette.text,
       transition: "background .4s ease, color .4s ease"
-    } }, /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
+    } }, /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", className: "login-bg-fx", style: {
       position: "absolute",
       inset: "-40%",
       background: `
@@ -1851,13 +1881,26 @@
       animation: "loginMeshShift 40s linear infinite",
       pointerEvents: "none",
       transition: "opacity .4s ease"
-    } }), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
+    } }), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", className: "login-bg-fx", style: {
+      position: "absolute",
+      inset: "-30%",
+      background: `conic-gradient(from 0deg at 50% 50%,
+          transparent 0deg, #FF671F2e 55deg, transparent 130deg,
+          #ff90551f 210deg, transparent 285deg, #FF671F2e 360deg)`,
+      filter: `blur(${palette.meshBlur + 24}px)`,
+      opacity: palette.meshOpacity * 0.65,
+      animation: "loginAuroraSpin 55s linear infinite",
+      pointerEvents: "none",
+      transition: "opacity .4s ease",
+      mixBlendMode: dark ? "screen" : "multiply"
+    } }), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", className: "login-bg-fx", style: {
       position: "absolute",
       inset: 0,
       backgroundImage: `radial-gradient(${palette.dotGrid} 1px, transparent 1px)`,
       backgroundSize: "28px 28px",
+      animation: "loginDotDrift 26s linear infinite",
       pointerEvents: "none"
-    } }), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" } }, particles.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, style: {
+    } }), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" } }, particles.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, className: "login-bg-fx", style: {
       position: "absolute",
       bottom: "-20px",
       left: `${p.left}%`,
@@ -1982,14 +2025,44 @@
           transition: "opacity .7s ease .15s, transform .7s ease .15s, background .4s ease, border .4s ease"
         }
       },
-      /* @__PURE__ */ React.createElement("div", { style: { marginBottom: tinyScreen ? "1.35rem" : "1.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: {
+      /* @__PURE__ */ React.createElement("div", { style: { marginBottom: tinyScreen ? "1.35rem" : "1.75rem" } }, firstName ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: {
+        fontFamily: "'Raleway'",
+        fontWeight: 700,
+        fontSize: tinyScreen ? "0.92rem" : "1.05rem",
+        color: palette.textFaint,
+        letterSpacing: 0.2,
+        lineHeight: 1,
+        marginBottom: "0.3rem"
+      } }, "Welcome back,"), /* @__PURE__ */ React.createElement("div", { style: {
+        fontFamily: "'Raleway'",
+        fontWeight: 900,
+        fontSize: tinyScreen ? "2.5rem" : narrow ? "2.9rem" : "3.25rem",
+        lineHeight: 0.95,
+        letterSpacing: tinyScreen ? -1.5 : -2,
+        background: "linear-gradient(135deg, #FF671F 0%, #ff9055 50%, #FF671F 100%)",
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+        backgroundClip: "text",
+        paddingBottom: "0.06em",
+        paddingRight: "0.1em",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      } }, firstName), lastLoginStr ? /* @__PURE__ */ React.createElement("div", { style: {
+        display: "flex",
+        alignItems: "center",
+        gap: "0.45rem",
+        fontSize: tinyScreen ? "0.72rem" : "0.78rem",
+        color: palette.textGhost,
+        marginTop: "0.55rem"
+      } }, /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#4caf50", boxShadow: "0 0 8px #4caf50", flexShrink: 0 } }), "Last signed in ", lastLoginStr) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: tinyScreen ? "0.78rem" : "0.82rem", color: palette.textFaint, marginTop: "0.5rem" } }, "Great to see you again \u2014 sign in to continue.")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: {
         fontFamily: "'Raleway'",
         fontWeight: 900,
         fontSize: tinyScreen ? "1.55rem" : "1.85rem",
         color: palette.text,
         letterSpacing: -0.8,
         lineHeight: 1
-      } }, "Welcome back"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: tinyScreen ? "0.78rem" : "0.82rem", color: palette.textFaint, marginTop: "0.5rem" } }, "Sign in to access your dashboard")),
+      } }, "Welcome back"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: tinyScreen ? "0.78rem" : "0.82rem", color: palette.textFaint, marginTop: "0.5rem" } }, "Sign in to access your dashboard"))),
       authStage === "password" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "login-input-wrap", style: { position: "relative", marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement(
         "input",
         {
@@ -13578,13 +13651,16 @@ ${t2.slice(0, 300)}`);
       return /* @__PURE__ */ React.createElement("tr", { key: i, style: { borderBottom: `1px solid ${th.cardBorder}`, background: isErr ? "#f4433608" : "transparent" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, whiteSpace: "nowrap", fontSize: "0.75rem" } }, dt ? dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true }) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.text, fontWeight: 500 } }, userName(e.userId)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.75rem" } }, e.userRole || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: actionColor, background: actionColor + "18", padding: "0.15rem 0.45rem", borderRadius: "0.2rem", whiteSpace: "nowrap" } }, e.action || "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.75rem" } }, e.district ? `D${e.district}` : "Network"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: isErr ? "#f44336" : "#4caf50", background: isErr ? "#f4433618" : "#4caf5018", padding: "0.15rem 0.4rem", borderRadius: "0.2rem" } }, e.statusCode || "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: isErr ? "#f44336" : th.muted, fontSize: "0.72rem", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.error ? e.error : e.meta ? e.meta.from != null && e.meta.to != null ? `${e.meta.from} \u2192 ${e.meta.to}` : e.meta.targetName ? e.meta.targetName : e.meta.filename || (e.meta.backed != null ? `${e.meta.backed} reports` : e.meta.synced != null ? `${e.meta.synced} synced` : "") || "" : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.75rem", textAlign: "right" } }, e.latencyMs != null ? e.latencyMs : "\u2014"));
     })))), displayed.length > PAGE && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAll((s) => !s), style: { ...btn(th, { padding: "0.3rem 1rem", fontSize: "0.75rem" }) } }, showAll ? `Show recent ${PAGE}` : `Show all ${displayed.length} events`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.5rem", textAlign: "right" } }, "Showing ", visibleRows.length, " of ", displayed.length, " event", displayed.length !== 1 ? "s" : ""))));
   }
-  function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert }) {
+  function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert, users }) {
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState({ title: "", message: "" });
     const [addMode, setAddMode] = useState(false);
     const [newTitle, setNewTitle] = useState("");
     const [newMsg, setNewMsg] = useState("");
     const [newTargets, setNewTargets] = useState([]);
+    const [newUserTargets, setNewUserTargets] = useState([]);
+    const [expandedRole, setExpandedRole] = useState(null);
+    const TARGETABLE_ROLES = ["dm", "executive", "construction", "office_staff"];
     const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
     const ANN_ROLES = [
       { value: "dm", label: "District Mgrs", color: "#f59e0b" },
@@ -13600,8 +13676,9 @@ ${t2.slice(0, 300)}`);
     const visibleAnnouncements = canManage ? announcements : announcements.filter((a) => {
       if (a.type === "leaderboard" && user?.userType !== "dm" && user?.userType !== "executive") return false;
       if (!a.targets) return true;
-      const { roles, districts } = a.targets;
+      const { roles, districts, users: userIds } = a.targets;
       if (roles?.includes(user?.userType)) return true;
+      if (userIds?.includes(user?.id)) return true;
       if (myDist && districts?.includes(myDist)) return true;
       return false;
     });
@@ -13611,11 +13688,15 @@ ${t2.slice(0, 300)}`);
         showAlert("error", "Title and message required");
         return;
       }
-      const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), createdBy: user.name, active: true, targets: newTargets.length > 0 ? { roles: newTargets } : null };
+      const hasTargets = newTargets.length > 0 || newUserTargets.length > 0;
+      const targets = hasTargets ? { roles: newTargets, users: newUserTargets } : null;
+      const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), createdBy: user.name, active: true, targets };
       setAnnouncements((prev) => [ann, ...prev]);
       setNewTitle("");
       setNewMsg("");
       setNewTargets([]);
+      setNewUserTargets([]);
+      setExpandedRole(null);
       setAddMode(false);
       showAlert("success", "Announcement posted!");
     };
@@ -13638,6 +13719,21 @@ ${t2.slice(0, 300)}`);
       showAlert("success", "Announcement removed");
     };
     const activeCount = visibleAnnouncements.filter((a) => a.active).length;
+    const usersInRole = (role) => (users || []).filter((u) => u.userType === role && u.active !== false).sort((a, b) => (a.name || a.username || "").localeCompare(b.name || b.username || ""));
+    const toggleRole = (value) => {
+      const turningOn = !newTargets.includes(value);
+      setNewTargets((prev) => turningOn ? [...prev, value] : prev.filter((x) => x !== value));
+      if (turningOn && TARGETABLE_ROLES.includes(value)) {
+        const ids = usersInRole(value).map((u) => u.id);
+        setNewUserTargets((prev) => prev.filter((id) => !ids.includes(id)));
+      }
+    };
+    const toggleUser = (id, role) => {
+      setNewUserTargets((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+      setNewTargets((prev) => prev.filter((x) => x !== role));
+    };
+    const selectedRoleLabels = ANN_ROLES.filter((r) => newTargets.includes(r.value)).map((r) => r.label);
+    const sendSummary = newTargets.length === 0 && newUserTargets.length === 0 ? "Everyone" : [...selectedRoleLabels, newUserTargets.length ? `${newUserTargets.length} specific ${newUserTargets.length === 1 ? "person" : "people"}` : null].filter(Boolean).join(", ");
     return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1.25rem", color: th.text, margin: 0 } }, "Announcements"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginTop: "0.2rem" } }, activeCount, " active \xB7 ", announcements.length, " total")), canManage && /* @__PURE__ */ React.createElement("button", { onClick: () => setAddMode((a) => !a), style: { ...btn(th), padding: "0.45rem 1rem", fontSize: "0.8125rem" } }, addMode ? "\u2715 Cancel" : "+ New Announcement")), addMode && canManage && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem", border: `1px solid ${O}44` }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 600, color: O, marginBottom: "0.75rem", textTransform: "uppercase", letterSpacing: 1 } }, "New Announcement"), /* @__PURE__ */ React.createElement(
       "input",
       {
@@ -13655,18 +13751,46 @@ ${t2.slice(0, 300)}`);
         rows: 4,
         style: { ...inp(th), width: "100%", boxSizing: "border-box", marginBottom: "0.75rem", resize: "vertical", fontFamily: "'Source Sans 3'", fontSize: "0.85rem" }
       }
-    ), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.4rem" } }, "Send to: ", /* @__PURE__ */ React.createElement("span", { style: { color: newTargets.length === 0 ? "#2f9e44" : O, fontWeight: 700 } }, newTargets.length === 0 ? "Everyone" : ANN_ROLES.filter((r) => newTargets.includes(r.value)).map((r) => r.label).join(", "))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, ANN_ROLES.map((r) => {
+    ), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.4rem" } }, "Send to: ", /* @__PURE__ */ React.createElement("span", { style: { color: newTargets.length === 0 && newUserTargets.length === 0 ? "#2f9e44" : O, fontWeight: 700 } }, sendSummary)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, ANN_ROLES.map((r) => {
       const on = newTargets.includes(r.value);
-      return /* @__PURE__ */ React.createElement(
+      const targetable = TARGETABLE_ROLES.includes(r.value);
+      const picked = targetable ? usersInRole(r.value).filter((u) => newUserTargets.includes(u.id)).length : 0;
+      const expanded = expandedRole === r.value;
+      const active = on || picked > 0;
+      return /* @__PURE__ */ React.createElement("div", { key: r.value, style: { display: "inline-flex", alignItems: "stretch", borderRadius: 99, overflow: "hidden", border: `1px solid ${active ? r.color : th.cardBorder}`, transition: "all .15s" } }, /* @__PURE__ */ React.createElement(
         "button",
         {
-          key: r.value,
-          onClick: () => setNewTargets((prev) => on ? prev.filter((x) => x !== r.value) : [...prev, r.value]),
-          style: { padding: "0.28rem 0.7rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600, cursor: "pointer", border: `1px solid ${on ? r.color : th.cardBorder}`, background: on ? r.color + "22" : "transparent", color: on ? r.color : th.muted, transition: "all .15s" }
+          onClick: () => toggleRole(r.value),
+          style: { padding: "0.28rem 0.7rem", fontSize: "0.75rem", fontWeight: 600, cursor: "pointer", border: "none", background: on ? r.color + "22" : "transparent", color: active ? r.color : th.muted }
         },
-        r.label
-      );
-    }))), /* @__PURE__ */ React.createElement("button", { onClick: postAnnouncement, style: { ...btn(th), padding: "0.5rem 1.5rem", background: O, color: "#fff", border: "none", fontWeight: 600 } }, "Post Announcement")), sorted.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { icon: ICONS.announcements(th.muted), title: "No announcements yet", description: "Company-wide updates and news will appear here.", th }) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem" } }, sorted.map((a) => {
+        r.label,
+        picked > 0 && !on ? ` \xB7 ${picked}` : ""
+      ), targetable && /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setExpandedRole(expanded ? null : r.value),
+          title: "Pick specific people",
+          style: { padding: "0.28rem 0.5rem", fontSize: "0.7rem", cursor: "pointer", border: "none", borderLeft: `1px solid ${active ? r.color + "66" : th.cardBorder}`, background: expanded ? r.color + "22" : "transparent", color: active ? r.color : th.muted }
+        },
+        expanded ? "\u25B4" : "\u25BE"
+      ));
+    })), expandedRole && (() => {
+      const roleUsers = usersInRole(expandedRole);
+      const roleOpt = ANN_ROLES.find((o) => o.value === expandedRole);
+      return /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", padding: "0.65rem 0.8rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", background: th.card2 || th.bg } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, marginBottom: "0.5rem" } }, roleOpt?.label, " \u2014 pick specific people, or use the chip to send to everyone in this role"), roleUsers.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No active users in this role.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, roleUsers.map((u) => {
+        const checked = newUserTargets.includes(u.id);
+        return /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            key: u.id,
+            onClick: () => toggleUser(u.id, expandedRole),
+            style: { display: "inline-flex", alignItems: "center", gap: "0.4rem", padding: "0.25rem 0.6rem", borderRadius: 99, fontSize: "0.74rem", fontWeight: 600, cursor: "pointer", border: `1px solid ${checked ? roleOpt.color : th.cardBorder}`, background: checked ? roleOpt.color + "22" : "transparent", color: checked ? roleOpt.color : th.text }
+          },
+          /* @__PURE__ */ React.createElement("span", { style: { width: 14, height: 14, borderRadius: 4, flexShrink: 0, border: `2px solid ${checked ? roleOpt.color : th.cardBorder}`, background: checked ? roleOpt.color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9, fontWeight: 900 } }, checked ? "\u2713" : ""),
+          u.name || u.username
+        );
+      })));
+    })()), /* @__PURE__ */ React.createElement("button", { onClick: postAnnouncement, style: { ...btn(th), padding: "0.5rem 1.5rem", background: O, color: "#fff", border: "none", fontWeight: 600 } }, "Post Announcement")), sorted.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { icon: ICONS.announcements(th.muted), title: "No announcements yet", description: "Company-wide updates and news will appear here.", th }) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem" } }, sorted.map((a) => {
       const isEditing = editingId === a.id;
       const dateStr = new Date(a.createdAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
       const timeStr = new Date(a.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -13691,10 +13815,13 @@ ${t2.slice(0, 300)}`);
           rows: 3,
           style: { ...inp(th), width: "100%", boxSizing: "border-box", marginBottom: "0.6rem", resize: "vertical", fontFamily: "'Source Sans 3'", fontSize: "0.85rem" }
         }
-      ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, style: { ...btn(th), padding: "0.35rem 0.85rem", fontSize: "0.75rem", background: O, color: "#fff", border: "none" } }, "Save"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditingId(null), style: { ...btn(th), padding: "0.35rem 0.85rem", fontSize: "0.75rem" } }, "Cancel"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, a.title), !a.active && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: 3, background: "#ff444422", color: "#ff6666" } }, "INACTIVE")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, marginTop: "0.15rem" } }, dateStr, " at ", timeStr, " \xB7 by ", a.createdBy, a.editedAt && /* @__PURE__ */ React.createElement("span", null, " \xB7 edited ", new Date(a.editedAt).toLocaleDateString())), a.targets?.roles?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" } }, a.targets.roles.map((r) => {
+      ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, style: { ...btn(th), padding: "0.35rem 0.85rem", fontSize: "0.75rem", background: O, color: "#fff", border: "none" } }, "Save"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditingId(null), style: { ...btn(th), padding: "0.35rem 0.85rem", fontSize: "0.75rem" } }, "Cancel"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, a.title), !a.active && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: 3, background: "#ff444422", color: "#ff6666" } }, "INACTIVE")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, marginTop: "0.15rem" } }, dateStr, " at ", timeStr, " \xB7 by ", a.createdBy, a.editedAt && /* @__PURE__ */ React.createElement("span", null, " \xB7 edited ", new Date(a.editedAt).toLocaleDateString())), (a.targets?.roles?.length > 0 || a.targets?.users?.length > 0) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" } }, (a.targets.roles || []).map((r) => {
         const opt = ANN_ROLES.find((o) => o.value === r);
         return opt ? /* @__PURE__ */ React.createElement("span", { key: r, style: { fontSize: "0.62rem", fontWeight: 700, padding: "0.12rem 0.45rem", borderRadius: 99, background: opt.color + "22", color: opt.color } }, opt.label) : null;
-      })), !a.targets?.roles?.length && canManage && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: "#2f9e44", fontWeight: 600 } }, "Everyone")), canManage && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => startEdit(a), title: "Edit", style: { ...btn(th), padding: "0.3rem 0.55rem", fontSize: "0.7rem" } }, "\u270E"), /* @__PURE__ */ React.createElement(
+      }), a.targets?.users?.map((uid) => {
+        const u = (users || []).find((x) => x.id === uid);
+        return /* @__PURE__ */ React.createElement("span", { key: uid, style: { fontSize: "0.62rem", fontWeight: 700, padding: "0.12rem 0.45rem", borderRadius: 99, background: th.cardBorder, color: th.text } }, u ? u.name || u.username : `User #${uid}`);
+      })), !a.targets?.roles?.length && !a.targets?.users?.length && canManage && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: "#2f9e44", fontWeight: 600 } }, "Everyone")), canManage && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => startEdit(a), title: "Edit", style: { ...btn(th), padding: "0.3rem 0.55rem", fontSize: "0.7rem" } }, "\u270E"), /* @__PURE__ */ React.createElement(
         "button",
         {
           onClick: () => toggleActive(a.id),
@@ -15080,7 +15207,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v16.42";
+  var APP_VERSION = "v16.46";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -17069,8 +17196,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const userStoreDistrict = user?.storePC ? Number((stores || []).find((s) => String(s.pc) === String(user.storePC))?.district || 0) : null;
     function announcementIsTargetedToMe(a) {
       if (!a.targets) return true;
-      const { roles, districts: districts2 } = a.targets;
+      const { roles, districts: districts2, users: userIds } = a.targets;
       if (roles?.includes(user?.userType)) return true;
+      if (userIds?.includes(user?.id)) return true;
       const myDist = userDistrict || userStoreDistrict;
       if (myDist && districts2?.includes(myDist)) return true;
       return false;
@@ -25641,12 +25769,71 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
     ))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Store"), /* @__PURE__ */ React.createElement("select", { value: form.storePC, onChange: (e) => setForm((p) => ({ ...p, storePC: e.target.value })), style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.9rem" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All Stores"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Category"), /* @__PURE__ */ React.createElement("select", { value: form.category, onChange: (e) => setForm((p) => ({ ...p, category: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, MAINT_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Frequency"), /* @__PURE__ */ React.createElement("select", { value: form.freq, onChange: (e) => setForm((p) => ({ ...p, freq: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, Object.entries(FREQ_LABELS).map(([k, v]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, v))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Notes (optional)"), /* @__PURE__ */ React.createElement("textarea", { value: form.notes, onChange: (e) => setForm((p) => ({ ...p, notes: e.target.value })), rows: 2, style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem", resize: "vertical", boxSizing: "border-box" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: handleAdd, disabled: !form.title.trim() || saving, style: { flex: 1, background: O2, border: "none", borderRadius: 8, color: "#fff", padding: "0.65rem", cursor: "pointer", fontWeight: 700, fontFamily: "'Source Sans 3'", opacity: !form.title.trim() ? 0.5 : 1 } }, "Save Schedule"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAdd(false), style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 8, color: th.muted, padding: "0.65rem 1rem", cursor: "pointer" } }, "Cancel")))));
   }
+  function DunkinCupScene() {
+    const bgRef = useRef(null), cupRef = useRef(null), lidRef = useRef(null);
+    const patRef = useRef(null), shadowRef = useRef(null), cursorRef = useRef(null);
+    useEffect(() => {
+      const reduce = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const lerp = (a, b, t) => a + (b - a) * t;
+      const colorMix = (c1, c2, t) => {
+        const a = c1.match(/\w\w/g).map((x) => parseInt(x, 16));
+        const b = c2.match(/\w\w/g).map((x) => parseInt(x, 16));
+        return "#" + a.map((v, i) => Math.round(lerp(v, b[i], t)).toString(16).padStart(2, "0")).join("");
+      };
+      let raf;
+      const frame = (time) => {
+        const s = time / 1e3;
+        const bgPulse = (Math.sin(s * 2.1) + 1) / 2;
+        if (bgRef.current) bgRef.current.setAttribute("fill", colorMix("fde3cd", "ffd9f0", bgPulse));
+        const xMove = Math.sin(s * 2.4) * 90, yMove = Math.sin(s * 5.4) * 7;
+        const scale = 1 + Math.sin(s * 4.1) * 0.055, rotate = Math.sin(s * 3.2) * 4;
+        if (cupRef.current) cupRef.current.setAttribute(
+          "transform",
+          `translate(${xMove} ${yMove}) translate(365 240) rotate(${rotate}) scale(${scale}) translate(-365 -240)`
+        );
+        if (lidRef.current) lidRef.current.setAttribute(
+          "transform",
+          `translate(365 125) rotate(${Math.sin(s * 7) * 3}) translate(-365 -125)`
+        );
+        if (patRef.current) patRef.current.setAttribute(
+          "transform",
+          `translate(${Math.sin(s * 3) * 6} ${Math.cos(s * 2.5) * 6})`
+        );
+        if (shadowRef.current) {
+          shadowRef.current.setAttribute("x1", 208 + xMove * 0.45);
+          shadowRef.current.setAttribute("x2", 522 + xMove * 0.45);
+          shadowRef.current.setAttribute("opacity", 0.65 + Math.sin(s * 5) * 0.12);
+        }
+        if (cursorRef.current) cursorRef.current.setAttribute(
+          "transform",
+          `translate(${475 + Math.sin(s * 1.7) * 35} ${83 + Math.cos(s * 1.4) * 28}) scale(0.7)`
+        );
+        raf = requestAnimationFrame(frame);
+      };
+      if (reduce) frame(0);
+      else raf = requestAnimationFrame(frame);
+      return () => {
+        if (raf) cancelAnimationFrame(raf);
+      };
+    }, []);
+    const colors = ["#ff6b00", "#ff2e8b", "#35b6ff", "#10194c", "#ffffff"];
+    const dots = [];
+    for (let y = 135; y < 360; y += 35) for (let x = 280; x < 450; x += 34) {
+      const c = colors[(x + y) % colors.length];
+      dots.push(/* @__PURE__ */ React.createElement("circle", { key: `c${x}_${y}`, cx: x, cy: y, r: 12, fill: c, stroke: "#111", strokeWidth: 2 }));
+      dots.push(/* @__PURE__ */ React.createElement("rect", { key: `s${x}_${y}`, x: x - 8, y: y - 8, width: 16, height: 16, fill: "none", stroke: "#111", strokeWidth: 2, transform: `rotate(45 ${x} ${y})` }));
+    }
+    const waves = [];
+    for (let y = 150; y < 355; y += 28)
+      waves.push(/* @__PURE__ */ React.createElement("path", { key: `w${y}`, d: `M280 ${y} C320 ${y - 20}, 360 ${y + 20}, 445 ${y}`, fill: "none", stroke: "#ff2e8b", strokeWidth: 5, opacity: 0.8 }));
+    return /* @__PURE__ */ React.createElement("svg", { viewBox: "0 0 730 422", preserveAspectRatio: "xMidYMid slice", "aria-hidden": "true", style: { width: "100%", height: "100%", display: "block" } }, /* @__PURE__ */ React.createElement("rect", { ref: bgRef, width: 730, height: 422, fill: "#fde3cd" }), /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("clipPath", { id: "dunkCupClip" }, /* @__PURE__ */ React.createElement("path", { d: "M292 143 L438 143 L410 342 Q365 354 320 342 Z" }))), /* @__PURE__ */ React.createElement("g", { ref: cupRef }, /* @__PURE__ */ React.createElement("path", { d: "M292 143 L438 143 L410 342 Q365 354 320 342 Z", fill: "#18285f", stroke: "#111", strokeWidth: 4, strokeLinejoin: "round" }), /* @__PURE__ */ React.createElement("g", { ref: patRef, clipPath: "url(#dunkCupClip)" }, dots, waves), /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("rect", { x: 337, y: 188, width: 57, height: 64, rx: 6, fill: "#fff7ef", stroke: "#111", strokeWidth: 3 }), /* @__PURE__ */ React.createElement("text", { x: 365, y: 213, textAnchor: "middle", fontSize: 20, fontWeight: 900, fill: "#ff6b00" }, "DN"), /* @__PURE__ */ React.createElement("text", { x: 365, y: 236, textAnchor: "middle", fontSize: 20, fontWeight: 900, fill: "#ff2e8b" }, "KN")), /* @__PURE__ */ React.createElement("path", { d: "M286 141 Q365 124 444 141 L451 171 Q365 183 279 171 Z", fill: "#ffffff", stroke: "#111", strokeWidth: 4, strokeLinejoin: "round" }), /* @__PURE__ */ React.createElement("g", { ref: lidRef }, /* @__PURE__ */ React.createElement("path", { d: "M309 115 Q365 105 421 115 L431 143 Q365 153 299 143 Z", fill: "#ffffff", stroke: "#111", strokeWidth: 4, strokeLinejoin: "round" }), /* @__PURE__ */ React.createElement("path", { d: "M325 99 Q365 94 405 99 L414 116 Q365 122 316 116 Z", fill: "#ffffff", stroke: "#111", strokeWidth: 3 })), /* @__PURE__ */ React.createElement("path", { d: "M320 156 C330 205, 326 265, 340 328", fill: "none", stroke: "#ffffff", strokeWidth: 5, opacity: 0.5 })), /* @__PURE__ */ React.createElement("line", { ref: shadowRef, x1: 208, y1: 348, x2: 522, y2: 348, stroke: "#222", strokeWidth: 3, strokeLinecap: "round" }), /* @__PURE__ */ React.createElement("path", { ref: cursorRef, d: "M0 0 L17 13 L9 15 L14 27 L9 29 L4 17 L0 23 Z", fill: "#fff", stroke: "#777", strokeWidth: 1, opacity: 0.85 }));
+  }
   function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
     const ann = anns[idx];
     const isLast = idx === anns.length - 1;
     const total = anns.length;
     const dateStr = ann ? new Date(ann.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
-    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: th.bg, color: th.text, display: "flex", flexDirection: "column", zIndex: 9999 } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: th.sidebar } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.2rem" } }, "\u{1F4E2}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "1rem", fontFamily: "'Raleway'", color: th.text } }, "Announcement")), total > 1 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 600 } }, idx + 1, " of ", total)), total > 1 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", padding: "0.75rem 1.5rem 0" } }, anns.map((_, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { flex: 1, height: 4, borderRadius: 2, background: i <= idx ? O : th.muted + "33", transition: "background .25s" } }))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560, width: "100%" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.75rem 2rem", borderLeft: `4px solid ${O}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.2rem", color: th.text, marginBottom: "0.75rem", fontFamily: "'Raleway'", lineHeight: 1.3 } }, ann?.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", color: th.text, lineHeight: 1.75, whiteSpace: "pre-wrap" } }, ann?.message), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "1.25rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, "Posted by ", ann?.createdBy, " \xB7 ", dateStr)))), /* @__PURE__ */ React.createElement("div", { style: { padding: "1.25rem 1.5rem", borderTop: `1px solid ${th.cardBorder}`, background: th.sidebar, display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Please read before continuing"), /* @__PURE__ */ React.createElement("button", { onClick: isLast ? onDone : onNext, style: { background: O, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 2rem", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" } }, isLast ? "Got it \u2713" : "Next \u2192")));
+    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: th.bg, color: th.text, display: "flex", flexDirection: "column", zIndex: 9999, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { position: "absolute", inset: 0, pointerEvents: "none" } }, /* @__PURE__ */ React.createElement(DunkinCupScene, null)), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: th.sidebar } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.2rem" } }, "\u{1F4E2}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "1rem", fontFamily: "'Raleway'", color: th.text } }, "Announcement")), total > 1 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 600 } }, idx + 1, " of ", total)), total > 1 && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", gap: "0.3rem", padding: "0.75rem 1.5rem 0" } }, anns.map((_, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { flex: 1, height: 4, borderRadius: 2, background: i <= idx ? O : th.muted + "33", transition: "background .25s" } }))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, flex: 1, overflowY: "auto", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "1.5rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560, width: "100%" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), background: th.dark ? "rgba(20,24,34,0.62)" : "rgba(255,255,255,0.66)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", padding: "1.75rem 2rem", borderLeft: `4px solid ${O}`, boxShadow: th.dark ? "0 24px 80px rgba(0,0,0,0.55)" : "0 24px 80px rgba(10,16,32,0.22)" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.2rem", color: th.text, marginBottom: "0.75rem", fontFamily: "'Raleway'", lineHeight: 1.3 } }, ann?.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", color: th.text, lineHeight: 1.75, whiteSpace: "pre-wrap" } }, ann?.message), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "1.25rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, "Posted by ", ann?.createdBy, " \xB7 ", dateStr)))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1.25rem 1.5rem", borderTop: `1px solid ${th.cardBorder}`, background: th.sidebar, display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Please read before continuing"), /* @__PURE__ */ React.createElement("button", { onClick: isLast ? onDone : onNext, style: { background: O, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 2rem", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" } }, isLast ? "Got it \u2713" : "Next \u2192")));
   }
   function PCGPortal() {
     const [user, setUser] = useState(null);
@@ -25742,23 +25929,50 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return;
       }
       const key = "pcg_sidebar_pinned_" + user.id;
+      let hadLocal = false;
       try {
         const saved = localStorage.getItem(key);
         if (saved != null) {
           setPinnedTabIds(JSON.parse(saved));
-          return;
-        }
-        const legacy = localStorage.getItem("pcg_sidebar_pinned");
-        if (legacy != null) {
-          const parsed = JSON.parse(legacy);
-          localStorage.setItem(key, legacy);
-          localStorage.removeItem("pcg_sidebar_pinned");
-          setPinnedTabIds(parsed);
-          return;
+          hadLocal = true;
+        } else {
+          const legacy = localStorage.getItem("pcg_sidebar_pinned");
+          if (legacy != null) {
+            const parsed = JSON.parse(legacy);
+            localStorage.setItem(key, legacy);
+            localStorage.removeItem("pcg_sidebar_pinned");
+            setPinnedTabIds(parsed);
+            hadLocal = true;
+          } else {
+            setPinnedTabIds(null);
+          }
         }
       } catch {
+        setPinnedTabIds(null);
       }
-      setPinnedTabIds(null);
+      let cancelled = false;
+      cloudLoad("pcg_user_prefs_" + user.id).then((prefs) => {
+        if (cancelled) return;
+        const cloudPins = prefs && Array.isArray(prefs.pinnedTabs) ? prefs.pinnedTabs : null;
+        if (cloudPins) {
+          setPinnedTabIds(cloudPins);
+          try {
+            localStorage.setItem(key, JSON.stringify(cloudPins));
+          } catch {
+          }
+        } else if (hadLocal) {
+          try {
+            const local = JSON.parse(localStorage.getItem(key) || "null");
+            if (Array.isArray(local)) cloudSave("pcg_user_prefs_" + user.id, { pinnedTabs: local }).catch(() => {
+            });
+          } catch {
+          }
+        }
+      }).catch(() => {
+      });
+      return () => {
+        cancelled = true;
+      };
     }, [user?.id]);
     const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState(() => {
       try {
@@ -25950,6 +26164,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             localStorage.setItem("pcg_sidebar_pinned_" + user.id, JSON.stringify(next));
           } catch {
           }
+          cloudSave("pcg_user_prefs_" + user.id, { pinnedTabs: next }).catch(() => {
+          });
         }
         return next;
       });
@@ -27106,7 +27322,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (!user || annGateDone || isFullAdmin(user) || user.userType?.startsWith("kiosk")) return;
       const queue = announcements.filter((a) => {
         if (!a.active) return false;
-        if (a.targets?.roles?.length > 0 && !a.targets.roles.includes(user.userType)) return false;
+        const t = a.targets;
+        if (t) {
+          const hasAny = t.roles?.length || t.users?.length || t.districts?.length;
+          const roleMatch = t.roles?.includes(user.userType);
+          const userMatch = t.users?.includes(user.id);
+          const distMatch = user.district && t.districts?.includes(Number(user.district));
+          if (hasAny && !roleMatch && !userMatch && !distMatch) return false;
+        }
         try {
           return !localStorage.getItem(`pcg_ann_ack_${user.id}_${a.id}`);
         } catch {
@@ -28339,7 +28562,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" } }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed: announcementsDismissed2, setAnnouncementsDismissed: setAnnouncementsDismissed2, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
+    }, showAlert, users }), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects }))), (() => {
       const ut = user?.userType;
       const roleDefaults = ut === "executive" || ut === "it" ? ["pulse", "labor", "chat"] : ut === "office_staff" ? ["pulse", "tickets", "chat"] : ut === "dm" ? ["tasks", "labor", "chat"] : ut === "manager" ? ["tasks", "chat", "tickets"] : ut === "maintenance" ? ["tickets", "calendar", "chat"] : ut === "construction" ? ["projects", "chat", "tickets"] : ["chat", "announcements", "tickets"];
       const savePins = (pins) => {

@@ -800,6 +800,41 @@ function Login({ onLogin, dark, toggleDark, users }) {
   const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
+  // ─── Returning-user recognition: greet the remembered user by name ───
+  // Looks up the "remember me" username in the pre-loaded users list so we can
+  // show a warm, personalized welcome instead of a generic header.
+  const rememberedUser = React.useMemo(() => {
+    try {
+      const uname = (localStorage.getItem('pcg_remember_username') || '').trim().toLowerCase();
+      if (!uname) return null;
+      return (users || []).find(x =>
+        (x.username || '').trim().toLowerCase() === uname ||
+        (x.email || '').trim().toLowerCase() === uname
+      ) || null;
+    } catch { return null; }
+  }, [users]);
+
+  const firstName = React.useMemo(() => {
+    const full = (rememberedUser?.name || '').trim();
+    if (!full) return null;
+    const first = full.split(/\s+/)[0];
+    return first ? first.charAt(0).toUpperCase() + first.slice(1) : null;
+  }, [rememberedUser]);
+
+  // Friendly relative phrasing for the user's last sign-in ("today at 4:32 PM").
+  const lastLoginStr = React.useMemo(() => {
+    const ts = rememberedUser?.lastLogin;
+    if (!ts) return null;
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return null;
+    const today = new Date();
+    const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    if (d.toDateString() === today.toDateString()) return `today at ${time}`;
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return `yesterday at ${time}`;
+    return `${d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} at ${time}`;
+  }, [rememberedUser]);
+
   // ─── Theme-aware palette (LIGHT + DARK both look great) ───
   const palette = dark ? {
     bg: "#0a0e17",
@@ -864,7 +899,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
       transition: "background .4s ease, color .4s ease",
     }}>
       {/* ═══ Animated mesh gradient background ═══ */}
-      <div aria-hidden="true" style={{
+      <div aria-hidden="true" className="login-bg-fx" style={{
         position: "absolute", inset: "-40%",
         background: `
           radial-gradient(circle at 15% 15%, #FF671F 0%, transparent 35%),
@@ -880,18 +915,33 @@ function Login({ onLogin, dark, toggleDark, users }) {
         transition: "opacity .4s ease",
       }} />
 
-      {/* ═══ Dot grid overlay ═══ */}
-      <div aria-hidden="true" style={{
+      {/* ═══ Aurora sweep — counter-rotating conic light for depth ═══ */}
+      <div aria-hidden="true" className="login-bg-fx" style={{
+        position: "absolute", inset: "-30%",
+        background: `conic-gradient(from 0deg at 50% 50%,
+          transparent 0deg, #FF671F2e 55deg, transparent 130deg,
+          #ff90551f 210deg, transparent 285deg, #FF671F2e 360deg)`,
+        filter: `blur(${palette.meshBlur + 24}px)`,
+        opacity: palette.meshOpacity * 0.65,
+        animation: "loginAuroraSpin 55s linear infinite",
+        pointerEvents: "none",
+        transition: "opacity .4s ease",
+        mixBlendMode: dark ? "screen" : "multiply",
+      }} />
+
+      {/* ═══ Dot grid overlay — slow diagonal drift ═══ */}
+      <div aria-hidden="true" className="login-bg-fx" style={{
         position: "absolute", inset: 0,
         backgroundImage: `radial-gradient(${palette.dotGrid} 1px, transparent 1px)`,
         backgroundSize: "28px 28px",
+        animation: "loginDotDrift 26s linear infinite",
         pointerEvents: "none",
       }} />
 
       {/* ═══ Floating particles ═══ */}
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
         {particles.map(p => (
-          <div key={p.id} style={{
+          <div key={p.id} className="login-bg-fx" style={{
             position: "absolute",
             bottom: "-20px",
             left: `${p.left}%`,
@@ -1072,16 +1122,60 @@ function Login({ onLogin, dark, toggleDark, users }) {
             }}>
 
             <div style={{ marginBottom: tinyScreen ? "1.35rem" : "1.75rem" }}>
-              <div style={{
-                fontFamily: "'Raleway'", fontWeight: 900,
-                fontSize: tinyScreen ? "1.55rem" : "1.85rem",
-                color: palette.text, letterSpacing: -0.8, lineHeight: 1,
-              }}>
-                Welcome back
-              </div>
-              <div style={{ fontSize: tinyScreen ? "0.78rem" : "0.82rem", color: palette.textFaint, marginTop: "0.5rem" }}>
-                Sign in to access your dashboard
-              </div>
+              {firstName ? (
+                <>
+                  {/* Small eyebrow */}
+                  <div style={{
+                    fontFamily: "'Raleway'", fontWeight: 700,
+                    fontSize: tinyScreen ? "0.92rem" : "1.05rem",
+                    color: palette.textFaint, letterSpacing: 0.2,
+                    lineHeight: 1, marginBottom: "0.3rem",
+                  }}>
+                    Welcome back,
+                  </div>
+                  {/* Big, fancy first name — brand gradient like the UOP mark */}
+                  <div style={{
+                    fontFamily: "'Raleway'", fontWeight: 900,
+                    fontSize: tinyScreen ? "2.5rem" : narrow ? "2.9rem" : "3.25rem",
+                    lineHeight: 0.95, letterSpacing: tinyScreen ? -1.5 : -2,
+                    background: "linear-gradient(135deg, #FF671F 0%, #ff9055 50%, #FF671F 100%)",
+                    WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                    paddingBottom: "0.06em", paddingRight: "0.1em",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {firstName}
+                  </div>
+                  {/* Last sign-in — subtle, with a live green dot */}
+                  {lastLoginStr ? (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: "0.45rem",
+                      fontSize: tinyScreen ? "0.72rem" : "0.78rem",
+                      color: palette.textGhost, marginTop: "0.55rem",
+                    }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4caf50", boxShadow: "0 0 8px #4caf50", flexShrink: 0 }} />
+                      Last signed in {lastLoginStr}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: tinyScreen ? "0.78rem" : "0.82rem", color: palette.textFaint, marginTop: "0.5rem" }}>
+                      Great to see you again — sign in to continue.
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{
+                    fontFamily: "'Raleway'", fontWeight: 900,
+                    fontSize: tinyScreen ? "1.55rem" : "1.85rem",
+                    color: palette.text, letterSpacing: -0.8, lineHeight: 1,
+                  }}>
+                    Welcome back
+                  </div>
+                  <div style={{ fontSize: tinyScreen ? "0.78rem" : "0.82rem", color: palette.textFaint, marginTop: "0.5rem" }}>
+                    Sign in to access your dashboard
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Username — floating label */}
@@ -16598,13 +16692,17 @@ function AuditLogSection({ th, user, users, accent }) {
 }
 
 // ── Announcements Page ────────────────────────────────────────────────────
-function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert }) {
+function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert, users }) {
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ title: "", message: "" });
   const [addMode, setAddMode] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newMsg, setNewMsg] = useState("");
-  const [newTargets, setNewTargets] = useState([]);
+  const [newTargets, setNewTargets] = useState([]);     // whole-role targets
+  const [newUserTargets, setNewUserTargets] = useState([]); // specific user IDs
+  const [expandedRole, setExpandedRole] = useState(null);   // which role's member list is open
+  // Roles that support drilling down to specific people
+  const TARGETABLE_ROLES = ["dm", "executive", "construction", "office_staff"];
 
   const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
   const ANN_ROLES = [
@@ -16621,8 +16719,9 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
   const visibleAnnouncements = canManage ? announcements : announcements.filter(a => {
     if (a.type === 'leaderboard' && user?.userType !== 'dm' && user?.userType !== 'executive') return false;
     if (!a.targets) return true;
-    const { roles, districts } = a.targets;
+    const { roles, districts, users: userIds } = a.targets;
     if (roles?.includes(user?.userType)) return true;
+    if (userIds?.includes(user?.id)) return true;
     if (myDist && districts?.includes(myDist)) return true;
     return false;
   });
@@ -16630,9 +16729,11 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
 
   const postAnnouncement = () => {
     if (!newTitle.trim() || !newMsg.trim()) { showAlert("error", "Title and message required"); return; }
-    const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: new Date().toISOString(), createdBy: user.name, active: true, targets: newTargets.length > 0 ? { roles: newTargets } : null };
+    const hasTargets = newTargets.length > 0 || newUserTargets.length > 0;
+    const targets = hasTargets ? { roles: newTargets, users: newUserTargets } : null;
+    const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: new Date().toISOString(), createdBy: user.name, active: true, targets };
     setAnnouncements(prev => [ann, ...prev]);
-    setNewTitle(""); setNewMsg(""); setNewTargets([]); setAddMode(false);
+    setNewTitle(""); setNewMsg(""); setNewTargets([]); setNewUserTargets([]); setExpandedRole(null); setAddMode(false);
     showAlert("success", "Announcement posted!");
   };
 
@@ -16648,6 +16749,27 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
   const remove = (id) => { setAnnouncements(prev => prev.filter(a => a.id !== id)); showAlert("success", "Announcement removed"); };
 
   const activeCount = visibleAnnouncements.filter(a => a.active).length;
+
+  // ── Audience targeting helpers ──────────────────────────────────────────────
+  const usersInRole = (role) => (users || []).filter(u => u.userType === role && u.active !== false)
+    .sort((a, b) => (a.name || a.username || "").localeCompare(b.name || b.username || ""));
+  const toggleRole = (value) => {
+    const turningOn = !newTargets.includes(value);
+    setNewTargets(prev => turningOn ? [...prev, value] : prev.filter(x => x !== value));
+    // Selecting the whole role = "everyone" → clear any specific picks for it
+    if (turningOn && TARGETABLE_ROLES.includes(value)) {
+      const ids = usersInRole(value).map(u => u.id);
+      setNewUserTargets(prev => prev.filter(id => !ids.includes(id)));
+    }
+  };
+  const toggleUser = (id, role) => {
+    setNewUserTargets(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    setNewTargets(prev => prev.filter(x => x !== role)); // specific people ≠ whole role
+  };
+  const selectedRoleLabels = ANN_ROLES.filter(r => newTargets.includes(r.value)).map(r => r.label);
+  const sendSummary = (newTargets.length === 0 && newUserTargets.length === 0)
+    ? "Everyone"
+    : [...selectedRoleLabels, newUserTargets.length ? `${newUserTargets.length} specific ${newUserTargets.length === 1 ? "person" : "people"}` : null].filter(Boolean).join(", ");
 
   return (
     <div className="fade-in">
@@ -16674,19 +16796,59 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
             style={{ ...inp(th), width: "100%", boxSizing: "border-box", marginBottom: "0.75rem", resize: "vertical", fontFamily: "'Source Sans 3'", fontSize: "0.85rem" }} />
           <div style={{ marginBottom: "0.75rem" }}>
             <div style={{ fontSize: "0.72rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.4rem" }}>
-              Send to: <span style={{ color: newTargets.length === 0 ? "#2f9e44" : O, fontWeight: 700 }}>{newTargets.length === 0 ? "Everyone" : ANN_ROLES.filter(r => newTargets.includes(r.value)).map(r => r.label).join(", ")}</span>
+              Send to: <span style={{ color: (newTargets.length === 0 && newUserTargets.length === 0) ? "#2f9e44" : O, fontWeight: 700 }}>{sendSummary}</span>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
               {ANN_ROLES.map(r => {
                 const on = newTargets.includes(r.value);
+                const targetable = TARGETABLE_ROLES.includes(r.value);
+                const picked = targetable ? usersInRole(r.value).filter(u => newUserTargets.includes(u.id)).length : 0;
+                const expanded = expandedRole === r.value;
+                const active = on || picked > 0;
                 return (
-                  <button key={r.value} onClick={() => setNewTargets(prev => on ? prev.filter(x => x !== r.value) : [...prev, r.value])}
-                    style={{ padding: "0.28rem 0.7rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600, cursor: "pointer", border: `1px solid ${on ? r.color : th.cardBorder}`, background: on ? r.color + "22" : "transparent", color: on ? r.color : th.muted, transition: "all .15s" }}>
-                    {r.label}
-                  </button>
+                  <div key={r.value} style={{ display: "inline-flex", alignItems: "stretch", borderRadius: 99, overflow: "hidden", border: `1px solid ${active ? r.color : th.cardBorder}`, transition: "all .15s" }}>
+                    <button onClick={() => toggleRole(r.value)}
+                      style={{ padding: "0.28rem 0.7rem", fontSize: "0.75rem", fontWeight: 600, cursor: "pointer", border: "none", background: on ? r.color + "22" : "transparent", color: active ? r.color : th.muted }}>
+                      {r.label}{picked > 0 && !on ? ` · ${picked}` : ""}
+                    </button>
+                    {targetable && (
+                      <button onClick={() => setExpandedRole(expanded ? null : r.value)} title="Pick specific people"
+                        style={{ padding: "0.28rem 0.5rem", fontSize: "0.7rem", cursor: "pointer", border: "none", borderLeft: `1px solid ${active ? r.color + "66" : th.cardBorder}`, background: expanded ? r.color + "22" : "transparent", color: active ? r.color : th.muted }}>
+                        {expanded ? "▴" : "▾"}
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
+            {/* Member checklist for the expanded role */}
+            {expandedRole && (() => {
+              const roleUsers = usersInRole(expandedRole);
+              const roleOpt = ANN_ROLES.find(o => o.value === expandedRole);
+              return (
+                <div style={{ marginTop: "0.6rem", padding: "0.65rem 0.8rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", background: th.card2 || th.bg }}>
+                  <div style={{ fontSize: "0.68rem", fontWeight: 700, color: th.muted, marginBottom: "0.5rem" }}>
+                    {roleOpt?.label} — pick specific people, or use the chip to send to everyone in this role
+                  </div>
+                  {roleUsers.length === 0 ? (
+                    <div style={{ fontSize: "0.75rem", color: th.muted }}>No active users in this role.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                      {roleUsers.map(u => {
+                        const checked = newUserTargets.includes(u.id);
+                        return (
+                          <button key={u.id} onClick={() => toggleUser(u.id, expandedRole)}
+                            style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", padding: "0.25rem 0.6rem", borderRadius: 99, fontSize: "0.74rem", fontWeight: 600, cursor: "pointer", border: `1px solid ${checked ? roleOpt.color : th.cardBorder}`, background: checked ? roleOpt.color + "22" : "transparent", color: checked ? roleOpt.color : th.text }}>
+                            <span style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, border: `2px solid ${checked ? roleOpt.color : th.cardBorder}`, background: checked ? roleOpt.color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9, fontWeight: 900 }}>{checked ? "✓" : ""}</span>
+                            {u.name || u.username}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           <button onClick={postAnnouncement} style={{ ...btn(th), padding: "0.5rem 1.5rem", background: O, color: "#fff", border: "none", fontWeight: 600 }}>Post Announcement</button>
         </div>
@@ -16733,15 +16895,19 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
                           {dateStr} at {timeStr} · by {a.createdBy}
                           {a.editedAt && <span> · edited {new Date(a.editedAt).toLocaleDateString()}</span>}
                         </div>
-                        {a.targets?.roles?.length > 0 && (
+                        {(a.targets?.roles?.length > 0 || a.targets?.users?.length > 0) && (
                           <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
-                            {a.targets.roles.map(r => {
+                            {(a.targets.roles || []).map(r => {
                               const opt = ANN_ROLES.find(o => o.value === r);
                               return opt ? <span key={r} style={{ fontSize: "0.62rem", fontWeight: 700, padding: "0.12rem 0.45rem", borderRadius: 99, background: opt.color + "22", color: opt.color }}>{opt.label}</span> : null;
                             })}
+                            {a.targets?.users?.map(uid => {
+                              const u = (users || []).find(x => x.id === uid);
+                              return <span key={uid} style={{ fontSize: "0.62rem", fontWeight: 700, padding: "0.12rem 0.45rem", borderRadius: 99, background: th.cardBorder, color: th.text }}>{u ? (u.name || u.username) : `User #${uid}`}</span>;
+                            })}
                           </div>
                         )}
-                        {!a.targets?.roles?.length && canManage && (
+                        {!a.targets?.roles?.length && !a.targets?.users?.length && canManage && (
                           <span style={{ fontSize: "0.62rem", color: "#2f9e44", fontWeight: 600 }}>Everyone</span>
                         )}
                       </div>
@@ -18761,7 +18927,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.42";
+const APP_VERSION = "v16.46";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -21631,8 +21797,9 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
 
   function announcementIsTargetedToMe(a) {
     if (!a.targets) return true;
-    const { roles, districts } = a.targets;
+    const { roles, districts, users: userIds } = a.targets;
     if (roles?.includes(user?.userType)) return true;
+    if (userIds?.includes(user?.id)) return true;
     const myDist = userDistrict || userStoreDistrict;
     if (myDist && districts?.includes(myDist)) return true;
     return false;
@@ -34294,15 +34461,99 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
   );
 }
 
+// Animated Dunkin-style coffee cup — playful branded ambient scene for the
+// announcement gate background. Faithful SVG recreation of the SVGator concept;
+// one requestAnimationFrame loop nudges a handful of attributes (cheap), tears
+// down on unmount, and renders a single static frame under prefers-reduced-motion.
+function DunkinCupScene() {
+  const bgRef = useRef(null), cupRef = useRef(null), lidRef = useRef(null);
+  const patRef = useRef(null), shadowRef = useRef(null), cursorRef = useRef(null);
+  useEffect(() => {
+    const reduce = typeof window !== "undefined" && window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const colorMix = (c1, c2, t) => {
+      const a = c1.match(/\w\w/g).map(x => parseInt(x, 16));
+      const b = c2.match(/\w\w/g).map(x => parseInt(x, 16));
+      return "#" + a.map((v, i) => Math.round(lerp(v, b[i], t)).toString(16).padStart(2, "0")).join("");
+    };
+    let raf;
+    const frame = (time) => {
+      const s = time / 1000;
+      const bgPulse = (Math.sin(s * 2.1) + 1) / 2;
+      if (bgRef.current) bgRef.current.setAttribute("fill", colorMix("fde3cd", "ffd9f0", bgPulse));
+      const xMove = Math.sin(s * 2.4) * 90, yMove = Math.sin(s * 5.4) * 7;
+      const scale = 1 + Math.sin(s * 4.1) * 0.055, rotate = Math.sin(s * 3.2) * 4;
+      if (cupRef.current) cupRef.current.setAttribute("transform",
+        `translate(${xMove} ${yMove}) translate(365 240) rotate(${rotate}) scale(${scale}) translate(-365 -240)`);
+      if (lidRef.current) lidRef.current.setAttribute("transform",
+        `translate(365 125) rotate(${Math.sin(s * 7) * 3}) translate(-365 -125)`);
+      if (patRef.current) patRef.current.setAttribute("transform",
+        `translate(${Math.sin(s * 3) * 6} ${Math.cos(s * 2.5) * 6})`);
+      if (shadowRef.current) {
+        shadowRef.current.setAttribute("x1", 208 + xMove * 0.45);
+        shadowRef.current.setAttribute("x2", 522 + xMove * 0.45);
+        shadowRef.current.setAttribute("opacity", 0.65 + Math.sin(s * 5) * 0.12);
+      }
+      if (cursorRef.current) cursorRef.current.setAttribute("transform",
+        `translate(${475 + Math.sin(s * 1.7) * 35} ${83 + Math.cos(s * 1.4) * 28}) scale(0.7)`);
+      raf = requestAnimationFrame(frame);
+    };
+    if (reduce) frame(0); else raf = requestAnimationFrame(frame);
+    return () => { if (raf) cancelAnimationFrame(raf); };
+  }, []);
+
+  const colors = ["#ff6b00", "#ff2e8b", "#35b6ff", "#10194c", "#ffffff"];
+  const dots = [];
+  for (let y = 135; y < 360; y += 35) for (let x = 280; x < 450; x += 34) {
+    const c = colors[(x + y) % colors.length];
+    dots.push(<circle key={`c${x}_${y}`} cx={x} cy={y} r={12} fill={c} stroke="#111" strokeWidth={2} />);
+    dots.push(<rect key={`s${x}_${y}`} x={x - 8} y={y - 8} width={16} height={16} fill="none" stroke="#111" strokeWidth={2} transform={`rotate(45 ${x} ${y})`} />);
+  }
+  const waves = [];
+  for (let y = 150; y < 355; y += 28)
+    waves.push(<path key={`w${y}`} d={`M280 ${y} C320 ${y - 20}, 360 ${y + 20}, 445 ${y}`} fill="none" stroke="#ff2e8b" strokeWidth={5} opacity={0.8} />);
+
+  return (
+    <svg viewBox="0 0 730 422" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style={{ width: "100%", height: "100%", display: "block" }}>
+      <rect ref={bgRef} width={730} height={422} fill="#fde3cd" />
+      <defs>
+        <clipPath id="dunkCupClip"><path d="M292 143 L438 143 L410 342 Q365 354 320 342 Z" /></clipPath>
+      </defs>
+      <g ref={cupRef}>
+        <path d="M292 143 L438 143 L410 342 Q365 354 320 342 Z" fill="#18285f" stroke="#111" strokeWidth={4} strokeLinejoin="round" />
+        <g ref={patRef} clipPath="url(#dunkCupClip)">{dots}{waves}</g>
+        <g>
+          <rect x={337} y={188} width={57} height={64} rx={6} fill="#fff7ef" stroke="#111" strokeWidth={3} />
+          <text x={365} y={213} textAnchor="middle" fontSize={20} fontWeight={900} fill="#ff6b00">DN</text>
+          <text x={365} y={236} textAnchor="middle" fontSize={20} fontWeight={900} fill="#ff2e8b">KN</text>
+        </g>
+        <path d="M286 141 Q365 124 444 141 L451 171 Q365 183 279 171 Z" fill="#ffffff" stroke="#111" strokeWidth={4} strokeLinejoin="round" />
+        <g ref={lidRef}>
+          <path d="M309 115 Q365 105 421 115 L431 143 Q365 153 299 143 Z" fill="#ffffff" stroke="#111" strokeWidth={4} strokeLinejoin="round" />
+          <path d="M325 99 Q365 94 405 99 L414 116 Q365 122 316 116 Z" fill="#ffffff" stroke="#111" strokeWidth={3} />
+        </g>
+        <path d="M320 156 C330 205, 326 265, 340 328" fill="none" stroke="#ffffff" strokeWidth={5} opacity={0.5} />
+      </g>
+      <line ref={shadowRef} x1={208} y1={348} x2={522} y2={348} stroke="#222" strokeWidth={3} strokeLinecap="round" />
+      <path ref={cursorRef} d="M0 0 L17 13 L9 15 L14 27 L9 29 L4 17 L0 23 Z" fill="#fff" stroke="#777" strokeWidth={1} opacity={0.85} />
+    </svg>
+  );
+}
+
 function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
   const ann = anns[idx];
   const isLast = idx === anns.length - 1;
   const total = anns.length;
   const dateStr = ann ? new Date(ann.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
   return (
-    <div style={{ position: "fixed", inset: 0, background: th.bg, color: th.text, display: "flex", flexDirection: "column", zIndex: 9999 }}>
+    <div style={{ position: "fixed", inset: 0, background: th.bg, color: th.text, display: "flex", flexDirection: "column", zIndex: 9999, overflow: "hidden" }}>
+      {/* ═══ Animated Dunkin cup ambient scene (full-bleed background) ═══ */}
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+        <DunkinCupScene />
+      </div>
       {/* Header */}
-      <div style={{ padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: th.sidebar }}>
+      <div style={{ position: "relative", zIndex: 1, padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: th.sidebar }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
           <span style={{ fontSize: "1.2rem" }}>📢</span>
           <span style={{ fontWeight: 800, fontSize: "1rem", fontFamily: "'Raleway'", color: th.text }}>Announcement</span>
@@ -34313,16 +34564,16 @@ function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
       </div>
       {/* Progress bar */}
       {total > 1 && (
-        <div style={{ display: "flex", gap: "0.3rem", padding: "0.75rem 1.5rem 0" }}>
+        <div style={{ position: "relative", zIndex: 1, display: "flex", gap: "0.3rem", padding: "0.75rem 1.5rem 0" }}>
           {anns.map((_, i) => (
             <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= idx ? O : th.muted + "33", transition: "background .25s" }} />
           ))}
         </div>
       )}
-      {/* Content */}
-      <div style={{ flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem 1.25rem" }}>
+      {/* Content — card anchored to top so the animated scene shows below it */}
+      <div style={{ position: "relative", zIndex: 1, flex: 1, overflowY: "auto", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "1.5rem 1.25rem" }}>
         <div style={{ maxWidth: 560, width: "100%" }}>
-          <div style={{ ...card(th), padding: "1.75rem 2rem", borderLeft: `4px solid ${O}` }}>
+          <div style={{ ...card(th), background: th.dark ? "rgba(20,24,34,0.62)" : "rgba(255,255,255,0.66)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", padding: "1.75rem 2rem", borderLeft: `4px solid ${O}`, boxShadow: th.dark ? "0 24px 80px rgba(0,0,0,0.55)" : "0 24px 80px rgba(10,16,32,0.22)" }}>
             <div style={{ fontWeight: 800, fontSize: "1.2rem", color: th.text, marginBottom: "0.75rem", fontFamily: "'Raleway'", lineHeight: 1.3 }}>{ann?.title}</div>
             <div style={{ fontSize: "0.9rem", color: th.text, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{ann?.message}</div>
             <div style={{ fontSize: "0.72rem", color: th.muted, marginTop: "1.25rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` }}>
@@ -34332,7 +34583,7 @@ function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
         </div>
       </div>
       {/* Footer */}
-      <div style={{ padding: "1.25rem 1.5rem", borderTop: `1px solid ${th.cardBorder}`, background: th.sidebar, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ position: "relative", zIndex: 1, padding: "1.25rem 1.5rem", borderTop: `1px solid ${th.cardBorder}`, background: th.sidebar, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: "0.78rem", color: th.muted }}>Please read before continuing</span>
         <button onClick={isLast ? onDone : onNext} style={{ background: O, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 2rem", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" }}>
           {isLast ? "Got it ✓" : "Next →"}
@@ -34405,25 +34656,52 @@ function PCGPortal() {
   // effect below once `user` is known (state starts null = role default until then).
   const [pinnedTabIds, setPinnedTabIds] = useState(null);
   // Load this user's pins when they log in (and reset to role-default on logout).
+  // Strategy: show the localStorage cache instantly (no flicker), then pull the
+  // per-user cloud blob as the cross-device source of truth and reconcile.
   useEffect(() => {
     if (!user?.id) { setPinnedTabIds(null); return; }
     const key = 'pcg_sidebar_pinned_' + user.id;
+    let hadLocal = false;
     try {
       const saved = localStorage.getItem(key);
-      if (saved != null) { setPinnedTabIds(JSON.parse(saved)); return; }
-      // One-time migration: adopt the old global (device-wide) pins for the first
-      // account to log in after this change, then retire the shared key so it can't
-      // leak to other accounts on the same device.
-      const legacy = localStorage.getItem('pcg_sidebar_pinned');
-      if (legacy != null) {
-        const parsed = JSON.parse(legacy); // parse first — don't persist a corrupt value
-        localStorage.setItem(key, legacy);
-        localStorage.removeItem('pcg_sidebar_pinned');
-        setPinnedTabIds(parsed);
-        return;
+      if (saved != null) { setPinnedTabIds(JSON.parse(saved)); hadLocal = true; }
+      else {
+        // One-time migration: adopt the old global (device-wide) pins for the first
+        // account to log in after this change, then retire the shared key so it can't
+        // leak to other accounts on the same device.
+        const legacy = localStorage.getItem('pcg_sidebar_pinned');
+        if (legacy != null) {
+          const parsed = JSON.parse(legacy); // parse first — don't persist a corrupt value
+          localStorage.setItem(key, legacy);
+          localStorage.removeItem('pcg_sidebar_pinned');
+          setPinnedTabIds(parsed);
+          hadLocal = true;
+        } else {
+          setPinnedTabIds(null);
+        }
       }
-    } catch {}
-    setPinnedTabIds(null);
+    } catch { setPinnedTabIds(null); }
+
+    // Cloud is authoritative across devices. Fetch this user's prefs and apply
+    // their pins if present, then refresh the local cache to match.
+    let cancelled = false;
+    cloudLoad('pcg_user_prefs_' + user.id).then(prefs => {
+      if (cancelled) return;
+      const cloudPins = prefs && Array.isArray(prefs.pinnedTabs) ? prefs.pinnedTabs : null;
+      if (cloudPins) {
+        setPinnedTabIds(cloudPins);
+        try { localStorage.setItem(key, JSON.stringify(cloudPins)); } catch {}
+      } else if (hadLocal) {
+        // Cloud has nothing yet but this device does — seed the cloud so other
+        // devices pick it up (first run after this feature ships).
+        try {
+          const local = JSON.parse(localStorage.getItem(key) || 'null');
+          if (Array.isArray(local)) cloudSave('pcg_user_prefs_' + user.id, { pinnedTabs: local }).catch(() => {});
+        } catch {}
+      }
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
   }, [user?.id]);
   // Whole-section collapse state (e.g. the Admin / Operations block below the base tabs).
   // Default {} = every section collapsed on first open until the user clicks it.
@@ -34570,7 +34848,9 @@ function PCGPortal() {
       const base = prev ?? (PINNED_DEFAULTS[user?.userType] || []);
       const next = base.includes(id) ? base.filter(x => x !== id) : [...base, id];
       if (user?.id) {
+        // localStorage = instant local cache; cloud = cross-device source of truth (per-user key)
         try { localStorage.setItem('pcg_sidebar_pinned_' + user.id, JSON.stringify(next)); } catch {}
+        cloudSave('pcg_user_prefs_' + user.id, { pinnedTabs: next }).catch(() => {});
       }
       return next;
     });
@@ -35780,7 +36060,14 @@ function PCGPortal() {
     if (!user || annGateDone || isFullAdmin(user) || user.userType?.startsWith('kiosk')) return;
     const queue = announcements.filter(a => {
       if (!a.active) return false;
-      if (a.targets?.roles?.length > 0 && !a.targets.roles.includes(user.userType)) return false;
+      const t = a.targets;
+      if (t) {
+        const hasAny = (t.roles?.length || t.users?.length || t.districts?.length);
+        const roleMatch = t.roles?.includes(user.userType);
+        const userMatch = t.users?.includes(user.id);
+        const distMatch = user.district && t.districts?.includes(Number(user.district));
+        if (hasAny && !roleMatch && !userMatch && !distMatch) return false;
+      }
       try { return !localStorage.getItem(`pcg_ann_ack_${user.id}_${a.id}`); } catch { return false; }
     }).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     setAnnGateQueue(queue);
@@ -37044,7 +37331,7 @@ function PCGPortal() {
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
-          {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} />}
+          {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} users={users} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
           {tab === "email"    && (isFullAdmin(user) || isOfficeStaff) && <EmailTab th={th} user={user} />}
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={setTab} />}
