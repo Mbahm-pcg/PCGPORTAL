@@ -196,9 +196,9 @@ export default async (request) => {
       const [target] = await db`SELECT id, user_type FROM users WHERE id = ${id}`;
       if (!target) return reply(404, { error: 'user not found' });
       if (!canManage(claims, target.user_type)) return reply(403, { error: 'forbidden' });
-      // Null out nullable FK references before hard delete to avoid orphaned rows
-      await db`UPDATE tickets SET assigned_to = NULL WHERE assigned_to = ${id}`;
-      await db`UPDATE notifications SET recipient_id = NULL WHERE recipient_id = ${id}`;
+      // Null out nullable FK references before hard delete (best-effort — ignore if columns don't exist)
+      await db`UPDATE tickets SET assigned_to = NULL WHERE assigned_to = ${id}`.catch(() => {});
+      await db`UPDATE notifications SET recipient_id = NULL WHERE recipient_id = ${id}`.catch(() => {});
       await db`DELETE FROM users WHERE id = ${id}`;
       return reply(200, { ok: true });
     }

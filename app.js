@@ -3736,14 +3736,22 @@
     const del = async (id) => {
       const target = users.find((u) => u.id === id);
       if (!canManageUser(currentUser, target)) return;
-      const res = await fetch("/.netlify/functions/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify({ action: "delete", id })
-      });
-      if (res.ok) {
-        setUsers((us) => us.filter((u) => u.id !== id));
-        logClientEvent(currentUser?.id, currentUser?.userType, "user_deleted", { targetName: target?.name, targetRole: target?.userType });
+      try {
+        const res = await fetch("/.netlify/functions/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "delete", id })
+        });
+        if (res.ok) {
+          setUsers((us) => us.filter((u) => u.id !== id));
+          showAlert("success", `${target?.name || "User"} deleted`);
+          logClientEvent(currentUser?.id, currentUser?.userType, "user_deleted", { targetName: target?.name, targetRole: target?.userType });
+        } else {
+          const json = await res.json().catch(() => ({}));
+          showAlert("error", json.error || `Delete failed (${res.status})`);
+        }
+      } catch (e) {
+        showAlert("error", "Delete failed \u2014 " + e.message);
       }
     };
     const filtered = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
@@ -15072,7 +15080,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v16.40";
+  var APP_VERSION = "v16.42";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

@@ -3019,14 +3019,22 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const del = async (id) => {
     const target = users.find(u => u.id === id);
     if (!canManageUser(currentUser, target)) return;
-    const res = await fetch('/.netlify/functions/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ action: 'delete', id }),
-    });
-    if (res.ok) {
-      setUsers(us => us.filter(u => u.id !== id));
-      logClientEvent(currentUser?.id, currentUser?.userType, 'user_deleted', { targetName: target?.name, targetRole: target?.userType });
+    try {
+      const res = await fetch('/.netlify/functions/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'delete', id }),
+      });
+      if (res.ok) {
+        setUsers(us => us.filter(u => u.id !== id));
+        showAlert('success', `${target?.name || 'User'} deleted`);
+        logClientEvent(currentUser?.id, currentUser?.userType, 'user_deleted', { targetName: target?.name, targetRole: target?.userType });
+      } else {
+        const json = await res.json().catch(() => ({}));
+        showAlert('error', json.error || `Delete failed (${res.status})`);
+      }
+    } catch (e) {
+      showAlert('error', 'Delete failed — ' + e.message);
     }
   };
 
@@ -18753,7 +18761,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.40";
+const APP_VERSION = "v16.42";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
