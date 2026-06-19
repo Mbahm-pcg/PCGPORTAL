@@ -2,12 +2,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
     "@neondatabase/serverless": "^1.1.0",
-    "@netlify/blobs": "^10.7.2",
+    "@netlify/blobs": "^10.7.9",
     "@netlify/database": "^1.0.0",
     "drizzle-orm": "^1.0.0-beta.22",
     "googleapis": "^149.0.0",
     "minimalistic-assert": "^1.0.1",
-    "nodemailer": "^8.0.8",
+    "nodemailer": "^9.0.1",
     "pdf-parse": "^1.1.4",
     "sharp": "^0.34.5",
     "web-push": "^3.6.7"
