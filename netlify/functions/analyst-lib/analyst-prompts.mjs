@@ -16,7 +16,7 @@ Format each bullet as:
 End with:
 🔍 **Watch today:** [one-line note]`;
 
-const STORE_BRIEF_TEMPLATE = `Produce a store performance brief for {storeName} (PC# {pc}) as of {date}. Cover: net sales & avg check trend, guest check / upsell rate (note this is a proxy: % of checks with 2+ items, compare to network avg if known), labor %, food cost / DCP spend, open maintenance tickets, today's voids/refunds (list each with its timestamp and receipt number), nearby store comparison (compare this store's avg check and upsell rate to its district neighbors and call out which neighbor is doing notably better/worse and by how much), and guest review sentiment — but only include sections where data is present below; skip sections with no data rather than saying "no data". If voids/refunds are "none", you may omit that section entirely.
+const STORE_BRIEF_TEMPLATE = `Produce a store performance brief for {storeName} (PC# {pc}) as of {date}. Cover: net sales & avg check trend, guest check / upsell rate (note this is a proxy: % of checks with 2+ items), labor % and labor efficiency (sales per labor $), food cost / DCP spend, open maintenance tickets, and today's voids/refunds (list each with its timestamp and receipt number) — but only include sections where data is present below; skip sections with no data rather than saying "no data". If voids/refunds are "none", you may omit that section entirely. Do NOT compare this store to other stores or districts, and do NOT discuss guest reviews or review sentiment — this brief is for the store's own manager.
 
 Available data (all real, do NOT invent numbers):
 {data}
@@ -128,6 +128,37 @@ function buildStoreBriefPrompt(storeName, pc, date, dataSnapshot) {
     .replace('{data}', dataSnapshot);
 }
 
+/** Build the forecast pre-plan prompt — a manager game plan to hit tomorrow's
+ *  forecast, grounded in this store's forecast + par + labor/schedule/voids data. */
+function buildPrePlanPrompt(storeName, pc, date, forecast, par, dataSnapshot) {
+  const n = (v) => Math.round(Number(v) || 0).toLocaleString('en-US');
+  const fcLine = forecast
+    ? `Projected net sales $${n(forecast.dayTotal)} (range $${n(forecast.low)}–$${n(forecast.high)}), ${forecast.confidence} confidence. Dayparts — AM rush $${n(forecast.dayparts.amRush)}, mid-morning $${n(forecast.dayparts.midMorning)}, lunch $${n(forecast.dayparts.lunch)}, afternoon $${n(forecast.dayparts.afternoon)}.${forecast.holidayName ? ` Holiday: ${forecast.holidayName}.` : ''}${forecast.weatherFactor && forecast.weatherFactor !== 1 ? ` Weather factor ${forecast.weatherFactor}.` : ''}`
+    : 'No model forecast available (thin history).';
+  const parLine = par
+    ? `Suggested par for ${date} — donuts ${par.donut?.par ?? '?'} (${par.donut?.confidence || '?'} conf), munchkins ${par.munchkin?.par ?? '?'} (${par.munchkin?.confidence || '?'} conf).`
+    : 'No par recommendation available.';
+  return `You are Orion, the operations co-pilot for ${storeName} (store #${pc}). Write a concise PRE-PLAN for the manager for ${date} — a game plan to hit the forecast, grounded ONLY in this store's data below.
+
+FORECAST: ${fcLine}
+PAR: ${parLine}
+
+STORE DATA (labor today/WTD, schedule today+tomorrow, voids/refunds, DCP spend, sales history, reviews, tickets):
+${dataSnapshot}
+
+Write for a busy store manager. Use exactly this markdown structure — short, specific, no preamble:
+
+**Target:** one line — the number to hit and the single biggest lever.
+
+**Game Plan**
+- 3-5 bullets: how to staff the dayparts to match the projected curve (reference the actual scheduled shifts vs the forecast), what to prep/bake (tie to par), which hours matter most.
+
+**Watch Out For**
+- 2-4 bullets: concrete risks from the data — labor % against the 25.9% red line, void/refund patterns, stockout or overproduction risk, weather/holiday effects.
+
+Use real numbers from the data. If a daypart looks short-staffed or labor is trending hot, say so plainly. Never invent data you were not given.`;
+}
+
 /** Build the business case prompt, optionally injecting recent decision history */
 function buildCasePrompt(anomalyDescription, dataContext, decisionHistory) {
   let decisionSection = '';
@@ -179,6 +210,6 @@ Return ONLY the JSON array, no markdown fences, no explanation.`;
 
 export {
   PERSONA, BRIEF_TEMPLATE, STORE_BRIEF_TEMPLATE, BUSINESS_CASE_TEMPLATE, ASK_SYSTEM, ASK_USER_TEMPLATE,
-  REPORT_SYSTEM, PNL_SYSTEM, REVIEW_ANALYSIS_SYSTEM, buildStoreBriefPrompt,
+  REPORT_SYSTEM, PNL_SYSTEM, REVIEW_ANALYSIS_SYSTEM, buildStoreBriefPrompt, buildPrePlanPrompt,
   buildBriefPrompt, buildCasePrompt, buildAskPrompt, buildReportPrompt, buildPnlPrompt,
 };

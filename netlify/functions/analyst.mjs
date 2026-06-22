@@ -2,13 +2,14 @@
 // Actions: ask, brief, brief-refresh, case-list, case-detail, case-update, feedback, report-settings
 
 import { askAnalyst, generateStructured } from './analyst-lib/analyst-claude.mjs';
-import { buildDataContext, buildKPISnapshot, buildStoreContext, STORES } from './analyst-lib/analyst-data.mjs';
-import { buildBriefPrompt, buildStoreBriefPrompt, buildAskPrompt, PERSONA, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
+import { buildDataContext, buildKPISnapshot, buildStoreContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
+import { buildBriefPrompt, buildStoreBriefPrompt, buildPrePlanPrompt, buildAskPrompt, PERSONA, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
+import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
 import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
 import { getCases, loadCase, updateCaseStatus, loadDecisionLog } from './analyst-lib/analyst-cases.mjs';
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { logFeedback, logAccessEvent, loadAccessEntries } from './analyst-lib/analyst-audit.mjs';
-import { forecastStoreFull, tomorrowISO } from './analyst-lib/forecast.mjs';
+import { forecastStoreFull, forecastStoreWeek, learnHolidayFactor, tomorrowISO, addDaysISO } from './analyst-lib/forecast.mjs';
 import { loadKBContent, buildKBContext } from './analyst-lib/analyst-kb.mjs';
 import { loadReportSettings, sendExecReport, sendExecDailyReport, sendDMBriefs } from './analyst-lib/analyst-reports.mjs';
 
@@ -237,6 +238,58 @@ export default async (request, context) => {
       return respond(200, { brief, cached: false });
     }
 
+    // ── Forecast Pre-Plan ────────────────────────────────────────────────
+    // Tomorrow's forecast + suggested par + an Orion game plan (how to hit it,
+    // what to avoid) grounded in this store's labor/schedule/voids/DCP data.
+    if (action === 'forecast-plan') {
+      const { storePC } = payload;
+      if (!storePC) return respond(400, { error: 'Missing storePC' });
+      const store = STORES.find(s => String(s.pc) === String(storePC));
+      if (!store) return respond(404, { error: 'Store not found' });
+
+      const target = payload.date || tomorrowISO();
+      const planKey = `analyst/forecast-plans/${storePC}_${target}`;
+      const cached = await cacheLoad(planKey);
+      if (cached && !payload.refresh) return respond(200, { plan: cached, cached: true });
+
+      // Expected weather + holiday for the target day (same wiring as `forecast`).
+      const wxAll = await getWeatherForecast().catch(() => null);
+      const wxDays = (wxAll && wxAll[store.district] && wxAll[store.district].days) || [];
+      const cond = (wxDays.find(d => d && d.date === target) || {}).condition;
+      const hf = await learnHolidayFactor(storePC, target, (pc, d) => getDailyNetSales(pc, d));
+
+      const { forecast } = await forecastStoreFull(storePC, target, {
+        weather: cond ? { condition: cond } : undefined,
+        holidayFactor: hf ? hf.factor : 1,
+        holidayName: hf ? hf.name : null,
+      });
+
+      // Suggested par for the day (donut/munchkin), weather-adjusted off the forecast.
+      const itemHistory = (await cacheLoad(`pcg_item_history_${storePC}`)) || [];
+      const par = computeStorePar(itemHistory, {
+        targetDate: target,
+        weatherCondition: cond,
+        weatherImpactPct: forecast ? Math.round((forecast.weatherFactor - 1) * 100) : 0,
+      });
+
+      const dataContext = await buildStoreContext({ storePC });
+      const prompt = buildPrePlanPrompt(store.name, storePC, target, forecast, par, dataContext);
+      const result = await generateStructured({ system: PERSONA, userPrompt: prompt, action: 'brief', userId });
+
+      const plan = {
+        date: target,
+        storePC,
+        storeName: store.name,
+        forecast,
+        par,
+        content: result.text,
+        generatedAt: new Date().toISOString(),
+        model: result.model,
+      };
+      await cacheSave(planKey, plan);
+      return respond(200, { plan, cached: false });
+    }
+
     // ── Case List ────────────────────────────────────────────────────────
     if (action === 'case-list') {
       const { status, severity, limit } = payload;
@@ -349,10 +402,43 @@ export default async (request, context) => {
 
     // ── Sales forecast (baseline) — project a store's day + live accuracy ──
     if (action === 'forecast') {
-      const { storePC, date, weather } = payload;
+      const { storePC, date, range } = payload;
       if (!storePC) return respond(400, { error: 'Missing storePC' });
+
+      // Expected weather (Open-Meteo 7-day, by district) → condition per date.
+      const store = STORES.find(s => String(s.pc) === String(storePC));
+      const wxAll = await getWeatherForecast().catch(() => null);
+      const wxDays = (store && wxAll && wxAll[store.district] && wxAll[store.district].days) || [];
+      const condByDate = {};
+      wxDays.forEach(d => { if (d && d.date) condByDate[d.date] = d.condition; });
+      const weatherFor = (dt) => (condByDate[dt] ? { condition: condByDate[dt] } : undefined);
+      const pulseSales = (pc, d) => getDailyNetSales(pc, d);
+
+      // range:'week' → model-driven next-7-days projection (each day from its
+      // own weekday history); default → single-day forecast + live accuracy.
+      // Both factor in weather + holidays (the latter learned from Pulse history).
+      if (range === 'week') {
+        const start = date || tomorrowISO();
+        const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(start, i));
+        const weatherByDate = {};
+        dates.forEach(d => { if (condByDate[d]) weatherByDate[d] = { condition: condByDate[d] }; });
+        // Learn all 7 days' holiday factors concurrently — the days are
+        // independent, and serial awaits here risk the 26s function timeout when
+        // the week contains a holiday with a cold cache (each fires Pulse calls).
+        const holidayFactorByDate = {}, holidayNameByDate = {};
+        const hfs = await Promise.all(dates.map(d => learnHolidayFactor(storePC, d, pulseSales).catch(() => null)));
+        dates.forEach((d, i) => { const hf = hfs[i]; if (hf) { holidayFactorByDate[d] = hf.factor; holidayNameByDate[d] = hf.name; } });
+        const week = await forecastStoreWeek(storePC, start, { weatherByDate, holidayFactorByDate, holidayNameByDate });
+        return respond(200, { storePC, startDate: start, week });
+      }
+
       const target = date || tomorrowISO();
-      const { forecast, accuracy } = await forecastStoreFull(storePC, target, weather);
+      const hf = await learnHolidayFactor(storePC, target, pulseSales);
+      const { forecast, accuracy } = await forecastStoreFull(storePC, target, {
+        weather: weatherFor(target),
+        holidayFactor: hf ? hf.factor : 1,
+        holidayName: hf ? hf.name : null,
+      });
       return respond(200, { storePC, date: target, forecast, accuracy });
     }
 

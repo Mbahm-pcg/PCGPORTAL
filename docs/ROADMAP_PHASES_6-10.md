@@ -16,7 +16,7 @@
 ### 6.2 AI Sales Forecasting Engine(Give it more time to collect data)(6-10 weeks of data)
 ✅- Train on Pulse POS historical data to predict next-day / next-week sales by store, by hour, by daypart
 - Factor in: day of week, weather (Open-Meteo), holidays, seasonality, local events
-- Display as "Forecast vs Actual" overlay on Pulse charts — managers see how they're tracking in real-time
+✅- Display as "Forecast vs Actual" overlay on Pulse charts — managers see how they're tracking in real-time
 - Foundation for labor scheduling, inventory ordering, and prep planning
 
 ### 6.3 Smart Labor Recommendations

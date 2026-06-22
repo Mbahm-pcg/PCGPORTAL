@@ -71,6 +71,21 @@ async function getVoidsAndRefunds(pc, busDt) {
   }
 }
 
+/** Net sales for a store on a date from Pulse (operations daily totals).
+ *  Used to learn holiday factors from years of POS history. Returns null on
+ *  miss/error so callers can skip a date cleanly. */
+async function getDailyNetSales(pc, busDt) {
+  try {
+    const json = await pulsePostJSON(pc, 'getOperationsDailyTotals', { locRef: pc, busDt, include: 'locRef,busDt,revenueCenters' });
+    const rcs = json?.revenueCenters || [];
+    const net = rcs.reduce((s, rc) => s + (rc.netSlsTtl || 0), 0);
+    return net > 0 ? net : null;
+  } catch (e) {
+    console.warn(`[analyst-data] getDailyNetSales failed for ${pc} ${busDt}: ${e.message}`);
+    return null;
+  }
+}
+
 // ── Store config (mirrors index.html STORES_SEED) ───────────────────────────
 const STORES = [
   { pc:"339616", paycor:"193919", name:"Wadsworth",       district:1 },
@@ -323,72 +338,44 @@ async function buildStoreContext({ storePC }) {
     sections.push(`  WTD Labor %: ${(wtd.laborPct || 0).toFixed(1)}%`);
   }
 
-  // Load per-store labor history
+  // Combined daily performance — Pulse sales + Paycor labor joined by date, so
+  // the model reasons about labor efficiency against actual traffic together
+  // (rather than two disconnected tables). Adds sales-per-labor-$ efficiency.
   const storeHistory = await cacheLoad(`pcg_labor_store_${storePC}`);
-  if (storeHistory) {
-    const daily = storeHistory.daily?.slice(0, 7) || [];
-    const weekly = storeHistory.weekly?.slice(0, 4) || [];
-    if (daily.length) {
-      sections.push(`\nRecent daily labor (last 7 days):`);
-      daily.forEach(d => {
-        sections.push(`  ${d.date}: Labor $${(d.laborCost || 0).toFixed(0)}, Sales $${(d.sales || 0).toFixed(0)}, Labor% ${(d.laborPct || 0).toFixed(1)}%`);
-      });
-    }
-    if (weekly.length) {
-      sections.push(`\nRecent weekly labor:`);
-      weekly.forEach(w => {
-        sections.push(`  Week of ${w.weekStart}: Labor $${(w.laborCost || 0).toFixed(0)}, Sales $${(w.sales || 0).toFixed(0)}, Labor% ${(w.laborPct || 0).toFixed(1)}%`);
-      });
-    }
-  }
-
-  // Load recent sales/upsell history (from pulse-hourly-snapshot)
   const hourlyHistory = await cacheLoad(`pcg_hourly_history_${storePC}`).catch(() => null);
-  const recentDays = (Array.isArray(hourlyHistory) ? hourlyHistory : []).slice(0, 7);
-  if (recentDays.length > 0) {
-    sections.push(`\nRecent daily sales (last ${recentDays.length} days):`);
-    recentDays.forEach(d => {
-      const daySales = (d.hours || []).reduce((s, h) => s + (h.sales || 0), 0);
-      const dayChecks = (d.hours || []).reduce((s, h) => s + (h.checks || 0), 0);
-      const avgCheck = dayChecks > 0 ? daySales / dayChecks : 0;
-      let line = `  ${d.date}: $${daySales.toFixed(0)} sales, ${dayChecks} checks, $${avgCheck.toFixed(2)} avg check`;
-      if (typeof d.upsellRate === 'number') line += `, ${d.upsellRate}% upsell rate (${d.upsoldChecks}/${d.totalChecks} checks with 2+ items)`;
-      sections.push(line);
+  const salesDaily = (Array.isArray(hourlyHistory) ? hourlyHistory : []).slice(0, 7);
+  const byDate = {};
+  (storeHistory?.daily?.slice(0, 7) || []).forEach(d => {
+    byDate[d.date] = { ...(byDate[d.date] || {}), laborCost: d.laborCost, laborPct: d.laborPct, laborSales: d.sales };
+  });
+  salesDaily.forEach(d => {
+    const sales = (d.hours || []).reduce((s, h) => s + (h.sales || 0), 0);
+    const checks = (d.hours || []).reduce((s, h) => s + (h.checks || 0), 0);
+    byDate[d.date] = { ...(byDate[d.date] || {}), sales, checks, avgCheck: checks > 0 ? sales / checks : 0, upsellRate: typeof d.upsellRate === 'number' ? d.upsellRate : null };
+  });
+  const perfDates = Object.keys(byDate).sort().reverse().slice(0, 7);
+  if (perfDates.length) {
+    sections.push(`\nRecent daily performance — sales (Pulse) + labor (Paycor), last ${perfDates.length} days:`);
+    perfDates.forEach(date => {
+      const r = byDate[date];
+      const sales = r.sales != null ? r.sales : (r.laborSales || 0);
+      const parts = [`$${Math.round(sales).toLocaleString()} sales`];
+      if (r.checks) parts.push(`${r.checks} checks`);
+      if (r.avgCheck) parts.push(`$${r.avgCheck.toFixed(2)} avg check`);
+      if (r.upsellRate != null) parts.push(`${r.upsellRate}% upsell`);
+      if (r.laborCost != null) parts.push(`labor $${Math.round(r.laborCost).toLocaleString()}`);
+      if (r.laborPct != null) parts.push(`${r.laborPct.toFixed(1)}% labor`);
+      if (r.laborCost > 0 && sales > 0) parts.push(`$${(sales / r.laborCost).toFixed(2)} sales per labor $`);
+      sections.push(`  ${date}: ${parts.join(', ')}`);
     });
   }
-
-  // Compare against same-district stores (proxy for "nearest" stores)
-  const districtMates = STORES.filter(s => s.district === store.district && s.pc !== storePC);
-  if (districtMates.length > 0 && recentDays.length > 0) {
-    const latest = recentDays[0];
-    const mySales = (latest.hours || []).reduce((s, h) => s + (h.sales || 0), 0);
-    const myChecks = (latest.hours || []).reduce((s, h) => s + (h.checks || 0), 0);
-    const myAvgCheck = myChecks > 0 ? mySales / myChecks : null;
-    const myUpsell = typeof latest.upsellRate === 'number' ? latest.upsellRate : null;
-
-    const mateStats = [];
-    for (const mate of districtMates) {
-      const mateHistory = await cacheLoad(`pcg_hourly_history_${mate.pc}`).catch(() => null);
-      const mateLatest = Array.isArray(mateHistory) ? mateHistory[0] : null;
-      if (!mateLatest) continue;
-      const mateSales = (mateLatest.hours || []).reduce((s, h) => s + (h.sales || 0), 0);
-      const mateChecks = (mateLatest.hours || []).reduce((s, h) => s + (h.checks || 0), 0);
-      const mateAvgCheck = mateChecks > 0 ? mateSales / mateChecks : null;
-      mateStats.push({
-        name: mate.name,
-        date: mateLatest.date,
-        avgCheck: mateAvgCheck,
-        upsellRate: typeof mateLatest.upsellRate === 'number' ? mateLatest.upsellRate : null,
-      });
-    }
-
-    if (mateStats.length > 0) {
-      sections.push(`\nNearby store comparison (District ${store.district}, ${latest.date}):`);
-      sections.push(`  ${store.name}: $${(myAvgCheck ?? 0).toFixed(2)} avg check${myUpsell !== null ? `, ${myUpsell}% upsell rate` : ''}`);
-      mateStats.forEach(m => {
-        sections.push(`  ${m.name} (${m.date}): $${(m.avgCheck ?? 0).toFixed(2)} avg check${m.upsellRate !== null ? `, ${m.upsellRate}% upsell rate` : ''}`);
-      });
-    }
+  // Recent weekly labor
+  const weekly = storeHistory?.weekly?.slice(0, 4) || [];
+  if (weekly.length) {
+    sections.push(`\nRecent weekly labor:`);
+    weekly.forEach(w => {
+      sections.push(`  Week of ${w.weekStart}: Labor $${(w.laborCost || 0).toFixed(0)}, Sales $${(w.sales || 0).toFixed(0)}, Labor% ${(w.laborPct || 0).toFixed(1)}%`);
+    });
   }
 
   // Load today's voids/refunds from Pulse POS
@@ -401,17 +388,6 @@ async function buildStoreContext({ storePC }) {
     });
   } else {
     sections.push(`\nVoids/refunds today (${busDtForVoids}): none`);
-  }
-
-  // Load review sentiment for this store
-  const reviews = await cacheLoad(`pcg_reviews_${storePC}`).catch(() => null);
-  if (reviews) {
-    sections.push(`\nGuest reviews: ★${reviews.googleRating ?? '?'} (${reviews.totalReviews ?? 0} total), trend: ${reviews.trendDirection || 'unknown'}`);
-    const negWithActions = (reviews.reviews || []).filter(r => r.sentiment === 'negative' && r.actionItem).slice(0, 5);
-    if (negWithActions.length > 0) {
-      sections.push(`  Recent negative review themes/actions:`);
-      negWithActions.forEach(r => sections.push(`    - ${r.actionItem}`));
-    }
   }
 
   // Load open tickets for this store
@@ -745,6 +721,7 @@ export {
   STORES,
   getAllStores,
   getStoresByDistrict,
+  getDailyNetSales,
   getNetworkLabor,
   getStoreLabor,
   buildKPISnapshot,

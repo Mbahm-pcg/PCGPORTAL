@@ -115,9 +115,25 @@ function recordAnnAck(annId, user) {
   }).catch(() => {});
 }
 
+// Does an announcement's `targets` include this user? null/empty targets =
+// everyone. The single source of truth for the three dimensions (whole roles,
+// specific users, whole districts) — shared by the login gate, the central-ack
+// backfill, and the admin acknowledgments view so they can never diverge. (The
+// view previously omitted districts, so district-targeted announcements showed
+// an empty/under-counted audience even as people acked them.)
+function announcementTargetsUser(targets, user) {
+  if (!user) return false;
+  if (!targets) return true;
+  const hasAny = (targets.roles?.length || targets.users?.length || targets.districts?.length);
+  if (!hasAny) return true;
+  if (targets.roles?.includes(user.userType)) return true;
+  if (targets.users?.includes(user.id)) return true;
+  if (user.district != null && user.district !== '' && targets.districts?.includes(Number(user.district))) return true;
+  return false;
+}
+
 // Resolve an announcement's `targets` to the array of user objects who should
-// receive/see it. null targets = everyone (active, non-kiosk). The union of
-// whole-role targets and specific-user targets, de-duplicated. Shared by the
+// receive/see it. null targets = everyone (active, non-kiosk). Shared by the
 // push-notify path and the admin acknowledgments view so they never diverge.
 //
 // `gateableOnly` mirrors the announcement gate's exclusions (app.jsx — the
@@ -127,13 +143,7 @@ function recordAnnAck(annId, user) {
 function announcementAudience(targets, users, { gateableOnly = false } = {}) {
   let active = (users || []).filter(u => u.active !== false && !String(u.userType || '').startsWith('kiosk'));
   if (gateableOnly) active = active.filter(u => !isFullAdmin(u));
-  if (!targets) return active;
-  const seen = new Set();
-  const out = [];
-  const add = (u) => { if (u && !seen.has(u.id)) { seen.add(u.id); out.push(u); } };
-  (targets.roles || []).forEach(role => active.filter(u => u.userType === role).forEach(add));
-  (targets.users || []).forEach(id => add(active.find(u => u.id === id)));
-  return out;
+  return active.filter(u => announcementTargetsUser(targets, u));
 }
 
 // ── Project Tracker Constants & Helpers ───────────────────────────────────────
@@ -7755,12 +7765,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       </div>
 
       {/* ════ FORECAST TAB ════ */}
-      {storeTab === 'forecast' && <StoreForecastTab pc={pc} date={localDate} actualHourly={hourlyData} th={th} />}
+      {storeTab === 'forecast' && <>
 
-      {/* ════ SALES TAB ════ */}
-      {storeTab === 'sales' && <>
-
-      {/* Forecast Attainment Bar — switches to week forecast in week mode */}
+      {/* Forecast Attainment Bar — how the selected day/week is tracking vs forecast */}
       {((viewMode === 'week' ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0) && (() => {
         const isWeek = viewMode === 'week';
         const forecast = isWeek ? weekTotals.weekForecast : weekTotals.dayForecast;
@@ -7768,7 +7775,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         return (
         <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1rem 1.25rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.5rem' }}>
-            <div style={{ fontWeight:700, fontSize:'0.8rem', color:th.text }}>{isWeek ? 'Week' : 'Day'} Forecast Attainment <span style={{ fontSize:'0.65rem', color:th.muted, fontWeight:400 }}>(vs LY same {isWeek ? 'week' : 'day'} + 2%)</span></div>
+            <div style={{ fontWeight:700, fontSize:'0.8rem', color:th.text }}>{isWeek ? 'Week' : 'Day'} Forecast Attainment <span style={{ fontSize:'0.65rem', color:th.muted, fontWeight:400 }}>· {isWeek ? weekLabel : new Date(localDate + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })} · vs LY same {isWeek ? 'week' : 'day'} + 2%</span></div>
             <div style={{ fontSize:'0.8rem', fontWeight:800, color: atPct >= 100 ? '#69db7c' : atPct >= 90 ? '#ffd43b' : '#ff6b6b' }}>{atPct.toFixed(1)}%</div>
           </div>
           <div style={{ background:th.card3, borderRadius:6, height:12, overflow:'hidden', position:'relative' }}>
@@ -7786,6 +7793,18 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         </div>
         );
       })()}
+
+      {/* Tomorrow's projection (plan-ahead). Tomorrow has no actuals yet, so we don't overlay any. */}
+      {(() => {
+        const tm = new Date(busDt + 'T12:00:00'); tm.setDate(tm.getDate() + 1);
+        const tmStr = `${tm.getFullYear()}-${String(tm.getMonth() + 1).padStart(2, '0')}-${String(tm.getDate()).padStart(2, '0')}`;
+        return <StoreForecastTab pc={pc} date={tmStr} actualHourly={null} th={th} />;
+      })()}
+
+      </>}
+
+      {/* ════ SALES TAB ════ */}
+      {storeTab === 'sales' && <>
 
       {/* Sales by Hour — full-width with 24-hour view + hour list below */}
       <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1.5rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder }}>
@@ -18491,14 +18510,141 @@ function StoreForecastCard({ pc, storeName, th, dark }) {
   );
 }
 
+// ── Manager Orion Brief — store-only AI brief (voids/refunds, labor, sales vs
+//    forecast, anomalies). Reuses the cached `store-brief` analyst action. ──
+function ManagerOrionBrief({ pc, storeName, th }) {
+  const [brief, setBrief] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(false);
+  const load = (refresh) => {
+    if (!pc) { setLoading(false); return; }
+    setLoading(true); setErr(false);
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'store-brief', storePC: String(pc), refresh: !!refresh }),
+    })
+      .then(r => (r.ok ? r.json() : Promise.reject()))
+      .then(j => { setBrief(j.brief || null); setLoading(false); })
+      .catch(() => { setErr(true); setLoading(false); });
+  };
+  useEffect(() => { load(false); }, [pc]);
+
+  return (
+    <div style={{ ...card(th), padding: '1rem 1.1rem', borderLeft: '3px solid #b197fc' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.6rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+          <OrionIcon size={18} />
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.85rem', color: th.text }}>Orion · Store Brief</span>
+        </div>
+        <button onClick={() => load(true)} disabled={loading} title="Regenerate"
+          style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: 8, padding: '0.2rem 0.5rem', fontSize: '0.62rem', cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.5 : 1 }}>↻</button>
+      </div>
+      {loading ? (
+        <div style={{ color: th.muted, fontSize: '0.74rem', padding: '0.4rem 0' }}>Reading your store…</div>
+      ) : err ? (
+        <div style={{ color: th.muted, fontSize: '0.74rem', padding: '0.4rem 0' }}>Brief unavailable right now — try again shortly.</div>
+      ) : brief && brief.content ? (
+        <div style={{ fontSize: '0.8rem', color: th.text, lineHeight: 1.55 }}>{renderAnalystMarkdown(brief.content, th)}</div>
+      ) : (
+        <div style={{ color: th.muted, fontSize: '0.74rem', padding: '0.4rem 0' }}>No brief yet — not enough data for this store.</div>
+      )}
+    </div>
+  );
+}
+
+// ── Forecast Pre-Plan card — tomorrow's forecast details + suggested par + an
+//    Orion game plan (how to hit it, what to avoid) from the `forecast-plan`
+//    action. Supersedes the plain StoreForecastCard in the manager view. ──
+function ForecastPrePlanCard({ pc, storeName, th }) {
+  const [plan, setPlan] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(false);
+  const load = (refresh) => {
+    if (!pc) { setLoading(false); return; }
+    setLoading(true); setErr(false);
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'forecast-plan', storePC: String(pc), refresh: !!refresh }),
+    })
+      .then(r => (r.ok ? r.json() : Promise.reject()))
+      .then(j => { setPlan(j.plan || null); setLoading(false); })
+      .catch(() => { setErr(true); setLoading(false); });
+  };
+  useEffect(() => { load(false); }, [pc]);
+
+  const fc = plan && plan.forecast;
+  const par = plan && plan.par;
+  const f = n => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
+  const confColor = fc ? (fc.confidence === 'medium' ? '#22c55e' : fc.confidence === 'low' ? '#f59e0b' : '#ef4444') : th.muted;
+  const confLabel = { medium: 'Good', low: 'Early', 'very-low': 'Very early' };
+
+  return (
+    <div style={{ ...card(th), padding: '1rem 1.1rem', borderLeft: `3px solid ${O}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.6rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+          <span style={{ fontSize: '0.95rem' }}>🔮</span>
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.85rem', color: th.text }}>{(fc && fc.dowLabel) || 'Tomorrow'}'s Forecast &amp; Game Plan</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          {fc && <span style={{ fontSize: '0.55rem', fontWeight: 800, color: confColor, background: confColor + '1e', padding: '0.12rem 0.45rem', borderRadius: 99, whiteSpace: 'nowrap' }}>{confLabel[fc.confidence] || ''}</span>}
+          <button onClick={() => load(true)} disabled={loading} title="Regenerate"
+            style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: 8, padding: '0.2rem 0.5rem', fontSize: '0.62rem', cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.5 : 1 }}>↻</button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ color: th.muted, fontSize: '0.74rem', padding: '0.4rem 0' }}>Building your game plan…</div>
+      ) : err ? (
+        <div style={{ color: th.muted, fontSize: '0.74rem', padding: '0.4rem 0' }}>Pre-plan unavailable right now — try again shortly.</div>
+      ) : !fc ? (
+        <div style={{ color: th.muted, fontSize: '0.74rem', padding: '0.4rem 0' }}>Not enough history yet — the model is still collecting data.</div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.8rem', color: th.text, lineHeight: 1 }}>{f(fc.dayTotal)}</span>
+            <span style={{ color: th.muted, fontSize: '0.66rem' }}>projected · range {f(fc.low)}–{f(fc.high)}{fc.holidayName ? ` · 🎉 ${fc.holidayName}` : ''}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem', marginTop: '0.7rem' }}>
+            {[['AM rush', fc.dayparts.amRush], ['Mid-morn', fc.dayparts.midMorning], ['Lunch', fc.dayparts.lunch], ['Afternoon', fc.dayparts.afternoon]].map(([k, v]) => (
+              <div key={k} style={{ textAlign: 'center', background: th.card2, borderRadius: 7, padding: '0.4rem 0.2rem' }}>
+                <div style={{ color: th.muted, fontSize: '0.5rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4 }}>{k}</div>
+                <div style={{ color: th.text, fontWeight: 800, fontSize: '0.72rem', marginTop: '0.15rem' }}>{f(v)}</div>
+              </div>
+            ))}
+          </div>
+          {par && (par.donut || par.munchkin) && (
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.55rem', fontSize: '0.62rem', color: th.muted }}>
+              {par.donut && <span>🍩 Donut par <strong style={{ color: th.text }}>{par.donut.par}</strong></span>}
+              {par.munchkin && <span>· Munchkin par <strong style={{ color: th.text }}>{par.munchkin.par}</strong></span>}
+            </div>
+          )}
+          {plan && plan.content && (
+            <div style={{ marginTop: '0.75rem', paddingTop: '0.65rem', borderTop: `1px solid ${th.cardBorder}`, fontSize: '0.78rem', color: th.text, lineHeight: 1.55 }}>
+              {renderAnalystMarkdown(plan.content, th)}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // Full "Forecast vs Actual" tab for a store's Pulse detail. Projects the viewed
 // day (by hour/daypart), overlays the day's actual hourly sales, and shows live
 // pace ("running +6% vs forecast through 11a") plus the model's self-scored
 // accuracy. Self-contained fetch of the analyst `forecast` action.
+// Controller: owns the Day (tomorrow) / Week (next 7 days) toggle and both
+// fetches, then delegates to the matching presentational view below.
 function StoreForecastTab({ pc, date, actualHourly, th }) {
+  const [mode, setMode] = useState('day');           // 'day' | 'week'
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(false);
+  const [week, setWeek] = useState(null);
+  const [weekLoading, setWeekLoading] = useState(false);
+  const [weekErr, setWeekErr] = useState(false);
+
+  // Day forecast (tomorrow by default).
   useEffect(() => {
     if (!pc) { setLoading(false); return; }
     let cancelled = false;
@@ -18513,15 +18659,55 @@ function StoreForecastTab({ pc, date, actualHourly, th }) {
     return () => { cancelled = true; };
   }, [pc, date]);
 
-  const f = n => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
-  const hourLabel = h => (h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p');
+  // Week forecast (next 7 days from `date`) — fetched lazily once the user
+  // switches to Week, and re-fetched if the store/start date changes.
+  useEffect(() => {
+    if (mode !== 'week' || !pc) return;
+    let cancelled = false;
+    setWeekLoading(true); setWeekErr(false);
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'forecast', storePC: String(pc), date, range: 'week' }),
+    })
+      .then(r => (r.ok ? r.json() : Promise.reject()))
+      .then(j => { if (!cancelled) { setWeek(j.week); setWeekLoading(false); } })
+      .catch(() => { if (!cancelled) { setWeekErr(true); setWeekLoading(false); } });
+    return () => { cancelled = true; };
+  }, [mode, pc, date]);
+
   const wrap = (msg) => <div style={{ ...card(th), padding: '2.5rem 1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>{msg}</div>;
 
-  if (loading) return wrap('Building forecast…');
-  if (err) return wrap('Forecast unavailable right now — try again shortly.');
-  const fc = data && data.forecast;
-  const acc = data && data.accuracy;
-  if (!fc) return wrap('Not enough history yet — the model needs a few more weeks of data for this store.');
+  const toggle = (
+    <div style={{ display: 'inline-flex', gap: '0.25rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: '0.2rem', alignSelf: 'start' }}>
+      {[['day', 'Tomorrow'], ['week', 'Next 7 Days']].map(([m, label]) => (
+        <button key={m} onClick={() => setMode(m)}
+          style={{ border: 'none', borderRadius: 999, padding: '0.35rem 0.95rem', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer', fontFamily: "'Raleway',sans-serif", background: mode === m ? O : 'transparent', color: mode === m ? '#fff' : th.muted, transition: 'all .15s' }}>{label}</button>
+      ))}
+    </div>
+  );
+
+  let body;
+  if (mode === 'day') {
+    if (loading) body = wrap('Building forecast…');
+    else if (err) body = wrap('Forecast unavailable right now — try again shortly.');
+    else if (!data || !data.forecast) body = wrap('Not enough history yet — the model needs a few more weeks of data for this store.');
+    else body = <ForecastDayView data={data} actualHourly={actualHourly} th={th} />;
+  } else {
+    if (weekLoading) body = wrap('Building 7-day forecast…');
+    else if (weekErr) body = wrap('Forecast unavailable right now — try again shortly.');
+    else if (!week || !(week.days || []).some(d => d.dayTotal != null)) body = wrap('Not enough history yet — the model needs a few more weeks of data for this store.');
+    else body = <ForecastWeekView week={week} th={th} />;
+  }
+
+  return <div style={{ display: 'grid', gap: '1.25rem' }}>{toggle}{body}</div>;
+}
+
+// Day view — tomorrow's projection (or today's "Forecast vs Actual" when actuals exist).
+function ForecastDayView({ data, actualHourly, th }) {
+  const f = n => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
+  const hourLabel = h => (h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p');
+  const fc = data.forecast;
+  const acc = data.accuracy;
 
   const actualBy = {};
   (actualHourly || []).forEach(h => { if (h && h.hour != null) actualBy[h.hour] = h.sales || 0; });
@@ -18539,6 +18725,11 @@ function StoreForecastTab({ pc, date, actualHourly, th }) {
   const confColor = fc.confidence === 'medium' ? '#22c55e' : fc.confidence === 'low' ? '#f59e0b' : '#ef4444';
   const confLabel = { medium: 'Good confidence', low: 'Early estimate', 'very-low': 'Very early' };
   const wPct = Math.round((fc.weatherFactor - 1) * 100);
+  const hPct = fc.holidayFactor ? Math.round((fc.holidayFactor - 1) * 100) : 0;
+  // Future target (e.g. tomorrow) has no actuals yet → present as a pure
+  // projection rather than a "vs Actual" tracker.
+  const todayISO = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const isFutureDate = fc.date > todayISO;
 
   return (
     <div style={{ display: 'grid', gap: '1.25rem' }}>
@@ -18546,7 +18737,10 @@ function StoreForecastTab({ pc, date, actualHourly, th }) {
       <div style={{ ...card(th), padding: '1.25rem 1.4rem', borderLeft: `4px solid ${O}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
           <span style={{ color: th.muted, fontSize: '0.62rem', fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase' }}>{fc.dowLabel} Forecast · {fc.date}</span>
-          <span style={{ fontSize: '0.6rem', fontWeight: 800, color: confColor, background: confColor + '1e', padding: '0.15rem 0.5rem', borderRadius: 99 }}>{confLabel[fc.confidence]}</span>
+          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {fc.holidayName && <span style={{ fontSize: '0.6rem', fontWeight: 800, color: O, background: O + '1e', padding: '0.15rem 0.5rem', borderRadius: 99 }}>🎉 {fc.holidayName}</span>}
+            <span style={{ fontSize: '0.6rem', fontWeight: 800, color: confColor, background: confColor + '1e', padding: '0.15rem 0.5rem', borderRadius: 99 }}>{confLabel[fc.confidence]}</span>
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem', flexWrap: 'wrap' }}>
           <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2.2rem', color: th.text, lineHeight: 1 }}>{f(fc.dayTotal)}</span>
@@ -18567,7 +18761,7 @@ function StoreForecastTab({ pc, date, actualHourly, th }) {
           ))}
         </div>
         <div style={{ marginTop: '0.85rem', paddingTop: '0.6rem', borderTop: `1px solid ${th.cardBorder}`, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.65rem', color: th.muted }}>
-          <span>Based on {fc.samples} prior {fc.dowLabel}s{wPct !== 0 ? ` · weather ${wPct > 0 ? '+' : ''}${wPct}%` : ''}</span>
+          <span>Based on {fc.samples} prior {fc.dowLabel}s{wPct !== 0 ? ` · weather ${wPct > 0 ? '+' : ''}${wPct}%` : ''}{fc.holidayName ? ` · ${fc.holidayName} ${hPct >= 0 ? '+' : ''}${hPct}%` : ''}</span>
           {acc ? <span>Model accuracy <span style={{ color: th.text, fontWeight: 800 }}>±{acc.mape}%</span> over last {acc.window} days</span> : null}
         </div>
       </div>
@@ -18575,10 +18769,10 @@ function StoreForecastTab({ pc, date, actualHourly, th }) {
       {/* Forecast vs Actual — hourly */}
       <div style={{ ...card(th), padding: '1.25rem 1.4rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: th.text }}>Forecast vs Actual — by hour</span>
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: th.text }}>{isFutureDate ? 'Projected sales — by hour' : 'Forecast vs Actual — by hour'}</span>
           <div style={{ display: 'flex', gap: '0.9rem', fontSize: '0.62rem', color: th.muted }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: 10, height: 10, borderRadius: 2, background: th.card3 || th.cardBorder }} /> Forecast</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: 10, height: 10, borderRadius: 2, background: O }} /> Actual</span>
+            {!isFutureDate && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: 10, height: 10, borderRadius: 2, background: O }} /> Actual</span>}
           </div>
         </div>
         {/* Bars share one true baseline; hour labels live in their own row below.
@@ -18603,9 +18797,69 @@ function StoreForecastTab({ pc, date, actualHourly, th }) {
             <div key={h.hour} style={{ flex: 1, textAlign: 'center', fontSize: '0.5rem', color: th.subtle }}>{h.hour % 3 === 0 ? hourLabel(h.hour) : ''}</div>
           ))}
         </div>
-        {!hasActual && <div style={{ marginTop: '0.8rem', fontSize: '0.68rem', color: th.muted, textAlign: 'center' }}>No actual sales recorded for this day yet — the orange bars fill in live as the day progresses.</div>}
+        {!hasActual && <div style={{ marginTop: '0.8rem', fontSize: '0.68rem', color: th.muted, textAlign: 'center' }}>{isFutureDate ? `Projection for ${fc.dowLabel} — use it to plan staffing and prep. Actual sales will track here once the day begins.` : 'No actual sales recorded for this day yet — the orange bars fill in live as the day progresses.'}</div>}
       </div>
     </div>
+  );
+}
+
+// Week view — model-driven next-7-days projection. Each day is forecast from its
+// own weekday history (server-side), summed into a weekly total + per-day bars.
+function ForecastWeekView({ week, th }) {
+  const f = n => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
+  const days = week.days || [];
+  const valid = days.filter(d => d.dayTotal != null);
+  const maxBar = Math.max(1, ...valid.map(d => d.dayTotal));
+  const confColor = week.confidence === 'medium' ? '#22c55e' : week.confidence === 'low' ? '#f59e0b' : '#ef4444';
+  const confLabel = { medium: 'Good confidence', low: 'Early estimate', 'very-low': 'Very early' };
+  const dowShort = { Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
+  const holidays = [...new Set(days.filter(d => d.holidayName).map(d => d.holidayName))];
+  const fmtRange = (s, e) => {
+    const o = { month: 'short', day: 'numeric' };
+    return `${new Date(s + 'T12:00:00').toLocaleDateString('en-US', o)} – ${new Date(e + 'T12:00:00').toLocaleDateString('en-US', o)}`;
+  };
+
+  return (
+    <>
+      {/* Summary */}
+      <div style={{ ...card(th), padding: '1.25rem 1.4rem', borderLeft: `4px solid ${O}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          <span style={{ color: th.muted, fontSize: '0.62rem', fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase' }}>Next 7 Days · {fmtRange(week.startDate, week.endDate)}</span>
+          <span style={{ fontSize: '0.6rem', fontWeight: 800, color: confColor, background: confColor + '1e', padding: '0.15rem 0.5rem', borderRadius: 99 }}>{confLabel[week.confidence]}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem', flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2.2rem', color: th.text, lineHeight: 1 }}>{f(week.weekTotal)}</span>
+          <span style={{ color: th.muted, fontSize: '0.78rem' }}>projected · range {f(week.low)}–{f(week.high)}</span>
+        </div>
+        <div style={{ marginTop: '0.85rem', paddingTop: '0.6rem', borderTop: `1px solid ${th.cardBorder}`, fontSize: '0.65rem', color: th.muted }}>
+          {week.daysWithData < 7 ? `${week.daysWithData} of 7 days have enough history. ` : ''}Each day is projected from its own weekday history — plan staffing, ordering, and prep for the week ahead.{holidays.length ? ` Includes ${holidays.join(', ')} (adjusted from prior-year sales).` : ''}
+        </div>
+      </div>
+
+      {/* Per-day bars */}
+      <div style={{ ...card(th), padding: '1.25rem 1.4rem' }}>
+        <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: th.text, marginBottom: '1rem' }}>Projected sales — by day</div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 175 }}>
+          {days.map(d => {
+            const hPct = d.dayTotal != null ? Math.round((d.dayTotal / maxBar) * 92) : 0;
+            return (
+              <div key={d.date} title={d.dayTotal != null ? `${d.dowLabel}${d.holidayName ? ` (${d.holidayName})` : ''} — ${f(d.dayTotal)} (range ${f(d.low)}–${f(d.high)}, ${d.samples} prior ${d.dowLabel}s)` : `${d.dowLabel}${d.holidayName ? ` (${d.holidayName})` : ''} — not enough history`}
+                style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
+                <span style={{ fontSize: '0.55rem', color: d.dayTotal != null ? th.muted : th.subtle, fontWeight: 700, marginBottom: 3, whiteSpace: 'nowrap' }}>{d.holidayName ? '🎉 ' : ''}{d.dayTotal != null ? f(d.dayTotal) : '—'}</span>
+                <div style={{ width: '100%', flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+                  <div style={{ width: '62%', height: (d.dayTotal != null ? Math.max(2, hPct) : 2) + '%', background: d.dayTotal != null ? O : th.cardBorder, borderRadius: '4px 4px 0 0', transition: 'height .4s ease' }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+          {days.map(d => (
+            <div key={d.date} style={{ flex: 1, textAlign: 'center', fontSize: '0.56rem', color: d.holidayName ? O : th.subtle, fontWeight: d.holidayName ? 800 : 700 }}>{dowShort[d.dowLabel] || ''}</div>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -19100,7 +19354,9 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
           </Card>
         )}
 
-        <StoreForecastCard pc={pc} storeName={store.name} th={th} dark={dark} />
+        <ManagerOrionBrief pc={pc} storeName={store.name} th={th} />
+
+        <ForecastPrePlanCard pc={pc} storeName={store.name} th={th} />
 
         {(() => {
           const carouselPages = [
@@ -19356,7 +19612,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.61";
+const APP_VERSION = "v16.72";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -22628,12 +22884,13 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
         })}
       </div>
 
-      {/* ─── My Store Forecast (managers) ────────────────────────────────────── */}
+      {/* ─── My Store Orion: brief + forecast game plan (managers) ───────────── */}
       {user.userType === 'manager' && (() => {
         const mp = getManagerStore(stores, user);
         return mp?.pc ? (
-          <div style={{ marginBottom: "1.25rem", maxWidth: 480 }}>
-            <StoreForecastCard pc={mp.pc} storeName={mp.name} th={th} />
+          <div style={{ marginBottom: "1.25rem", display: 'grid', gap: '0.85rem', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start', maxWidth: 1080 }}>
+            <ManagerOrionBrief pc={mp.pc} storeName={mp.name} th={th} />
+            <ForecastPrePlanCard pc={mp.pc} storeName={mp.name} th={th} />
           </div>
         ) : null;
       })()}
@@ -36661,19 +36918,37 @@ function PCGPortal() {
     if (!user || annGateDone || isFullAdmin(user) || user.userType?.startsWith('kiosk')) return;
     const queue = announcements.filter(a => {
       if (!a.active) return false;
-      const t = a.targets;
-      if (t) {
-        const hasAny = (t.roles?.length || t.users?.length || t.districts?.length);
-        const roleMatch = t.roles?.includes(user.userType);
-        const userMatch = t.users?.includes(user.id);
-        const distMatch = user.district && t.districts?.includes(Number(user.district));
-        if (hasAny && !roleMatch && !userMatch && !distMatch) return false;
-      }
+      if (!announcementTargetsUser(a.targets, user)) return false;
       try { return !localStorage.getItem(`pcg_ann_ack_${user.id}_${a.id}`); } catch { return false; }
     }).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     setAnnGateQueue(queue);
     setAnnGateIdx(0);
   }, [user?.id, user?.userType, announcements, annGateDone]);
+
+  // Central-ack backfill — the gate only fires recordAnnAck the first time a
+  // user sees an announcement; anyone who dismissed it before central recording
+  // existed (v16.51), or on another device, or whose fire-and-forget write
+  // failed, was never recorded and showed as perpetually "Pending" in the admin
+  // Acknowledgments view. On load, replay this device's local ack flags to the
+  // server. The write is idempotent (one blob per annId+userId) and guarded by
+  // sessionStorage so it sends at most once per announcement per session.
+  const annBackfillRef = useRef(false);
+  useEffect(() => {
+    if (!user || annBackfillRef.current || isFullAdmin(user) || user.userType?.startsWith('kiosk')) return;
+    if (!announcements || announcements.length === 0) return;
+    annBackfillRef.current = true;
+    announcements.forEach(a => {
+      if (!a || !a.active) return;
+      if (!announcementTargetsUser(a.targets, user)) return;
+      let locallyAcked = false;
+      try { locallyAcked = !!localStorage.getItem(`pcg_ann_ack_${user.id}_${a.id}`); } catch {}
+      if (!locallyAcked) return;
+      const sentKey = `pcg_ann_central_${user.id}_${a.id}`;
+      try { if (sessionStorage.getItem(sentKey)) return; } catch {}
+      recordAnnAck(a.id, user);
+      try { sessionStorage.setItem(sentKey, '1'); } catch {}
+    });
+  }, [user?.id, user?.userType, announcements]);
 
   if (!user) return <Login onLogin={(u) => {
     const now = new Date().toISOString();
