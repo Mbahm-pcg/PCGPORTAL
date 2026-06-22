@@ -1,25 +1,61 @@
-// analyst-audit.js — Audit logging for every LLM call, feedback, and action
-// Per-entry blob keys (analyst/audit/{date}/{ts}_{rand}) prevent concurrent-write race conditions
-import { cacheSave, cacheLoad, cacheList } from './analyst-cache.mjs';
+// analyst-audit.mjs — Audit logging for every LLM call, feedback, and access event.
+// Backed by Neon Postgres (audit_log table). Previously this used one Netlify Blob
+// per event; the read path had to list + GET thousands of blobs and timed out, so
+// it was migrated to a single indexed table. Exports are unchanged so callers
+// (analyst.mjs, analyst-claude.mjs) need no edits.
+import { sql } from '../_shared/db.mjs';
 
-/** Log an audit entry — one blob per event to avoid concurrent-write collisions */
+// Coerce a possibly-stringy district/number to an INTEGER column value or null.
+const toInt = (v) => {
+  if (v == null || v === '') return null;
+  const n = Math.trunc(Number(v));
+  return Number.isFinite(n) ? n : null;
+};
+
+const dayRange = (date) => date || new Date().toISOString().slice(0, 10);
+
+/** Log a generic audit entry (used by logLLMCall). */
 async function logAudit(entry) {
-  const today = new Date().toISOString().slice(0, 10);
-  const rand = Math.random().toString(36).slice(2, 7);
-  const key = `analyst/audit/${today}/${Date.now()}_${rand}`;
-  await cacheSave(key, { ts: new Date().toISOString(), ...entry });
+  const {
+    type = 'audit', userId = null, userRole = null, action = null, model = null,
+    inputTokens = null, outputTokens = null, costUSD = null, latencyMs = null,
+    district = null, statusCode = null, rating = null, error = null, ...rest
+  } = entry || {};
+  const meta = Object.keys(rest).length ? JSON.stringify(rest) : null;
+  try {
+    const db = sql();
+    await db`
+      INSERT INTO audit_log (type, user_id, user_role, action, model, input_tokens, output_tokens, cost_usd, latency_ms, district, status_code, rating, error, metadata)
+      VALUES (${type}, ${userId}, ${userRole}, ${action}, ${model}, ${inputTokens}, ${outputTokens}, ${costUSD}, ${latencyMs}, ${toInt(district)}, ${statusCode}, ${rating}, ${error}, ${meta}::jsonb)
+    `;
+  } catch (e) { console.warn('audit_log insert (audit) failed:', e.message); }
 }
 
-/** Load all audit entries for a given date (aggregated from per-entry blobs) */
+/** Load audit/LLM entries for a date (everything except access + feedback). */
 async function loadAuditEntries(date) {
-  const keys = await cacheList(`analyst/audit/${date}/`);
-  const entries = await Promise.all(keys.map(k => cacheLoad(k)));
-  return entries.filter(Boolean).sort((a, b) => (a.ts > b.ts ? 1 : -1));
+  try {
+    const db = sql();
+    const d = dayRange(date);
+    const rows = await db`
+      SELECT created_at, type, user_id, action, model, input_tokens, output_tokens, cost_usd, latency_ms, error, metadata
+      FROM audit_log
+      WHERE type NOT IN ('access', 'feedback')
+        AND created_at >= ${d}::date AND created_at < (${d}::date + INTERVAL '1 day')
+      ORDER BY created_at ASC
+    `;
+    return rows.map(r => ({
+      ts: new Date(r.created_at).toISOString(),
+      type: r.type, userId: r.user_id, action: r.action, model: r.model,
+      inputTokens: r.input_tokens, outputTokens: r.output_tokens,
+      costUSD: r.cost_usd, latencyMs: r.latency_ms, error: r.error,
+      ...(r.metadata || {}),
+    }));
+  } catch (e) { console.warn('loadAuditEntries failed:', e.message); return []; }
 }
 
-/** Log an LLM API call with token counts and cost */
+/** Log an LLM API call with token counts and cost. */
 async function logLLMCall({ model, action, inputTokens, outputTokens, latencyMs, userId, error }) {
-  // Pricing per 1M tokens (as of 2025)
+  // Pricing per 1M tokens
   const pricing = {
     'claude-haiku-4-5-20251001': { input: 0.80, output: 4.00 },
     'claude-sonnet-4-5-20241022': { input: 3.00, output: 15.00 },
@@ -40,61 +76,69 @@ async function logLLMCall({ model, action, inputTokens, outputTokens, latencyMs,
   });
 }
 
-/** Log user feedback (thumbs up/down) — one blob per event */
+/** Log user feedback (thumbs up/down). */
 async function logFeedback({ userId, messageId, rating, comment }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const rand = Math.random().toString(36).slice(2, 7);
-  const key = `analyst/feedback/${today}/${Date.now()}_${rand}`;
-  await cacheSave(key, {
-    ts: new Date().toISOString(),
-    userId,
-    messageId,
-    rating,
-    comment: comment || null,
-  });
+  try {
+    const db = sql();
+    const meta = JSON.stringify({ messageId: messageId || null, comment: comment || null });
+    await db`
+      INSERT INTO audit_log (type, user_id, rating, metadata)
+      VALUES ('feedback', ${userId || null}, ${rating || null}, ${meta}::jsonb)
+    `;
+  } catch (e) { console.warn('audit_log insert (feedback) failed:', e.message); }
 }
 
-/** Log an API access event — one blob per event to avoid concurrent-write collisions */
+/** Log an API access event. */
 async function logAccessEvent({ userId, userRole, action, district, statusCode, latencyMs, error, meta }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const rand = Math.random().toString(36).slice(2, 7);
-  const key = `analyst/access/${today}/${Date.now()}_${rand}`;
-  await cacheSave(key, {
-    ts: new Date().toISOString(),
-    type: 'access',
-    userId: userId || null,
-    userRole: userRole || null,
-    action: action || null,
-    district: district || null,
-    statusCode: statusCode || null,
-    latencyMs: latencyMs || null,
-    error: error || null,
-    meta: meta || null,
-  });
+  try {
+    const db = sql();
+    const m = meta ? JSON.stringify(meta) : null;
+    await db`
+      INSERT INTO audit_log (type, user_id, user_role, action, district, status_code, latency_ms, error, metadata)
+      VALUES ('access', ${userId || null}, ${userRole || null}, ${action || null}, ${toInt(district)}, ${statusCode || null}, ${latencyMs || null}, ${error || null}, ${m}::jsonb)
+    `;
+  } catch (e) { console.warn('audit_log insert (access) failed:', e.message); }
 }
 
-/** Load access events for a given date (aggregated from per-entry blobs).
- *  A busy day can accumulate thousands of per-event blobs; loading every one
- *  (a blob GET each) overruns the 26s function timeout and the read returns
- *  nothing. Keys embed the epoch ms (analyst/access/{date}/{ms}_{rand}) so a
- *  lexicographic sort is chronological — we keep only the most recent `limit`
- *  and GET just those, bounding the work regardless of the day's volume. */
+/** Load access events for a date — one indexed query, capped to the most recent `limit`.
+ *  Returns entries in ascending time order (the UI reverses for display), with a
+ *  `truncated` property = the full count when the cap dropped older rows, else 0. */
 async function loadAccessEntries(date, limit = 500) {
-  const keys = await cacheList(`analyst/access/${date}/`);
-  const total = keys.length;
-  const recent = keys.sort().slice(-limit);
-  // GET in bounded batches rather than one giant Promise.all — a single fan-out
-  // of hundreds of concurrent blob reads can exhaust the function's sockets and
-  // stall, which is what made the read time out (502) in the first place.
-  const entries = [];
-  const BATCH = 50;
-  for (let i = 0; i < recent.length; i += BATCH) {
-    const chunk = await Promise.all(recent.slice(i, i + BATCH).map(k => cacheLoad(k)));
-    entries.push(...chunk);
+  try {
+    const db = sql();
+    const d = dayRange(date);
+    const rows = await db`
+      SELECT created_at, user_id, user_role, action, district, status_code, latency_ms, error, metadata
+      FROM audit_log
+      WHERE type = 'access'
+        AND created_at >= ${d}::date AND created_at < (${d}::date + INTERVAL '1 day')
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `;
+    const list = rows.map(r => ({
+      ts: new Date(r.created_at).toISOString(),
+      userId: r.user_id, userRole: r.user_role, action: r.action,
+      district: r.district, statusCode: r.status_code, latencyMs: r.latency_ms,
+      error: r.error, meta: r.metadata || null,
+    })).reverse(); // DESC fetch (newest `limit`) → ascending for the UI
+
+    let truncated = 0;
+    if (rows.length === limit) {
+      const [{ c }] = await db`
+        SELECT count(*)::int AS c FROM audit_log
+        WHERE type = 'access'
+          AND created_at >= ${d}::date AND created_at < (${d}::date + INTERVAL '1 day')
+      `;
+      if (c > limit) truncated = c;
+    }
+    list.truncated = truncated;
+    return list;
+  } catch (e) {
+    console.warn('loadAccessEntries failed:', e.message);
+    const empty = [];
+    empty.truncated = 0;
+    return empty;
   }
-  const list = entries.filter(Boolean).sort((a, b) => (a.ts > b.ts ? 1 : -1));
-  list.truncated = total > recent.length ? total : 0; // total when capped, else 0
-  return list;
 }
 
 export { logAudit, loadAuditEntries, logLLMCall, logFeedback, logAccessEvent, loadAccessEntries };

@@ -187,6 +187,35 @@ export default async (request) => {
   await db`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`;
   await db`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`;
 
+  // ── Audit log — analyst LLM calls, feedback, and access/audit events ──
+  // Replaces the per-event Netlify Blobs design (analyst/access/*, analyst/audit/*,
+  // analyst/feedback/*), whose read path had to list+GET thousands of blobs and
+  // timed out. A single indexed query per day is fast and can't time out.
+  await db`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id            SERIAL PRIMARY KEY,
+      type          VARCHAR(50) NOT NULL,        -- access | llm_call | feedback | ...
+      user_id       VARCHAR(100),
+      action        VARCHAR(100),
+      model         VARCHAR(100),
+      input_tokens  INTEGER,
+      output_tokens INTEGER,
+      cost_usd      REAL,
+      latency_ms    INTEGER,
+      rating        VARCHAR(10),
+      error         TEXT,
+      metadata      JSONB,
+      created_at    TIMESTAMPTZ DEFAULT now()
+    )
+  `;
+  // Access events carry a few extra dimensions; add idempotently.
+  await db`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS user_role VARCHAR(50)`;
+  await db`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS district INTEGER`;
+  await db`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS status_code INTEGER`;
+  // Supports the per-day read: WHERE type=? AND created_at IN [day) ORDER BY created_at DESC.
+  await db`CREATE INDEX IF NOT EXISTS idx_audit_type_created ON audit_log(type, created_at DESC)`;
+  await db`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at)`;
+
   return new Response(
     JSON.stringify({ ok: true, message: 'Migration complete' }),
     { status: 200, headers: { 'Content-Type': 'application/json' } }
