@@ -104,6 +104,38 @@ function logClientEvent(userId, userRole, event, meta) {
   }).catch(() => {});
 }
 
+// Fire-and-forget central record of an announcement acknowledgment so admins can
+// see who has read it (the localStorage ack is per-device only). One blob per
+// (announcement, user) on the server side.
+function recordAnnAck(annId, user) {
+  if (!annId || user?.id == null) return;
+  fetch('/.netlify/functions/ann-ack', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'ack', annId, userId: user.id, name: user.name }),
+  }).catch(() => {});
+}
+
+// Resolve an announcement's `targets` to the array of user objects who should
+// receive/see it. null targets = everyone (active, non-kiosk). The union of
+// whole-role targets and specific-user targets, de-duplicated. Shared by the
+// push-notify path and the admin acknowledgments view so they never diverge.
+//
+// `gateableOnly` mirrors the announcement gate's exclusions (app.jsx — the
+// gate skips isFullAdmin users): admins never see the gate and so can never
+// acknowledge, so the acks view must drop them or they show as perpetual
+// "Pending" and the % can never reach 100. Push leaves them in (default).
+function announcementAudience(targets, users, { gateableOnly = false } = {}) {
+  let active = (users || []).filter(u => u.active !== false && !String(u.userType || '').startsWith('kiosk'));
+  if (gateableOnly) active = active.filter(u => !isFullAdmin(u));
+  if (!targets) return active;
+  const seen = new Set();
+  const out = [];
+  const add = (u) => { if (u && !seen.has(u.id)) { seen.add(u.id); out.push(u); } };
+  (targets.roles || []).forEach(role => active.filter(u => u.userType === role).forEach(add));
+  (targets.users || []).forEach(id => add(active.find(u => u.id === id)));
+  return out;
+}
+
 // ── Project Tracker Constants & Helpers ───────────────────────────────────────
 const PROJECT_PHASES = [
   { id: "zoning", label: "Zoning", icon: "🏛️", color: "#6366f1", items: [
@@ -899,7 +931,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
       transition: "background .4s ease, color .4s ease",
     }}>
       {/* ═══ Animated mesh gradient background ═══ */}
-      <div aria-hidden="true" className="login-bg-fx" style={{
+      <div aria-hidden="true" style={{
         position: "absolute", inset: "-40%",
         background: `
           radial-gradient(circle at 15% 15%, #FF671F 0%, transparent 35%),
@@ -916,7 +948,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
       }} />
 
       {/* ═══ Aurora sweep — counter-rotating conic light for depth ═══ */}
-      <div aria-hidden="true" className="login-bg-fx" style={{
+      <div aria-hidden="true" style={{
         position: "absolute", inset: "-30%",
         background: `conic-gradient(from 0deg at 50% 50%,
           transparent 0deg, #FF671F2e 55deg, transparent 130deg,
@@ -930,7 +962,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
       }} />
 
       {/* ═══ Dot grid overlay — slow diagonal drift ═══ */}
-      <div aria-hidden="true" className="login-bg-fx" style={{
+      <div aria-hidden="true" style={{
         position: "absolute", inset: 0,
         backgroundImage: `radial-gradient(${palette.dotGrid} 1px, transparent 1px)`,
         backgroundSize: "28px 28px",
@@ -941,7 +973,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
       {/* ═══ Floating particles ═══ */}
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
         {particles.map(p => (
-          <div key={p.id} className="login-bg-fx" style={{
+          <div key={p.id} style={{
             position: "absolute",
             bottom: "-20px",
             left: `${p.left}%`,
@@ -15535,6 +15567,11 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         <AuditLogSection th={th} user={user} users={users || []} accent="#0EA5E9" />
       </div>
 
+      {/* Announcement Acknowledgments */}
+      <div style={{ marginTop: "1.25rem" }}>
+        <AnnouncementAcksSection th={th} users={users || []} announcements={announcements} accent="#FF671F" />
+      </div>
+
       {/* Expense Log moved → Finance group, its own tab (exec/IT only) */}
 
       </> /* end admin tab */}
@@ -16486,12 +16523,165 @@ function AdminConsole(props) {
 }
 
 // ── Audit Log Section (rendered inside AdminSettings) ─────────────────────
+// ── Announcement Acknowledgments — who has read each announcement ───────────
+// Cross-references the announcement's resolved audience (announcementAudience)
+// with the central ack records (ann-ack `list`) so admins see, per person,
+// acknowledged ✓ (with time) vs pending ☐. Acks are recorded from the gate
+// going forward, so announcements posted before this feature show all-pending.
+function AnnouncementAcksSection({ th, users, announcements, accent }) {
+  const [open, setOpen] = React.useState(false);
+  const [selId, setSelId] = React.useState(null);
+  const [acks, setAcks] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState(null);
+  const reqRef = useRef(0); // last-request-wins: ignore a stale response when the user switches announcements mid-flight
+
+  const list = [...(announcements || [])].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const selected = list.find(a => a.id === selId) || list[0] || null;
+
+  const loadAcks = async (annId) => {
+    if (!annId) return;
+    const myReq = ++reqRef.current;
+    setLoading(true); setError(null); setAcks(null);
+    try {
+      const res = await fetch('/.netlify/functions/ann-ack', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list', annId }),
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const j = await res.json();
+      if (myReq !== reqRef.current) return; // a newer load started; drop this stale result
+      setAcks(Array.isArray(j.acks) ? j.acks : []);
+    } catch (e) {
+      if (myReq !== reqRef.current) return;
+      setError(e.message || 'Failed to load acknowledgments'); setAcks([]);
+    }
+    if (myReq === reqRef.current) setLoading(false);
+  };
+
+  const handleToggle = () => setOpen(o => { if (!o && selected) loadAcks(selected.id); return !o; });
+  const handleSelect = (id) => { setSelId(id); loadAcks(id); };
+
+  const audience = selected ? announcementAudience(selected.targets, users, { gateableOnly: true }) : [];
+  const ackMap = {};
+  (acks || []).forEach(a => { if (a && a.userId != null) ackMap[String(a.userId)] = a.ts; });
+  const ackedCount = audience.filter(u => ackMap[String(u.id)]).length;
+  const pct = audience.length ? Math.round((ackedCount / audience.length) * 100) : 0;
+  // Pending first (they're the actionable ones), then acknowledged; alpha within.
+  const rows = [...audience].sort((a, b) => {
+    const aa = !!ackMap[String(a.id)], ba = !!ackMap[String(b.id)];
+    if (aa !== ba) return aa ? 1 : -1;
+    return (a.name || a.username || '').localeCompare(b.name || b.username || '');
+  });
+
+  return (
+    <div style={accentCard(th, accent || '#FF671F', { padding: '1.5rem', marginBottom: '1.25rem' })}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: open ? '1rem' : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '1.125rem' }}>📢</span>
+          <span style={{ fontWeight: 700, fontSize: '1rem', color: th.text }}>Announcement Acknowledgments</span>
+          {open && selected && !loading && !error && (
+            <span style={{ fontSize: '0.7rem', color: th.muted, background: th.card2, padding: '0.1rem 0.5rem', borderRadius: '0.9rem', fontWeight: 600 }}>
+              {ackedCount}/{audience.length} read
+            </span>
+          )}
+        </div>
+        <button onClick={handleToggle} style={{ ...btn(th, { padding: '0.35rem 0.75rem', fontSize: '0.75rem' }) }}>
+          {open ? 'Hide' : 'View'}
+        </button>
+      </div>
+
+      {open && (
+        <div>
+          {list.length === 0 ? (
+            <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0', textAlign: 'center' }}>No announcements yet.</div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.9rem' }}>
+                <span style={{ fontSize: '0.75rem', color: th.muted, fontWeight: 600 }}>Announcement</span>
+                <select value={selected?.id || ''} onChange={e => handleSelect(e.target.value)}
+                  style={{ ...inp(th), padding: '0.3rem 0.6rem', fontSize: '0.8rem', maxWidth: 360 }}>
+                  {list.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {(a.active ? '' : '(inactive) ') + (a.title || 'Untitled') + ' · ' + new Date(a.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </option>
+                  ))}
+                </select>
+                <button onClick={() => selected && loadAcks(selected.id)} style={{ ...btn(th, { padding: '0.3rem 0.75rem', fontSize: '0.75rem' }) }}>↻ Refresh</button>
+              </div>
+
+              {/* Progress bar */}
+              {selected && !loading && !error && (
+                <div style={{ marginBottom: '0.9rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: th.muted, marginBottom: '0.3rem' }}>
+                    <span>{ackedCount} of {audience.length} acknowledged</span>
+                    <span style={{ fontWeight: 700, color: pct === 100 ? '#2f9e44' : O }}>{pct}%</span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 3, background: th.cardBorder, overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? '#2f9e44' : O, transition: 'width .3s' }} />
+                  </div>
+                </div>
+              )}
+
+              {loading && <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0' }}>Loading...</div>}
+              {!loading && error && (
+                <div style={{ color: '#f44336', fontSize: '0.8rem', padding: '0.85rem 1rem', textAlign: 'center', background: '#f4433612', border: '1px solid #f4433633', borderRadius: '0.5rem' }}>⚠ {error}</div>
+              )}
+              {!loading && !error && audience.length === 0 && (
+                <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0', textAlign: 'center' }}>This announcement targets nobody in the current user list.</div>
+              )}
+
+              {!loading && !error && audience.length > 0 && (
+                <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 420, borderRadius: '0.5rem', border: `1px solid ${th.cardBorder}` }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: th.card }}>
+                      <tr>
+                        {['', 'Name', 'Role', 'Status'].map((h, i) =>
+                          <th key={i} style={{ padding: '0.5rem 0.6rem', textAlign: 'left', borderBottom: `2px solid ${O}44`, color: th.muted, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(u => {
+                        const ts = ackMap[String(u.id)];
+                        const acked = !!ts;
+                        return (
+                          <tr key={u.id} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                            <td style={{ padding: '0.4rem 0.6rem', width: 28 }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, borderRadius: 4, border: `2px solid ${acked ? '#2f9e44' : th.cardBorder}`, background: acked ? '#2f9e44' : 'transparent', color: '#fff', fontSize: 10, fontWeight: 900 }}>{acked ? '✓' : ''}</span>
+                            </td>
+                            <td style={{ padding: '0.4rem 0.6rem', color: th.text, fontWeight: 500 }}>{u.name || u.username}</td>
+                            <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>{u.userType || '—'}</td>
+                            <td style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem' }}>
+                              {acked ? (
+                                <span style={{ color: '#2f9e44', fontWeight: 600 }}>Acknowledged · {new Date(ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                              ) : (
+                                <span style={{ color: th.muted }}>Pending</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AuditLogSection({ th, user, users, accent }) {
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [entries, setEntries] = React.useState(null);
   const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
   const [filterAction, setFilterAction] = React.useState('');
+  const [error, setError] = React.useState(null);
+  const [truncated, setTruncated] = React.useState(0);
 
   const userName = (id) => {
     if (!id) return '—';
@@ -16500,15 +16690,19 @@ function AuditLogSection({ th, user, users, accent }) {
   };
 
   const load = async (d) => {
-    setLoading(true);
+    setLoading(true); setError(null);
     try {
       const res = await fetch('/.netlify/functions/analyst', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'audit-log', userId: user.id, date: d }),
       });
+      // A timeout/proxy failure returns a non-JSON error page; surface it instead
+      // of silently showing "no events" (which masked the real problem before).
+      if (!res.ok) throw new Error(res.status === 502 || res.status === 504 ? `Server timed out (${res.status}). The log is being optimized — retry shortly.` : `Server error ${res.status}`);
       const data = await res.json();
       setEntries(Array.isArray(data.entries) ? data.entries : []);
-    } catch { setEntries([]); }
+      setTruncated(data.truncated || 0);
+    } catch (e) { setError(e.message || 'Failed to load audit log'); setEntries([]); }
     setLoading(false);
   };
 
@@ -16615,7 +16809,19 @@ function AuditLogSection({ th, user, users, accent }) {
 
           {loading && <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0' }}>Loading...</div>}
 
-          {!loading && displayed.length === 0 && (
+          {!loading && error && (
+            <div style={{ color: '#f44336', fontSize: '0.8rem', padding: '0.85rem 1rem', textAlign: 'center', background: '#f4433612', border: '1px solid #f4433633', borderRadius: '0.5rem' }}>
+              ⚠ {error}
+            </div>
+          )}
+
+          {!loading && !error && truncated > 0 && (
+            <div style={{ color: th.muted, fontSize: '0.72rem', padding: '0.4rem 0', textAlign: 'center' }}>
+              Showing the most recent 500 of {truncated.toLocaleString()} events for {date}.
+            </div>
+          )}
+
+          {!loading && !error && displayed.length === 0 && (
             <div style={{ color: th.muted, fontSize: '0.8rem', padding: '1rem 0', textAlign: 'center' }}>
               No audit events recorded for {date}.
             </div>
@@ -16727,14 +16933,25 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
   });
   const sorted = [...visibleAnnouncements].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
+  // Recipients for the push: the announcement's audience, minus the poster.
+  const resolveAudience = (targets) =>
+    announcementAudience(targets, users).map(u => u.id).filter(id => id != null && id !== user?.id);
+
   const postAnnouncement = () => {
     if (!newTitle.trim() || !newMsg.trim()) { showAlert("error", "Title and message required"); return; }
     const hasTargets = newTargets.length > 0 || newUserTargets.length > 0;
     const targets = hasTargets ? { roles: newTargets, users: newUserTargets } : null;
     const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: new Date().toISOString(), createdBy: user.name, active: true, targets };
     setAnnouncements(prev => [ann, ...prev]);
+    // Push to the targeted audience (fire-and-forget; only users with a push
+    // subscription registered actually receive it).
+    const recipients = resolveAudience(targets);
+    if (recipients.length > 0) {
+      const preview = ann.message.length > 160 ? ann.message.slice(0, 157) + "…" : ann.message;
+      sendPushNotification(recipients, `📢 ${ann.title}`, preview, "/", `ann_${ann.id}`);
+    }
     setNewTitle(""); setNewMsg(""); setNewTargets([]); setNewUserTargets([]); setExpandedRole(null); setAddMode(false);
-    showAlert("success", "Announcement posted!");
+    showAlert("success", recipients.length > 0 ? `Announcement posted — notifying ${recipients.length} ${recipients.length === 1 ? "person" : "people"}` : "Announcement posted!");
   };
 
   const startEdit = (a) => { setEditingId(a.id); setEditForm({ title: a.title, message: a.message }); };
@@ -18927,7 +19144,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.46";
+const APP_VERSION = "v16.51";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -34497,9 +34714,9 @@ function DunkinCupScene() {
       }
       if (cursorRef.current) cursorRef.current.setAttribute("transform",
         `translate(${475 + Math.sin(s * 1.7) * 35} ${83 + Math.cos(s * 1.4) * 28}) scale(0.7)`);
-      raf = requestAnimationFrame(frame);
+      if (!reduce) raf = requestAnimationFrame(frame);
     };
-    if (reduce) frame(0); else raf = requestAnimationFrame(frame);
+    frame(0); // draw the initial frame; the loop continues only when motion is allowed
     return () => { if (raf) cancelAnimationFrame(raf); };
   }, []);
 
@@ -36107,11 +36324,15 @@ function PCGPortal() {
   // ── Announcement Gate ──────────────────────────────────────────────────────
   if (!annGateDone && annGateQueue.length > 0 && annGateIdx < annGateQueue.length) {
     const handleAnnNext = () => {
-      try { localStorage.setItem(`pcg_ann_ack_${user.id}_${annGateQueue[annGateIdx].id}`, "1"); } catch {}
+      const annId = annGateQueue[annGateIdx].id;
+      try { localStorage.setItem(`pcg_ann_ack_${user.id}_${annId}`, "1"); } catch {}
+      recordAnnAck(annId, user);
       setAnnGateIdx(i => i + 1);
     };
     const handleAnnDone = () => {
-      try { localStorage.setItem(`pcg_ann_ack_${user.id}_${annGateQueue[annGateIdx].id}`, "1"); } catch {}
+      const annId = annGateQueue[annGateIdx].id;
+      try { localStorage.setItem(`pcg_ann_ack_${user.id}_${annId}`, "1"); } catch {}
+      recordAnnAck(annId, user);
       setAnnGateDone(true);
     };
     return <AnnouncementGate anns={annGateQueue} idx={annGateIdx} onNext={handleAnnNext} onDone={handleAnnDone} th={th} />;

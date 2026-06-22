@@ -351,7 +351,7 @@ export default async (request, context) => {
       const { date } = payload;
       const targetDate = date || new Date().toISOString().slice(0, 10);
       const entries = await loadAccessEntries(targetDate);
-      return json(200, { date: targetDate, entries, count: entries.length });
+      return json(200, { date: targetDate, entries, count: entries.length, truncated: entries.truncated || 0 });
     }
 
     // ── Create Report (on-demand dashboard generation) ────────────────
