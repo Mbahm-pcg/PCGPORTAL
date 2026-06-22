@@ -7234,7 +7234,7 @@
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
       { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null },
       ...upsellEntry ? [{ label: "Upsell Rate", value: upsellEntry.upsellRate.toFixed(1) + "%", color: "#22d3ee", sub: upsellEntry.date }] : []
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "1.25rem", background: th.card, borderRadius: "999px", border: `1px solid ${th.cardBorder}`, padding: "0.3rem" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "1.25rem", background: th.card, borderRadius: "999px", border: `1px solid ${th.cardBorder}`, padding: "0.3rem" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -7261,7 +7261,7 @@
         style: { flex: 1, padding: "0.6rem 0.5rem", border: "none", borderRadius: "999px", background: storeTab === t.id ? O : "transparent", color: storeTab === t.id ? "#fff" : th.muted, fontWeight: storeTab === t.id ? 800 : 500, fontSize: "0.78rem", cursor: "pointer", transition: "all .15s", boxShadow: storeTab === t.id ? `0 2px 10px ${O}55` : "none", fontFamily: "'Raleway',sans-serif" }
       },
       t.label
-    ))), storeTab === "sales" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
+    ))), storeTab === "forecast" && /* @__PURE__ */ React.createElement(StoreForecastTab, { pc, date: localDate, actualHourly: hourlyData, th }), storeTab === "sales" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
       const isWeek = viewMode === "week";
       const forecast = isWeek ? weekTotals.weekForecast : weekTotals.dayForecast;
       const atPct = d.netSales / forecast * 100;
@@ -14858,6 +14858,123 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     if (user.userType === "manager") return notifs.filter((n) => !n.storePC || String(n.storePC) === String(user.storePC));
     return notifs;
   };
+  function StoreForecastCard({ pc, storeName, th, dark }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState(false);
+    useEffect(() => {
+      if (!pc) {
+        setLoading(false);
+        return;
+      }
+      let cancelled = false;
+      setLoading(true);
+      setErr(false);
+      fetch("/.netlify/functions/analyst", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "forecast", storePC: String(pc) })
+      }).then((r) => r.ok ? r.json() : Promise.reject()).then((j) => {
+        if (!cancelled) {
+          setData(j);
+          setLoading(false);
+        }
+      }).catch(() => {
+        if (!cancelled) {
+          setErr(true);
+          setLoading(false);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [pc]);
+    const fc = data && data.forecast;
+    const acc = data && data.accuracy;
+    const f = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
+    const confColor = fc ? fc.confidence === "medium" ? "#22c55e" : fc.confidence === "low" ? "#f59e0b" : "#ef4444" : th.muted;
+    const confLabel = { medium: "Good", low: "Early", "very-low": "Very early" };
+    const wPct = fc ? Math.round((fc.weatherFactor - 1) * 100) : 0;
+    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.1rem", borderLeft: `3px solid ${O}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.6rem", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.58rem", fontWeight: 900, letterSpacing: 1.4, textTransform: "uppercase" } }, fc && fc.dowLabel || "Tomorrow", "'s Forecast"), fc && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, color: confColor, background: confColor + "1e", padding: "0.12rem 0.45rem", borderRadius: 99, whiteSpace: "nowrap" } }, confLabel[fc.confidence] || "")), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", padding: "0.4rem 0" } }, "Forecasting\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", padding: "0.4rem 0" } }, "Forecast unavailable right now.") : !fc ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", padding: "0.4rem 0" } }, "Not enough history yet \u2014 the model is still collecting data.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.8rem", color: th.text, lineHeight: 1 } }, f(fc.dayTotal)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.66rem" } }, "range ", f(fc.low), "\u2013", f(fc.high))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.4rem", marginTop: "0.75rem" } }, [["AM rush", fc.dayparts.amRush], ["Mid-morn", fc.dayparts.midMorning], ["Lunch", fc.dayparts.lunch], ["Afternoon", fc.dayparts.afternoon]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.5rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 } }, k), /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 800, fontSize: "0.72rem", marginTop: "0.15rem" } }, f(v))))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", paddingTop: "0.5rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", fontSize: "0.6rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, fc.samples, " ", fc.dowLabel, "s", wPct !== 0 ? ` \xB7 weather ${wPct > 0 ? "+" : ""}${wPct}%` : ""), acc ? /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, "Model accuracy ", /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 800 } }, "\xB1", acc.mape, "%"), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.subtle } }, "(", acc.window, "d)")) : null)));
+  }
+  function StoreForecastTab({ pc, date, actualHourly, th }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState(false);
+    useEffect(() => {
+      if (!pc) {
+        setLoading(false);
+        return;
+      }
+      let cancelled = false;
+      setLoading(true);
+      setErr(false);
+      fetch("/.netlify/functions/analyst", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "forecast", storePC: String(pc), date })
+      }).then((r) => r.ok ? r.json() : Promise.reject()).then((j) => {
+        if (!cancelled) {
+          setData(j);
+          setLoading(false);
+        }
+      }).catch(() => {
+        if (!cancelled) {
+          setErr(true);
+          setLoading(false);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [pc, date]);
+    const f = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
+    const hourLabel = (h) => h === 0 ? "12a" : h < 12 ? h + "a" : h === 12 ? "12p" : h - 12 + "p";
+    const wrap = (msg) => /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, msg);
+    if (loading) return wrap("Building forecast\u2026");
+    if (err) return wrap("Forecast unavailable right now \u2014 try again shortly.");
+    const fc = data && data.forecast;
+    const acc = data && data.accuracy;
+    if (!fc) return wrap("Not enough history yet \u2014 the model needs a few more weeks of data for this store.");
+    const actualBy = {};
+    (actualHourly || []).forEach((h) => {
+      if (h && h.hour != null) actualBy[h.hour] = h.sales || 0;
+    });
+    const activeHours = Object.keys(actualBy).filter((h) => actualBy[h] > 0).map(Number);
+    const hasActual = activeHours.length > 0;
+    const lastActualHour = hasActual ? Math.max(...activeHours) : -1;
+    let pace = null, cumA = 0, cumF = 0;
+    if (hasActual) {
+      fc.hourly.forEach((h) => {
+        if (h.hour <= lastActualHour) {
+          cumF += h.sales;
+          cumA += actualBy[h.hour] || 0;
+        }
+      });
+      if (cumF > 0) pace = cumA / cumF - 1;
+    }
+    const paceColor = pace == null ? th.muted : pace >= 0 ? "#22c55e" : "#ef4444";
+    const maxBar = Math.max(1, ...fc.hourly.map((h) => h.sales), ...Object.values(actualBy));
+    const confColor = fc.confidence === "medium" ? "#22c55e" : fc.confidence === "low" ? "#f59e0b" : "#ef4444";
+    const confLabel = { medium: "Good confidence", low: "Early estimate", "very-low": "Very early" };
+    const wPct = Math.round((fc.weatherFactor - 1) * 100);
+    return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.4rem", borderLeft: `4px solid ${O}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.62rem", fontWeight: 900, letterSpacing: 1.4, textTransform: "uppercase" } }, fc.dowLabel, " Forecast \xB7 ", fc.date), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 800, color: confColor, background: confColor + "1e", padding: "0.15rem 0.5rem", borderRadius: 99 } }, confLabel[fc.confidence])), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.6rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.2rem", color: th.text, lineHeight: 1 } }, f(fc.dayTotal)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, "projected \xB7 range ", f(fc.low), "\u2013", f(fc.high))), pace != null && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.7rem", fontSize: "0.88rem", fontWeight: 700, color: paceColor } }, pace >= 0 ? "\u25B2" : "\u25BC", " ", pace >= 0 ? "+" : "", Math.round(pace * 100), "% vs forecast", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 500, fontSize: "0.72rem" } }, " through ", hourLabel(lastActualHour), " (", f(cumA), " actual vs ", f(cumF), " expected)")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginTop: "1rem" } }, [["AM rush", fc.dayparts.amRush], ["Mid-morn", fc.dayparts.midMorning], ["Lunch", fc.dayparts.lunch], ["Afternoon", fc.dayparts.afternoon]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { textAlign: "center", background: th.card2, borderRadius: 8, padding: "0.5rem 0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.54rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 } }, k), /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 800, fontSize: "0.82rem", marginTop: "0.2rem" } }, f(v))))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem", paddingTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", fontSize: "0.65rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Based on ", fc.samples, " prior ", fc.dowLabel, "s", wPct !== 0 ? ` \xB7 weather ${wPct > 0 ? "+" : ""}${wPct}%` : ""), acc ? /* @__PURE__ */ React.createElement("span", null, "Model accuracy ", /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 800 } }, "\xB1", acc.mape, "%"), " over last ", acc.window, " days") : null)), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, "Forecast vs Actual \u2014 by hour"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.9rem", fontSize: "0.62rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: 2, background: th.card3 || th.cardBorder } }), " Forecast"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: 2, background: O } }), " Actual"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 3, height: 160 } }, fc.hourly.map((h) => {
+      const a = actualBy[h.hour] || 0;
+      const fH = Math.round(h.sales / maxBar * 92);
+      const aH = Math.round(a / maxBar * 92);
+      const isFuture = hasActual && h.hour > lastActualHour;
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: h.hour,
+          title: `${hourLabel(h.hour)} \u2014 forecast ${f(h.sales)}${a > 0 ? `, actual ${f(a)}` : ""}`,
+          style: { flex: 1, display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 1, height: "100%" }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { width: "46%", height: (h.sales > 0 ? Math.max(2, fH) : 0) + "%", background: th.card3 || th.cardBorder, borderRadius: "3px 3px 0 0" } }),
+        /* @__PURE__ */ React.createElement("div", { style: { width: "46%", height: (a > 0 ? Math.max(2, aH) : 0) + "%", background: O, opacity: isFuture ? 0 : 1, borderRadius: "3px 3px 0 0", transition: "height .4s ease" } })
+      );
+    })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 3, marginTop: 3 } }, fc.hourly.map((h) => /* @__PURE__ */ React.createElement("div", { key: h.hour, style: { flex: 1, textAlign: "center", fontSize: "0.5rem", color: th.subtle } }, h.hour % 3 === 0 ? hourLabel(h.hour) : ""))), !hasActual && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem", fontSize: "0.68rem", color: th.muted, textAlign: "center" } }, "No actual sales recorded for this day yet \u2014 the orange bars fill in live as the day progresses.")));
+  }
   function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onLogout }) {
     const store = getManagerStore(stores, user) || {};
     const pc = store.pc;
@@ -15223,7 +15340,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       const heightPct = Math.max(4, Math.round(h.sales / maxSales * 100));
       const barBg = isCurrent ? `linear-gradient(180deg, ${O} 0%, #c94d0a 100%)` : isPeak ? `linear-gradient(180deg, #ff9950 0%, #c94d0a 100%)` : h.sales > 0 ? dark ? `linear-gradient(180deg, #a0522d88 0%, #6b321855 100%)` : `linear-gradient(180deg, #fdba7488 0%, #f9731644 100%)` : dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.05)";
       return /* @__PURE__ */ React.createElement("div", { key: h.hour, title: `${hourLabel(h.hour)}: ${fmt(h.sales)}`, style: { flex: 1, height: heightPct + "%", background: barBg, borderRadius: "4px 4px 0 0", boxShadow: isCurrent ? `0 0 8px ${O}55` : "none", transition: "height 0.4s ease" } });
-    }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.3rem", paddingTop: "0.2rem", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.subtle, fontSize: "0.54rem" } }, hourLabel(visibleHours[0]?.hour ?? 5)), /* @__PURE__ */ React.createElement("span", { style: { color: th.subtle, fontSize: "0.54rem" } }, hourLabel(visibleHours[Math.floor(visibleHours.length / 2)]?.hour ?? 5)), /* @__PURE__ */ React.createElement("span", { style: { color: isLive ? O : th.subtle, fontSize: "0.54rem", fontWeight: 800 } }, hourLabel(visibleHours[visibleHours.length - 1]?.hour ?? currentHour), isLive ? " now" : "")), peakHour && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem" } }, "Peak ", /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 900 } }, hourLabel(peakHour.hour), " \xB7 ", fmt(peakHour.sales))), isLive && hourly && hourly[currentHour]?.sales > 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem" } }, "Now ", /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 900 } }, fmt(hourly[currentHour].sales))) : !isLive && displaySalesAmt != null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem" } }, "Total ", /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 900 } }, fmt(displaySalesAmt))))), (() => {
+    }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.3rem", paddingTop: "0.2rem", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.subtle, fontSize: "0.54rem" } }, hourLabel(visibleHours[0]?.hour ?? 5)), /* @__PURE__ */ React.createElement("span", { style: { color: th.subtle, fontSize: "0.54rem" } }, hourLabel(visibleHours[Math.floor(visibleHours.length / 2)]?.hour ?? 5)), /* @__PURE__ */ React.createElement("span", { style: { color: isLive ? O : th.subtle, fontSize: "0.54rem", fontWeight: 800 } }, hourLabel(visibleHours[visibleHours.length - 1]?.hour ?? currentHour), isLive ? " now" : "")), peakHour && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem" } }, "Peak ", /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 900 } }, hourLabel(peakHour.hour), " \xB7 ", fmt(peakHour.sales))), isLive && hourly && hourly[currentHour]?.sales > 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem" } }, "Now ", /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 900 } }, fmt(hourly[currentHour].sales))) : !isLive && displaySalesAmt != null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem" } }, "Total ", /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 900 } }, fmt(displaySalesAmt))))), /* @__PURE__ */ React.createElement(StoreForecastCard, { pc, storeName: store.name, th, dark }), (() => {
       const carouselPages = [
         { id: "workers", show: isLive && workers.length > 0, content: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", marginBottom: "0.65rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: "#8b5cf6", fontSize: "0.58rem", fontWeight: 900, letterSpacing: 1.6, textTransform: "uppercase" } }, "Who's Working ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 700 } }, "\xB7 ", workers.length))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.45rem" } }, workers.slice(0, 5).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: "#22c55e", flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600, fontSize: "0.8rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, w.name)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.65rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 } }, w.hoursToday.toFixed(1), "h"))), workers.length > 5 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem", textAlign: "center", marginTop: "0.2rem" } }, "+", workers.length - 5, " more in full portal"))) },
         { id: "orders", show: isLive && !loading, content: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Label, null, "Order Types"), orderTypes.length > 0 ? (() => {
@@ -15312,7 +15429,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v16.52";
+  var APP_VERSION = "v16.60";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -17616,7 +17733,10 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           })(), myTodos.length > 10 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 1rem", textAlign: "center", fontSize: "0.65rem", color: th.muted, background: th.card2 } }, "+", myTodos.length - 10, ' more \xB7 Click "View All" to see the rest'))
         )
       );
-    })), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(TodayBrief, { user, th, setAnnouncements, showAlert, announcementsDismissed: announcementsDismissed2, setAnnouncementsDismissed: setAnnouncementsDismissed2 }), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(ActionQueue, { stores, th, user, setTab, users, showAlert }), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && (() => {
+    })), user.userType === "manager" && (() => {
+      const mp = getManagerStore(stores, user);
+      return mp?.pc ? /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", maxWidth: 480 } }, /* @__PURE__ */ React.createElement(StoreForecastCard, { pc: mp.pc, storeName: mp.name, th })) : null;
+    })(), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(TodayBrief, { user, th, setAnnouncements, showAlert, announcementsDismissed: announcementsDismissed2, setAnnouncementsDismissed: setAnnouncementsDismissed2 }), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(ActionQueue, { stores, th, user, setTab, users, showAlert }), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && (() => {
       const showTickets = ticketStats.open > 0 || ticketStats.inProg > 0;
       const cols = isMobile ? "1fr" : showTickets ? "1fr 1fr" : "1fr";
       if (!showTickets && user.userType === "manager") return null;
@@ -25874,70 +25994,280 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
     ))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Store"), /* @__PURE__ */ React.createElement("select", { value: form.storePC, onChange: (e) => setForm((p) => ({ ...p, storePC: e.target.value })), style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.9rem" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All Stores"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Category"), /* @__PURE__ */ React.createElement("select", { value: form.category, onChange: (e) => setForm((p) => ({ ...p, category: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, MAINT_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Frequency"), /* @__PURE__ */ React.createElement("select", { value: form.freq, onChange: (e) => setForm((p) => ({ ...p, freq: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, Object.entries(FREQ_LABELS).map(([k, v]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, v))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Notes (optional)"), /* @__PURE__ */ React.createElement("textarea", { value: form.notes, onChange: (e) => setForm((p) => ({ ...p, notes: e.target.value })), rows: 2, style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem", resize: "vertical", boxSizing: "border-box" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: handleAdd, disabled: !form.title.trim() || saving, style: { flex: 1, background: O2, border: "none", borderRadius: 8, color: "#fff", padding: "0.65rem", cursor: "pointer", fontWeight: 700, fontFamily: "'Source Sans 3'", opacity: !form.title.trim() ? 0.5 : 1 } }, "Save Schedule"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAdd(false), style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 8, color: th.muted, padding: "0.65rem 1rem", cursor: "pointer" } }, "Cancel")))));
   }
-  function DunkinCupScene() {
-    const bgRef = useRef(null), cupRef = useRef(null), lidRef = useRef(null);
-    const patRef = useRef(null), shadowRef = useRef(null), cursorRef = useRef(null);
+  function DunkinRunnerScene({ dark }) {
+    const hostRef = useRef(null);
     useEffect(() => {
+      const host = hostRef.current;
+      if (!host) return;
       const reduce = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const lerp = (a, b, t) => a + (b - a) * t;
-      const colorMix = (c1, c2, t) => {
-        const a = c1.match(/\w\w/g).map((x) => parseInt(x, 16));
-        const b = c2.match(/\w\w/g).map((x) => parseInt(x, 16));
-        return "#" + a.map((v, i) => Math.round(lerp(v, b[i], t)).toString(16).padStart(2, "0")).join("");
+      const P = dark ? {
+        bgCx: "64%",
+        bgCy: "42%",
+        bgR: "76%",
+        bgStops: `<stop offset="0%" stop-color="#16003b"/><stop offset="45%" stop-color="#080014"/><stop offset="100%" stop-color="#020006"/>`,
+        breadStops: `<stop offset="0%" stop-color="#ffc979"/><stop offset="58%" stop-color="#e98232"/><stop offset="100%" stop-color="#914116"/>`,
+        frostStops: `<stop offset="0%" stop-color="#ffd9f5"/><stop offset="55%" stop-color="#ff6fbd"/><stop offset="100%" stop-color="#d82f85"/>`,
+        starCount: 26,
+        starFill: "#7960ba",
+        starBase: 0.25,
+        starStep: 0.12,
+        starR: 0.75,
+        floor: "#d8ccff",
+        floorOp: 0.82,
+        bump: "#b29add",
+        bumpOp: 0.55,
+        bumpAnimOp: 0.5,
+        dust: "#eee8ff",
+        dustMul: 0.45,
+        shadow: "#000000",
+        shadowOp: 0.25,
+        shadowBase: 0.18,
+        shadowMul: 0.015,
+        body: "#ffffff",
+        earInner: "#ffd8f3",
+        earInnerOp: 0.78,
+        paw: "#ffffff",
+        eye: "#111111",
+        foot: "#eee8ff",
+        hole: "#05000d",
+        holeStroke: "#a84f1f",
+        breadStroke: "#7b3b1e",
+        sprinkles: ["#fff", "#33d5ff", "#ffe14a", "#58e687", "#7d4dff"],
+        wingA: "#f2edff",
+        wingB: "#ffffff",
+        fwingA: "#ffffff",
+        fwingB: "#f2edff",
+        sweat: "#d8ccff",
+        sweatMul: 0.65
+      } : {
+        bgCx: "63%",
+        bgCy: "40%",
+        bgR: "80%",
+        bgStops: `<stop offset="0%" stop-color="#fff4ea"/><stop offset="56%" stop-color="#ffffff"/><stop offset="100%" stop-color="#fffaf5"/>`,
+        breadStops: `<stop offset="0%" stop-color="#ffd28a"/><stop offset="58%" stop-color="#ee9441"/><stop offset="100%" stop-color="#b95b22"/>`,
+        frostStops: `<stop offset="0%" stop-color="#ffe1f3"/><stop offset="52%" stop-color="#ff6fae"/><stop offset="100%" stop-color="#e7327f"/>`,
+        starCount: 22,
+        starFill: "#ffb76b",
+        starBase: 0.2,
+        starStep: 0.09,
+        starR: 0.8,
+        floor: "#f2a35e",
+        floorOp: 0.75,
+        bump: "#ffc789",
+        bumpOp: 0.45,
+        bumpAnimOp: 0.42,
+        dust: "#ff9d3a",
+        dustMul: 0.35,
+        shadow: "#d8691b",
+        shadowOp: 0.18,
+        shadowBase: 0.13,
+        shadowMul: 0.012,
+        body: "url(#drRabbit)",
+        earInner: "#ffe0c1",
+        earInnerOp: 0.85,
+        paw: "#ff8b2b",
+        eye: "#2b1407",
+        foot: "#ffa453",
+        hole: "#ffffff",
+        holeStroke: "#b95b22",
+        breadStroke: "#8f4619",
+        sprinkles: ["#fff", "#ffbf3c", "#ff7a1f", "#35c2ff", "#51d16f"],
+        wingA: "url(#drWing)",
+        wingB: "#ffd197",
+        fwingA: "url(#drWing)",
+        fwingB: "#ffd197",
+        sweat: "#ff9d3a",
+        sweatMul: 0.55
+      };
+      const NS = "http://www.w3.org/2000/svg";
+      const el = (tag, attrs = {}) => {
+        const n = document.createElementNS(NS, tag);
+        for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+        return n;
+      };
+      host.innerHTML = "";
+      const svg = el("svg", { viewBox: "0 0 210 96", preserveAspectRatio: "xMidYMid meet" });
+      svg.style.width = "100%";
+      svg.style.height = "100%";
+      svg.style.display = "block";
+      host.appendChild(svg);
+      const defs = el("defs");
+      defs.innerHTML = `
+      <radialGradient id="drBg" cx="${P.bgCx}" cy="${P.bgCy}" r="${P.bgR}">${P.bgStops}</radialGradient>
+      <radialGradient id="drDonutBread" cx="35%" cy="30%" r="75%">${P.breadStops}</radialGradient>
+      <radialGradient id="drFrost" cx="35%" cy="28%" r="80%">${P.frostStops}</radialGradient>
+      <linearGradient id="drRabbit" x1="0" x2="1"><stop offset="0%" stop-color="#ff9d3a"/><stop offset="65%" stop-color="#ff7a1f"/><stop offset="100%" stop-color="#e95f12"/></linearGradient>
+      <linearGradient id="drWing" x1="0" x2="1"><stop offset="0%" stop-color="#ffd59b"/><stop offset="55%" stop-color="#ff9833"/><stop offset="100%" stop-color="#f36b16"/></linearGradient>
+    `;
+      svg.appendChild(defs);
+      svg.appendChild(el("rect", { width: 210, height: 96, fill: "url(#drBg)" }));
+      const stars = el("g", { opacity: 0.35 });
+      svg.appendChild(stars);
+      for (let i = 0; i < P.starCount; i++) {
+        stars.appendChild(el("circle", {
+          cx: i * 31 % 210,
+          cy: 8 + i * 17 % 56,
+          r: i % 6 === 0 ? P.starR : 0.35,
+          fill: P.starFill,
+          opacity: P.starBase + i % 4 * P.starStep
+        }));
+      }
+      const floor = el("g");
+      svg.appendChild(floor);
+      floor.appendChild(el("line", {
+        x1: 4,
+        y1: 82.5,
+        x2: 202,
+        y2: 82.5,
+        stroke: P.floor,
+        "stroke-width": 1.8,
+        "stroke-linecap": "round",
+        opacity: P.floorOp
+      }));
+      const bumps = [];
+      for (let i = 0; i < 5; i++) {
+        const bump = el("path", { d: "M 0 82.5 Q 4 78 8 82.5", fill: P.bump, opacity: P.bumpOp });
+        floor.appendChild(bump);
+        bumps.push(bump);
+      }
+      const dust = el("g");
+      svg.appendChild(dust);
+      const dustDots = [];
+      for (let i = 0; i < 7; i++) {
+        const dot = el("circle", { cx: 0, cy: 0, r: 0.7, fill: P.dust, opacity: 0 });
+        dust.appendChild(dot);
+        dustDots.push(dot);
+      }
+      const rabbitShadow = el("ellipse", { cx: 39, cy: 83, rx: 18, ry: 2.1, fill: P.shadow, opacity: P.shadowOp });
+      svg.appendChild(rabbitShadow);
+      const rabbit = el("g");
+      svg.appendChild(rabbit);
+      const ears = el("g");
+      rabbit.appendChild(ears);
+      ears.appendChild(el("path", { d: "M 22 39 C 12 35, 12 27, 24 23 C 39 18, 57 20, 61 26 C 65 32, 51 37, 36 39 C 30 40, 25 40, 22 39 Z", fill: P.body }));
+      ears.appendChild(el("path", { d: "M 27 35 C 21 33, 22 29, 30 27 C 41 24, 53 25, 55 28 C 57 31, 47 34, 36 35 C 32 36, 29 36, 27 35 Z", fill: P.earInner, opacity: P.earInnerOp }));
+      ears.appendChild(el("path", { d: "M 34 38 C 23 33, 24 24, 38 20 C 54 15, 73 18, 75 25 C 77 32, 61 37, 46 39 C 41 40, 37 39, 34 38 Z", fill: P.body }));
+      ears.appendChild(el("path", { d: "M 39 34 C 32 31, 34 26, 44 24 C 56 21, 68 23, 69 27 C 70 31, 58 33, 47 35 C 44 35, 41 35, 39 34 Z", fill: P.earInner, opacity: P.earInnerOp }));
+      rabbit.appendChild(el("ellipse", { cx: 34, cy: 51, rx: 23, ry: 15, fill: P.body }));
+      rabbit.appendChild(el("ellipse", { cx: 52, cy: 49, rx: 20, ry: 14, fill: P.body }));
+      rabbit.appendChild(el("path", { d: "M 52 37 C 67 36, 78 42, 79 50 C 80 59, 68 63, 55 60 C 44 57, 42 48, 47 42 C 49 39, 50 38, 52 37 Z", fill: P.body }));
+      rabbit.appendChild(el("circle", { cx: 20, cy: 55, r: 7, fill: P.paw }));
+      rabbit.appendChild(el("circle", { cx: 72, cy: 47, r: 1.25, fill: P.eye }));
+      rabbit.appendChild(el("circle", { cx: 78, cy: 51, r: 0.9, fill: P.eye }));
+      const frontLeg = el("path", { d: "M 58 62 C 64 67, 66 71, 63 73 C 60 75, 55 68, 52 63 Z", fill: P.paw });
+      rabbit.appendChild(frontLeg);
+      const backLeg = el("path", { d: "M 32 63 C 27 71, 20 75, 15 72 C 12 70, 18 65, 28 60 Z", fill: P.paw });
+      rabbit.appendChild(backLeg);
+      const foot = el("path", { d: "M 44 65 C 42 73, 38 76, 34 74 C 31 72, 34 67, 40 62 Z", fill: P.foot });
+      rabbit.appendChild(foot);
+      const arm = el("path", { d: "M 63 58 C 69 60, 73 63, 72 66 C 70 69, 62 64, 58 60 Z", fill: P.paw });
+      rabbit.appendChild(arm);
+      const donutFlyer = el("g");
+      svg.appendChild(donutFlyer);
+      const backWing = el("g");
+      donutFlyer.appendChild(backWing);
+      const backWingA = el("path", { fill: P.wingA, opacity: 0.95 });
+      const backWingB = el("path", { fill: P.wingB, opacity: 0.96 });
+      backWing.appendChild(backWingA);
+      backWing.appendChild(backWingB);
+      const donut = el("g");
+      donutFlyer.appendChild(donut);
+      donut.appendChild(el("ellipse", { cx: 0, cy: 0, rx: 15, ry: 13, fill: "url(#drDonutBread)", stroke: P.breadStroke, "stroke-width": 0.8 }));
+      donut.appendChild(el("path", { d: "M -13 -2 C -10 -13, 7 -16, 14 -5 C 18 2, 10 10, -1 10 C -12 10, -17 5, -13 -2 Z", fill: "url(#drFrost)" }));
+      donut.appendChild(el("ellipse", { cx: 0, cy: 0, rx: 5.4, ry: 4.8, fill: P.hole, stroke: P.holeStroke, "stroke-width": 0.8 }));
+      [[-8, -6, -26], [-1, -9, 18], [7, -7, 58], [-10, 2, 32], [9, 1, -18], [-2, 7, 75], [4, -3, -62], [-6, 6, 8]].forEach((s, i) => {
+        donut.appendChild(el("rect", { x: s[0] - 2.1, y: s[1] - 0.6, width: 4.2, height: 1.2, rx: 0.5, fill: P.sprinkles[i % P.sprinkles.length], transform: `rotate(${s[2]} ${s[0]} ${s[1]})` }));
+      });
+      const frontWing = el("g");
+      donutFlyer.appendChild(frontWing);
+      const frontWingA = el("path", { fill: P.fwingA });
+      const frontWingB = el("path", { fill: P.fwingB, opacity: 0.96 });
+      frontWing.appendChild(frontWingA);
+      frontWing.appendChild(frontWingB);
+      const sweat = el("g");
+      svg.appendChild(sweat);
+      const sweatDrops = [];
+      for (let i = 0; i < 4; i++) {
+        const drop = el("ellipse", { cx: 0, cy: 0, rx: 1, ry: 1.7, fill: P.sweat, opacity: 0 });
+        sweat.appendChild(drop);
+        sweatDrops.push(drop);
+      }
+      const wingPath = (side, flap) => {
+        const s = side;
+        return `M ${s * 8} -4 C ${s * 15} ${-19 - flap}, ${s * 24} ${-22 - flap}, ${s * 27} ${-7 - flap} C ${s * 22} ${-8 - flap * 0.25}, ${s * 17} -3, ${s * 12} 2 C ${s * 10} 1, ${s * 8} 0, ${s * 8} -4 Z`;
+      };
+      const smallWingPath = (side, flap) => {
+        const s = side;
+        return `M ${s * 6} 1 C ${s * 12} ${-8 - flap}, ${s * 18} ${-8 - flap}, ${s * 20} 1 C ${s * 16} 1, ${s * 12} 4, ${s * 8} 7 C ${s * 7} 5, ${s * 6} 3, ${s * 6} 1 Z`;
       };
       let raf;
-      const frame = (time) => {
-        const s = time / 1e3;
-        const bgPulse = (Math.sin(s * 2.1) + 1) / 2;
-        if (bgRef.current) bgRef.current.setAttribute("fill", colorMix("fde3cd", "ffd9f0", bgPulse));
-        const xMove = Math.sin(s * 2.4) * 90, yMove = Math.sin(s * 5.4) * 7;
-        const scale = 1 + Math.sin(s * 4.1) * 0.055, rotate = Math.sin(s * 3.2) * 4;
-        if (cupRef.current) cupRef.current.setAttribute(
-          "transform",
-          `translate(${xMove} ${yMove}) translate(365 240) rotate(${rotate}) scale(${scale}) translate(-365 -240)`
-        );
-        if (lidRef.current) lidRef.current.setAttribute(
-          "transform",
-          `translate(365 125) rotate(${Math.sin(s * 7) * 3}) translate(-365 -125)`
-        );
-        if (patRef.current) patRef.current.setAttribute(
-          "transform",
-          `translate(${Math.sin(s * 3) * 6} ${Math.cos(s * 2.5) * 6})`
-        );
-        if (shadowRef.current) {
-          shadowRef.current.setAttribute("x1", 208 + xMove * 0.45);
-          shadowRef.current.setAttribute("x2", 522 + xMove * 0.45);
-          shadowRef.current.setAttribute("opacity", 0.65 + Math.sin(s * 5) * 0.12);
-        }
-        if (cursorRef.current) cursorRef.current.setAttribute(
-          "transform",
-          `translate(${475 + Math.sin(s * 1.7) * 35} ${83 + Math.cos(s * 1.4) * 28}) scale(0.7)`
-        );
-        if (!reduce) raf = requestAnimationFrame(frame);
+      const animate = (ms) => {
+        const hop = Math.max(0, Math.sin(ms / 185)) * -3.8;
+        const run = Math.sin(ms / 95);
+        const run2 = Math.sin(ms / 95 + Math.PI);
+        const rabbitBaseX = 38 + Math.sin(ms / 420) * 1.2;
+        const rabbitBaseY = 68 + hop * 0.35;
+        rabbit.setAttribute("transform", `translate(${rabbitBaseX} ${rabbitBaseY}) scale(0.58) translate(-42 -50)`);
+        rabbitShadow.setAttribute("cx", rabbitBaseX);
+        rabbitShadow.setAttribute("rx", 16 + Math.max(0, -hop) * 0.8);
+        rabbitShadow.setAttribute("opacity", P.shadowBase + Math.max(0, -hop) * P.shadowMul);
+        frontLeg.setAttribute("d", run > 0 ? "M 58 62 C 64 68, 65 73, 60 73 C 56 73, 54 67, 52 63 Z" : "M 55 62 C 54 70, 49 74, 44 72 C 42 70, 46 65, 52 61 Z");
+        backLeg.setAttribute("d", run > 0 ? "M 32 63 C 25 68, 18 69, 15 66 C 13 63, 22 62, 31 60 Z" : "M 32 63 C 27 71, 20 75, 15 72 C 12 70, 18 65, 28 60 Z");
+        foot.setAttribute("d", run2 > 0 ? "M 44 64 C 41 71, 35 74, 31 72 C 28 70, 33 66, 41 61 Z" : "M 45 64 C 49 70, 49 74, 44 74 C 40 74, 40 68, 42 63 Z");
+        arm.setAttribute("d", run > 0 ? "M 63 57 C 70 58, 75 61, 75 64 C 73 67, 65 63, 58 60 Z" : "M 63 58 C 69 62, 71 66, 68 68 C 65 69, 61 63, 58 60 Z");
+        dustDots.forEach((dot, i) => {
+          const p = (ms / 115 + i * 0.33) % 1;
+          dot.setAttribute("cx", 29 - p * 12 + Math.sin(i) * 2);
+          dot.setAttribute("cy", 80 - p * 7 + i % 3);
+          dot.setAttribute("r", 0.5 + p * 0.8);
+          dot.setAttribute("opacity", (1 - p) * P.dustMul);
+        });
+        bumps.forEach((b, i) => {
+          const bx = 12 + (i * 43 - ms / 20) % 230;
+          const x = bx < -20 ? bx + 230 : bx;
+          const size = 0.7 + i % 3 * 0.25;
+          b.setAttribute("transform", `translate(${x} 0) scale(${size} 1)`);
+          b.setAttribute("opacity", x > 0 && x < 205 ? P.bumpAnimOp : 0);
+        });
+        const donutX = 147 + Math.sin(ms / 470) * 4.5;
+        const donutY = 43 + Math.sin(ms / 215) * 5.2;
+        const donutRot = -18 + Math.sin(ms / 410) * 7;
+        const donutScale = 0.78 + Math.sin(ms / 310) * 0.035;
+        donutFlyer.setAttribute("transform", `translate(${donutX} ${donutY}) rotate(${donutRot}) scale(${donutScale})`);
+        donut.setAttribute("transform", `rotate(${ms / 19})`);
+        const flap = Math.sin(ms / 72) * 7;
+        backWing.setAttribute("transform", "translate(-1 -2) rotate(-12)");
+        frontWing.setAttribute("transform", "translate(1 -1) rotate(8)");
+        backWingA.setAttribute("d", wingPath(-1, flap));
+        backWingB.setAttribute("d", smallWingPath(-1, flap * 0.7));
+        frontWingA.setAttribute("d", wingPath(1, -flap));
+        frontWingB.setAttribute("d", smallWingPath(1, -flap * 0.7));
+        sweatDrops.forEach((drop, i) => {
+          const p = (ms / 650 + i * 0.31) % 1;
+          const sx = donutX - 22 - p * 12 - i * 2;
+          const sy = donutY - 12 + p * 13 + Math.sin(p * Math.PI) * -5;
+          drop.setAttribute("cx", sx);
+          drop.setAttribute("cy", sy);
+          drop.setAttribute("opacity", (1 - p) * P.sweatMul);
+          drop.setAttribute("transform", `rotate(-25 ${sx} ${sy})`);
+        });
+        stars.setAttribute("transform", `translate(${-(ms / 95) % 31} 0)`);
+        if (!reduce) raf = requestAnimationFrame(animate);
       };
-      frame(0);
+      animate(0);
       return () => {
         if (raf) cancelAnimationFrame(raf);
+        if (host) host.innerHTML = "";
       };
-    }, []);
-    const colors = ["#ff6b00", "#ff2e8b", "#35b6ff", "#10194c", "#ffffff"];
-    const dots = [];
-    for (let y = 135; y < 360; y += 35) for (let x = 280; x < 450; x += 34) {
-      const c = colors[(x + y) % colors.length];
-      dots.push(/* @__PURE__ */ React.createElement("circle", { key: `c${x}_${y}`, cx: x, cy: y, r: 12, fill: c, stroke: "#111", strokeWidth: 2 }));
-      dots.push(/* @__PURE__ */ React.createElement("rect", { key: `s${x}_${y}`, x: x - 8, y: y - 8, width: 16, height: 16, fill: "none", stroke: "#111", strokeWidth: 2, transform: `rotate(45 ${x} ${y})` }));
-    }
-    const waves = [];
-    for (let y = 150; y < 355; y += 28)
-      waves.push(/* @__PURE__ */ React.createElement("path", { key: `w${y}`, d: `M280 ${y} C320 ${y - 20}, 360 ${y + 20}, 445 ${y}`, fill: "none", stroke: "#ff2e8b", strokeWidth: 5, opacity: 0.8 }));
-    return /* @__PURE__ */ React.createElement("svg", { viewBox: "0 0 730 422", preserveAspectRatio: "xMidYMid slice", "aria-hidden": "true", style: { width: "100%", height: "100%", display: "block" } }, /* @__PURE__ */ React.createElement("rect", { ref: bgRef, width: 730, height: 422, fill: "#fde3cd" }), /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("clipPath", { id: "dunkCupClip" }, /* @__PURE__ */ React.createElement("path", { d: "M292 143 L438 143 L410 342 Q365 354 320 342 Z" }))), /* @__PURE__ */ React.createElement("g", { ref: cupRef }, /* @__PURE__ */ React.createElement("path", { d: "M292 143 L438 143 L410 342 Q365 354 320 342 Z", fill: "#18285f", stroke: "#111", strokeWidth: 4, strokeLinejoin: "round" }), /* @__PURE__ */ React.createElement("g", { ref: patRef, clipPath: "url(#dunkCupClip)" }, dots, waves), /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("rect", { x: 337, y: 188, width: 57, height: 64, rx: 6, fill: "#fff7ef", stroke: "#111", strokeWidth: 3 }), /* @__PURE__ */ React.createElement("text", { x: 365, y: 213, textAnchor: "middle", fontSize: 20, fontWeight: 900, fill: "#ff6b00" }, "DN"), /* @__PURE__ */ React.createElement("text", { x: 365, y: 236, textAnchor: "middle", fontSize: 20, fontWeight: 900, fill: "#ff2e8b" }, "KN")), /* @__PURE__ */ React.createElement("path", { d: "M286 141 Q365 124 444 141 L451 171 Q365 183 279 171 Z", fill: "#ffffff", stroke: "#111", strokeWidth: 4, strokeLinejoin: "round" }), /* @__PURE__ */ React.createElement("g", { ref: lidRef }, /* @__PURE__ */ React.createElement("path", { d: "M309 115 Q365 105 421 115 L431 143 Q365 153 299 143 Z", fill: "#ffffff", stroke: "#111", strokeWidth: 4, strokeLinejoin: "round" }), /* @__PURE__ */ React.createElement("path", { d: "M325 99 Q365 94 405 99 L414 116 Q365 122 316 116 Z", fill: "#ffffff", stroke: "#111", strokeWidth: 3 })), /* @__PURE__ */ React.createElement("path", { d: "M320 156 C330 205, 326 265, 340 328", fill: "none", stroke: "#ffffff", strokeWidth: 5, opacity: 0.5 })), /* @__PURE__ */ React.createElement("line", { ref: shadowRef, x1: 208, y1: 348, x2: 522, y2: 348, stroke: "#222", strokeWidth: 3, strokeLinecap: "round" }), /* @__PURE__ */ React.createElement("path", { ref: cursorRef, d: "M0 0 L17 13 L9 15 L14 27 L9 29 L4 17 L0 23 Z", fill: "#fff", stroke: "#777", strokeWidth: 1, opacity: 0.85 }));
+    }, [dark]);
+    return /* @__PURE__ */ React.createElement("div", { ref: hostRef, "aria-hidden": "true", style: { width: "100%", height: "100%" } });
   }
   function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
     const ann = anns[idx];
     const isLast = idx === anns.length - 1;
     const total = anns.length;
     const dateStr = ann ? new Date(ann.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
-    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: th.bg, color: th.text, display: "flex", flexDirection: "column", zIndex: 9999, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { position: "absolute", inset: 0, pointerEvents: "none" } }, /* @__PURE__ */ React.createElement(DunkinCupScene, null)), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: th.sidebar } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.2rem" } }, "\u{1F4E2}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "1rem", fontFamily: "'Raleway'", color: th.text } }, "Announcement")), total > 1 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 600 } }, idx + 1, " of ", total)), total > 1 && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", gap: "0.3rem", padding: "0.75rem 1.5rem 0" } }, anns.map((_, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { flex: 1, height: 4, borderRadius: 2, background: i <= idx ? O : th.muted + "33", transition: "background .25s" } }))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, flex: 1, overflowY: "auto", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "1.5rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560, width: "100%" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), background: th.dark ? "rgba(20,24,34,0.62)" : "rgba(255,255,255,0.66)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", padding: "1.75rem 2rem", borderLeft: `4px solid ${O}`, boxShadow: th.dark ? "0 24px 80px rgba(0,0,0,0.55)" : "0 24px 80px rgba(10,16,32,0.22)" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.2rem", color: th.text, marginBottom: "0.75rem", fontFamily: "'Raleway'", lineHeight: 1.3 } }, ann?.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", color: th.text, lineHeight: 1.75, whiteSpace: "pre-wrap" } }, ann?.message), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "1.25rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, "Posted by ", ann?.createdBy, " \xB7 ", dateStr)))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1.25rem 1.5rem", borderTop: `1px solid ${th.cardBorder}`, background: th.sidebar, display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Please read before continuing"), /* @__PURE__ */ React.createElement("button", { onClick: isLast ? onDone : onNext, style: { background: O, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 2rem", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" } }, isLast ? "Got it \u2713" : "Next \u2192")));
+    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: `radial-gradient(115% 75% at 50% 28%, ${O}14, transparent 58%), ${th.bg}`, color: th.text, display: "flex", flexDirection: "column", zIndex: 9999, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: th.sidebar } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.2rem" } }, "\u{1F4E2}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "1rem", fontFamily: "'Raleway'", color: th.text } }, "Announcement")), total > 1 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 600 } }, idx + 1, " of ", total)), total > 1 && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", gap: "0.3rem", padding: "0.75rem 1.5rem 0" } }, anns.map((_, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { flex: 1, height: 4, borderRadius: 2, background: i <= idx ? O : th.muted + "33", transition: "background .25s" } }))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { className: "fade-in", style: { maxWidth: 500, width: "100%", margin: "auto", borderRadius: 18, overflow: "hidden", background: th.card, border: `1px solid ${th.cardBorder}`, borderLeft: `4px solid ${O}`, boxShadow: th.dark ? "0 24px 70px rgba(0,0,0,0.5)" : "0 24px 70px rgba(10,16,32,0.16)" } }, /* @__PURE__ */ React.createElement("div", { key: ann?.id, className: "fade-in", style: { padding: "1.75rem 1.9rem 1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.35rem", color: th.text, marginBottom: "0.6rem", fontFamily: "'Raleway'", lineHeight: 1.25 } }, ann?.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.92rem", color: th.text, lineHeight: 1.7, whiteSpace: "pre-wrap" } }, ann?.message), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "1.25rem", paddingTop: "0.85rem", borderTop: `1px solid ${th.cardBorder}` } }, "Posted by ", ann?.createdBy, " \xB7 ", dateStr)), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { width: "100%", aspectRatio: "210 / 96", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement(DunkinRunnerScene, { dark: th.dark })))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1.25rem 1.5rem", borderTop: `1px solid ${th.cardBorder}`, background: th.sidebar, display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Please read before continuing"), /* @__PURE__ */ React.createElement("button", { onClick: isLast ? onDone : onNext, style: { background: O, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 2rem", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" } }, isLast ? "Got it \u2713" : "Next \u2192")));
   }
   function PCGPortal() {
     const [user, setUser] = useState(null);

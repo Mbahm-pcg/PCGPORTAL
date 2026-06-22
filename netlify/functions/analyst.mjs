@@ -8,6 +8,7 @@ import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
 import { getCases, loadCase, updateCaseStatus, loadDecisionLog } from './analyst-lib/analyst-cases.mjs';
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { logFeedback, logAccessEvent, loadAccessEntries } from './analyst-lib/analyst-audit.mjs';
+import { forecastStoreFull, tomorrowISO } from './analyst-lib/forecast.mjs';
 import { loadKBContent, buildKBContext } from './analyst-lib/analyst-kb.mjs';
 import { loadReportSettings, sendExecReport, sendExecDailyReport, sendDMBriefs } from './analyst-lib/analyst-reports.mjs';
 
@@ -344,6 +345,15 @@ export default async (request, context) => {
       if (!event) return respond(400, { error: 'Missing event' });
       await logAccessEvent({ userId, userRole, action: event, district, statusCode: meta?.error ? 500 : 200, latencyMs: meta?.latencyMs || null, error: meta?.error || null, meta: meta || null });
       return json(200, { ok: true });
+    }
+
+    // ── Sales forecast (baseline) — project a store's day + live accuracy ──
+    if (action === 'forecast') {
+      const { storePC, date, weather } = payload;
+      if (!storePC) return respond(400, { error: 'Missing storePC' });
+      const target = date || tomorrowISO();
+      const { forecast, accuracy } = await forecastStoreFull(storePC, target, weather);
+      return respond(200, { storePC, date: target, forecast, accuracy });
     }
 
     // ── Audit Log (read access events for a given date) ───────────────
