@@ -587,7 +587,9 @@ function Login({ onLogin, dark, toggleDark, users }) {
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState("");
   const [twoFactorSetupReady, setTwoFactorSetupReady] = useState(false);
-  const [trustDevice, setTrustDevice] = useState(false);
+  // Default ON so passing 2FA grants the 7-day device trust by default — otherwise
+  // users who don't notice the checkbox get re-prompted for 2FA on every login.
+  const [trustDevice, setTrustDevice] = useState(true);
   const [err, setErr] = useState("");
   const [show, setShow] = useState(false);
   const [logoAnim, setLogoAnim] = useState(false);
@@ -1446,7 +1448,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
                 )}
                 <button
                   type="button"
-                  onClick={() => { setAuthStage("password"); setPendingUser(null); setTwoFactorSetupSecret(""); setTwoFactorSetupReady(false); setTwoFactorCode(""); setTrustDevice(false); setErr(""); }}
+                  onClick={() => { setAuthStage("password"); setPendingUser(null); setTwoFactorSetupSecret(""); setTwoFactorSetupReady(false); setTwoFactorCode(""); setTrustDevice(true); setErr(""); }}
                   style={{ background: "none", border: "none", color: palette.textGhost, cursor: "pointer", fontSize: "0.75rem", marginBottom: "1rem", padding: 0, fontFamily: "'Source Sans 3'" }}
                 >
                   Use a different account
@@ -6653,7 +6655,52 @@ function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, cur
 function emitSync(state, key) {
   try { window.dispatchEvent(new CustomEvent('pcg:sync', { detail: { state, key } })); } catch {}
 }
+
+// ── Maintenance tickets now live in Neon Postgres (tickets.mjs), not the
+//    `pcg_tickets_v1` Netlify Blob. The cloud helpers below transparently route
+//    that one key to the DB so every existing caller keeps using the same
+//    whole-array load/save interface with no other changes.
+const TICKETS_KEY = 'pcg_tickets_v1';
+async function ticketsDbList() {
+  const res = await fetch('/.netlify/functions/tickets', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'list' }),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { const j = await res.json(); msg = j.error || msg; } catch {}
+    throw new Error(`${TICKETS_KEY}: ${msg}`);
+  }
+  const j = await res.json();
+  return Array.isArray(j.tickets) ? j.tickets : [];
+}
+async function ticketsDbSync(tickets) {
+  return fetch('/.netlify/functions/tickets', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'sync', tickets: Array.isArray(tickets) ? tickets : [] }),
+  });
+}
+// Explicit single-ticket delete. `sync` is upsert-only (it never deletes), so
+// removing a ticket from the array isn't enough — the deletion must be sent here.
+async function ticketsDbDelete(id) {
+  try {
+    await fetch('/.netlify/functions/tickets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', id }),
+    });
+  } catch {}
+}
+
 async function cloudSave(key, data) {
+  if (key === TICKETS_KEY) {
+    emitSync('saving', key);
+    try {
+      const res = await ticketsDbSync(data);
+      if (!res.ok) { try { console.warn('[tickets] sync failed:', (await res.json()).error); } catch {} }
+      emitSync(res.ok ? 'synced' : 'error', key);
+      return res.ok;
+    } catch { emitSync('error', key); return false; }
+  }
   emitSync('saving', key);
   try {
     const res = await fetch('/.netlify/functions/storage', {
@@ -6666,6 +6713,15 @@ async function cloudSave(key, data) {
   } catch { emitSync('error', key); return false; }
 }
 async function cloudSaveOrThrow(key, data) {
+  if (key === TICKETS_KEY) {
+    const res = await ticketsDbSync(data);
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { const j = await res.json(); msg = j.error || msg; } catch {}
+      throw new Error(`${key}: ${msg}`);
+    }
+    return true;
+  }
   const res = await fetch('/.netlify/functions/storage', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -6679,6 +6735,7 @@ async function cloudSaveOrThrow(key, data) {
   return true;
 }
 async function cloudLoad(key) {
+  if (key === TICKETS_KEY) { try { return await ticketsDbList(); } catch { return null; } }
   try {
     const res = await fetch('/.netlify/functions/storage', {
       method: 'POST',
@@ -6694,6 +6751,7 @@ async function cloudLoad(key) {
 // distinguish "load failed" (fall back to cache, don't clobber cloud) from
 // "genuinely empty" (j.data may be null/[] — cloud is authoritative and empty).
 async function cloudLoadOrThrow(key) {
+  if (key === TICKETS_KEY) return await ticketsDbList();
   const res = await fetch('/.netlify/functions/storage', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -17647,7 +17705,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
       : {};
     return { ...t, status, updatedAt: now, ...extra };
   }));
-  const deleteTicket = (id) => { setTickets(ts => ts.filter(t => t.id !== id)); if (selectedId === id) setSelectedId(null); showAlert("success","Ticket deleted"); };
+  const deleteTicket = (id) => { ticketsDbDelete(id); setTickets(ts => ts.filter(t => t.id !== id)); if (selectedId === id) setSelectedId(null); showAlert("success","Ticket deleted"); };
   const addComment = () => {
     if (!newComment.trim() || !selectedId) return;
     const c = { id: Date.now(), author: user?.name || "Unknown", initials: user?.initials || "?", text: newComment, createdAt: new Date().toISOString() };
@@ -18761,7 +18819,7 @@ function ForecastDayView({ data, actualHourly, th }) {
           ))}
         </div>
         <div style={{ marginTop: '0.85rem', paddingTop: '0.6rem', borderTop: `1px solid ${th.cardBorder}`, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.65rem', color: th.muted }}>
-          <span>Based on {fc.samples} prior {fc.dowLabel}s{wPct !== 0 ? ` · weather ${wPct > 0 ? '+' : ''}${wPct}%` : ''}{fc.holidayName ? ` · ${fc.holidayName} ${hPct >= 0 ? '+' : ''}${hPct}%` : ''}</span>
+          <span>Based on {fc.samples} prior {fc.dowLabel}s{wPct !== 0 ? ` · weather ${wPct > 0 ? '+' : ''}${wPct}%` : ''}{fc.holidayName ? (fc.holidayUnknown ? ` · ${fc.holidayName} (impact unknown — no prior-year data)` : ` · ${fc.holidayName} ${hPct >= 0 ? '+' : ''}${hPct}%`) : ''}</span>
           {acc ? <span>Model accuracy <span style={{ color: th.text, fontWeight: 800 }}>±{acc.mape}%</span> over last {acc.window} days</span> : null}
         </div>
       </div>
@@ -19612,7 +19670,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.72";
+const APP_VERSION = "v16.83";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

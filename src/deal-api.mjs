@@ -9,7 +9,11 @@ const FN = '/.netlify/functions';
  * @returns {Promise<{token:string|null, role:'view'|'edit'|'admin'|null, status?:number}>}
  */
 export async function dealLogin(user) {
-  if (!user || !user.username) return { token: null, role: null };
+  // Password-based deal auth needs a real password. Users with no client-side
+  // password (e.g. Google sign-in) would send an empty one, which deal-auth
+  // rejects with a 400 — skip the doomed call (they get no deal token either way)
+  // so it doesn't spam the console on every login.
+  if (!user || !user.username || !user.password) return { token: null, role: null };
   try {
     const res = await fetch(`${FN}/deal-auth`, {
       method: 'POST',

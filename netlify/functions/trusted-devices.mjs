@@ -46,6 +46,9 @@ export default async (request, context) => {
   catch { return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers }); }
 
   const { action, userId, token, expiresAt } = payload;
+  // Warmup ping (fired from the login screen to resolve cold starts) — carries no
+  // userId, so answer it before the userId guard instead of 400ing the console.
+  if (action === 'ping') return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   if (!action || !userId) return new Response(JSON.stringify({ error: 'Missing action or userId' }), { status: 400, headers });
 
   try {

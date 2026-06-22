@@ -90,7 +90,13 @@ export function computeForecast(entries, targetDate, opts = {}) {
   const dayparts = { amRush: partSum(5, 9), midMorning: partSum(9, 11), lunch: partSum(11, 14), afternoon: partSum(14, 24) };
 
   const samples = sameDow.length;
-  const confidence = samples >= 7 ? 'medium' : samples >= 4 ? 'low' : 'very-low';
+  // A holiday we couldn't learn a factor for (no usable prior-year Pulse data)
+  // is projected as an ordinary weekday — that number is unreliable, so never
+  // present it as confident and flag it so the UI/manager isn't misled into
+  // treating, say, Christmas as a normal Friday.
+  const holidayUnknown = !!opts.holidayUnknown;
+  const confidence = holidayUnknown ? 'very-low'
+    : samples >= 7 ? 'medium' : samples >= 4 ? 'low' : 'very-low';
 
   return {
     date: targetDate,
@@ -106,6 +112,7 @@ export function computeForecast(entries, targetDate, opts = {}) {
     weatherFactor: Math.round(weatherFactor * 1000) / 1000,
     holidayFactor: Math.round(holidayFactor * 1000) / 1000,
     holidayName: opts.holidayName || null,
+    holidayUnknown,
     sampleDates: sameDow.map((e) => e.date).sort(),
   };
 }
@@ -240,6 +247,7 @@ export function computeWeekForecast(entries, startDate, opts = {}) {
   const weatherByDate = opts.weatherByDate || {};
   const holidayFactorByDate = opts.holidayFactorByDate || {};
   const holidayNameByDate = opts.holidayNameByDate || {};
+  const holidayUnknownByDate = opts.holidayUnknownByDate || {};
   const days = [];
   for (let i = 0; i < n; i++) {
     const date = addDaysISO(startDate, i);
@@ -247,9 +255,10 @@ export function computeWeekForecast(entries, startDate, opts = {}) {
       weather: weatherByDate[date],
       holidayFactor: holidayFactorByDate[date],
       holidayName: holidayNameByDate[date],
+      holidayUnknown: holidayUnknownByDate[date],
     });
     days.push(fc
-      ? { date, dowLabel: fc.dowLabel, dayTotal: fc.dayTotal, low: fc.low, high: fc.high, samples: fc.samples, confidence: fc.confidence, dayparts: fc.dayparts, holidayName: fc.holidayName }
+      ? { date, dowLabel: fc.dowLabel, dayTotal: fc.dayTotal, low: fc.low, high: fc.high, samples: fc.samples, confidence: fc.confidence, dayparts: fc.dayparts, holidayName: fc.holidayName, holidayUnknown: fc.holidayUnknown }
       : { date, dowLabel: DOW[dowFor(date)], dayTotal: null, low: null, high: null, samples: 0, confidence: null, dayparts: null, holidayName: holidayNameByDate[date] || null });
   }
   const valid = days.filter((d) => d.dayTotal != null);

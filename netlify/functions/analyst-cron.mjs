@@ -6,7 +6,7 @@
 
 import { detectAnomalies } from './analyst-lib/analyst-anomaly.mjs';
 import { createCaseFromAnomaly, getCases } from './analyst-lib/analyst-cases.mjs';
-import { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentimentContext, buildEmailContext } from './analyst-lib/analyst-data.mjs';
+import { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentimentContext, buildEmailContext, loadAllTickets } from './analyst-lib/analyst-data.mjs';
 import { generateStructured } from './analyst-lib/analyst-claude.mjs';
 import { PERSONA, buildBriefPrompt, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
@@ -101,7 +101,7 @@ async function computeAndSaveDMScores(today) {
   try {
     const laborData  = await cacheLoad('pcg_labor_v1');
     if (!laborData?.stores) return null;
-    const ticketsRaw = await cacheLoad('pcg_tickets_v1') || [];
+    const ticketsRaw = await loadAllTickets();
     const actionLog  = await cacheLoad('pcg_action_log') || [];
     const tickets    = Array.isArray(ticketsRaw) ? ticketsRaw.filter(t => t.status !== 'Closed') : [];
 

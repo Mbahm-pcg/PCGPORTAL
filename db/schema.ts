@@ -1,4 +1,4 @@
-import { integer, pgTable, varchar, text, boolean, timestamp, real, jsonb, serial } from "drizzle-orm/pg-core";
+import { integer, pgTable, varchar, text, boolean, timestamp, real, jsonb, serial, bigint, primaryKey } from "drizzle-orm/pg-core";
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 export const users = pgTable("users", {
@@ -54,6 +54,73 @@ export const ticketComments = pgTable("ticket_comments", {
   userId: integer("user_id").notNull(),
   content: text("content").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ── Maintenance Tickets (LIVE) ──────────────────────────────────────────────
+// These are the tables the portal's maintenance ticket UI actually uses (see
+// netlify/functions/tickets.mjs), migrated off the `pcg_tickets_v1` Netlify
+// Blob. The `tickets`/`ticket_comments` tables above are an older, unused shape
+// kept for reference. `id` is the client-generated Date.now() value (bigint), so
+// existing ticket references (selectedId, notifications.ticketId) stay valid.
+// tickets.mjs self-creates these via CREATE TABLE IF NOT EXISTS; this block
+// documents the schema for drizzle/tooling.
+export const maintTickets = pgTable("maint_tickets", {
+  id: bigint("id", { mode: "number" }).primaryKey(),
+  number: text("number"),
+  title: text("title").notNull().default(""),
+  description: text("description"),
+  notes: text("notes"),
+  status: text("status").notNull().default("Open"),
+  priority: text("priority").default("Medium"),
+  category: text("category"),
+  storePC: text("store_pc"),
+  storeName: text("store_name"),
+  address: text("address"),
+  dueDate: text("due_date"),
+  ticketOwner: text("ticket_owner"),
+  createdBy: text("created_by"),
+  selectedIssues: jsonb("selected_issues").notNull().default([]),
+  attachments: jsonb("attachments").notNull().default([]),
+  expenses: jsonb("expenses").notNull().default([]), // DEPRECATED — expenses now live in maintTicketExpenses; kept empty for back-compat
+  startedBy: text("started_by"),
+  startedAt: timestamp("started_at"),
+  closedBy: text("closed_by"),
+  closedAt: timestamp("closed_at"),
+  meta: jsonb("meta").notNull().default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Composite PK (ticketId, id): comment ids are client Date.now() values, unique
+// only within a ticket — a global PK would let same-millisecond comments on
+// different tickets collide.
+export const maintTicketComments = pgTable("maint_ticket_comments", {
+  id: bigint("id", { mode: "number" }).notNull(),
+  ticketId: bigint("ticket_id", { mode: "number" }).notNull(),
+  author: text("author"),
+  initials: text("initials"),
+  type: text("type").default("comment"),
+  text: text("text"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.ticketId, t.id] }) }));
+
+// Expenses logged against a ticket. Expense ids are strings ("exp_<ts>_<rand>"),
+// so the PK is text. `amount` is numeric; `receiptKey` points at a separate blob.
+export const maintTicketExpenses = pgTable("maint_ticket_expenses", {
+  id: text("id").primaryKey(),
+  ticketId: bigint("ticket_id", { mode: "number" }).notNull(),
+  noExpense: boolean("no_expense").default(false),
+  description: text("description"),
+  amount: real("amount"),
+  category: text("category"),
+  addedBy: text("added_by"),
+  submittedByUserId: text("submitted_by_user_id"),
+  addedAt: timestamp("added_at"),
+  receiptKey: text("receipt_key"),
+  approvalStatus: text("approval_status"),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  meta: jsonb("meta").notNull().default({}),
 });
 
 // ── Business Cases (Orion AI) ─────────────────────────────────────────────────

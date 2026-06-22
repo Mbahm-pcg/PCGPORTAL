@@ -10,6 +10,7 @@ import { getCases, loadCase, updateCaseStatus, loadDecisionLog } from './analyst
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { logFeedback, logAccessEvent, loadAccessEntries } from './analyst-lib/analyst-audit.mjs';
 import { forecastStoreFull, forecastStoreWeek, learnHolidayFactor, tomorrowISO, addDaysISO } from './analyst-lib/forecast.mjs';
+import { holidayInfo } from './analyst-lib/holidays.mjs';
 import { loadKBContent, buildKBContext } from './analyst-lib/analyst-kb.mjs';
 import { loadReportSettings, sendExecReport, sendExecDailyReport, sendDMBriefs } from './analyst-lib/analyst-reports.mjs';
 
@@ -257,11 +258,14 @@ export default async (request, context) => {
       const wxDays = (wxAll && wxAll[store.district] && wxAll[store.district].days) || [];
       const cond = (wxDays.find(d => d && d.date === target) || {}).condition;
       const hf = await learnHolidayFactor(storePC, target, (pc, d) => getDailyNetSales(pc, d));
+      const tgtHoliday = holidayInfo(target);
 
       const { forecast } = await forecastStoreFull(storePC, target, {
         weather: cond ? { condition: cond } : undefined,
         holidayFactor: hf ? hf.factor : 1,
-        holidayName: hf ? hf.name : null,
+        // Surface the holiday even when its sales factor couldn't be learned.
+        holidayName: hf ? hf.name : (tgtHoliday ? tgtHoliday.name : null),
+        holidayUnknown: !!tgtHoliday && !hf,
       });
 
       // Suggested par for the day (donut/munchkin), weather-adjusted off the forecast.
@@ -422,22 +426,39 @@ export default async (request, context) => {
         const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(start, i));
         const weatherByDate = {};
         dates.forEach(d => { if (condByDate[d]) weatherByDate[d] = { condition: condByDate[d] }; });
-        // Learn all 7 days' holiday factors concurrently — the days are
-        // independent, and serial awaits here risk the 26s function timeout when
-        // the week contains a holiday with a cold cache (each fires Pulse calls).
-        const holidayFactorByDate = {}, holidayNameByDate = {};
-        const hfs = await Promise.all(dates.map(d => learnHolidayFactor(storePC, d, pulseSales).catch(() => null)));
-        dates.forEach((d, i) => { const hf = hfs[i]; if (hf) { holidayFactorByDate[d] = hf.factor; holidayNameByDate[d] = hf.name; } });
-        const week = await forecastStoreWeek(storePC, start, { weatherByDate, holidayFactorByDate, holidayNameByDate });
+        // Learn holiday factors only for the days that are actually holidays, and
+        // do so SEQUENTIALLY. learnHolidayFactor does a load-modify-save of one
+        // shared per-store cache blob (pcg_holiday_factor_{pc}); learning two
+        // holidays in the same window concurrently (e.g. Dec 24+25, or Dec 31 +
+        // Jan 1) would race and lose one's cached factor, forcing it to re-hit
+        // Pulse on every request. Ordinary days never touch the cache (they
+        // return null before any I/O), and a 7-day window holds at most ~2
+        // holidays — each internally parallelizes its Pulse calls — so this stays
+        // well under the 26s function timeout.
+        const holidayFactorByDate = {}, holidayNameByDate = {}, holidayUnknownByDate = {};
+        for (const d of dates) {
+          const info = holidayInfo(d);
+          if (!info) continue;
+          const hf = await learnHolidayFactor(storePC, d, pulseSales).catch(() => null);
+          if (hf) { holidayFactorByDate[d] = hf.factor; holidayNameByDate[d] = hf.name; }
+          // Holiday with no learnable prior-year sales: surface the name (so the
+          // day isn't shown as an ordinary weekday) and flag it unknown.
+          else { holidayNameByDate[d] = info.name; holidayUnknownByDate[d] = true; }
+        }
+        const week = await forecastStoreWeek(storePC, start, { weatherByDate, holidayFactorByDate, holidayNameByDate, holidayUnknownByDate });
         return respond(200, { storePC, startDate: start, week });
       }
 
       const target = date || tomorrowISO();
       const hf = await learnHolidayFactor(storePC, target, pulseSales);
+      const tgtHoliday = holidayInfo(target);
       const { forecast, accuracy } = await forecastStoreFull(storePC, target, {
         weather: weatherFor(target),
         holidayFactor: hf ? hf.factor : 1,
-        holidayName: hf ? hf.name : null,
+        // Surface the holiday even when its sales factor couldn't be learned, so
+        // a closed/reduced holiday isn't silently projected as a normal weekday.
+        holidayName: hf ? hf.name : (tgtHoliday ? tgtHoliday.name : null),
+        holidayUnknown: !!tgtHoliday && !hf,
       });
       return respond(200, { storePC, date: target, forecast, accuracy });
     }

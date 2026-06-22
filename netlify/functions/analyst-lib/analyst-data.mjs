@@ -390,11 +390,25 @@ async function buildStoreContext({ storePC }) {
     sections.push(`\nVoids/refunds today (${busDtForVoids}): none`);
   }
 
-  // Load open tickets for this store
-  const ticketsRaw = await cacheLoad('pcg_tickets_v1').catch(() => null);
-  const openTickets = Array.isArray(ticketsRaw)
-    ? ticketsRaw.filter(t => t.status !== 'Closed' && String(t.storePC) === String(storePC))
-    : [];
+  // Load open tickets for this store from Neon (maint_tickets). Falls back to the
+  // legacy blob if the DB query fails, so the brief degrades gracefully.
+  let openTickets = [];
+  try {
+    const rows = await sql`
+      SELECT title, category, priority, description, created_at
+      FROM maint_tickets
+      WHERE status <> 'Closed' AND store_pc = ${String(storePC)}
+      ORDER BY created_at DESC`;
+    openTickets = rows.map(r => ({
+      title: r.title, category: r.category, priority: r.priority,
+      description: r.description, createdAt: r.created_at,
+    }));
+  } catch {
+    const ticketsRaw = await cacheLoad('pcg_tickets_v1').catch(() => null);
+    openTickets = Array.isArray(ticketsRaw)
+      ? ticketsRaw.filter(t => t.status !== 'Closed' && String(t.storePC) === String(storePC))
+      : [];
+  }
   if (openTickets.length > 0) {
     sections.push(`\nOpen tickets (${openTickets.length}):`);
     openTickets.slice(0, 10).forEach(t => {
@@ -567,8 +581,28 @@ async function buildProjectsContext({ district } = {}) {
   return summarizeProjects(await cacheLoad('pcg_projects_v1'), district || null, new Date(), STORES);
 }
 
+// Load all maintenance tickets from Neon (maint_tickets) in the client-ish shape
+// the summarizers/crons expect. Falls back to the legacy blob if the query fails.
+async function loadAllTickets() {
+  try {
+    const rows = await sql`
+      SELECT id, number, title, status, priority, category, store_pc, store_name,
+             ticket_owner, due_date, description, created_at, updated_at
+      FROM maint_tickets ORDER BY created_at DESC`;
+    return rows.map(r => ({
+      id: Number(r.id), number: r.number, title: r.title, status: r.status,
+      priority: r.priority, category: r.category, storePC: r.store_pc, storeName: r.store_name,
+      ticketOwner: r.ticket_owner, dueDate: r.due_date, description: r.description,
+      createdAt: r.created_at, updatedAt: r.updated_at,
+    }));
+  } catch {
+    const blob = await cacheLoad('pcg_tickets_v1').catch(() => null);
+    return Array.isArray(blob) ? blob : [];
+  }
+}
+
 async function buildTicketsContext({ district } = {}) {
-  return summarizeTickets(await cacheLoad('pcg_tickets_v1'), district || null, new Date(), STORES);
+  return summarizeTickets(await loadAllTickets(), district || null, new Date(), STORES);
 }
 
 async function buildCashContext({ district } = {}) {
@@ -737,6 +771,7 @@ export {
   buildEmailContext,
   buildProjectsContext,
   buildTicketsContext,
+  loadAllTickets,
   buildCashContext,
   buildFoodCostContext,
   buildOpsContext,

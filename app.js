@@ -168,7 +168,7 @@
   // src/deal-api.mjs
   var FN = "/.netlify/functions";
   async function dealLogin(user) {
-    if (!user || !user.username) return { token: null, role: null };
+    if (!user || !user.username || !user.password) return { token: null, role: null };
     try {
       const res = await fetch(`${FN}/deal-auth`, {
         method: "POST",
@@ -1557,7 +1557,7 @@
     const [twoFactorCode, setTwoFactorCode] = useState("");
     const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState("");
     const [twoFactorSetupReady, setTwoFactorSetupReady] = useState(false);
-    const [trustDevice, setTrustDevice] = useState(false);
+    const [trustDevice, setTrustDevice] = useState(true);
     const [err, setErr] = useState("");
     const [show, setShow] = useState(false);
     const [logoAnim, setLogoAnim] = useState(false);
@@ -2324,7 +2324,7 @@
             setTwoFactorSetupSecret("");
             setTwoFactorSetupReady(false);
             setTwoFactorCode("");
-            setTrustDevice(false);
+            setTrustDevice(true);
             setErr("");
           },
           style: { background: "none", border: "none", color: palette.textGhost, cursor: "pointer", fontSize: "0.75rem", marginBottom: "1rem", padding: 0, fontFamily: "'Source Sans 3'" }
@@ -6257,7 +6257,60 @@
     } catch {
     }
   }
+  var TICKETS_KEY = "pcg_tickets_v1";
+  async function ticketsDbList() {
+    const res = await fetch("/.netlify/functions/tickets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "list" })
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const j2 = await res.json();
+        msg = j2.error || msg;
+      } catch {
+      }
+      throw new Error(`${TICKETS_KEY}: ${msg}`);
+    }
+    const j = await res.json();
+    return Array.isArray(j.tickets) ? j.tickets : [];
+  }
+  async function ticketsDbSync(tickets) {
+    return fetch("/.netlify/functions/tickets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "sync", tickets: Array.isArray(tickets) ? tickets : [] })
+    });
+  }
+  async function ticketsDbDelete(id) {
+    try {
+      await fetch("/.netlify/functions/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", id })
+      });
+    } catch {
+    }
+  }
   async function cloudSave(key, data) {
+    if (key === TICKETS_KEY) {
+      emitSync("saving", key);
+      try {
+        const res = await ticketsDbSync(data);
+        if (!res.ok) {
+          try {
+            console.warn("[tickets] sync failed:", (await res.json()).error);
+          } catch {
+          }
+        }
+        emitSync(res.ok ? "synced" : "error", key);
+        return res.ok;
+      } catch {
+        emitSync("error", key);
+        return false;
+      }
+    }
     emitSync("saving", key);
     try {
       const res = await fetch("/.netlify/functions/storage", {
@@ -6273,6 +6326,19 @@
     }
   }
   async function cloudSaveOrThrow(key, data) {
+    if (key === TICKETS_KEY) {
+      const res2 = await ticketsDbSync(data);
+      if (!res2.ok) {
+        let msg = `HTTP ${res2.status}`;
+        try {
+          const j = await res2.json();
+          msg = j.error || msg;
+        } catch {
+        }
+        throw new Error(`${key}: ${msg}`);
+      }
+      return true;
+    }
     const res = await fetch("/.netlify/functions/storage", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -6290,6 +6356,13 @@
     return true;
   }
   async function cloudLoad(key) {
+    if (key === TICKETS_KEY) {
+      try {
+        return await ticketsDbList();
+      } catch {
+        return null;
+      }
+    }
     try {
       const res = await fetch("/.netlify/functions/storage", {
         method: "POST",
@@ -6304,6 +6377,7 @@
     }
   }
   async function cloudLoadOrThrow(key) {
+    if (key === TICKETS_KEY) return await ticketsDbList();
     const res = await fetch("/.netlify/functions/storage", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -14465,6 +14539,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       return { ...t, status, updatedAt: now, ...extra };
     }));
     const deleteTicket = (id) => {
+      ticketsDbDelete(id);
       setTickets((ts) => ts.filter((t) => t.id !== id));
       if (selectedId === id) setSelectedId(null);
       showAlert("success", "Ticket deleted");
@@ -15069,7 +15144,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     })();
     const isFutureDate = fc.date > todayISO;
-    return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.4rem", borderLeft: `4px solid ${O}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.62rem", fontWeight: 900, letterSpacing: 1.4, textTransform: "uppercase" } }, fc.dowLabel, " Forecast \xB7 ", fc.date), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" } }, fc.holidayName && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 800, color: O, background: O + "1e", padding: "0.15rem 0.5rem", borderRadius: 99 } }, "\u{1F389} ", fc.holidayName), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 800, color: confColor, background: confColor + "1e", padding: "0.15rem 0.5rem", borderRadius: 99 } }, confLabel[fc.confidence]))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.6rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.2rem", color: th.text, lineHeight: 1 } }, f(fc.dayTotal)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, "projected \xB7 range ", f(fc.low), "\u2013", f(fc.high))), pace != null && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.7rem", fontSize: "0.88rem", fontWeight: 700, color: paceColor } }, pace >= 0 ? "\u25B2" : "\u25BC", " ", pace >= 0 ? "+" : "", Math.round(pace * 100), "% vs forecast", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 500, fontSize: "0.72rem" } }, " through ", hourLabel(lastActualHour), " (", f(cumA), " actual vs ", f(cumF), " expected)")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginTop: "1rem" } }, [["AM rush", fc.dayparts.amRush], ["Mid-morn", fc.dayparts.midMorning], ["Lunch", fc.dayparts.lunch], ["Afternoon", fc.dayparts.afternoon]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { textAlign: "center", background: th.card2, borderRadius: 8, padding: "0.5rem 0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.54rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 } }, k), /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 800, fontSize: "0.82rem", marginTop: "0.2rem" } }, f(v))))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem", paddingTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", fontSize: "0.65rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Based on ", fc.samples, " prior ", fc.dowLabel, "s", wPct !== 0 ? ` \xB7 weather ${wPct > 0 ? "+" : ""}${wPct}%` : "", fc.holidayName ? ` \xB7 ${fc.holidayName} ${hPct >= 0 ? "+" : ""}${hPct}%` : ""), acc ? /* @__PURE__ */ React.createElement("span", null, "Model accuracy ", /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 800 } }, "\xB1", acc.mape, "%"), " over last ", acc.window, " days") : null)), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, isFutureDate ? "Projected sales \u2014 by hour" : "Forecast vs Actual \u2014 by hour"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.9rem", fontSize: "0.62rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: 2, background: th.card3 || th.cardBorder } }), " Forecast"), !isFutureDate && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: 2, background: O } }), " Actual"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 3, height: 160 } }, fc.hourly.map((h) => {
+    return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.4rem", borderLeft: `4px solid ${O}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.62rem", fontWeight: 900, letterSpacing: 1.4, textTransform: "uppercase" } }, fc.dowLabel, " Forecast \xB7 ", fc.date), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" } }, fc.holidayName && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 800, color: O, background: O + "1e", padding: "0.15rem 0.5rem", borderRadius: 99 } }, "\u{1F389} ", fc.holidayName), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 800, color: confColor, background: confColor + "1e", padding: "0.15rem 0.5rem", borderRadius: 99 } }, confLabel[fc.confidence]))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.6rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.2rem", color: th.text, lineHeight: 1 } }, f(fc.dayTotal)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, "projected \xB7 range ", f(fc.low), "\u2013", f(fc.high))), pace != null && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.7rem", fontSize: "0.88rem", fontWeight: 700, color: paceColor } }, pace >= 0 ? "\u25B2" : "\u25BC", " ", pace >= 0 ? "+" : "", Math.round(pace * 100), "% vs forecast", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 500, fontSize: "0.72rem" } }, " through ", hourLabel(lastActualHour), " (", f(cumA), " actual vs ", f(cumF), " expected)")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginTop: "1rem" } }, [["AM rush", fc.dayparts.amRush], ["Mid-morn", fc.dayparts.midMorning], ["Lunch", fc.dayparts.lunch], ["Afternoon", fc.dayparts.afternoon]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { textAlign: "center", background: th.card2, borderRadius: 8, padding: "0.5rem 0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.54rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 } }, k), /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 800, fontSize: "0.82rem", marginTop: "0.2rem" } }, f(v))))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem", paddingTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", fontSize: "0.65rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Based on ", fc.samples, " prior ", fc.dowLabel, "s", wPct !== 0 ? ` \xB7 weather ${wPct > 0 ? "+" : ""}${wPct}%` : "", fc.holidayName ? fc.holidayUnknown ? ` \xB7 ${fc.holidayName} (impact unknown \u2014 no prior-year data)` : ` \xB7 ${fc.holidayName} ${hPct >= 0 ? "+" : ""}${hPct}%` : ""), acc ? /* @__PURE__ */ React.createElement("span", null, "Model accuracy ", /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 800 } }, "\xB1", acc.mape, "%"), " over last ", acc.window, " days") : null)), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, isFutureDate ? "Projected sales \u2014 by hour" : "Forecast vs Actual \u2014 by hour"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.9rem", fontSize: "0.62rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: 2, background: th.card3 || th.cardBorder } }), " Forecast"), !isFutureDate && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: 2, background: O } }), " Actual"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 3, height: 160 } }, fc.hourly.map((h) => {
       const a = actualBy[h.hour] || 0;
       const fH = Math.round(h.sales / maxBar * 92);
       const aH = Math.round(a / maxBar * 92);
@@ -15567,7 +15642,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v16.72";
+  var APP_VERSION = "v16.83";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
