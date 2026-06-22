@@ -7196,8 +7196,27 @@ function TrendChart({ data, G, th, onBarClick }) {
   );
 }
 
+// ─── Manager Pulse — single-store Pulse, hard-locked to the manager's own store ─
+// Renders only StoreDetail for the manager's assigned PC (no store grid, no
+// district/network navigation), so a manager can never view another store's sales.
+function ManagerPulse({ stores, th, user }) {
+  const G = '#00d084';
+  const store = getManagerStore(stores, user);
+  const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  if (!store?.pc) return (
+    <div style={{ ...card(th), padding:'2.5rem 1.5rem', textAlign:'center', color:th.muted, fontSize:'0.85rem' }}>
+      No store is linked to your account yet. Ask an admin to assign your manager profile to a store.
+    </div>
+  );
+  return (
+    <div className="fade-in">
+      <StoreDetail pc={store.pc} stores={stores} storeData={{}} busDt={todayStr} th={th} G={G} setPulseView={() => {}} user={user} standalone />
+    </div>
+  );
+}
+
 // ─── Store Detail Component ──────────────────────────────────────────────────
-function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user }) {
+function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, standalone = false }) {
   const s = stores.find(st => st.pc === pc);
 
   const fmtUSD = v => '$' + Math.round(v).toLocaleString();
@@ -7359,7 +7378,8 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user }
       }
       aggOps.avgCheck = aggOps.guests > 0 ? aggOps.netSales / aggOps.guests : 0;
       // In week mode, ALWAYS override. In day mode, only override if localDate !== busDt.
-      if (isWeek || localDate !== busDt) {
+      // Standalone (manager Pulse) has no parent storeData, so always self-populate.
+      if (isWeek || localDate !== busDt || standalone) {
         setOverrideLive(anyOpsOk
           ? { status: 'ok', data: aggOps, rcs: allRcs }
           : { status: 'error', data: null, rcs: [] });
@@ -7504,7 +7524,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user }
   }, [pc, localDate, busDt, viewMode]);
 
   // Use override (week mode OR when date differs) or parent storeData (day mode + localDate === busDt)
-  const live = ((viewMode === 'week' || localDate !== busDt) && overrideLive) ? overrideLive : storeData[pc];
+  const live = ((standalone || viewMode === 'week' || localDate !== busDt) && overrideLive) ? overrideLive : storeData[pc];
   const d = live?.data;
   const rcs = live?.rcs || [];
 
@@ -18362,6 +18382,7 @@ const getTabs = (user) => {
     ...BASE_TABS,
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
+    { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
     { id: "labor",     label: "My Labor",     icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
@@ -19335,7 +19356,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.60";
+const APP_VERSION = "v16.61";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -37902,6 +37923,7 @@ function PCGPortal() {
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && <AdminNdcp th={th} user={user} />}
