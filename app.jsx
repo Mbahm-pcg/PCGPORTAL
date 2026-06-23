@@ -2990,7 +2990,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const [view, setView] = useState('list'); // 'list' | 'edit'
   const [editId, setEditId] = useState(null);
   const [showPw, setShowPw]   = useState(false);
-  const [form, setForm] = useState({ username:"", password:"", name:"", role:"Manager", initials:"", isAdmin:false, region:"PA", active:true, email:"", phone:"", twoFactorRequired:false });
+  const [form, setForm] = useState({ username:"", password:"", name:"", role:"", initials:"", isAdmin:false, region:"PA", active:true, email:"", phone:"", twoFactorRequired:false });
   const [search, setSearch] = useState("");
   const [welcomeSent, setWelcomeSent] = useState(null);
   const [saveFlash, setSaveFlash] = useState(false);
@@ -3093,7 +3093,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const openEditPage = (u = null) => {
     savedScrollY.current = window.scrollY;
     setEditId(u ? u.id : null);
-    setForm(u ? { ...u } : { username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
+    setForm(u ? { ...u } : { username:"", password:"", name:"", role:"", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
     setView('edit');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -3182,14 +3182,14 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
     ? ["Vice President","Chief Executive Officer","Chief Operating Officer","Chief Financial Officer","Chief of Staff","IT Administrator","HR / IT Staff","Office Staff","District Manager","Store Manager","Construction & Development"]
     : ["District Manager","Store Manager","Construction & Development"];
   const USERTYPE_OPTIONS = isFullAdmin(currentUser)
-    ? [["executive","Executive Team"],["it","IT Team"],["office_staff","Office Staff"],["dm","District Manager"],["manager","Store Manager"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]]
-    : [["dm","District Manager"],["manager","Store Manager"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]];
+    ? [["executive","Executive Team"],["it","IT Team"],["office_staff","Office Staff"],["dm","District Manager"],["manager","Store Manager"],["store_tablet","Store Tablet"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]]
+    : [["dm","District Manager"],["manager","Store Manager"],["store_tablet","Store Tablet"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]];
 
   const [roleFilter, setRoleFilter] = useState("all");
   const [isMobileUsers, setIsMobileUsers] = useState(() => window.innerWidth < 700);
   React.useEffect(() => { const fn = () => setIsMobileUsers(window.innerWidth < 700); window.addEventListener("resize", fn); return () => window.removeEventListener("resize", fn); }, []);
-  const ROLE_COLOR = { executive:"#10b981", it:"#3b82f6", office_staff:"#8b5cf6", dm:"#f59e0b", manager:"#9ca3af", vendor:"#06b6d4", construction:"#fb923c", maintenance:"#0891b2" };
-  const ROLE_LABEL = { executive:"Executive", it:"IT Team", office_staff:"Office", dm:"District Mgr", manager:"Manager", vendor:"Vendor", construction:"Construction", maintenance:"Maintenance" };
+  const ROLE_COLOR = { executive:"#10b981", it:"#3b82f6", office_staff:"#8b5cf6", dm:"#f59e0b", manager:"#9ca3af", store_tablet:"#14b8a6", vendor:"#06b6d4", construction:"#fb923c", maintenance:"#0891b2" };
+  const ROLE_LABEL = { executive:"Executive", it:"IT Team", office_staff:"Office", dm:"District Mgr", manager:"Manager", store_tablet:"Store Tablet", vendor:"Vendor", construction:"Construction", maintenance:"Maintenance" };
   const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
   const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
 
@@ -3276,16 +3276,19 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                   <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Access & Role</span>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem", marginBottom:"1.25rem" }}>
-                  <select style={inp(th)} value={form.userType||"manager"} onChange={e=>setForm(f=>({...f,userType:e.target.value}))}>
+                  <select style={{ ...inp(th), ...(form.userType === "store_tablet" ? { gridColumn: "1 / -1" } : {}) }} value={form.userType||"manager"} onChange={e=>setForm(f=>({...f, userType:e.target.value, ...(e.target.value === "store_tablet" ? { role: "Store Tablet" } : {}) }))}>
                     {USERTYPE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
                   </select>
-                  <input style={inp(th)} placeholder="Job title (e.g. Store Manager)" value={form.role||""} onChange={e=>setForm(f=>({...f,role:e.target.value}))} />
+                  {/* Job title is irrelevant for a shared store tablet — hide it. */}
+                  {form.userType !== "store_tablet" && (
+                    <input style={inp(th)} placeholder="Job title (e.g. Store Manager)" value={form.role||""} onChange={e=>setForm(f=>({...f,role:e.target.value}))} />
+                  )}
                   <label title={formTwoFactorLocked ? formTwoFactorLockedReason : "Require this user to use an authenticator code at login"} style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:formTwoFactorLocked?"not-allowed":"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem", gridColumn:"1 / -1", opacity:formTwoFactorLocked?0.82:1 }}>
                     <input type="checkbox" checked={formTwoFactorLocked && isAhmed(form) ? true : !!form.twoFactorRequired} disabled={formTwoFactorLocked} onChange={e=>setForm(f=>({...f,twoFactorRequired:e.target.checked}))} style={{ accentColor:"#FF671F", width:15, height:15 }} /> Require 2FA{formTwoFactorLocked ? ` (${isAhmed(form) ? "always on" : "IT admin only"})` : ""}
                   </label>
                 </div>
-                {/* Store Assignment — managers only */}
-                {form.userType === "manager" && (<>
+                {/* Store Assignment — managers + store tablets */}
+                {(form.userType === "manager" || form.userType === "store_tablet") && (<>
                   <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                     <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
                     <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Store Assignment</span>
@@ -3294,7 +3297,19 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                     <select
                       style={{ ...inp(th), width:"100%" }}
                       value={form.storePC || ""}
-                      onChange={e => setForm(f => ({ ...f, storePC: e.target.value || undefined }))}
+                      onChange={e => {
+                        const pc = e.target.value || undefined;
+                        // For a Store Tablet, picking the store auto-fills the login:
+                        // username = PC#, name = that store's manager (so tickets/tasks
+                        // are attributed to the manager). Other roles just set the store.
+                        setForm(f => {
+                          if (f.userType === "store_tablet" && pc) {
+                            const st = (stores || []).find(s => String(s.pc) === String(pc));
+                            return { ...f, storePC: pc, username: String(pc), name: (st && st.mgr) ? st.mgr : (st ? `${st.name} Tablet` : f.name), role: "Store Tablet" };
+                          }
+                          return { ...f, storePC: pc };
+                        });
+                      }}
                     >
                       <option value="">— Unassigned —</option>
                       {(stores || [])
@@ -3309,8 +3324,10 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                     </select>
                     <div style={{ fontSize:"0.68rem", color: form.storePC ? "#3b82f6" : th.muted, marginTop:"0.4rem", paddingLeft:"0.2rem" }}>
                       {form.storePC
-                        ? `Assigned — manager will see this store's data on login.`
-                        : "No store selected. Manager will see a blank view on login."}
+                        ? (form.userType === "store_tablet"
+                            ? `Assigned — login set to PC# ${form.storePC}${form.name ? `, under ${form.name}` : ""}.`
+                            : `Assigned — this user will see this store's data on login.`)
+                        : "No store selected. This user will see a blank view on login."}
                     </div>
                   </div>
                 </>)}
@@ -6674,11 +6691,32 @@ async function ticketsDbList() {
   const j = await res.json();
   return Array.isArray(j.tickets) ? j.tickets : [];
 }
+// Netlify Functions cap the request body at 6MB. Ticket photos are stored inline
+// as base64, so the whole array can blow past that once a few tickets have images
+// (e.g. creating a new photo ticket on top of existing ones). `sync` is
+// upsert-only (it never deletes), so we can safely send the array in size-bounded
+// batches — each POST stays under the limit and the DB ends up with every ticket.
+const TICKETS_SYNC_BUDGET = 4_500_000; // bytes of ticket JSON per POST (well under 6MB)
 async function ticketsDbSync(tickets) {
-  return fetch('/.netlify/functions/tickets', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'sync', tickets: Array.isArray(tickets) ? tickets : [] }),
-  });
+  const arr = Array.isArray(tickets) ? tickets : [];
+  const batches = [];
+  let cur = [], curSize = 0;
+  for (const t of arr) {
+    const sz = JSON.stringify(t).length;
+    if (cur.length && curSize + sz > TICKETS_SYNC_BUDGET) { batches.push(cur); cur = []; curSize = 0; }
+    cur.push(t); curSize += sz;
+  }
+  batches.push(cur); // always send at least one batch (possibly empty)
+  let failed = null, last = null;
+  for (const batch of batches) {
+    const res = await fetch('/.netlify/functions/tickets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'sync', tickets: batch }),
+    });
+    last = res;
+    if (!res.ok && !failed) failed = res;
+  }
+  return failed || last;
 }
 // Explicit single-ticket delete. `sync` is upsert-only (it never deletes), so
 // removing a ticket from the array isn't enough — the deletion must be sent here.
@@ -6866,6 +6904,55 @@ async function cloudLoadFile(key) {
   }
   const legacy = await cloudLoad(key);
   return legacy;
+}
+
+// Save an already-read data URL (base64) to chunked blob storage, in the same
+// format cloudLoadFile reads back. Used to offload ticket photos/videos out of
+// the ticket record (which lives in Postgres) and into Netlify Blobs.
+async function cloudSaveDataUrl(key, dataUrl, meta = {}) {
+  const s = String(dataUrl || '');
+  const base64 = s.split(',')[1] || '';
+  const prefix = s.split(',')[0] + ',';
+  const totalChunks = Math.ceil(base64.length / FILE_CHUNK_SIZE) || 1;
+  for (let i = 0; i < totalChunks; i++) {
+    const chunk = base64.slice(i * FILE_CHUNK_SIZE, (i + 1) * FILE_CHUNK_SIZE);
+    const ok = await cloudSave(`${key}_c${i}`, chunk);
+    if (!ok) throw new Error(`Chunk ${i} failed`);
+  }
+  await cloudSave(`${key}_meta`, {
+    name: meta.name, type: meta.type, size: meta.size,
+    chunks: totalChunks, prefix,
+    uploadedAt: new Date().toISOString(), uploadedBy: meta.uploadedBy || '',
+  });
+  return true;
+}
+
+// One-time migration: move any ticket attachments still stored inline (as a
+// base64 dataUrl) into Netlify Blobs, leaving a small { fileKey } reference on
+// the ticket. Idempotent (only touches inline attachments) and deterministic
+// keys, so concurrent runs converge. Returns the updated array, or null if
+// nothing needed offloading.
+async function offloadTicketAttachments(tickets, uploaderName) {
+  let changed = false;
+  const out = [];
+  for (const t of (tickets || [])) {
+    const atts = t.attachments || [];
+    if (!atts.some(a => a && a.dataUrl && !a.fileKey)) { out.push(t); continue; }
+    const newAtts = [];
+    for (let i = 0; i < atts.length; i++) {
+      const a = atts[i];
+      if (a && a.dataUrl && !a.fileKey) {
+        const fileKey = `pcg_ticket_att_${t.id}_${i}`;
+        try {
+          await cloudSaveDataUrl(fileKey, a.dataUrl, { name: a.name, type: a.type, size: a.size, uploadedBy: uploaderName });
+          newAtts.push({ name: a.name, type: a.type, size: a.size, fileKey });
+          changed = true;
+        } catch { newAtts.push(a); } // keep inline if the upload failed; retried next load
+      } else newAtts.push(a);
+    }
+    out.push({ ...t, attachments: newAtts });
+  }
+  return changed ? out : null;
 }
 
 // ─── Per-report cloud helpers ─────────────────────────────────────
@@ -16207,6 +16294,7 @@ const ROLE_META = {
   office_staff: { label: 'Office Staff',   admin: false, scope: 'All operational tabs, network-wide. No destructive admin powers.' },
   dm:           { label: 'District Manager',admin: false, scope: 'Tabs filtered to their own district only.' },
   manager:      { label: 'Store Manager',  admin: false, scope: 'Their assigned store(s) only; My Store mobile mode.' },
+  store_tablet: { label: 'Store Tablet',   admin: false, scope: 'Assigned store only — Tickets + Tasks tablet view (Hexnode kiosk).' },
   construction: { label: 'Construction',   admin: false, scope: 'Projects / Construction (incl. mobile construction view).' },
   maintenance:  { label: 'Maintenance',    admin: false, scope: 'Tickets, calendar, expense tracking/approvals.' },
   vendor:       { label: 'Vendor',         admin: false, scope: 'Projects tab only (+ chat).' },
@@ -17252,11 +17340,57 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
   );
 }
 
+// Renders one ticket attachment (image/video), loading the bytes lazily from
+// blob storage when the attachment is a { fileKey } reference. Falls back to an
+// inline dataUrl (legacy tickets, or one just created before it's offloaded).
+// Keeping photo bytes out of the ticket list is what makes the list fast and
+// the 6MB function limit a non-issue.
+function TicketAttachment({ att, th, onZoom }) {
+  const [src, setSrc] = React.useState(att.dataUrl || null);
+  const [loading, setLoading] = React.useState(!att.dataUrl && !!att.fileKey);
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!att.dataUrl && att.fileKey) {
+      setLoading(true);
+      cloudLoadFile(att.fileKey)
+        .then(f => { if (!cancelled) { setSrc(f?.data || null); setLoading(false); } })
+        .catch(() => { if (!cancelled) setLoading(false); });
+    }
+    return () => { cancelled = true; };
+  }, [att.fileKey, att.dataUrl]);
+
+  const isImage = (att.type || "").startsWith("image/");
+  const box = { borderRadius: "0.625rem", overflow: "hidden", border: `1px solid ${th.cardBorder}`, background: th.card2 };
+  if (loading) {
+    return <div style={{ ...box, width: isImage ? 160 : 180, height: 120, display: "flex", alignItems: "center", justifyContent: "center", color: th.muted, fontSize: "0.62rem" }}>Loading…</div>;
+  }
+  if (!src) {
+    return <div style={{ ...box, width: isImage ? 160 : 180, height: 120, display: "flex", alignItems: "center", justifyContent: "center", color: th.muted, fontSize: "0.62rem", textAlign: "center", padding: "0.4rem" }}>{att.name || "Attachment"}<br />(unavailable)</div>;
+  }
+  return (
+    <div style={box}>
+      {isImage
+        ? <div style={{ position: "relative", cursor: "zoom-in" }} onClick={() => onZoom && onZoom({ src, name: att.name })}>
+            <img src={src} alt={att.name} style={{ display: "block", width: 160, height: 120, objectFit: "cover" }} />
+          </div>
+        : <div style={{ width: 180, padding: "0.625rem" }}>
+            <video src={src} controls style={{ width: "100%", borderRadius: "0.375rem", display: "block" }} />
+            <div style={{ fontSize: "0.68rem", color: th.muted, marginTop: "0.25rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</div>
+          </div>
+      }
+    </div>
+  );
+}
+
 // ── Tickets ────────────────────────────────────────────────────────────────
 function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }) {
   const isAdmin = user?.userType === "executive" || user?.userType === "it";
   const isDM      = user?.userType === "dm";
   const isManager = user?.userType === "manager";
+  const isTablet  = user?.userType === "store_tablet";
+  // Store-scoped roles (manager + store tablet) see/handle only their own store's
+  // tickets, with full create/comment/close powers.
+  const isStoreScoped = isManager || isTablet;
   const isOffice  = user?.userType === "office_staff";
   const isMaintenance = user?.userType === "maintenance";
   const [isMobile, setIsMobile] = React.useState(() => window.innerWidth < 700);
@@ -17332,14 +17466,14 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   ];
 
   // Derive manager's linked store by name match
-  const managerStore = React.useMemo(() => isManager ? (stores.find(s => s.mgr === user?.name) || null) : null, [stores, user, isManager]);
+  const managerStore = React.useMemo(() => isStoreScoped ? (stores.find(s => String(s.pc) === String(user?.storePC)) || stores.find(s => s.mgr === user?.name) || null) : null, [stores, user, isStoreScoped]);
   // Stores a DM or manager can submit tickets for
   const allowedStores = React.useMemo(() => {
     if (isAdmin || isOffice) return stores;
     if (isDM) return stores.filter(s => s.district === user?.district);
-    if (isManager && managerStore) return [managerStore];
+    if (isStoreScoped && managerStore) return [managerStore];
     return stores;
-  }, [stores, user, isAdmin, isOffice, isDM, isManager, managerStore]);
+  }, [stores, user, isAdmin, isOffice, isDM, isStoreScoped, managerStore]);
 
   const localDateISO = (d) => { const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${day}`; };
   const todayISO = localDateISO(new Date());
@@ -17358,6 +17492,11 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
       if (Array.isArray(data)) {
         setTickets(data);
         try { localStorage.setItem("pcg_tickets_v1", JSON.stringify(data)); } catch {}
+        // One-time migration: offload any photos still stored inline (legacy
+        // tickets) into blob storage, then persist the lighter refs. Idempotent.
+        offloadTicketAttachments(data, user?.name)
+          .then(migrated => { if (migrated) setTickets(migrated); })
+          .catch(() => {});
       }
       cloudTicketsLoaded.current = true;
     }).catch(() => { /* load failed: keep cache, do NOT enable cloud write-through */ });
@@ -17498,9 +17637,9 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const visibleTickets = React.useMemo(() => tickets.filter(t => {
     if (isAdmin || isOffice) return true;
     if (isDM) { const store = stores.find(s => s.pc === t.storePC); return store ? store.district === user?.district : false; }
-    if (isManager && managerStore) return t.storePC === managerStore.pc;
+    if (isStoreScoped && managerStore) return t.storePC === managerStore.pc;
     return true;
-  }), [tickets, isAdmin, isOffice, isDM, isManager, managerStore, stores, user]);
+  }), [tickets, isAdmin, isOffice, isDM, isStoreScoped, managerStore, stores, user]);
 
   const counts = {
     all: visibleTickets.length,
@@ -17657,15 +17796,22 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     if (pushIds.length > 0) sendPushNotification(pushIds, subject, smsBody, "/", `ticket_${t.id}`);
   };
 
-  const createTicket = () => {
+  const [creating, setCreating] = React.useState(false);
+  const createTicket = async () => {
+    if (creating) return;
     if (!form.title.trim()) { showAlert("error","Title is required"); return; }
     if (!form.storePC) { showAlert("error","Please select a store"); return; }
     if (form.attachments.length === 0) { showAlert("error","At least 1 photo is required"); return; }
     const store = stores.find(s => s.pc === form.storePC);
     const now = new Date().toISOString();
+    // Collision-resistant numeric id: Date.now() alone collides if two people
+    // create a ticket in the same millisecond (different stores/tablets), which
+    // would overwrite one ticket on the maint_tickets PK. Stays < 2^53 so it's
+    // safe as a JS number and the bigint PK.
+    const ticketId = Date.now() * 1000 + Math.floor(Math.random() * 1000);
     const issueLine = form.selectedIssues.length ? "Issues reported:\n• " + form.selectedIssues.join("\n• ") : "";
     const description = [issueLine, form.notes.trim()].filter(Boolean).join("\n\n");
-    const allAttachments = [...(form.attachments || []), ...(form.videoAttachment ? [form.videoAttachment] : [])];
+    const rawAttachments = [...(form.attachments || []), ...(form.videoAttachment ? [form.videoAttachment] : [])];
     // Build email recipient list for system activity log (ticket notify list + store email)
     const storeEmail = store?.email || null;
     const notifyEmails = [
@@ -17678,14 +17824,33 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     const initActivity = notifyEmails.length > 0
       ? [{ id: Date.now() + 1, type: "system", text: `Sent ticket details on emails:\n${notifyEmails.join(", ")}`, createdAt: now }]
       : [];
-    const t = { id: Date.now(), number: nextNumber(), title: form.title, storePC: form.storePC, storeName: store?.name || "Unknown Store", address: store ? (store.address || "") : "", category: form.category, priority: form.priority, dueDate: form.dueDate, status: "Open", ticketOwner: form.ticketOwner || user?.name || "Unassigned", createdBy: user?.name || "Unknown", description, selectedIssues: form.selectedIssues, attachments: allAttachments, comments: initActivity, createdAt: now, updatedAt: now };
+
+    // Upload each photo/video to blob storage; the ticket record keeps only a
+    // small { fileKey } reference, so the record stays tiny (fast list, no 6MB
+    // ceiling). On upload failure, fall back to inline so the photo isn't lost.
+    setCreating(true);
+    const attachments = [];
+    for (let i = 0; i < rawAttachments.length; i++) {
+      const a = rawAttachments[i];
+      const fileKey = `pcg_ticket_att_${ticketId}_${i}`;
+      try {
+        await cloudSaveDataUrl(fileKey, a.dataUrl, { name: a.name, type: a.type, size: a.size, uploadedBy: user?.name });
+        attachments.push({ name: a.name, type: a.type, size: a.size, fileKey });
+      } catch {
+        attachments.push({ name: a.name, type: a.type, size: a.size, dataUrl: a.dataUrl });
+      }
+    }
+    setCreating(false);
+
+    const t = { id: ticketId, number: nextNumber(), title: form.title, storePC: form.storePC, storeName: store?.name || "Unknown Store", address: store ? (store.address || "") : "", category: form.category, priority: form.priority, dueDate: form.dueDate, status: "Open", ticketOwner: form.ticketOwner || user?.name || "Unassigned", createdBy: user?.name || "Unknown", description, selectedIssues: form.selectedIssues, attachments, comments: initActivity, createdAt: now, updatedAt: now };
     setTickets(ts => [t, ...ts]);
     setSelectedId(t.id);
     setShowForm(false);
     setIssuePickerOpen(false);
     setVoiceActive(false);
     setForm(EMPTY_FORM);
-    sendTicketNotification(t);
+    // Email embeds the photos, so send the raw dataUrls (the stored refs have no bytes).
+    sendTicketNotification({ ...t, attachments: rawAttachments });
     if (setNotifications) {
       const tStore = stores.find(s => String(s.pc) === String(t.storePC));
       setNotifications(ns => [{ id: Date.now(), type: "new_ticket", ticketId: t.id, message: `${t.number} — ${t.title} · ${t.storeName}`, storePC: t.storePC, district: tStore?.district, read: false, createdAt: new Date().toISOString() }, ...ns]);
@@ -17929,22 +18094,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                     </div>
                     <div style={{ display:"flex", flexWrap:"wrap", gap:"0.625rem" }}>
                       {selectedTicket.attachments.map((a, i) => (
-                        <div key={i} style={{ borderRadius:"0.625rem", overflow:"hidden", border:`1px solid ${th.cardBorder}`, background:th.card2 }}>
-                          {a.type.startsWith("image/")
-                            ? <div style={{ position:"relative", cursor:"zoom-in" }} onClick={() => setLightbox({ src: a.dataUrl, name: a.name })}>
-                                <img src={a.dataUrl} alt={a.name} style={{ display:"block", width:160, height:120, objectFit:"cover" }} />
-                                <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0)", display:"flex", alignItems:"center", justifyContent:"center", transition:"background .2s" }}
-                                  onMouseEnter={e=>e.currentTarget.style.background="rgba(0,0,0,0.25)"}
-                                  onMouseLeave={e=>e.currentTarget.style.background="rgba(0,0,0,0)"}>
-                                  <span style={{ color:"#fff", fontSize:"1.25rem", opacity:0, transition:"opacity .2s", pointerEvents:"none" }}>🔍</span>
-                                </div>
-                              </div>
-                            : <div style={{ width:180, padding:"0.625rem" }}>
-                                <video src={a.dataUrl} controls style={{ width:"100%", borderRadius:"0.375rem", display:"block" }} />
-                                <div style={{ fontSize:"0.68rem", color:th.muted, marginTop:"0.25rem", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.name}</div>
-                              </div>
-                          }
-                        </div>
+                        <TicketAttachment key={a.fileKey || i} att={a} th={th} onZoom={setLightbox} />
                       ))}
                     </div>
                   </div>
@@ -18191,7 +18341,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.75rem" }}>
               <div style={{ ...inp(th), gridColumn:"span 2", fontSize:"0.875rem", color:th.text, cursor:"default", userSelect:"none", opacity:0.85 }}>{form.category}</div>
-              {isManager && managerStore
+              {isStoreScoped && managerStore
                 ? <div style={{ ...inp(th), display:"flex", alignItems:"center", gap:"0.5rem", color:th.text, cursor:"default" }}>
                     <span style={{ fontSize:"0.875rem" }}>🏪</span>
                     <span style={{ fontSize:"0.875rem", fontWeight:600 }}>{managerStore.name} <span style={{ fontWeight:400, color:th.muted }}>(PC# {managerStore.pc})</span></span>
@@ -18368,7 +18518,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
 
             <div style={{ display:"flex", justifyContent:"flex-end", gap:"0.75rem", marginTop:"1.25rem" }}>
               <button onClick={()=>{ setShowForm(false); setIssuePickerOpen(false); }} style={{ ...btn(th,{background:th.card2,color:th.text,border:`1px solid ${th.cardBorder}`}) }}>Cancel</button>
-              <button onClick={createTicket} style={btn(th)}>Create Ticket</button>
+              <button onClick={createTicket} disabled={creating} style={{ ...btn(th), opacity: creating ? 0.6 : 1, cursor: creating ? "default" : "pointer" }}>{creating ? "Saving photos…" : "Create Ticket"}</button>
             </div>
           </div>
         </div>
@@ -18589,13 +18739,14 @@ function ManagerOrionBrief({ pc, storeName, th }) {
 
   return (
     <div style={{ ...card(th), padding: '1rem 1.1rem', borderLeft: '3px solid #b197fc' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.6rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.75rem', paddingBottom: '0.6rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0 }}>
           <OrionIcon size={18} />
-          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.85rem', color: th.text }}>Orion · Store Brief</span>
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.85rem', color: th.text, whiteSpace: 'nowrap' }}>Orion · Store Brief</span>
+          {storeName && <span style={{ fontSize: '0.6rem', color: th.muted, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {storeName}</span>}
         </div>
         <button onClick={() => load(true)} disabled={loading} title="Regenerate"
-          style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: 8, padding: '0.2rem 0.5rem', fontSize: '0.62rem', cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.5 : 1 }}>↻</button>
+          style={{ background: 'none', border: '1px solid #b197fc55', color: '#b197fc', borderRadius: '0.375rem', padding: '0.2rem 0.55rem', fontSize: '0.65rem', fontWeight: 700, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.5 : 1, whiteSpace: 'nowrap' }}>{loading ? '…' : '↻ Refresh'}</button>
       </div>
       {loading ? (
         <div style={{ color: th.muted, fontSize: '0.74rem', padding: '0.4rem 0' }}>Reading your store…</div>
@@ -18638,15 +18789,15 @@ function ForecastPrePlanCard({ pc, storeName, th }) {
 
   return (
     <div style={{ ...card(th), padding: '1rem 1.1rem', borderLeft: `3px solid ${O}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.6rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.75rem', paddingBottom: '0.6rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0 }}>
           <span style={{ fontSize: '0.95rem' }}>🔮</span>
-          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.85rem', color: th.text }}>{(fc && fc.dowLabel) || 'Tomorrow'}'s Forecast &amp; Game Plan</span>
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.85rem', color: th.text, whiteSpace: 'nowrap' }}>{(fc && fc.dowLabel) || 'Tomorrow'}'s Forecast &amp; Game Plan</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           {fc && <span style={{ fontSize: '0.55rem', fontWeight: 800, color: confColor, background: confColor + '1e', padding: '0.12rem 0.45rem', borderRadius: 99, whiteSpace: 'nowrap' }}>{confLabel[fc.confidence] || ''}</span>}
           <button onClick={() => load(true)} disabled={loading} title="Regenerate"
-            style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: 8, padding: '0.2rem 0.5rem', fontSize: '0.62rem', cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.5 : 1 }}>↻</button>
+            style={{ background: 'none', border: `1px solid ${O}55`, color: O, borderRadius: '0.375rem', padding: '0.2rem 0.55rem', fontSize: '0.65rem', fontWeight: 700, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.5 : 1, whiteSpace: 'nowrap' }}>{loading ? '…' : '↻ Refresh'}</button>
         </div>
       </div>
 
@@ -19659,9 +19810,9 @@ const canManageUser = (actor, target) => {
   if (!actor) return false;
   if (isFullAdmin(actor)) return true;
   if (actor.userType === "office_staff") {
-    // can only create/edit dm, manager, and vendor — not executive or it
+    // can only create/edit non-admin operational roles — not executive or it
     const tgt = target?.userType || "manager";
-    return tgt === "dm" || tgt === "manager" || tgt === "vendor" || tgt === "construction";
+    return tgt === "dm" || tgt === "manager" || tgt === "store_tablet" || tgt === "vendor" || tgt === "construction";
   }
   return false;
 };
@@ -19670,7 +19821,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.83";
+const APP_VERSION = "v16.96";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -26672,8 +26823,9 @@ function TaskSkeleton({ th, rows = 3 }) {
 
 function OpsTasks({ stores, th, user }) {
   const isDM = user?.userType === "dm";
-  const isManager = user?.userType === "manager";
-  const myStore = getManagerStore(stores, user);
+  // Store Tablet behaves exactly like a manager here: single-store, tasks-first view.
+  const isManager = user?.userType === "manager" || user?.userType === "store_tablet";
+  const myStore = getManagerStore(stores, user) || ((stores || []).find(s => String(s.pc) === String(user?.storePC)) || null);
 
   const scopeStores = (stores || []).filter((s) => {
     if (isManager) return myStore && String(s.pc) === String(myStore.pc);
@@ -35509,6 +35661,66 @@ function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
   );
 }
 
+// ── Store Tablet view — full-screen, store-locked Tickets + Tasks for the people
+//    assigned to a store's tablet (paired with a Hexnode single-app/URL kiosk
+//    policy on the device). Reuses AdminTickets (full handling) and OpsTasks,
+//    both of which scope to the user's storePC for the store_tablet role.
+function StoreTabletView({ user, users, stores, th, showAlert, dataAlert, ticketNotifyEmails, setNotifications, onLogout }) {
+  const [tab, setTab] = React.useState('tickets');
+  const store = (stores || []).find(s => String(s.pc) === String(user?.storePC)) || null;
+  const TABS = [
+    { id: 'tickets', label: 'Tickets', icon: '🔧' },
+    { id: 'tasks', label: 'Tasks', icon: '✅' },
+  ];
+  return (
+    <div style={{ minHeight: '100dvh', background: th.bg, color: th.text, display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.85rem 1.25rem', background: th.card, borderBottom: `1px solid ${th.cardBorder}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
+          <span style={{ fontSize: '1.2rem' }}>🏪</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1rem', color: th.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{store ? store.name : 'No store assigned'}</div>
+            <div style={{ fontSize: '0.62rem', color: th.muted, fontWeight: 600 }}>{store ? `PC# ${store.pc}` : 'Ask an admin to assign a store'} · {user?.name}</div>
+          </div>
+        </div>
+        <button onClick={onLogout} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, padding: '0.65rem 1.1rem', fontSize: '0.85rem' }) }}>Log out</button>
+      </div>
+      {/* Tab switcher — large touch targets */}
+      <div style={{ display: 'flex', gap: '0.5rem', padding: '0.75rem 1.25rem', background: th.card, borderBottom: `1px solid ${th.cardBorder}` }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            flex: 1, maxWidth: 260, minHeight: 52, padding: '0.85rem 1rem', borderRadius: '0.75rem', cursor: 'pointer',
+            border: `1px solid ${tab === t.id ? O : th.cardBorder}`,
+            background: tab === t.id ? O : th.card2, color: tab === t.id ? '#fff' : th.text,
+            fontFamily: "'Raleway',sans-serif", fontWeight: 800, fontSize: '0.95rem',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', transition: 'all .15s',
+          }}>
+            <span style={{ fontSize: '1.1rem' }}>{t.icon}</span> {t.label}
+          </button>
+        ))}
+      </div>
+      {/* Body */}
+      <div style={{ flex: 1, overflow: 'auto', padding: '1rem 1.25rem' }}>
+        {!store ? (
+          <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 480, margin: '2rem auto' }}>
+            This tablet isn't assigned to a store yet. Ask an admin to set the store on this account.
+          </div>
+        ) : tab === 'tickets' ? (
+          <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={() => {}} />
+        ) : (
+          <OpsTasks stores={stores} th={th} user={user} />
+        )}
+      </div>
+      {/* Toast (the main portal's toast renders after the early return, so mirror it here) */}
+      {dataAlert && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9998, padding: '0.75rem 1.25rem', borderRadius: '0.625rem', background: dataAlert.type === 'success' ? '#69db7c' : '#ff6b6b', color: '#111', fontFamily: "'Source Sans 3'", fontWeight: 600, fontSize: '0.8125rem', boxShadow: '0 8px 32px #00000040', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {dataAlert.type === 'success' ? ICONS.checkCircle('#111') : ICONS.xCircle('#111')} {dataAlert.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
@@ -37144,6 +37356,12 @@ function PCGPortal() {
         <KioskUpload th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} />
       </div>
     );
+  }
+
+  // ── Store Tablet: store-locked Tickets + Tasks (paired with Hexnode kiosk) ──
+  if (user.userType === "store_tablet") {
+    return <StoreTabletView user={user} users={users} stores={stores} th={th} showAlert={showAlert}
+      dataAlert={dataAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} onLogout={handleLogout} />;
   }
 
   // Role flags — used in sidebar + content rendering guards
