@@ -4,9 +4,10 @@
 
 import https from 'node:https';
 import { cacheLoad, cacheSave } from './analyst-cache.mjs';
-import { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, renderOpsContext } from './ops-summaries.mjs';
+import { summarizeProjects, summarizeTickets, summarizeTasks, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, renderOpsContext } from './ops-summaries.mjs';
 import { BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, INGREDIENT_COSTS } from './cost-lookup.mjs';
 import { sql } from '../_shared/db.mjs';
+import { SHIFT_WINDOWS as TASK_SHIFT_WINDOWS } from '../tasks-lib/catalog.js';
 
 // ── Pulse POS direct fetcher (same API as pulse-hourly-snapshot.js) ─────────
 const POS_APIS = {
@@ -609,6 +610,86 @@ async function buildCashContext({ district } = {}) {
   return summarizeCash(await cacheLoad('pcg_cash_deposits_v1'), district || null, new Date(), STORES);
 }
 
+// Ops Task & Checklist system (Neon: task_instances/task_templates/corrective_actions).
+// Status logic mirrors tasks.mjs/computeStatus so Orion's view matches the Tasks tab exactly:
+// completed stays completed; a past business date is "missed"; today's task past its
+// shift-window end is "overdue"; otherwise "open". SHIFT_WINDOWS is imported from the same
+// catalog tasks.mjs uses — do NOT re-declare a copy here (it silently drifts and, worse,
+// would omit the 'AM'/'Noon'/'PM' windows, leaving those tasks stuck at "open").
+function etNowParts() {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const p = {}; for (const part of fmt.formatToParts(new Date())) p[part.type] = part.value;
+  return { date: `${p.year}-${p.month}-${p.day}`, hour: +p.hour % 24, minute: +p.minute };
+}
+function computeTaskStatus(row, nowP) {
+  if (row.status === 'completed') return 'completed';
+  if (row.business_date < nowP.date) return 'missed';
+  if (row.business_date === nowP.date && row.shift_time) {
+    const w = TASK_SHIFT_WINDOWS[row.shift_time];
+    if (w && (nowP.hour > w.endHour || (nowP.hour === w.endHour && nowP.minute > w.endMin))) return 'overdue';
+  }
+  return 'open';
+}
+
+async function buildTasksContext({ district } = {}) {
+  try {
+    const nowP = etNowParts();
+    const stores = district ? getStoresByDistrict(district) : STORES;
+    const pcs = stores.map(s => String(s.pc));
+    if (pcs.length === 0) return { available: false };
+    // Read-only: report the most recent business date that actually has instances
+    // (within the last week) so Orion never blanks out just because today's daily
+    // instances haven't been generated yet by a manager opening the Tasks tab.
+    const db = sql(); // db.mjs exports a factory — must invoke to get the tagged-template fn
+    const weekAgo = new Date(Date.parse(`${nowP.date}T12:00:00`) - 7 * 86400000).toISOString().slice(0, 10);
+    const latest = await db`
+      SELECT max(business_date)::text AS d FROM task_instances
+      WHERE store_pc = ANY(${pcs}) AND business_date <= ${nowP.date} AND business_date >= ${weekAgo}`;
+    const bizDate = latest?.[0]?.d || nowP.date;
+
+    // Instances for the target date + open corrective actions are independent → run in parallel.
+    const [rows, caRows] = await Promise.all([
+      db`
+        SELECT i.store_pc, i.business_date::text AS business_date, i.shift_time, i.status,
+               i.completed_by, t.category, COALESCE(t.label, t.name) AS name
+        FROM task_instances i
+        JOIN task_templates t ON t.id = i.template_id
+        WHERE i.business_date = ${bizDate} AND i.store_pc = ANY(${pcs})`,
+      db`
+        SELECT store_pc, title, station, assignee, due_date::text AS due_date,
+               measured_value, target, unit, created_at
+        FROM corrective_actions
+        WHERE status = 'open' AND store_pc = ANY(${pcs})
+        ORDER BY created_at ASC`,
+    ]);
+
+    const instances = rows.map(r => ({
+      storePC: String(r.store_pc),
+      status: computeTaskStatus(r, nowP),
+      category: r.category,
+      name: r.name,
+      shiftTime: r.shift_time,
+      completedBy: r.completed_by,
+    }));
+    const correctiveActions = caRows.map(c => ({
+      storePC: String(c.store_pc), title: c.title, station: c.station, assignee: c.assignee,
+      dueDate: c.due_date, measuredValue: c.measured_value != null ? Number(c.measured_value) : null,
+      target: c.target != null ? Number(c.target) : null, unit: c.unit,
+    }));
+
+    return summarizeTasks(
+      { instances, correctiveActions, date: bizDate, isToday: bizDate === nowP.date },
+      district || null, STORES,
+    );
+  } catch (e) {
+    console.warn(`[analyst-data] tasks context failed: ${e.message}`);
+    return { available: false };
+  }
+}
+
 async function buildFoodCostContext() {
   const bev = await cacheLoad('pcg_food_cost_beverages_v1');
   const overlay = compactComputed(bev);
@@ -735,14 +816,15 @@ async function buildUpsellItemDiff(top, bottom) {
 /** Render all four ops summaries as a text block for the prompt data section. */
 async function buildOpsContext({ district } = {}) {
   try {
-    const [projects, tickets, cash, foodCost, upsell] = await Promise.all([
+    const [projects, tickets, tasks, cash, foodCost, upsell] = await Promise.all([
       buildProjectsContext({ district }),
       buildTicketsContext({ district }),
+      buildTasksContext({ district }),
       buildCashContext({ district }),
       buildFoodCostContext(),
       buildUpsellContext({ district }),
     ]);
-    return renderOpsContext({ projects, tickets, cash, foodCost, upsell });
+    return renderOpsContext({ projects, tickets, tasks, cash, foodCost, upsell });
   } catch (err) {
     // One malformed blob record must never take down chat/briefs/reports —
     // degrade to "no ops data" rather than throwing out of buildDataContext.

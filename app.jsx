@@ -19831,7 +19831,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.30";
+const APP_VERSION = "v17.34";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -36299,6 +36299,7 @@ function PCGPortal() {
   });
 
   const [showNotifs, setShowNotifs] = useState(false);
+  const notifRef = useRef(null);
   const [showChatPanel, setShowChatPanel] = useState(false);
   const [chatQuickReply, setChatQuickReply] = useState({ channelId: null, text: "" });
   const [salesWeeks, setSalesWeeks] = useState([]);
@@ -37379,35 +37380,60 @@ function PCGPortal() {
     });
   }, [projects]);
 
-  // Notification: deadline/overdue check (runs on mount + every hour)
+  // Close the notification dropdown when clicking anywhere outside it
+  useEffect(() => {
+    if (!showNotifs) return;
+    const handleOutside = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false);
+    };
+    const handleEsc = (e) => { if (e.key === "Escape") setShowNotifs(false); };
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEsc);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEsc);
+    };
+  }, [showNotifs]);
+
+  // Notification: deadline/overdue check (runs on mount + once a day)
   useEffect(() => {
     const mkId = () => `notif_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
     const checkDeadlines = () => {
       const now = new Date();
       const sevenDays = 7 * 24 * 60 * 60 * 1000;
       const oneDayAgo = now.getTime() - 24 * 60 * 60 * 1000;
-      const newNotifs = [];
-      for (const p of projects) {
-        if (!p.dueDate) continue;
-        if (p.completed) continue;
-        const due = new Date(p.dueDate);
-        const diff = due - now;
-        const overall = getOverallCompletion(p);
-        if (overall === 100) continue;
-        // Check if already notified in last 24h for this type+project
-        const recentlyNotified = (type) => notifications.some(n => n.projectId === p.id && n.type === type && new Date(n.createdAt).getTime() > oneDayAgo);
-        if (diff < 0 && !recentlyNotified("overdue")) {
-          newNotifs.push({ id: mkId(), type: "overdue", projectId: p.id, projectName: p.nickname || p.pc, storePC: p.pc, district: p.district, message: `${p.nickname || p.pc} is overdue`, createdAt: now.toISOString(), read: false });
-        } else if (diff > 0 && diff < sevenDays && !recentlyNotified("deadline_approaching")) {
-          newNotifs.push({ id: mkId(), type: "deadline_approaching", projectId: p.id, projectName: p.nickname || p.pc, storePC: p.pc, district: p.district, message: `${p.nickname || p.pc} due in ${Math.ceil(diff / 86400000)} days`, createdAt: now.toISOString(), read: false });
+      // Use the functional updater so the 24h de-dupe guard reads the CURRENT
+      // notification list, not a stale closure copy — otherwise the interval
+      // never sees the reminders it just created and re-adds one on every tick.
+      setNotifications(prev => {
+        const newNotifs = [];
+        for (const p of projects) {
+          if (!p.dueDate) continue;
+          if (p.completed) continue;
+          const due = new Date(p.dueDate);
+          const diff = due - now;
+          const overall = getOverallCompletion(p);
+          if (overall === 100) continue;
+          // Check if already notified in last 24h for this type+project
+          const recentlyNotified = (type) => prev.some(n => n.projectId === p.id && n.type === type && new Date(n.createdAt).getTime() > oneDayAgo);
+          if (diff < 0 && !recentlyNotified("overdue")) {
+            newNotifs.push({ id: mkId(), type: "overdue", projectId: p.id, projectName: p.nickname || p.pc, storePC: p.pc, district: p.district, message: `${p.nickname || p.pc} is overdue`, createdAt: now.toISOString(), read: false });
+          } else if (diff > 0 && diff < sevenDays && !recentlyNotified("deadline_approaching")) {
+            newNotifs.push({ id: mkId(), type: "deadline_approaching", projectId: p.id, projectName: p.nickname || p.pc, storePC: p.pc, district: p.district, message: `${p.nickname || p.pc} due in ${Math.ceil(diff / 86400000)} days`, createdAt: now.toISOString(), read: false });
+          }
         }
-      }
-      if (newNotifs.length > 0) setNotifications(prev => [...newNotifs, ...prev]);
+        return newNotifs.length > 0 ? [...newNotifs, ...prev] : prev;
+      });
     };
     checkDeadlines();
-    const interval = setInterval(checkDeadlines, 3600000);
+    // Re-check once a day (was hourly, which spammed a fresh reminder every hour)
+    const interval = setInterval(checkDeadlines, 86400000);
     return () => clearInterval(interval);
-  }, [projects.length]);
+    // Key on the fields checkDeadlines actually reads (id/dueDate/completed), not just
+    // projects.length — otherwise editing a project's due date or completion without
+    // adding/removing one leaves this effect (and its daily interval) holding a stale
+    // projects array, so the reminder reflects the old due date until a project is added.
+  }, [projects.map(p => `${p.id}:${p.dueDate || ''}:${p.completed ? 1 : 0}`).join("|")]);
 
   // Notification: detect project changes (phase changes, checklist updates, new projects)
   const prevProjectsRef = useRef(projects);
@@ -38612,38 +38638,81 @@ function PCGPortal() {
             )}
             {/* Notification bell */}
             {(canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && (
-              <div style={{ position: "relative" }}>
+              <div ref={notifRef} style={{ position: "relative" }}>
                 <button onClick={() => { setShowNotifs(s => !s); setShowChatPanel(false); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4, display: "flex", alignItems: "center" }}>
                   {ICONS.bell(th.text)}
                   {filterNotifsByRole(notifications, user).filter(n => !n.read).length > 0 && (
-                    <span style={{ position: "absolute", top: -2, right: -4, width: 18, height: 18, borderRadius: "50%", background: "#ff4444", color: "#fff", fontSize: "0.5625rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ position: "absolute", top: -2, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, background: "#ff4444", color: "#fff", fontSize: "0.5625rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 2px " + (th.headerBg || th.bg) }}>
                       {filterNotifsByRole(notifications, user).filter(n => !n.read).length}
                     </span>
                   )}
                 </button>
                 {showNotifs && (() => {
                   const visibleNotifs = filterNotifsByRole(notifications, user);
+                  const unreadCount = visibleNotifs.filter(n => !n.read).length;
+                  const meta = {
+                    phase_change:         { emoji: "🔄", tint: "#3b82f6" },
+                    deadline_approaching: { emoji: "⏰", tint: "#f59e0b" },
+                    overdue:              { emoji: "🔴", tint: "#ef4444" },
+                    new_ticket:           { emoji: "🎫", tint: "#8b5cf6" },
+                  };
+                  const relTime = (iso) => {
+                    const t = iso ? new Date(iso).getTime() : NaN;
+                    if (!Number.isFinite(t)) return ""; // legacy/cloud notifs may lack createdAt — don't render "Invalid Date"
+                    const d = (Date.now() - t) / 1000;
+                    if (d < 60) return "just now";
+                    if (d < 3600) return `${Math.floor(d / 60)}m ago`;
+                    if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
+                    if (d < 604800) return `${Math.floor(d / 86400)}d ago`;
+                    return new Date(iso).toLocaleDateString();
+                  };
                   return (
-                  <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 8, width: 340, maxHeight: 400, overflow: "auto", ...card(th), padding: 0, boxShadow: "0 8px 32px #00000040", zIndex: 999 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 1rem", borderBottom: `1px solid ${th.cardBorder}` }}>
-                      <span style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text }}>Notifications</span>
-                      {visibleNotifs.some(n => !n.read) && (
-                        <button onClick={() => setNotifications(ns => ns.map(n => ({ ...n, read: true })))} style={{ background: "none", border: "none", color: O, fontSize: "0.6875rem", cursor: "pointer", fontWeight: 600 }}>Mark all read</button>
+                  <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 10, width: 360, maxHeight: 440, display: "flex", flexDirection: "column", ...card(th), padding: 0, overflow: "hidden", boxShadow: "0 12px 40px #00000050", border: `1px solid ${th.cardBorder}`, borderRadius: 14, zIndex: 999 }}>
+                    {/* Header */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.875rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontWeight: 800, fontSize: "0.9375rem", color: th.text, letterSpacing: "-0.01em" }}>Notifications</span>
+                        {unreadCount > 0 && (
+                          <span style={{ background: O, color: "#fff", fontSize: "0.625rem", fontWeight: 700, padding: "1px 7px", borderRadius: 10 }}>{unreadCount}</span>
+                        )}
+                      </div>
+                      {unreadCount > 0 && (
+                        <button onClick={() => setNotifications(ns => ns.map(n => ({ ...n, read: true })))} style={{ background: "none", border: "none", color: O, fontSize: "0.6875rem", cursor: "pointer", fontWeight: 700 }}>Mark all read</button>
                       )}
                     </div>
-                    {visibleNotifs.length === 0 && <div style={{ padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem" }}>No notifications</div>}
-                    {visibleNotifs.slice(0, 30).map(n => (
-                      <div key={n.id} onClick={() => {
-                        setNotifications(ns => ns.map(nn => nn.id === n.id ? { ...nn, read: true } : nn));
-                        setTab(n.type === "new_ticket" ? "tickets" : "projects");
-                        setShowNotifs(false);
-                      }} style={{ padding: "0.625rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, cursor: "pointer", background: n.read ? "transparent" : (O + "08") }}>
-                        <div style={{ fontSize: "0.8125rem", color: th.text, fontWeight: n.read ? 400 : 600 }}>
-                          {n.type === "phase_change" ? "🔄" : n.type === "deadline_approaching" ? "⏰" : n.type === "overdue" ? "🔴" : n.type === "new_ticket" ? "🎫" : "🆕"} {n.message}
+                    {/* List */}
+                    <div style={{ overflowY: "auto", flex: 1 }}>
+                      {visibleNotifs.length === 0 && (
+                        <div style={{ padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted }}>
+                          <div style={{ fontSize: "1.75rem", marginBottom: 8, opacity: 0.5 }}>🔔</div>
+                          <div style={{ fontSize: "0.8125rem", fontWeight: 600 }}>You're all caught up</div>
+                          <div style={{ fontSize: "0.6875rem", marginTop: 2, opacity: 0.8 }}>No notifications right now</div>
                         </div>
-                        <div style={{ fontSize: "0.625rem", color: th.muted, marginTop: 2 }}>{new Date(n.createdAt).toLocaleString()}</div>
-                      </div>
-                    ))}
+                      )}
+                      {visibleNotifs.slice(0, 30).map(n => {
+                        const m = meta[n.type] || { emoji: "🆕", tint: O };
+                        return (
+                        <div key={n.id} onClick={() => {
+                          setNotifications(ns => ns.map(nn => nn.id === n.id ? { ...nn, read: true } : nn));
+                          setTab(n.type === "new_ticket" ? "tickets" : "projects");
+                          setShowNotifs(false);
+                        }}
+                          onMouseEnter={e => e.currentTarget.style.background = th.hover || (O + "0d")}
+                          onMouseLeave={e => e.currentTarget.style.background = n.read ? "transparent" : (O + "08")}
+                          style={{ display: "flex", gap: 11, alignItems: "flex-start", padding: "0.75rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, cursor: "pointer", background: n.read ? "transparent" : (O + "08"), transition: "background 0.15s ease", position: "relative" }}>
+                          {/* Unread accent bar */}
+                          {!n.read && <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: O }} />}
+                          {/* Type icon chip */}
+                          <span style={{ flexShrink: 0, width: 32, height: 32, borderRadius: 9, background: m.tint + "1f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem" }}>{m.emoji}</span>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: "0.8125rem", color: th.text, fontWeight: n.read ? 500 : 700, lineHeight: 1.35 }}>{n.message}</div>
+                            <div style={{ fontSize: "0.6875rem", color: th.muted, marginTop: 3, fontWeight: 500 }}>{relTime(n.createdAt)}</div>
+                          </div>
+                          {!n.read && <span style={{ flexShrink: 0, width: 8, height: 8, borderRadius: "50%", background: O, marginTop: 4 }} />}
+                        </div>
+                        );
+                      })}
+                    </div>
                   </div>
                   );
                 })()}

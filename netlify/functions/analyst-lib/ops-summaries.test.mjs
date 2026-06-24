@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, renderOpsContext } from './ops-summaries.mjs';
+import { summarizeProjects, summarizeTickets, summarizeTasks, summarizeCash, summarizeFoodCost, compactComputed, renderOpsContext } from './ops-summaries.mjs';
 
 // Small store fixture (mirrors STORES shape)
 const STORES_FIX = [
@@ -248,6 +248,74 @@ describe('renderOpsContext', () => {
     assert.ok(txt.includes('2026-05-31'));
     assert.ok(txt.includes('Latte L'));
     assert.ok(txt.includes('possible missing deposits'));
+  });
+});
+
+describe('summarizeTasks', () => {
+  const STORES = [
+    { pc: '339616', name: 'Wadsworth', district: 1 },
+    { pc: '339617', name: 'Front', district: 1 },
+    { pc: '339618', name: 'Sonic', district: 2 },
+  ];
+
+  test('returns unavailable with no instances and no corrective actions', () => {
+    assert.strictEqual(summarizeTasks({ instances: [], correctiveActions: [] }, null, STORES).available, false);
+  });
+
+  test('aggregates totals, per-store, category, backlog and CAs', () => {
+    const r = summarizeTasks({
+      date: '2026-06-24', isToday: true,
+      instances: [
+        { storePC: '339616', status: 'completed', category: 'Food Safety', name: 'AM temps', shiftTime: '5 AM' },
+        { storePC: '339616', status: 'overdue',   category: 'Food Safety', name: 'PM temps', shiftTime: '5 PM' },
+        { storePC: '339617', status: 'missed',    category: 'Cleaning',    name: 'Lobby',    shiftTime: '9 AM' },
+        { storePC: '339618', status: 'open',      category: 'Cleaning',    name: 'Restroom', shiftTime: '1 PM' },
+      ],
+      correctiveActions: [
+        { storePC: '339616', title: 'Walk-in too warm', station: 'Walk-in', assignee: 'Bob', dueDate: '2026-06-25', measuredValue: 45, target: 38, unit: '°F' },
+      ],
+    }, null, STORES);
+    assert.strictEqual(r.available, true);
+    assert.strictEqual(r.totals.all, 4);
+    assert.strictEqual(r.totals.completed, 1);
+    assert.strictEqual(r.totals.overdue, 1);
+    assert.strictEqual(r.totals.missed, 1);
+    assert.strictEqual(r.totals.pct, 25);
+    // worst-completion store sorts first
+    assert.strictEqual(r.byStore[0].pct, 0);
+    assert.strictEqual(r.incomplete.length, 2);
+    assert.strictEqual(r.incomplete[0].status, 'overdue'); // overdue before missed
+    assert.strictEqual(r.correctiveActions.open, 1);
+  });
+
+  test('district scope filters instances and corrective actions', () => {
+    const r = summarizeTasks({
+      date: '2026-06-24', isToday: true,
+      instances: [
+        { storePC: '339616', status: 'completed', category: 'X', name: 'a', shiftTime: '5 AM' },
+        { storePC: '339618', status: 'open', category: 'X', name: 'b', shiftTime: '1 PM' },
+      ],
+      correctiveActions: [{ storePC: '339618', title: 'Y' }],
+    }, 1, STORES);
+    assert.strictEqual(r.totals.all, 1); // only D1 store
+    assert.strictEqual(r.correctiveActions.open, 0); // CA was D2
+  });
+
+  test('renders task section with completion, backlog and corrective actions', () => {
+    const tasks = summarizeTasks({
+      date: '2026-06-24', isToday: true,
+      instances: [
+        { storePC: '339616', status: 'overdue', category: 'Food Safety', name: 'PM temps', shiftTime: '5 PM' },
+      ],
+      correctiveActions: [
+        { storePC: '339616', title: 'Walk-in too warm', measuredValue: 45, target: 38, unit: '°F', assignee: 'Bob', dueDate: '2026-06-25' },
+      ],
+    }, null, STORES);
+    const txt = renderOpsContext({ projects: { available: false }, tickets: { available: false }, tasks, cash: { available: false }, foodCost: { available: false } });
+    assert.ok(txt.includes('OPS TASKS & CHECKLISTS'));
+    assert.ok(txt.includes('PM temps @ Wadsworth'));
+    assert.ok(txt.includes('CORRECTIVE ACTIONS: 1 open'));
+    assert.ok(txt.includes('Walk-in too warm'));
   });
 });
 

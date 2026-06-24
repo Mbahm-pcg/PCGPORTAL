@@ -3,7 +3,7 @@
 // analyst-data.js load blobs and call these. All list lengths are capped for token control.
 
 const DAY_MS = 86400000;
-const LIST_CAPS = { projects: 20, tickets: 15, deposits: 25, missingDeposits: 20, foodItems: 15, critical: 10, upsellStores: 5 };
+const LIST_CAPS = { projects: 20, tickets: 15, deposits: 25, missingDeposits: 20, foodItems: 15, critical: 10, upsellStores: 5, tasks: 15, taskStores: 15, taskCategories: 10, correctiveActions: 12 };
 
 function storesByPc(stores) {
   const m = new Map();
@@ -210,6 +210,68 @@ function summarizeCash(raw, district, now, stores) {
   };
 }
 
+// Ops Tasks & Checklists. `instances` rows arrive with status already computed
+// (open|overdue|missed|completed) by the builder, since open→overdue/missed depends
+// on the shift window vs ET-now. `correctiveActions` are the OPEN ones (out-of-range
+// readings auto-promoted to follow-ups). Aggregates network/district completion,
+// worst stores, the overdue/missed backlog, and open corrective actions.
+const TASK_STATES = ['open', 'overdue', 'missed', 'completed'];
+function summarizeTasks({ instances, correctiveActions, date, isToday } = {}, district, stores) {
+  const inst = Array.isArray(instances) ? instances : [];
+  const cas = Array.isArray(correctiveActions) ? correctiveActions : [];
+  if (inst.length === 0 && cas.length === 0) return { available: false };
+
+  const byPc = storesByPc(stores);
+  const located = inst.map(i => {
+    const store = byPc.get(String(i.storePC));
+    return { ...i, store: store ? store.name : String(i.storePC), district: store ? store.district : null };
+  });
+  const scoped = district ? located.filter(i => i.district === district) : located;
+
+  const blank = () => ({ open: 0, overdue: 0, missed: 0, completed: 0, all: 0 });
+  const withPct = o => ({ ...o, pct: o.all ? Math.round((o.completed / o.all) * 100) : 0 });
+  const totals = blank();
+  const storeMap = {};
+  const catMap = {};
+  for (const i of scoped) {
+    const s = TASK_STATES.includes(i.status) ? i.status : 'open';
+    totals[s]++; totals.all++;
+    const sk = String(i.storePC);
+    if (!storeMap[sk]) storeMap[sk] = { store: i.store, district: i.district, pc: sk, ...blank() };
+    storeMap[sk][s]++; storeMap[sk].all++;
+    const ck = i.category || 'Other';
+    if (!catMap[ck]) catMap[ck] = { category: ck, ...blank() };
+    catMap[ck][s]++; catMap[ck].all++;
+  }
+
+  const byStore = Object.values(storeMap).map(withPct)
+    // worst completion first, ties broken by most overdue+missed, so the cap keeps the problems
+    .sort((a, b) => (a.pct - b.pct) || ((b.overdue + b.missed) - (a.overdue + a.missed)))
+    .slice(0, LIST_CAPS.taskStores);
+  const byCategory = Object.values(catMap).map(withPct)
+    .sort((a, b) => a.pct - b.pct)
+    .slice(0, LIST_CAPS.taskCategories);
+  const incomplete = scoped
+    .filter(i => i.status === 'overdue' || i.status === 'missed')
+    .sort((a, b) => (a.status === b.status ? 0 : a.status === 'overdue' ? -1 : 1)) // overdue (today) before missed (past)
+    .slice(0, LIST_CAPS.tasks)
+    .map(i => ({ store: i.store, district: i.district, name: i.name, shiftTime: i.shiftTime, status: i.status }));
+
+  let locatedCas = cas.map(c => {
+    const store = byPc.get(String(c.storePC));
+    return { ...c, store: store ? store.name : String(c.storePC), district: store ? store.district : null };
+  });
+  if (district) locatedCas = locatedCas.filter(c => c.district === district);
+
+  return {
+    available: true,
+    date, isToday,
+    totals: withPct(totals),
+    byStore, byCategory, incomplete,
+    correctiveActions: { open: locatedCas.length, list: locatedCas.slice(0, LIST_CAPS.correctiveActions) },
+  };
+}
+
 function summarizeFoodCost(tables, computed) {
   const categories = [];
   for (const [category, table] of Object.entries(tables || {})) {
@@ -262,7 +324,7 @@ function compactComputed(blob) {
   return Object.keys(out).length > 0 ? out : null; // null when nothing survived the trim
 }
 
-function renderOpsContext({ projects, tickets, cash, foodCost, upsell } = {}) {
+function renderOpsContext({ projects, tickets, tasks, cash, foodCost, upsell } = {}) {
   const L = [];
 
   L.push('\n\nCONSTRUCTION & PROJECTS:');
@@ -294,6 +356,38 @@ function renderOpsContext({ projects, tickets, cash, foodCost, upsell } = {}) {
       L.push(`  ${t.number} | ${t.store} (D${t.district ?? '?'}) | ${t.title} | ${t.priority} | ${t.status} | owner: ${t.owner || 'unassigned'} | ${t.ageDays ?? '?'}d old${t.dueDate ? ` | due ${t.dueDate}` : ''}`);
     }
     if (tickets.critical.length) L.push(`  CRITICAL/HIGH: ${tickets.critical.map(t => `${t.number} ${t.store} (${t.owner || 'unassigned'})`).join('; ')}`);
+  }
+
+  L.push('\nOPS TASKS & CHECKLISTS (daily shift tasks, temp/quality checks, sign-offs):');
+  if (!tasks || !tasks.available) L.push('  No task data yet.');
+  else {
+    const when = tasks.isToday ? 'today' : `as of ${tasks.date} (latest with data)`;
+    const t = tasks.totals;
+    L.push(`  ${when}: ${t.completed}/${t.all} complete (${t.pct}%) — ${t.open} open, ${t.overdue} overdue, ${t.missed} missed.`);
+    if (tasks.byCategory.length) {
+      L.push(`  By category: ${tasks.byCategory.map(c => `${c.category} ${c.pct}% (${c.completed}/${c.all})`).join('; ')}`);
+    }
+    const storesWithWork = tasks.byStore.filter(s => s.all > 0);
+    if (storesWithWork.length) {
+      L.push('  Lowest-completion stores:');
+      for (const s of storesWithWork) {
+        L.push(`    ${s.store} (D${s.district ?? '?'}): ${s.pct}% (${s.completed}/${s.all}) — ${s.overdue} overdue, ${s.missed} missed`);
+      }
+    }
+    if (tasks.incomplete.length) {
+      L.push(`  Overdue/missed: ${tasks.incomplete.map(i => `${i.name} @ ${i.store} (D${i.district ?? '?'})${i.shiftTime ? ` [${i.shiftTime}]` : ''} — ${i.status}`).join('; ')}`);
+    }
+    const ca = tasks.correctiveActions;
+    if (ca && ca.open > 0) {
+      L.push(`  CORRECTIVE ACTIONS: ${ca.open} open (out-of-range readings needing follow-up).`);
+      for (const c of ca.list) {
+        const meas = c.measuredValue != null
+          ? ` measured ${c.measuredValue}${c.unit || ''}${c.target != null ? ` vs target ${c.target}${c.unit || ''}` : ''}` : '';
+        L.push(`    ${c.store} (D${c.district ?? '?'}): ${c.title}${c.station ? ` [${c.station}]` : ''}${meas}${c.assignee ? ` — owner ${c.assignee}` : ''}${c.dueDate ? ` due ${c.dueDate}` : ''}`);
+      }
+    } else {
+      L.push('  Corrective actions: none open.');
+    }
   }
 
   L.push('\nCASH DEPOSITS:');
@@ -345,4 +439,4 @@ function renderOpsContext({ projects, tickets, cash, foodCost, upsell } = {}) {
   return L.join('\n');
 }
 
-export { summarizeProjects, summarizeTickets, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, LIST_CAPS, renderOpsContext };
+export { summarizeProjects, summarizeTickets, summarizeTasks, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, LIST_CAPS, renderOpsContext };

@@ -15793,7 +15793,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.30";
+  var APP_VERSION = "v17.34";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -27207,6 +27207,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (sidebarNavRef.current) sidebarNavRef.current.scrollTop = sidebarScrollPos.current;
     });
     const [showNotifs, setShowNotifs] = useState(false);
+    const notifRef = useRef(null);
     const [showChatPanel, setShowChatPanel] = useState(false);
     const [chatQuickReply, setChatQuickReply] = useState({ channelId: null, text: "" });
     const [salesWeeks, setSalesWeeks] = useState([]);
@@ -28240,32 +28241,49 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       });
     }, [projects]);
     useEffect(() => {
+      if (!showNotifs) return;
+      const handleOutside = (e) => {
+        if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false);
+      };
+      const handleEsc = (e) => {
+        if (e.key === "Escape") setShowNotifs(false);
+      };
+      document.addEventListener("mousedown", handleOutside);
+      document.addEventListener("keydown", handleEsc);
+      return () => {
+        document.removeEventListener("mousedown", handleOutside);
+        document.removeEventListener("keydown", handleEsc);
+      };
+    }, [showNotifs]);
+    useEffect(() => {
       const mkId = () => `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const checkDeadlines = () => {
         const now = /* @__PURE__ */ new Date();
         const sevenDays = 7 * 24 * 60 * 60 * 1e3;
         const oneDayAgo = now.getTime() - 24 * 60 * 60 * 1e3;
-        const newNotifs = [];
-        for (const p of projects) {
-          if (!p.dueDate) continue;
-          if (p.completed) continue;
-          const due = new Date(p.dueDate);
-          const diff = due - now;
-          const overall = getOverallCompletion(p);
-          if (overall === 100) continue;
-          const recentlyNotified = (type) => notifications.some((n) => n.projectId === p.id && n.type === type && new Date(n.createdAt).getTime() > oneDayAgo);
-          if (diff < 0 && !recentlyNotified("overdue")) {
-            newNotifs.push({ id: mkId(), type: "overdue", projectId: p.id, projectName: p.nickname || p.pc, storePC: p.pc, district: p.district, message: `${p.nickname || p.pc} is overdue`, createdAt: now.toISOString(), read: false });
-          } else if (diff > 0 && diff < sevenDays && !recentlyNotified("deadline_approaching")) {
-            newNotifs.push({ id: mkId(), type: "deadline_approaching", projectId: p.id, projectName: p.nickname || p.pc, storePC: p.pc, district: p.district, message: `${p.nickname || p.pc} due in ${Math.ceil(diff / 864e5)} days`, createdAt: now.toISOString(), read: false });
+        setNotifications((prev) => {
+          const newNotifs = [];
+          for (const p of projects) {
+            if (!p.dueDate) continue;
+            if (p.completed) continue;
+            const due = new Date(p.dueDate);
+            const diff = due - now;
+            const overall = getOverallCompletion(p);
+            if (overall === 100) continue;
+            const recentlyNotified = (type) => prev.some((n) => n.projectId === p.id && n.type === type && new Date(n.createdAt).getTime() > oneDayAgo);
+            if (diff < 0 && !recentlyNotified("overdue")) {
+              newNotifs.push({ id: mkId(), type: "overdue", projectId: p.id, projectName: p.nickname || p.pc, storePC: p.pc, district: p.district, message: `${p.nickname || p.pc} is overdue`, createdAt: now.toISOString(), read: false });
+            } else if (diff > 0 && diff < sevenDays && !recentlyNotified("deadline_approaching")) {
+              newNotifs.push({ id: mkId(), type: "deadline_approaching", projectId: p.id, projectName: p.nickname || p.pc, storePC: p.pc, district: p.district, message: `${p.nickname || p.pc} due in ${Math.ceil(diff / 864e5)} days`, createdAt: now.toISOString(), read: false });
+            }
           }
-        }
-        if (newNotifs.length > 0) setNotifications((prev) => [...newNotifs, ...prev]);
+          return newNotifs.length > 0 ? [...newNotifs, ...prev] : prev;
+        });
       };
       checkDeadlines();
-      const interval = setInterval(checkDeadlines, 36e5);
+      const interval = setInterval(checkDeadlines, 864e5);
       return () => clearInterval(interval);
-    }, [projects.length]);
+    }, [projects.map((p) => `${p.id}:${p.dueDate || ""}:${p.completed ? 1 : 0}`).join("|")]);
     const prevProjectsRef = useRef(projects);
     const getNotifyRecipients = (p) => {
       const perProject = p.notifyEmails ? p.notifyEmails.split(",").map((e) => e.trim()).filter(Boolean) : [];
@@ -29534,16 +29552,49 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     } }, ICONS.menu(th.text)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: isMobile ? 17 : 20, color: th.text, letterSpacing: -0.5 } }, (() => {
       const ct = TABS.find((t) => t.id === tab);
       return ct ? /* @__PURE__ */ React.createElement(React.Fragment, null, typeof ct.icon === "function" ? ct.icon(th.text) : ct.icon, " ", ct.label) : null;
-    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.75rem", marginTop: "0.125rem" } }, tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "cash" && "Deposit tracking and missing-deposit alerts.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "expenses" && "All maintenance expenses across tickets \u2014 review, filter, and approve.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.75rem", marginTop: "0.125rem" } }, tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "cash" && "Deposit tracking and missing-deposit alerts.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "expenses" && "All maintenance expenses across tickets \u2014 review, filter, and approve.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { ref: notifRef, style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setShowNotifs((s) => !s);
       setShowChatPanel(false);
-    }, style: { background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4, display: "flex", alignItems: "center" } }, ICONS.bell(th.text), filterNotifsByRole(notifications, user).filter((n) => !n.read).length > 0 && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -2, right: -4, width: 18, height: 18, borderRadius: "50%", background: "#ff4444", color: "#fff", fontSize: "0.5625rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" } }, filterNotifsByRole(notifications, user).filter((n) => !n.read).length)), showNotifs && (() => {
+    }, style: { background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4, display: "flex", alignItems: "center" } }, ICONS.bell(th.text), filterNotifsByRole(notifications, user).filter((n) => !n.read).length > 0 && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -2, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, background: "#ff4444", color: "#fff", fontSize: "0.5625rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 2px " + (th.headerBg || th.bg) } }, filterNotifsByRole(notifications, user).filter((n) => !n.read).length)), showNotifs && (() => {
       const visibleNotifs = filterNotifsByRole(notifications, user);
-      return /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", right: 0, top: "100%", marginTop: 8, width: 340, maxHeight: 400, overflow: "auto", ...card(th), padding: 0, boxShadow: "0 8px 32px #00000040", zIndex: 999 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 1rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text } }, "Notifications"), visibleNotifs.some((n) => !n.read) && /* @__PURE__ */ React.createElement("button", { onClick: () => setNotifications((ns) => ns.map((n) => ({ ...n, read: true }))), style: { background: "none", border: "none", color: O, fontSize: "0.6875rem", cursor: "pointer", fontWeight: 600 } }, "Mark all read")), visibleNotifs.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem" } }, "No notifications"), visibleNotifs.slice(0, 30).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, onClick: () => {
-        setNotifications((ns) => ns.map((nn) => nn.id === n.id ? { ...nn, read: true } : nn));
-        setTab(n.type === "new_ticket" ? "tickets" : "projects");
-        setShowNotifs(false);
-      }, style: { padding: "0.625rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, cursor: "pointer", background: n.read ? "transparent" : O + "08" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.text, fontWeight: n.read ? 400 : 600 } }, n.type === "phase_change" ? "\u{1F504}" : n.type === "deadline_approaching" ? "\u23F0" : n.type === "overdue" ? "\u{1F534}" : n.type === "new_ticket" ? "\u{1F3AB}" : "\u{1F195}", " ", n.message), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", color: th.muted, marginTop: 2 } }, new Date(n.createdAt).toLocaleString()))));
+      const unreadCount = visibleNotifs.filter((n) => !n.read).length;
+      const meta = {
+        phase_change: { emoji: "\u{1F504}", tint: "#3b82f6" },
+        deadline_approaching: { emoji: "\u23F0", tint: "#f59e0b" },
+        overdue: { emoji: "\u{1F534}", tint: "#ef4444" },
+        new_ticket: { emoji: "\u{1F3AB}", tint: "#8b5cf6" }
+      };
+      const relTime = (iso) => {
+        const t = iso ? new Date(iso).getTime() : NaN;
+        if (!Number.isFinite(t)) return "";
+        const d = (Date.now() - t) / 1e3;
+        if (d < 60) return "just now";
+        if (d < 3600) return `${Math.floor(d / 60)}m ago`;
+        if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
+        if (d < 604800) return `${Math.floor(d / 86400)}d ago`;
+        return new Date(iso).toLocaleDateString();
+      };
+      return /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", right: 0, top: "100%", marginTop: 10, width: 360, maxHeight: 440, display: "flex", flexDirection: "column", ...card(th), padding: 0, overflow: "hidden", boxShadow: "0 12px 40px #00000050", border: `1px solid ${th.cardBorder}`, borderRadius: 14, zIndex: 999 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.875rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "0.9375rem", color: th.text, letterSpacing: "-0.01em" } }, "Notifications"), unreadCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { background: O, color: "#fff", fontSize: "0.625rem", fontWeight: 700, padding: "1px 7px", borderRadius: 10 } }, unreadCount)), unreadCount > 0 && /* @__PURE__ */ React.createElement("button", { onClick: () => setNotifications((ns) => ns.map((n) => ({ ...n, read: true }))), style: { background: "none", border: "none", color: O, fontSize: "0.6875rem", cursor: "pointer", fontWeight: 700 } }, "Mark all read")), /* @__PURE__ */ React.createElement("div", { style: { overflowY: "auto", flex: 1 } }, visibleNotifs.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.75rem", marginBottom: 8, opacity: 0.5 } }, "\u{1F514}"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", fontWeight: 600 } }, "You're all caught up"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", marginTop: 2, opacity: 0.8 } }, "No notifications right now")), visibleNotifs.slice(0, 30).map((n) => {
+        const m = meta[n.type] || { emoji: "\u{1F195}", tint: O };
+        return /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            key: n.id,
+            onClick: () => {
+              setNotifications((ns) => ns.map((nn) => nn.id === n.id ? { ...nn, read: true } : nn));
+              setTab(n.type === "new_ticket" ? "tickets" : "projects");
+              setShowNotifs(false);
+            },
+            onMouseEnter: (e) => e.currentTarget.style.background = th.hover || O + "0d",
+            onMouseLeave: (e) => e.currentTarget.style.background = n.read ? "transparent" : O + "08",
+            style: { display: "flex", gap: 11, alignItems: "flex-start", padding: "0.75rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, cursor: "pointer", background: n.read ? "transparent" : O + "08", transition: "background 0.15s ease", position: "relative" }
+          },
+          !n.read && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: O } }),
+          /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, width: 32, height: 32, borderRadius: 9, background: m.tint + "1f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem" } }, m.emoji),
+          /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.text, fontWeight: n.read ? 500 : 700, lineHeight: 1.35 } }, n.message), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, marginTop: 3, fontWeight: 500 } }, relTime(n.createdAt))),
+          !n.read && /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, width: 8, height: 8, borderRadius: "50%", background: O, marginTop: 4 } })
+        );
+      })));
     })()), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setShowChatPanel((s) => !s);
       setShowNotifs(false);
