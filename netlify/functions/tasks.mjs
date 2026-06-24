@@ -32,8 +32,30 @@ import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { STORE_BY_PC } from './ndcp-lib/store-map.js';
 import { CATALOG, SHIFT_WINDOWS, ITEMS_CATALOG } from './tasks-lib/catalog.js';
+import { STORE_COORDS } from './analyst-lib/store-coords.mjs';
 
 let _tableEnsured = false;
+
+// ── Geofence: stamp a task completion with the submitter's location (opt-in,
+// captured in-browser) and flag whether it's on-site vs the store's coords.
+// Radius is generous — indoor/Wi-Fi GPS is coarse, and we only "flag" (never block).
+const GEOFENCE_M = 250;
+function haversineM(aLat, aLng, bLat, bLng) {
+  const R = 6371000, toR = (x) => (x * Math.PI) / 180;
+  const dLat = toR(bLat - aLat), dLng = toR(bLng - aLng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toR(aLat)) * Math.cos(toR(bLat)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(s)));
+}
+// Returns {lat,lng,acc,dist,onsite} — all null when no coords were sent.
+function geoFromBody(body, storePc) {
+  if (body.lat == null || body.lng == null) return { lat: null, lng: null, acc: null, dist: null, onsite: null };
+  const lat = +body.lat, lng = +body.lng;
+  const acc = body.accuracy != null ? Math.round(+body.accuracy) : null;
+  const sc = STORE_COORDS[String(storePc)];
+  let dist = null, onsite = null;
+  if (sc) { dist = haversineM(lat, lng, sc.lat, sc.lng); onsite = dist <= GEOFENCE_M; }
+  return { lat, lng, acc, dist, onsite };
+}
 
 async function blobLoad(key) {
   const store = getStore({ name: 'pcg-portal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
@@ -251,6 +273,12 @@ async function ensureTable(db) {
   // Phase 5: photo evidence on corrective actions + task instances
   await db`ALTER TABLE corrective_actions ADD COLUMN IF NOT EXISTS photo_url TEXT`;
   await db`ALTER TABLE task_instances ADD COLUMN IF NOT EXISTS photo_url TEXT`;
+  // Phase 6: opt-in geolocation stamp on completion (on-site verification)
+  await db`ALTER TABLE task_instances ADD COLUMN IF NOT EXISTS gps_lat NUMERIC`;
+  await db`ALTER TABLE task_instances ADD COLUMN IF NOT EXISTS gps_lng NUMERIC`;
+  await db`ALTER TABLE task_instances ADD COLUMN IF NOT EXISTS gps_accuracy NUMERIC`;
+  await db`ALTER TABLE task_instances ADD COLUMN IF NOT EXISTS gps_dist_m NUMERIC`;
+  await db`ALTER TABLE task_instances ADD COLUMN IF NOT EXISTS gps_onsite BOOL`;
 }
 
 async function generateInstances(db, storePcs, dateStr) {
@@ -301,6 +329,7 @@ export default async (request, context) => {
                i.shift_time, i.status, i.value, i.note, i.checklist,
                i.completed_by, i.completed_at, i.signed_off_by, i.signed_off_at,
                (i.photo_url IS NOT NULL) AS has_photo,
+               i.gps_onsite, i.gps_dist_m, (i.gps_lat IS NOT NULL) AS has_gps,
                t.name, t.category, t.label, t.input_type, t.task_type,
                t.target, t.min_val, t.max_val, t.unit, t.allow_signoff
         FROM task_instances i JOIN task_templates t ON t.id = i.template_id
@@ -346,6 +375,7 @@ export default async (request, context) => {
       // Simple completion for tasks without items (Phase 1 compat)
       const id = +body.instance_id;
       if (!id) return reply(400, { error: 'instance_id required' });
+      const g = geoFromBody(body, body.store_pc);
       await db`
         UPDATE task_instances SET
           status = 'completed',
@@ -353,9 +383,11 @@ export default async (request, context) => {
           note = ${body.note ?? null},
           checklist = ${body.checklist ? JSON.stringify(body.checklist) : null}::jsonb,
           completed_by = ${body.by ?? null},
-          completed_at = now()
+          completed_at = now(),
+          gps_lat = ${g.lat}, gps_lng = ${g.lng}, gps_accuracy = ${g.acc},
+          gps_dist_m = ${g.dist}, gps_onsite = ${g.onsite}
         WHERE id = ${id}`;
-      return reply(200, { ok: true, instance_id: id });
+      return reply(200, { ok: true, instance_id: id, onsite: g.onsite, dist_m: g.dist });
     }
 
     if (action === 'submit_answers') {
@@ -431,7 +463,10 @@ export default async (request, context) => {
         const photoRequired = inst.input_type === 'photo';
         const photoSatisfied = !photoRequired || !!inst.photo_url;
         if (allItemsDone && photoSatisfied) {
-          await db`UPDATE task_instances SET status='completed', completed_by=${by}, completed_at=now() WHERE id=${instanceId} AND status != 'completed'`;
+          const g = geoFromBody(body, inst.store_pc);
+          await db`UPDATE task_instances SET status='completed', completed_by=${by}, completed_at=now(),
+            gps_lat=${g.lat}, gps_lng=${g.lng}, gps_accuracy=${g.acc}, gps_dist_m=${g.dist}, gps_onsite=${g.onsite}
+            WHERE id=${instanceId} AND status != 'completed'`;
         }
       }
 
@@ -441,7 +476,8 @@ export default async (request, context) => {
     if (action === 'reopen') {
       const id = +body.instance_id;
       if (!id) return reply(400, { error: 'instance_id required' });
-      await db`UPDATE task_instances SET status='open', completed_by=null, completed_at=null, signed_off_by=null, signed_off_at=null WHERE id=${id}`;
+      await db`UPDATE task_instances SET status='open', completed_by=null, completed_at=null, signed_off_by=null, signed_off_at=null,
+        gps_lat=null, gps_lng=null, gps_accuracy=null, gps_dist_m=null, gps_onsite=null WHERE id=${id}`;
       // Remove answers so the form resets
       await db`DELETE FROM task_instance_answers WHERE instance_id = ${id}`;
       return reply(200, { ok: true, instance_id: id });

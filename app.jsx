@@ -18564,7 +18564,6 @@ const getTabs = (user) => {
     ...BASE_TABS,
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
-    { id: "devices",   label: "Devices",      icon: (c) => ICONS.map(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
@@ -19828,7 +19827,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.14";
+const APP_VERSION = "v17.17";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -26894,6 +26893,44 @@ function OpsTasks({ stores, th, user }) {
     return r.json();
   }, []);
 
+  // ── Opt-in location for on-site task verification (per-device, localStorage).
+  // Works on a store tablet OR a personal phone — whoever completes the task.
+  const geoRef = useRef(null); // app-level cache: { lat, lng, accuracy, at }
+  // Low-accuracy (network/Wi-Fi) positioning: faster + reliable indoors where the
+  // wall tablets live and have no GPS chip; the 250m geofence doesn't need precision.
+  const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 };
+  const seedLocation = () => { try { navigator.geolocation?.getCurrentPosition(
+    (p) => { geoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() }; }, () => {}, GEO_OPTS); } catch {} };
+  const [shareLoc, setShareLoc] = useState(() => { try { return localStorage.getItem("pcg_share_location") === "1"; } catch { return false; } });
+  const toggleShareLoc = () => setShareLoc((v) => {
+    const n = !v;
+    try { localStorage.setItem("pcg_share_location", n ? "1" : "0"); } catch {}
+    if (n) seedLocation(); // prompt for permission + warm the cache now, not at first completion
+    return n;
+  });
+  // Resolves {lat,lng,accuracy} or null (opt-out / denied / timeout — never throws).
+  // Reuses an app-level cache for 2 min so a multi-item checklist doesn't re-poll per item.
+  const getLocation = useCallback(() => new Promise((resolve) => {
+    if (!shareLoc || !navigator.geolocation) return resolve(null);
+    const c = geoRef.current;
+    if (c && Date.now() - c.at < 120000) return resolve({ lat: c.lat, lng: c.lng, accuracy: c.accuracy });
+    navigator.geolocation.getCurrentPosition(
+      (p) => { geoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() }; resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }); },
+      () => resolve(null),
+      GEO_OPTS
+    );
+  }), [shareLoc]);
+
+  // On-site verification badge for a completed task (only when location was shared).
+  const gpsBadge = (tk) => {
+    if (!tk.has_gps) return null;
+    const onsite = tk.gps_onsite;
+    const c = onsite === true ? "#2f9e44" : onsite === false ? "#e8590c" : th.muted;
+    const dist = tk.gps_dist_m != null ? (tk.gps_dist_m >= 1000 ? (tk.gps_dist_m / 1000).toFixed(1) + "km" : Math.round(tk.gps_dist_m) + "m") : "";
+    const label = onsite === true ? "📍 On-site" : onsite === false ? `📍 Off-site${dist ? " · " + dist : ""}` : "📍 Located";
+    return <span style={{ fontSize: "0.62rem", fontWeight: 800, color: c, background: `${c}1e`, border: `1px solid ${c}55`, borderRadius: 999, padding: "0.08rem 0.45rem", whiteSpace: "nowrap" }}>{label}</span>;
+  };
+
   const loadStore = useCallback(async (silent = false) => {
     if (!storePc) return;
     if (!silent) setLoading(true);
@@ -26955,7 +26992,8 @@ function OpsTasks({ stores, th, user }) {
   async function completeTask(tk, value) {
     setBusyId(tk.id);
     try {
-      await api("complete", { instance_id: tk.id, value: value ?? null, by: byName });
+      const loc = await getLocation();
+      await api("complete", { instance_id: tk.id, value: value ?? null, by: byName, store_pc: tk.store_pc, ...(loc || {}) });
       setOpenEntry(null); setEntryVal("");
       await loadStore(true);
     } finally { setBusyId(null); }
@@ -26972,10 +27010,13 @@ function OpsTasks({ stores, th, user }) {
     setBusyId(tk.id);
     const key = `${tk.id}_${item.id}_${equip?.id || "null"}`;
     try {
+      const loc = await getLocation();
       await api("submit_answers", {
         instance_id: tk.id,
         answers: [{ item_id: item.id, equipment_id: equip?.id || null, ...answerData }],
         by: byName,
+        store_pc: tk.store_pc,
+        ...(loc || {}),
       });
       setLocalAnswers((prev) => { const n = { ...prev }; delete n[key]; return n; });
       await loadStore(true);
@@ -27132,6 +27173,12 @@ function OpsTasks({ stores, th, user }) {
             <div style={{ ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 }}>{myStore.pc} — {myStore.name}</div>
           )}
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp(th), width: 160 }} />
+          {view === "tasks" && (
+            <button onClick={toggleShareLoc} title="When on, completed tasks are stamped with this device's location to verify they were done on-site."
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "0 0.85rem", minHeight: 40, borderRadius: 999, cursor: "pointer", touchAction: "manipulation", fontSize: "0.78rem", fontWeight: 700, fontFamily: "'Source Sans 3'", whiteSpace: "nowrap", border: `1px solid ${shareLoc ? "#2f9e44" : th.muted + "55"}`, background: shareLoc ? "#2f9e4422" : "transparent", color: shareLoc ? "#2f9e44" : th.muted }}>
+              📍 Location {shareLoc ? "On" : "Off"}
+            </button>
+          )}
         </div>
       )}
 
@@ -27315,7 +27362,7 @@ function OpsTasks({ stores, th, user }) {
                     )}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
                       {done
-                        ? <span style={{ fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700 }}>Completed{tk.completed_by ? ` · ${tk.completed_by}` : ""}{tk.signed_off_by ? ` · Signed off` : ""}</span>
+                        ? <span style={{ fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>Completed{tk.completed_by ? ` · ${tk.completed_by}` : ""}{tk.signed_off_by ? ` · Signed off` : ""}{gpsBadge(tk)}</span>
                         : <span style={{ fontSize: "0.78rem", color: th.muted }}>Enter readings or check off items to record</span>
                       }
                       {done && (
@@ -35731,167 +35778,6 @@ function StoreTabletView({ user, users, stores, th, showAlert, dataAlert, ticket
   );
 }
 
-// ─── Devices — live Hexnode MDM tablet/device GPS (IT/Exec only) ─────────────
-// Reads the cron-cached device list from the hexnode proxy (never calls Hexnode
-// from the browser — the key stays server-side). Map + table of store tablets.
-function AdminDevices({ stores, th, dark, user }) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState('mapped'); // 'mapped' = store tablets w/ GPS | 'all'
-  const mapDiv = useRef(null);
-  const mapRef = useRef(null);
-  const layerRef = useRef(null);
-  const pollRef = useRef(null);
-
-  const load = useCallback(async () => {
-    try {
-      const r = await fetch('/.netlify/functions/hexnode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) });
-      const j = await r.json();
-      if (!j.ok) { setErr(true); setLoading(false); return; }
-      setData(j); setLoading(false); setErr(false);
-      if (j.warming) { if (!pollRef.current) pollRef.current = setInterval(load, 8000); }
-      else if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-    } catch { setErr(true); setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, [load]);
-
-  const refresh = async () => {
-    setRefreshing(true);
-    const before = data?.syncedAt || null;
-    try { await fetch('/.netlify/functions/hexnode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'refresh' }) }); } catch {}
-    // Background sync takes ~35s; poll a handful of times to pull the fresh cache.
-    let tries = 0;
-    const poll = setInterval(async () => {
-      tries++;
-      await load();
-      if (tries >= 6) { clearInterval(poll); setRefreshing(false); }
-    }, 8000);
-  };
-
-  // ── Derive (cheap for ~100 devices; no memo to avoid hook-scope pitfalls) ──
-  const storeByPc = {}; (stores || []).forEach(s => { storeByPc[String(s.pc)] = s; });
-  const now = Date.now();
-  const STALE_MS = 2 * 3600 * 1000;
-  const devices = (data?.devices || []).map(d => {
-    const ageMs = d.locTime ? now - Date.parse(d.locTime) : null;
-    const st = storeByPc[d.pc];
-    return { ...d, ageMs, stale: ageMs == null || ageMs > STALE_MS, storeName: st?.name || d.name, district: st?.district || null };
-  });
-  const hasGps = devices.filter(d => d.lat != null && d.lng != null);
-  const mapped = hasGps.filter(d => d.pc);
-  const shownRows = (filter === 'all' ? devices : mapped).slice().sort((a, b) => (a.pc || 'zz').localeCompare(b.pc || 'zz'));
-  const mapPts = filter === 'all' ? hasGps : mapped;
-  const liveN = mapped.filter(d => !d.stale).length;
-
-  const relTime = (ms) => {
-    if (ms == null) return 'never';
-    const m = Math.round(ms / 60000);
-    if (m < 1) return 'just now';
-    if (m < 60) return m + 'm ago';
-    const h = Math.round(m / 60); if (h < 24) return h + 'h ago';
-    return Math.round(h / 24) + 'd ago';
-  };
-
-  // Init Leaflet once
-  useEffect(() => {
-    if (!mapDiv.current || !window.L || mapRef.current) return;
-    const L = window.L;
-    mapRef.current = L.map(mapDiv.current, { attributionControl: false, zoomControl: true, scrollWheelZoom: true }).setView([40.05, -75.18], 9);
-    L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, { subdomains: 'abcd', maxZoom: 19 }).addTo(mapRef.current);
-    layerRef.current = L.layerGroup().addTo(mapRef.current);
-    // Container may mount at zero size on first paint — recalc once laid out.
-    setTimeout(() => { try { mapRef.current && mapRef.current.invalidateSize(); } catch {} }, 200);
-  }, [dark]);
-
-  // Render markers when data/filter changes
-  useEffect(() => {
-    if (!mapRef.current || !layerRef.current || !window.L) return;
-    const L = window.L;
-    layerRef.current.clearLayers();
-    const bounds = [];
-    mapPts.forEach(d => {
-      const color = d.stale ? '#9ca3af' : '#22c55e';
-      const icon = L.divIcon({ className: '', html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 1.5px ${color}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] });
-      const m = L.marker([d.lat, d.lng], { icon }).addTo(layerRef.current);
-      m.bindPopup(`<b>${d.storeName || d.name}</b><br>${d.pc ? '#' + d.pc : '(unmapped)'} · ${d.model || ''}<br>${d.stale ? '⚠ stale' : '● live'} — ${d.locTime ? new Date(d.locTime).toLocaleString() : 'no GPS time'}`);
-      bounds.push([d.lat, d.lng]);
-    });
-    if (bounds.length) { try { mapRef.current.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 }); } catch {} }
-  }, [data, filter]);
-
-  const Pill = ({ n, label, color }) => <div style={{ ...card(th), padding: '0.6rem 0.9rem', textAlign: 'center', minWidth: 92 }}><div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.35rem', color }}>{n}</div><div style={{ color: th.muted, fontSize: '0.58rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.6 }}>{label}</div></div>;
-
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
-        <h2 style={{ ...pageTitle(th), margin: 0 }}>Devices</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {data?.syncedAt && <span style={{ fontSize: '0.72rem', color: th.muted }}>Synced {relTime(now - Date.parse(data.syncedAt))}</span>}
-          <button onClick={refresh} disabled={refreshing} style={{ ...btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem', opacity: refreshing ? 0.5 : 1 }) }}>
-            {refreshing ? 'Syncing…' : 'Refresh'}
-          </button>
-        </div>
-      </div>
-
-      {loading ? <div style={{ ...card(th), padding: '2.5rem', textAlign: 'center', color: th.muted }}>Loading devices…</div>
-        : err ? <div style={{ ...card(th), padding: '2.5rem', textAlign: 'center', color: '#ef4444' }}>Couldn’t reach Hexnode. Try Refresh in a moment.</div>
-        : data?.warming ? <div style={{ ...card(th), padding: '2.5rem', textAlign: 'center', color: th.muted }}>Syncing devices from Hexnode for the first time — this can take ~30s. This will refresh automatically.</div>
-        : (
-        <>
-          <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-            <Pill n={mapped.length} label="Store Tablets" color={th.text} />
-            <Pill n={liveN} label="Live (<2h)" color="#22c55e" />
-            <Pill n={mapped.length - liveN} label="Stale" color="#9ca3af" />
-            <Pill n={devices.length} label="Total Enrolled" color={th.muted} />
-          </div>
-
-          <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.85rem' }}>
-            {[['mapped', 'Store tablets'], ['all', 'All devices']].map(([k, l]) => (
-              <button key={k} onClick={() => setFilter(k)} style={{ ...btn(th, { padding: '0.3rem 0.75rem', fontSize: '0.72rem', background: filter === k ? O : th.card3, color: filter === k ? '#fff' : th.muted, border: filter === k ? 'none' : `1px solid ${th.cardBorder}` }) }}>{l}</button>
-            ))}
-          </div>
-
-          <div ref={mapDiv} style={{ height: 420, borderRadius: '0.75rem', overflow: 'hidden', border: `1px solid ${th.cardBorder}`, marginBottom: '1.1rem' }} />
-
-          <div style={{ ...card(th), padding: 0, overflow: 'hidden' }}>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                <thead>
-                  <tr style={{ background: th.card2, color: th.muted, textAlign: 'left' }}>
-                    {['Store / Device', 'PC', 'Model', 'Last GPS', 'Status', 'Coords'].map(h => <th key={h} style={{ padding: '0.6rem 0.8rem', fontWeight: 800, fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: 0.6, whiteSpace: 'nowrap' }}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {shownRows.map(d => (
-                    <tr key={d.id} style={{ borderTop: `1px solid ${th.cardBorder}` }}>
-                      <td style={{ padding: '0.55rem 0.8rem', color: th.text, fontWeight: 600 }}>{d.storeName || d.name || '—'}{d.district ? <span style={{ color: th.muted, fontWeight: 400 }}> · D{d.district}</span> : null}</td>
-                      <td style={{ padding: '0.55rem 0.8rem', color: th.muted }}>{d.pc || <span style={{ color: '#f59e0b' }}>unmapped</span>}</td>
-                      <td style={{ padding: '0.55rem 0.8rem', color: th.muted, whiteSpace: 'nowrap' }}>{d.model || '—'}</td>
-                      <td style={{ padding: '0.55rem 0.8rem', color: th.muted, whiteSpace: 'nowrap' }}>{relTime(d.ageMs)}</td>
-                      <td style={{ padding: '0.55rem 0.8rem', whiteSpace: 'nowrap' }}>
-                        {d.lat == null ? <span style={{ color: th.subtle }}>no GPS</span>
-                          : <span style={{ color: d.stale ? '#9ca3af' : '#22c55e', fontWeight: 700 }}>{d.stale ? '⚠ stale' : '● live'}</span>}
-                      </td>
-                      <td style={{ padding: '0.55rem 0.8rem', whiteSpace: 'nowrap' }}>
-                        {d.lat != null ? <a href={`https://maps.google.com/?q=${d.lat},${d.lng}`} target="_blank" rel="noreferrer" style={{ color: O, textDecoration: 'none' }}>{d.lat.toFixed(4)}, {d.lng.toFixed(4)}</a> : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                  {shownRows.length === 0 && <tr><td colSpan={6} style={{ padding: '1.5rem', textAlign: 'center', color: th.muted }}>No devices match this filter.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div style={{ fontSize: '0.66rem', color: th.muted, marginTop: '0.6rem' }}>GPS via Hexnode MDM, polled every 15 min. “Unmapped” devices need renaming in Hexnode to <code>{'{PC} - {Name}'}</code> to link to a store.</div>
-        </>
-      )}
-    </div>
-  );
-}
-
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
@@ -37695,7 +37581,7 @@ function PCGPortal() {
   const ADMIN_GROUPS = [
     { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['tasks', 'pulse', 'labor', 'analytics', 'anomalies', 'scorecard'] },
     { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon', 'expenses'] },
-    { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'devices', 'locations', 'impact', 'projects', 'deals', 'users'] },
+    { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'impact', 'projects', 'deals', 'users'] },
     { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'admin'] },
   ];
 
@@ -38335,7 +38221,6 @@ function PCGPortal() {
                 {tab === "chat" && "Team messaging and direct messages."}
                 {tab === "announcements" && "Company-wide announcements and updates."}
                 {tab === "map"       && "Real-time view of all 45+ stores — color-coded by labor %, live who's clocked in, open tickets per pin."}
-                {tab === "devices"   && "Live GPS of store tablets from Hexnode MDM — location, last check-in, and which stores are online."}
                 {tab === "anomalies"  && "Rolling per-store baselines — flags unusual sales or labor patterns for this store's day-of-week history."}
                 {tab === "scorecard"  && "Weekly DM ranking — composite score across labor efficiency, sales growth, alert response time, and ticket health."}
                 {tab === "calendar"  && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates."}
@@ -38648,7 +38533,6 @@ function PCGPortal() {
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
           {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district)} th={th} setTab={setTab} />}
-          {tab === "devices"   && isFullAdmin(user) && <AdminDevices stores={stores} th={th} dark={dark} user={user} />}
           {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? stores : stores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
           {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={stores} salesWeeks={salesWeeks} />}
           {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} />}
