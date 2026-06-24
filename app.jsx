@@ -3580,7 +3580,7 @@ function StoreMap({ stores, th, setTab }) {
           try {
             const res = await fetch('/.netlify/functions/pulse', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ api: pc === '345986' ? 'p227' : 'p228', endpoint: 'getGuestChecks', locRef: pc, busDt: today, include: 'guestChecks.opnUTC,guestChecks.chkTtl' }),
+              body: JSON.stringify({ api: pc === '345986' ? 'p227' : 'p228', endpoint: 'getGuestChecks', locRef: pc, busDt: today, include: 'guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl' }),
             });
             if (!res.ok) return;
             const j = await res.json();
@@ -3591,7 +3591,7 @@ function StoreMap({ stores, th, setTab }) {
               const dt = new Date(raw.endsWith('Z') ? raw : raw + 'Z');
               if (isNaN(dt.getTime())) continue;
               const h = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', hour12: false }).format(dt), 10) % 24;
-              hours[h] += c.chkTtl || 0;
+              hours[h] += (c.subTtl != null ? c.subTtl : (c.chkTtl || 0)); // net (pre-tax) to match POS
             }
             results[pc] = hours;
           } catch {}
@@ -7553,7 +7553,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
             const dt = new Date(raw.endsWith('Z') ? raw : raw + 'Z');
             if (isNaN(dt.getTime())) continue;
             const h = dt.getHours();
-            hourly[h].sales += c.chkTtl || c.subTtl || 0;
+            // Net sales (subTtl, pre-tax) to match the POS "Net Sal" report; chkTtl
+            // is gross (incl. tax) and ran ~8% high vs the POS hourly totals.
+            hourly[h].sales += (c.subTtl != null ? c.subTtl : (c.chkTtl || 0));
             hourly[h].count += 1;
           }
         }
@@ -9181,7 +9183,9 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
             const dt = new Date(raw.endsWith('Z') ? raw : raw + 'Z');
             if (isNaN(dt.getTime())) continue;
             const h = dt.getHours();
-            hourly[h].sales += c.chkTtl || c.subTtl || 0;
+            // Net sales (subTtl, pre-tax) to match the POS "Net Sal" report; chkTtl
+            // is gross (incl. tax) and ran ~8% high vs the POS hourly totals.
+            hourly[h].sales += (c.subTtl != null ? c.subTtl : (c.chkTtl || 0));
             hourly[h].count += 1;
           }
         }
@@ -19277,7 +19281,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         for (const ck of checkRes.guestChecks) {
           const raw = ck.opnUTC || '';
           const dt = raw ? new Date(raw.endsWith('Z') ? raw : raw + 'Z') : null;
-          if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += ck.chkTtl || ck.subTtl || 0;
+          if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += (ck.subTtl != null ? ck.subTtl : (ck.chkTtl || 0));
         }
         setHourly(h);
         // Cache hourly so historical days can show the chart
@@ -19364,7 +19368,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
           for (const ck of checkRes.guestChecks) {
             const raw = ck.opnUTC || '';
             const dt = raw ? new Date(raw.endsWith('Z') ? raw : raw + 'Z') : null;
-            if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += ck.chkTtl || ck.subTtl || 0;
+            if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += (ck.subTtl != null ? ck.subTtl : (ck.chkTtl || 0));
           }
           hourlyData = h;
         }
@@ -19827,7 +19831,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.27";
+const APP_VERSION = "v17.30";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -27854,7 +27858,7 @@ function OpsTasks({ stores, th, user }) {
         const completedAt = tk.completed_at ? new Date(tk.completed_at) : null;
         const completedStr = completedAt ? completedAt.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : null;
         return (
-          <div ref={photoDetailRef} style={{ position: "fixed", inset: 0, zIndex: 9990, background: th.bg, color: th.text, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          <div ref={photoDetailRef} style={{ position: "fixed", inset: 0, zIndex: 9990, background: th.bg, color: th.text, overflowY: "auto", overflowAnchor: "none", display: "flex", flexDirection: "column" }}>
             {/* Header bar */}
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.9rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, background: th.sidebar, position: "sticky", top: 0, zIndex: 1 }}>
               <button onClick={() => setPhotoDetail(null)} style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "transparent", border: "none", color: O, fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", padding: "0.35rem 0.5rem", borderRadius: 8, minHeight: 40, touchAction: "manipulation" }}>
@@ -27896,6 +27900,7 @@ function OpsTasks({ stores, th, user }) {
                 <img
                   src={photoDetail.url}
                   alt="Task photo proof"
+                  onLoad={() => { if (photoDetailRef.current) photoDetailRef.current.scrollTop = 0; }}
                   style={{ width: "100%", display: "block", objectFit: "contain", maxHeight: "65vh" }}
                 />
               </div>

@@ -585,6 +585,7 @@ export default async (request, context) => {
       const id = +body.instance_id;
       if (!id) return reply(400, { error: 'instance_id required' });
       await db`UPDATE task_instances SET status='open', completed_by=null, completed_at=null, signed_off_by=null, signed_off_at=null,
+        photo_url=null, value=null, note=null, checklist=null,
         gps_lat=null, gps_lng=null, gps_accuracy=null, gps_dist_m=null, gps_onsite=null WHERE id=${id}`;
       // Remove answers so the form resets
       await db`DELETE FROM task_instance_answers WHERE instance_id = ${id}`;
@@ -685,29 +686,37 @@ export default async (request, context) => {
       const photoUrl = body.photo_url || null;
       if (photoUrl && photoUrl.length > 400000) return reply(413, { error: 'photo too large' });
       const by = body.by || null;
-      // Fetch task name for the DM notification
+      // Look up the task + whether it still has outstanding checklist items.
       const taskRow = await db`
-        SELECT t.name FROM task_instances i
+        SELECT i.template_id, t.name FROM task_instances i
         JOIN task_templates t ON t.id = i.template_id
         WHERE i.id = ${id} AND i.store_pc = ${storePc}
         LIMIT 1`;
-      const taskName = taskRow[0]?.name || 'Task';
-      // Auto-complete photo tasks when a photo is saved — geofence it too, so photo
-      // tasks are GPS-verified just like checklist/temp completions.
+      if (!taskRow.length) return reply(404, { error: 'instance not found' });
+      const taskName = taskRow[0].name || 'Task';
+      const tplId = taskRow[0].template_id;
+      const [{ cnt: itemCnt }] = await db`SELECT count(*)::int AS cnt FROM task_template_items WHERE template_id = ${tplId}`;
+      const [{ cnt: equipCnt }] = await db`SELECT count(*)::int AS cnt FROM task_template_equipment WHERE template_id = ${tplId}`;
+      const [{ cnt: ansCnt }] = await db`SELECT count(*)::int AS cnt FROM task_instance_answers WHERE instance_id = ${id}`;
+      const totalExpected = itemCnt > 0 ? itemCnt * Math.max(1, equipCnt) : 0;
+      // A photo only COMPLETES the task when there are no outstanding checklist items
+      // (a pure photo task, or all items already answered). For a multi-item task the
+      // photo is just attached — completion happens via submit_answers when items are done.
+      const complete = totalExpected === 0 || ansCnt >= totalExpected;
       const g = geoFromBody(body, body.store_pc);
-      await db`
-        UPDATE task_instances
-        SET photo_url=${photoUrl},
-            status='completed',
-            completed_by=${by},
-            completed_at=NOW(),
-            gps_lat=${g.lat}, gps_lng=${g.lng}, gps_accuracy=${g.acc},
-            gps_dist_m=${g.dist}, gps_onsite=${g.onsite}
-        WHERE id=${id} AND store_pc=${storePc}
-      `;
+      if (complete) {
+        await db`
+          UPDATE task_instances
+          SET photo_url=${photoUrl}, status='completed', completed_by=${by}, completed_at=NOW(),
+              gps_lat=${g.lat}, gps_lng=${g.lng}, gps_accuracy=${g.acc},
+              gps_dist_m=${g.dist}, gps_onsite=${g.onsite}
+          WHERE id=${id} AND store_pc=${storePc}`;
+      } else {
+        await db`UPDATE task_instances SET photo_url=${photoUrl} WHERE id=${id} AND store_pc=${storePc}`;
+      }
       // Notify DM (fire-and-forget)
       sendPhotoPush(storePc, taskName, by).catch((e) => console.warn('[tasks] photo push:', e.message));
-      return reply(200, { ok: true, instance_id: id });
+      return reply(200, { ok: true, instance_id: id, completed: complete });
     }
 
     if (action === 'get_task_photo') {

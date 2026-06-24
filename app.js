@@ -4055,7 +4055,7 @@
               const res = await fetch("/.netlify/functions/pulse", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ api: pc === "345986" ? "p227" : "p228", endpoint: "getGuestChecks", locRef: pc, busDt: today, include: "guestChecks.opnUTC,guestChecks.chkTtl" })
+                body: JSON.stringify({ api: pc === "345986" ? "p227" : "p228", endpoint: "getGuestChecks", locRef: pc, busDt: today, include: "guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl" })
               });
               if (!res.ok) return;
               const j = await res.json();
@@ -4066,7 +4066,7 @@
                 const dt = new Date(raw.endsWith("Z") ? raw : raw + "Z");
                 if (isNaN(dt.getTime())) continue;
                 const h = parseInt(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }).format(dt), 10) % 24;
-                hours[h] += c.chkTtl || 0;
+                hours[h] += c.subTtl != null ? c.subTtl : c.chkTtl || 0;
               }
               results[pc] = hours;
             } catch {
@@ -7130,7 +7130,7 @@
               const dt2 = new Date(raw.endsWith("Z") ? raw : raw + "Z");
               if (isNaN(dt2.getTime())) continue;
               const h = dt2.getHours();
-              hourly[h].sales += c.chkTtl || c.subTtl || 0;
+              hourly[h].sales += c.subTtl != null ? c.subTtl : c.chkTtl || 0;
               hourly[h].count += 1;
             }
           }
@@ -8270,7 +8270,7 @@
               const dt2 = new Date(raw.endsWith("Z") ? raw : raw + "Z");
               if (isNaN(dt2.getTime())) continue;
               const h = dt2.getHours();
-              hourly[h].sales += c.chkTtl || c.subTtl || 0;
+              hourly[h].sales += c.subTtl != null ? c.subTtl : c.chkTtl || 0;
               hourly[h].count += 1;
             }
           }
@@ -15516,7 +15516,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           for (const ck of checkRes.guestChecks) {
             const raw = ck.opnUTC || "";
             const dt = raw ? new Date(raw.endsWith("Z") ? raw : raw + "Z") : null;
-            if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += ck.chkTtl || ck.subTtl || 0;
+            if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += ck.subTtl != null ? ck.subTtl : ck.chkTtl || 0;
           }
           setHourly(h);
           try {
@@ -15597,7 +15597,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             for (const ck of checkRes.guestChecks) {
               const raw = ck.opnUTC || "";
               const dt = raw ? new Date(raw.endsWith("Z") ? raw : raw + "Z") : null;
-              if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += ck.chkTtl || ck.subTtl || 0;
+              if (dt && !isNaN(dt.getTime())) h[dt.getHours()].sales += ck.subTtl != null ? ck.subTtl : ck.chkTtl || 0;
             }
             hourlyData = h;
           }
@@ -15793,7 +15793,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.27";
+  var APP_VERSION = "v17.30";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -21250,11 +21250,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       const tk = photoDetail.task;
       const completedAt = tk.completed_at ? new Date(tk.completed_at) : null;
       const completedStr = completedAt ? completedAt.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : null;
-      return /* @__PURE__ */ React.createElement("div", { ref: photoDetailRef, style: { position: "fixed", inset: 0, zIndex: 9990, background: th.bg, color: th.text, overflowY: "auto", display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.9rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, background: th.sidebar, position: "sticky", top: 0, zIndex: 1 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoDetail(null), style: { display: "flex", alignItems: "center", gap: "0.4rem", background: "transparent", border: "none", color: O, fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", padding: "0.35rem 0.5rem", borderRadius: 8, minHeight: 40, touchAction: "manipulation" } }, "\u2190 Back"), /* @__PURE__ */ React.createElement("span", { style: { flex: 1, fontWeight: 700, fontSize: "0.9rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "Task Photo")), /* @__PURE__ */ React.createElement("div", { style: { padding: "1.25rem 1rem", display: "flex", flexDirection: "column", gap: "1rem", maxWidth: 600, width: "100%", margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: th.muted, marginBottom: "0.3rem" } }, tk.category, tk.shift_time ? ` \xB7 ${tk.shift_time}` : ""), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.75rem" } }, tk.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, minWidth: 100 } }, "Status"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", fontWeight: 700, color: "#2f9e44", background: "#2f9e4418", padding: "0.15rem 0.6rem", borderRadius: 99 } }, "Completed")), tk.completed_by && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, minWidth: 100 } }, "Completed by"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, tk.completed_by)), completedStr && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, minWidth: 100 } }, "Completed at"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, completedStr)))), /* @__PURE__ */ React.createElement("div", { style: { borderRadius: 14, overflow: "hidden", border: `1px solid ${th.cardBorder}`, background: th.card } }, /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement("div", { ref: photoDetailRef, style: { position: "fixed", inset: 0, zIndex: 9990, background: th.bg, color: th.text, overflowY: "auto", overflowAnchor: "none", display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.9rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, background: th.sidebar, position: "sticky", top: 0, zIndex: 1 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoDetail(null), style: { display: "flex", alignItems: "center", gap: "0.4rem", background: "transparent", border: "none", color: O, fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", padding: "0.35rem 0.5rem", borderRadius: 8, minHeight: 40, touchAction: "manipulation" } }, "\u2190 Back"), /* @__PURE__ */ React.createElement("span", { style: { flex: 1, fontWeight: 700, fontSize: "0.9rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "Task Photo")), /* @__PURE__ */ React.createElement("div", { style: { padding: "1.25rem 1rem", display: "flex", flexDirection: "column", gap: "1rem", maxWidth: 600, width: "100%", margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: th.muted, marginBottom: "0.3rem" } }, tk.category, tk.shift_time ? ` \xB7 ${tk.shift_time}` : ""), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.75rem" } }, tk.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, minWidth: 100 } }, "Status"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", fontWeight: 700, color: "#2f9e44", background: "#2f9e4418", padding: "0.15rem 0.6rem", borderRadius: 99 } }, "Completed")), tk.completed_by && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, minWidth: 100 } }, "Completed by"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, tk.completed_by)), completedStr && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, minWidth: 100 } }, "Completed at"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, completedStr)))), /* @__PURE__ */ React.createElement("div", { style: { borderRadius: 14, overflow: "hidden", border: `1px solid ${th.cardBorder}`, background: th.card } }, /* @__PURE__ */ React.createElement(
         "img",
         {
           src: photoDetail.url,
           alt: "Task photo proof",
+          onLoad: () => {
+            if (photoDetailRef.current) photoDetailRef.current.scrollTop = 0;
+          },
           style: { width: "100%", display: "block", objectFit: "contain", maxHeight: "65vh" }
         }
       )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, textAlign: "center" } }, "Photo proof of task completion")));
