@@ -371,6 +371,45 @@ export default async (request, context) => {
       return reply(200, { store_pc: storePc, date, counts: totals, tasks });
     }
 
+    if (action === 'gps_audit') {
+      // IT/Exec/DM review: completions flagged off-site, or missing location on a
+      // store-day where location was otherwise active (i.e. one slipped through).
+      // Stores that never enabled location aren't flagged (keeps it low-noise).
+      const from = String(body.from || ''), to = String(body.to || '');
+      const pcs = (Array.isArray(body.store_pcs) ? body.store_pcs : []).map(String);
+      if (!from || !to) return reply(400, { error: 'from and to required' });
+      if (!pcs.length) return reply(200, { exceptions: [], summary: { total: 0, withGps: 0, offsite: 0, noLocation: 0 }, from, to });
+      const rows = await db`
+        SELECT i.id, i.store_pc, i.business_date::text AS business_date, i.completed_at, i.completed_by,
+               i.gps_onsite, i.gps_dist_m, i.gps_lat, i.gps_lng, (i.gps_lat IS NOT NULL) AS has_gps, t.name, t.category
+        FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+        WHERE i.status = 'completed' AND i.business_date BETWEEN ${from} AND ${to}
+          AND i.store_pc = ANY(${pcs})
+        ORDER BY i.completed_at DESC NULLS LAST`;
+      const activeDay = new Set();
+      for (const r of rows) if (r.has_gps) activeDay.add(r.store_pc + '|' + r.business_date);
+      const exceptions = rows
+        .filter(r => r.gps_onsite === false || (!r.has_gps && activeDay.has(r.store_pc + '|' + r.business_date)))
+        .map(r => ({ id: r.id, store_pc: r.store_pc, date: r.business_date, at: r.completed_at, by: r.completed_by,
+          name: r.name, category: r.category, dist_m: r.gps_dist_m,
+          status: r.gps_onsite === false ? 'offsite' : 'no_location' }));
+      // Map points: every completion that has coordinates (on-site + off-site).
+      const points = rows.filter(r => r.gps_lat != null && r.gps_lng != null).map(r => ({
+        id: r.id, store_pc: r.store_pc, date: r.business_date, by: r.completed_by, name: r.name,
+        lat: Number(r.gps_lat), lng: Number(r.gps_lng), onsite: r.gps_onsite, dist_m: r.gps_dist_m,
+      }));
+      const summary = {
+        total: rows.length,
+        withGps: rows.filter(r => r.has_gps).length,
+        onsite: rows.filter(r => r.gps_onsite === true).length,
+        offsite: rows.filter(r => r.gps_onsite === false).length,
+        // Has coords but no store-coords to geofence against → can't confirm on-site.
+        unverified: rows.filter(r => r.has_gps && r.gps_onsite == null).length,
+        noLocation: exceptions.filter(e => e.status === 'no_location').length,
+      };
+      return reply(200, { exceptions, points, summary, from, to });
+    }
+
     if (action === 'complete') {
       // Simple completion for tasks without items (Phase 1 compat)
       const id = +body.instance_id;

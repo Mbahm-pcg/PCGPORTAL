@@ -15793,7 +15793,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.17";
+  var APP_VERSION = "v17.23";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -20500,6 +20500,13 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [cas, setCas] = useState(null);
     const [caFilter, setCaFilter] = useState("open");
     const [loadingCAs, setLoadingCAs] = useState(false);
+    const [gpsRows, setGpsRows] = useState(null);
+    const [gpsLoading, setGpsLoading] = useState(false);
+    const [gpsDays, setGpsDays] = useState(7);
+    const [gpsTab, setGpsTab] = useState("list");
+    const gpsMapDiv = useRef(null);
+    const gpsMapRef = useRef(null);
+    const gpsLayerRef = useRef(null);
     const [photoLightbox, setPhotoLightbox] = useState(null);
     const [photoUrls, setPhotoUrls] = useState({});
     const [photoDetail, setPhotoDetail] = useState(null);
@@ -20535,35 +20542,86 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }, []);
     const geoRef = useRef(null);
     const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 6e4, timeout: 8e3 };
-    const seedLocation = () => {
+    const locDefaultOn = user?.userType === "store_tablet";
+    const [shareLoc, setShareLoc] = useState(() => {
       try {
-        navigator.geolocation?.getCurrentPosition(
-          (p) => {
-            geoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() };
-          },
-          () => {
-          },
-          GEO_OPTS
-        );
+        const v = localStorage.getItem("pcg_share_location");
+        if (v === "1") return true;
+        if (v === "0") return false;
+        return locDefaultOn;
+      } catch {
+        return locDefaultOn;
+      }
+    });
+    const [locAsked, setLocAsked] = useState(() => {
+      try {
+        return localStorage.getItem("pcg_share_location") != null;
+      } catch {
+        return true;
+      }
+    });
+    const [locDenied, setLocDenied] = useState(false);
+    const persistLoc = (on) => {
+      try {
+        localStorage.setItem("pcg_share_location", on ? "1" : "0");
       } catch {
       }
     };
-    const [shareLoc, setShareLoc] = useState(() => {
-      try {
-        return localStorage.getItem("pcg_share_location") === "1";
-      } catch {
-        return false;
+    useEffect(() => {
+      if (!navigator.permissions?.query) return;
+      let perm;
+      navigator.permissions.query({ name: "geolocation" }).then((p) => {
+        perm = p;
+        const apply = () => {
+          const denied = p.state === "denied";
+          setLocDenied(denied);
+          if (denied) geoRef.current = null;
+        };
+        apply();
+        p.onchange = apply;
+      }).catch(() => {
+      });
+      return () => {
+        if (perm) perm.onchange = null;
+      };
+    }, []);
+    const enableLocation = () => {
+      setLocAsked(true);
+      if (!navigator.geolocation) {
+        setShareLoc(false);
+        persistLoc(false);
+        return;
       }
-    });
-    const toggleShareLoc = () => setShareLoc((v) => {
-      const n = !v;
-      try {
-        localStorage.setItem("pcg_share_location", n ? "1" : "0");
-      } catch {
-      }
-      if (n) seedLocation();
-      return n;
-    });
+      setShareLoc(true);
+      persistLoc(true);
+      navigator.geolocation.getCurrentPosition(
+        (p) => {
+          geoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() };
+          setLocDenied(false);
+        },
+        (err) => {
+          if (err && err.code === 1) {
+            setShareLoc(false);
+            persistLoc(false);
+            setLocDenied(true);
+          }
+        },
+        GEO_OPTS
+      );
+    };
+    const disableLocation = () => {
+      setShareLoc(false);
+      persistLoc(false);
+      setLocAsked(true);
+    };
+    const toggleShareLoc = () => {
+      if (shareLoc) disableLocation();
+      else enableLocation();
+    };
+    const answerLocPrompt = (enable) => {
+      if (enable) enableLocation();
+      else disableLocation();
+    };
     const getLocation = useCallback(() => new Promise((resolve) => {
       if (!shareLoc || !navigator.geolocation) return resolve(null);
       const c = geoRef.current;
@@ -20633,6 +20691,19 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       setCas(r.corrective_actions || []);
       setLoadingCAs(false);
     }, [api, isManager, myStore, isDM, user]);
+    const loadGps = useCallback(async () => {
+      setGpsLoading(true);
+      try {
+        const to = todayET();
+        const d = /* @__PURE__ */ new Date(to + "T12:00:00");
+        d.setDate(d.getDate() - (gpsDays - 1));
+        const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const r = await api("gps_audit", { from, to, store_pcs: scopeStores.map((s) => String(s.pc)) });
+        setGpsRows(r);
+      } finally {
+        setGpsLoading(false);
+      }
+    }, [api, gpsDays, scopeStores]);
     useEffect(() => {
       if (view === "tasks" || view === "dashboard") loadStore();
     }, [view, loadStore]);
@@ -20642,6 +20713,62 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     useEffect(() => {
       if (view === "cas") loadCAs();
     }, [view, loadCAs]);
+    useEffect(() => {
+      if (view === "gps") loadGps();
+    }, [view, gpsDays]);
+    useEffect(() => {
+      if (view !== "gps" || gpsTab !== "map" || !gpsRows || !gpsMapDiv.current || !window.L) return;
+      const L = window.L;
+      if (!gpsMapRef.current) {
+        gpsMapRef.current = L.map(gpsMapDiv.current, { attributionControl: false, zoomControl: true, scrollWheelZoom: true }).setView([40.05, -75.18], 9);
+        L.tileLayer(`https://{s}.basemaps.cartocdn.com/${th.dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, { subdomains: "abcd", maxZoom: 19 }).addTo(gpsMapRef.current);
+        gpsLayerRef.current = L.layerGroup().addTo(gpsMapRef.current);
+      }
+      gpsLayerRef.current.clearLayers();
+      const bounds = [];
+      (gpsRows.points || []).forEach((p) => {
+        const color = p.onsite === true ? "#2f9e44" : p.onsite === false ? "#e8590c" : "#9ca3af";
+        const icon = L.divIcon({ className: "", html: `<div style="width:13px;height:13px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 1.5px ${color}"></div>`, iconSize: [13, 13], iconAnchor: [6.5, 6.5] });
+        const nm = (stores || []).find((s) => String(s.pc) === String(p.store_pc));
+        const dist = p.dist_m != null ? p.dist_m >= 1e3 ? (p.dist_m / 1e3).toFixed(1) + "km" : Math.round(p.dist_m) + "m" : "";
+        const verdict = p.onsite === true ? "\u25CF On-site" : p.onsite === false ? "\u26A0 Off-site" + (dist ? " \xB7 " + dist : "") : "\u25CF Unverified (no store coords)";
+        L.marker([p.lat, p.lng], { icon }).addTo(gpsLayerRef.current).bindPopup(`<b>${nm?.name || p.store_pc}</b><br>${p.name}<br>${verdict}${p.by ? " \xB7 " + p.by : ""}`);
+        bounds.push([p.lat, p.lng]);
+      });
+      if (bounds.length) {
+        try {
+          gpsMapRef.current.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
+        } catch {
+        }
+      }
+      setTimeout(() => {
+        try {
+          gpsMapRef.current && gpsMapRef.current.invalidateSize();
+        } catch {
+        }
+      }, 150);
+    }, [view, gpsTab, gpsRows, th.dark, stores]);
+    useEffect(() => {
+      if (view === "gps" && gpsTab === "map") return;
+      if (gpsMapRef.current) {
+        try {
+          gpsMapRef.current.remove();
+        } catch {
+        }
+        gpsMapRef.current = null;
+        gpsLayerRef.current = null;
+      }
+    }, [view, gpsTab]);
+    useEffect(() => () => {
+      if (gpsMapRef.current) {
+        try {
+          gpsMapRef.current.remove();
+        } catch {
+        }
+        gpsMapRef.current = null;
+        gpsLayerRef.current = null;
+      }
+    }, []);
     useEffect(() => {
       if (view !== "tasks" && view !== "dashboard") return;
       const id = setInterval(() => loadStore(true), 25e3);
@@ -20831,16 +20958,20 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       whiteSpace: "nowrap",
       touchAction: "manipulation"
     } }, label);
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Tasks"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, !isManager && viewTab("dashboard", "Dashboard"), viewTab("tasks", "Tasks"), !isManager && viewTab("stores", "Stores"), viewTab("cas", "Corrective Actions", "#e03131"))), (view === "tasks" || view === "dashboard") && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, !isManager && /* @__PURE__ */ React.createElement("select", { value: storePc, onChange: (e) => setStorePc(e.target.value), style: { ...inp(th), flex: 1, minWidth: 160 } }, scopeStores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: String(s.pc) }, s.pc, " \u2014 ", s.name))), isManager && myStore && /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 } }, myStore.pc, " \u2014 ", myStore.name), /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: { ...inp(th), width: 160 } }), view === "tasks" && /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: toggleShareLoc,
-        title: "When on, completed tasks are stamped with this device's location to verify they were done on-site.",
-        style: { display: "inline-flex", alignItems: "center", gap: 6, padding: "0 0.85rem", minHeight: 40, borderRadius: 999, cursor: "pointer", touchAction: "manipulation", fontSize: "0.78rem", fontWeight: 700, fontFamily: "'Source Sans 3'", whiteSpace: "nowrap", border: `1px solid ${shareLoc ? "#2f9e44" : th.muted + "55"}`, background: shareLoc ? "#2f9e4422" : "transparent", color: shareLoc ? "#2f9e44" : th.muted }
-      },
-      "\u{1F4CD} Location ",
-      shareLoc ? "On" : "Off"
-    )), loading && /* @__PURE__ */ React.createElement(TaskSkeleton, { th, rows: 3 }), view === "dashboard" && dash && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" } }, [["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text } }, dash.totals[k] || 0), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 600 } }, lbl)))), dash.open_cas > 0 && /* @__PURE__ */ React.createElement("div", { onClick: () => setView("cas"), style: { ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", borderLeft: "4px solid #e03131" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem", color: "#e03131", fontWeight: 800 } }, dash.open_cas), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text, fontWeight: 600 } }, "Open Corrective Action", dash.open_cas !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.75rem", color: th.muted } }, "View \u2192")), dash.categories.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.category, style: { ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` } }, /* @__PURE__ */ React.createElement(TaskRing, { pct: c.pct, th, size: 40, color: complianceColor(c.pct) }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, c.category), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, c.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, c.overdue, " overdue"), " \xB7 ", c.completed, "/", c.all, " done"))))), view === "tasks" && data && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", background: th.muted + "1a", borderRadius: 12, padding: 4, marginBottom: "0.9rem", gap: 4 } }, segBtn("open", "Now", nowCount), segBtn("missed", "Missing", data.counts.missed + data.counts.overdue), segBtn("all", "All", data.counts.all)), segTasks.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2.5rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", marginBottom: "0.4rem" } }, "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, marginBottom: "0.25rem" } }, seg === "open" ? "No active tasks right now" : seg === "missed" ? "Nothing missing" : "No tasks scheduled"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem" } }, seg === "open" ? "Tasks for the current shift window will appear here as they open." : seg === "missed" ? "All tasks from previous windows were completed on time." : "No tasks scheduled for this date.")), (() => {
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Tasks"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, !isManager && viewTab("dashboard", "Dashboard"), viewTab("tasks", "Tasks"), !isManager && viewTab("stores", "Stores"), viewTab("cas", "Corrective Actions", "#e03131"), !isManager && viewTab("gps", "GPS Audit", "#2f9e44"))), (view === "tasks" || view === "dashboard") && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, !isManager && /* @__PURE__ */ React.createElement("select", { value: storePc, onChange: (e) => setStorePc(e.target.value), style: { ...inp(th), flex: 1, minWidth: 160 } }, scopeStores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: String(s.pc) }, s.pc, " \u2014 ", s.name))), isManager && myStore && /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 } }, myStore.pc, " \u2014 ", myStore.name), /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: { ...inp(th), width: 160 } }), view === "tasks" && locDefaultOn && (() => {
+      const blocked = locDenied;
+      const c = blocked ? "#ef4444" : shareLoc ? "#2f9e44" : th.muted;
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: toggleShareLoc,
+          title: blocked ? "Location is blocked in your browser \u2014 allow it in the site's permission settings, then tap again." : "When on, completed tasks are stamped with this device's location to verify they were done on-site.",
+          style: { display: "inline-flex", alignItems: "center", gap: 6, padding: "0 0.85rem", minHeight: 40, borderRadius: 999, cursor: "pointer", touchAction: "manipulation", fontSize: "0.78rem", fontWeight: 700, fontFamily: "'Source Sans 3'", whiteSpace: "nowrap", border: `1px solid ${blocked ? c : shareLoc ? c : th.muted + "55"}`, background: blocked || shareLoc ? `${c}22` : "transparent", color: c }
+        },
+        "\u{1F4CD} Location ",
+        blocked ? "Blocked" : shareLoc ? "On" : "Off"
+      );
+    })()), view === "tasks" && !locAsked && locDefaultOn && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderLeft: `4px solid #2f9e44`, padding: "0.9rem 1.1rem", marginBottom: "0.85rem", display: "flex", gap: "0.85rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.5rem", lineHeight: 1 } }, "\u{1F4CD}"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 200 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text, fontSize: "0.92rem" } }, "Location is on for this device"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.76rem", marginTop: 3, lineHeight: 1.45 } }, "Completed tasks are stamped with this device's location to verify on-site work. It's checked ", /* @__PURE__ */ React.createElement("strong", null, "only when you complete a task"), " \u2014 never in the background. It ", /* @__PURE__ */ React.createElement("strong", null, "stays on until someone turns it off"), " with the Location button above.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => answerLocPrompt(true), style: { ...btn(th, { background: "#2f9e44", color: "#fff", border: "none" }), padding: "0.55rem 1.2rem", fontWeight: 800, minHeight: 40, touchAction: "manipulation" } }, "Got it"), /* @__PURE__ */ React.createElement("button", { onClick: () => answerLocPrompt(false), style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), padding: "0.55rem 1rem", minHeight: 40, touchAction: "manipulation" } }, "Turn it off"))), view === "tasks" && locDefaultOn && locDenied && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderLeft: `4px solid #ef4444`, background: "#ef444412", padding: "0.8rem 1.1rem", marginBottom: "0.85rem", display: "flex", gap: "0.7rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.3rem", lineHeight: 1 } }, "\u26A0\uFE0F"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 200, fontSize: "0.78rem", color: th.text, lineHeight: 1.45 } }, /* @__PURE__ */ React.createElement("strong", null, "Location is blocked in the browser."), " Tasks completed now won't be location-verified. Allow location for this site in the browser's permission settings (tap the address-bar lock/\u22EE \u2192 Site settings \u2192 Location \u2192 Allow), then reload.")), loading && /* @__PURE__ */ React.createElement(TaskSkeleton, { th, rows: 3 }), view === "dashboard" && dash && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" } }, [["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text } }, dash.totals[k] || 0), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 600 } }, lbl)))), dash.open_cas > 0 && /* @__PURE__ */ React.createElement("div", { onClick: () => setView("cas"), style: { ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", borderLeft: "4px solid #e03131" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem", color: "#e03131", fontWeight: 800 } }, dash.open_cas), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text, fontWeight: 600 } }, "Open Corrective Action", dash.open_cas !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.75rem", color: th.muted } }, "View \u2192")), dash.categories.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.category, style: { ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` } }, /* @__PURE__ */ React.createElement(TaskRing, { pct: c.pct, th, size: 40, color: complianceColor(c.pct) }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, c.category), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, c.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, c.overdue, " overdue"), " \xB7 ", c.completed, "/", c.all, " done"))))), view === "tasks" && data && !loading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", background: th.muted + "1a", borderRadius: 12, padding: 4, marginBottom: "0.9rem", gap: 4 } }, segBtn("open", "Now", nowCount), segBtn("missed", "Missing", data.counts.missed + data.counts.overdue), segBtn("all", "All", data.counts.all)), segTasks.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2.5rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", marginBottom: "0.4rem" } }, "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, marginBottom: "0.25rem" } }, seg === "open" ? "No active tasks right now" : seg === "missed" ? "Nothing missing" : "No tasks scheduled"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem" } }, seg === "open" ? "Tasks for the current shift window will appear here as they open." : seg === "missed" ? "All tasks from previous windows were completed on time." : "No tasks scheduled for this date.")), (() => {
       const shiftGroups = segTasks.reduce((acc, tk) => {
         const k = tk.shift_time || "General";
         if (!acc[k]) acc[k] = [];
@@ -21011,7 +21142,13 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       },
       /* @__PURE__ */ React.createElement(TaskRing, { pct: s.pct, th, size: 40, color: complianceColor(s.pct) }),
       /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, s.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.78rem" } }, "\xB7 ", s.pc)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, s.open, " open \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131" } }, s.overdue, " overdue"), " \xB7 ", s.completed, "/", s.all, " done", !isDM ? ` \xB7 D${s.district}` : "", s.open_cas > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131", marginLeft: "0.4rem" } }, "\xB7 ", s.open_cas, " CA", s.open_cas !== 1 ? "s" : "")))
-    ))), view === "cas" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap", alignItems: "center" } }, [["open", "Open"], ["resolved", "Resolved"], ["all", "All"]].map(([f, lbl]) => /* @__PURE__ */ React.createElement("button", { key: f, onClick: () => setCaFilter(f), style: {
+    ))), view === "gps" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.45rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.85rem" } }, [7, 14, 30].map((d) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setGpsDays(d), style: { ...btn(th, { padding: "0.4rem 0.85rem", fontSize: "0.78rem", background: gpsDays === d ? O : th.card3, color: gpsDays === d ? "#fff" : th.muted, border: gpsDays === d ? "none" : `1px solid ${th.cardBorder}` }) } }, "Last ", d, "d")), /* @__PURE__ */ React.createElement("button", { onClick: loadGps, style: { ...btn(th, { padding: "0.4rem 0.85rem", fontSize: "0.78rem" }) } }, "Refresh"), /* @__PURE__ */ React.createElement("div", { style: { marginLeft: "auto", display: "inline-flex", gap: "0.25rem", background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: "0.2rem" } }, [["list", "List"], ["map", "Map"]].map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => setGpsTab(k), style: { border: "none", borderRadius: 999, padding: "0.32rem 0.9rem", fontSize: "0.74rem", fontWeight: 800, cursor: "pointer", background: gpsTab === k ? O : "transparent", color: gpsTab === k ? "#fff" : th.muted } }, l)))), gpsLoading ? /* @__PURE__ */ React.createElement(TaskSkeleton, { th, rows: 3 }) : gpsRows ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" } }, [["Completions", gpsRows.summary.total, th.text], ["On-site", gpsRows.summary.onsite ?? 0, "#2f9e44"], ["Off-site", gpsRows.summary.offsite, "#e8590c"], ["No location", gpsRows.summary.noLocation, th.muted]].map(([lbl, n, c]) => /* @__PURE__ */ React.createElement("div", { key: lbl, style: { ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: c } }, n), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.56rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 } }, lbl)))), gpsTab === "map" ? (gpsRows.points || []).length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No location-stamped completions in this range to map.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { ref: gpsMapDiv, style: { height: 440, borderRadius: "0.75rem", overflow: "hidden", border: `1px solid ${th.cardBorder}` } }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", marginTop: "0.5rem", fontSize: "0.66rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: "#2f9e44" } }), " On-site"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: "#e8590c" } }), " Off-site"), gpsRows.summary.unverified > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: "#9ca3af" } }), " Unverified"), /* @__PURE__ */ React.createElement("span", null, "\xB7 ", (gpsRows.points || []).length, " completion", (gpsRows.points || []).length !== 1 ? "s" : "", " mapped"))) : gpsRows.exceptions.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "\u2705 No off-site or missing-location completions in this range.") : gpsRows.exceptions.map((e) => {
+      const nm = (stores || []).find((s) => String(s.pc) === String(e.store_pc));
+      const off = e.status === "offsite";
+      const c = off ? "#e8590c" : th.muted;
+      const distLabel = e.dist_m != null ? e.dist_m >= 1e3 ? (e.dist_m / 1e3).toFixed(1) + "km" : Math.round(e.dist_m) + "m" : "";
+      return /* @__PURE__ */ React.createElement("div", { key: e.id, style: { ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${c}`, display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, off ? "\u26A0\uFE0F" : "\u{1F4CD}"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 160 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.85rem" } }, nm?.name || e.store_pc, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.74rem" } }, "\xB7 ", e.store_pc)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, e.name, " \xB7 ", e.by || "\u2014", " \xB7 ", (/* @__PURE__ */ new Date(e.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.66rem", fontWeight: 800, color: c, background: `${c}1e`, border: `1px solid ${c}55`, borderRadius: 999, padding: "0.12rem 0.55rem", whiteSpace: "nowrap" } }, off ? `Off-site${distLabel ? " \xB7 " + distLabel : ""}` : "No location"));
+    })) : null), view === "cas" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap", alignItems: "center" } }, [["open", "Open"], ["resolved", "Resolved"], ["all", "All"]].map(([f, lbl]) => /* @__PURE__ */ React.createElement("button", { key: f, onClick: () => setCaFilter(f), style: {
       padding: "0.58rem 1rem",
       borderRadius: 999,
       minHeight: 40,

@@ -19827,7 +19827,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.17";
+const APP_VERSION = "v17.23";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -26865,6 +26865,14 @@ function OpsTasks({ stores, th, user }) {
   const [cas, setCas] = useState(null);
   const [caFilter, setCaFilter] = useState("open");
   const [loadingCAs, setLoadingCAs] = useState(false);
+  // GPS audit (IT/Exec/DM): off-site / missing-location completions feed + map
+  const [gpsRows, setGpsRows] = useState(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [gpsDays, setGpsDays] = useState(7);
+  const [gpsTab, setGpsTab] = useState("list"); // "list" | "map"
+  const gpsMapDiv = useRef(null);
+  const gpsMapRef = useRef(null);
+  const gpsLayerRef = useRef(null);
   const [photoLightbox, setPhotoLightbox] = useState(null);
   const [photoUrls, setPhotoUrls] = useState({});
   const [photoDetail, setPhotoDetail] = useState(null); // { task, url }
@@ -26899,15 +26907,43 @@ function OpsTasks({ stores, th, user }) {
   // Low-accuracy (network/Wi-Fi) positioning: faster + reliable indoors where the
   // wall tablets live and have no GPS chip; the 250m geofence doesn't need precision.
   const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 };
-  const seedLocation = () => { try { navigator.geolocation?.getCurrentPosition(
-    (p) => { geoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() }; }, () => {}, GEO_OPTS); } catch {} };
-  const [shareLoc, setShareLoc] = useState(() => { try { return localStorage.getItem("pcg_share_location") === "1"; } catch { return false; } });
-  const toggleShareLoc = () => setShareLoc((v) => {
-    const n = !v;
-    try { localStorage.setItem("pcg_share_location", n ? "1" : "0"); } catch {}
-    if (n) seedLocation(); // prompt for permission + warm the cache now, not at first completion
-    return n;
-  });
+  // Store tablets are company-managed devices → location defaults ON, with an
+  // up-front acknowledgment. Everyone else is opt-in (default off).
+  const locDefaultOn = user?.userType === "store_tablet";
+  const [shareLoc, setShareLoc] = useState(() => { try { const v = localStorage.getItem("pcg_share_location"); if (v === "1") return true; if (v === "0") return false; return locDefaultOn; } catch { return locDefaultOn; } });
+  // Has the user acknowledged yet? null in storage = never asked → show the prompt.
+  const [locAsked, setLocAsked] = useState(() => { try { return localStorage.getItem("pcg_share_location") != null; } catch { return true; } });
+  const [locDenied, setLocDenied] = useState(false); // browser permission actually blocked
+  const persistLoc = (on) => { try { localStorage.setItem("pcg_share_location", on ? "1" : "0"); } catch {} };
+
+  // Track the real browser permission so the toggle can never claim "On" while blocked.
+  useEffect(() => {
+    if (!navigator.permissions?.query) return;
+    let perm;
+    navigator.permissions.query({ name: "geolocation" }).then((p) => {
+      perm = p;
+      const apply = () => { const denied = p.state === "denied"; setLocDenied(denied); if (denied) geoRef.current = null; /* don't serve a cached fix after consent is withdrawn */ };
+      apply(); p.onchange = apply;
+    }).catch(() => {});
+    return () => { if (perm) perm.onchange = null; };
+  }, []);
+
+  // Turn location ON only if the browser grants it. A hard Deny (code 1) reverts
+  // the toggle to OFF and flags it blocked — so "On" is never a lie. Timeout/
+  // unavailable keeps it on (permission is fine, the fix was just slow).
+  const enableLocation = () => {
+    setLocAsked(true);
+    if (!navigator.geolocation) { setShareLoc(false); persistLoc(false); return; }
+    setShareLoc(true); persistLoc(true); // optimistic; corrected below on a hard deny
+    navigator.geolocation.getCurrentPosition(
+      (p) => { geoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() }; setLocDenied(false); },
+      (err) => { if (err && err.code === 1) { setShareLoc(false); persistLoc(false); setLocDenied(true); } },
+      GEO_OPTS
+    );
+  };
+  const disableLocation = () => { setShareLoc(false); persistLoc(false); setLocAsked(true); };
+  const toggleShareLoc = () => { if (shareLoc) disableLocation(); else enableLocation(); };
+  const answerLocPrompt = (enable) => { if (enable) enableLocation(); else disableLocation(); };
   // Resolves {lat,lng,accuracy} or null (opt-out / denied / timeout — never throws).
   // Reuses an app-level cache for 2 min so a multi-item checklist doesn't re-poll per item.
   const getLocation = useCallback(() => new Promise((resolve) => {
@@ -26979,9 +27015,54 @@ function OpsTasks({ stores, th, user }) {
     setLoadingCAs(false);
   }, [api, isManager, myStore, isDM, user]);
 
+  const loadGps = useCallback(async () => {
+    setGpsLoading(true);
+    try {
+      const to = todayET();
+      const d = new Date(to + "T12:00:00"); d.setDate(d.getDate() - (gpsDays - 1));
+      const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const r = await api("gps_audit", { from, to, store_pcs: scopeStores.map((s) => String(s.pc)) });
+      setGpsRows(r);
+    } finally { setGpsLoading(false); }
+  }, [api, gpsDays, scopeStores]);
+
   useEffect(() => { if (view === "tasks" || view === "dashboard") loadStore(); }, [view, loadStore]);
   useEffect(() => { if (view === "stores") loadRollup(); }, [view, loadRollup]);
   useEffect(() => { if (view === "cas") loadCAs(); }, [view, loadCAs]);
+  useEffect(() => { if (view === "gps") loadGps(); }, [view, gpsDays]); // eslint-disable-line
+
+  // Render the completion-location map (on-site green / off-site red).
+  useEffect(() => {
+    if (view !== "gps" || gpsTab !== "map" || !gpsRows || !gpsMapDiv.current || !window.L) return;
+    const L = window.L;
+    if (!gpsMapRef.current) {
+      gpsMapRef.current = L.map(gpsMapDiv.current, { attributionControl: false, zoomControl: true, scrollWheelZoom: true }).setView([40.05, -75.18], 9);
+      L.tileLayer(`https://{s}.basemaps.cartocdn.com/${th.dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, { subdomains: "abcd", maxZoom: 19 }).addTo(gpsMapRef.current);
+      gpsLayerRef.current = L.layerGroup().addTo(gpsMapRef.current);
+    }
+    gpsLayerRef.current.clearLayers();
+    const bounds = [];
+    (gpsRows.points || []).forEach((p) => {
+      const color = p.onsite === true ? "#2f9e44" : p.onsite === false ? "#e8590c" : "#9ca3af";
+      const icon = L.divIcon({ className: "", html: `<div style="width:13px;height:13px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 1.5px ${color}"></div>`, iconSize: [13, 13], iconAnchor: [6.5, 6.5] });
+      const nm = (stores || []).find((s) => String(s.pc) === String(p.store_pc));
+      const dist = p.dist_m != null ? (p.dist_m >= 1000 ? (p.dist_m / 1000).toFixed(1) + "km" : Math.round(p.dist_m) + "m") : "";
+      const verdict = p.onsite === true ? "● On-site" : p.onsite === false ? "⚠ Off-site" + (dist ? " · " + dist : "") : "● Unverified (no store coords)";
+      L.marker([p.lat, p.lng], { icon }).addTo(gpsLayerRef.current)
+        .bindPopup(`<b>${nm?.name || p.store_pc}</b><br>${p.name}<br>${verdict}${p.by ? " · " + p.by : ""}`);
+      bounds.push([p.lat, p.lng]);
+    });
+    if (bounds.length) { try { gpsMapRef.current.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 }); } catch {} }
+    setTimeout(() => { try { gpsMapRef.current && gpsMapRef.current.invalidateSize(); } catch {} }, 150);
+  }, [view, gpsTab, gpsRows, th.dark, stores]);
+
+  // Destroy the Leaflet map when leaving the Map tab so it re-inits on a fresh DOM node.
+  useEffect(() => {
+    if (view === "gps" && gpsTab === "map") return;
+    if (gpsMapRef.current) { try { gpsMapRef.current.remove(); } catch {} gpsMapRef.current = null; gpsLayerRef.current = null; }
+  }, [view, gpsTab]);
+  // Also tear the map down on unmount (leaving Tasks entirely), or it leaks.
+  useEffect(() => () => { if (gpsMapRef.current) { try { gpsMapRef.current.remove(); } catch {} gpsMapRef.current = null; gpsLayerRef.current = null; } }, []);
 
   useEffect(() => {
     if (view !== "tasks" && view !== "dashboard") return;
@@ -27158,6 +27239,7 @@ function OpsTasks({ stores, th, user }) {
           {viewTab("tasks", "Tasks")}
           {!isManager && viewTab("stores", "Stores")}
           {viewTab("cas", "Corrective Actions", "#e03131")}
+          {!isManager && viewTab("gps", "GPS Audit", "#2f9e44")}
         </div>
       </div>
 
@@ -27173,12 +27255,42 @@ function OpsTasks({ stores, th, user }) {
             <div style={{ ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 }}>{myStore.pc} — {myStore.name}</div>
           )}
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp(th), width: 160 }} />
-          {view === "tasks" && (
-            <button onClick={toggleShareLoc} title="When on, completed tasks are stamped with this device's location to verify they were done on-site."
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "0 0.85rem", minHeight: 40, borderRadius: 999, cursor: "pointer", touchAction: "manipulation", fontSize: "0.78rem", fontWeight: 700, fontFamily: "'Source Sans 3'", whiteSpace: "nowrap", border: `1px solid ${shareLoc ? "#2f9e44" : th.muted + "55"}`, background: shareLoc ? "#2f9e4422" : "transparent", color: shareLoc ? "#2f9e44" : th.muted }}>
-              📍 Location {shareLoc ? "On" : "Off"}
-            </button>
-          )}
+          {view === "tasks" && locDefaultOn && (() => {
+            const blocked = locDenied;
+            const c = blocked ? "#ef4444" : shareLoc ? "#2f9e44" : th.muted;
+            return (
+              <button onClick={toggleShareLoc} title={blocked ? "Location is blocked in your browser — allow it in the site's permission settings, then tap again." : "When on, completed tasks are stamped with this device's location to verify they were done on-site."}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "0 0.85rem", minHeight: 40, borderRadius: 999, cursor: "pointer", touchAction: "manipulation", fontSize: "0.78rem", fontWeight: 700, fontFamily: "'Source Sans 3'", whiteSpace: "nowrap", border: `1px solid ${blocked ? c : shareLoc ? c : th.muted + "55"}`, background: blocked || shareLoc ? `${c}22` : "transparent", color: c }}>
+                📍 Location {blocked ? "Blocked" : shareLoc ? "On" : "Off"}
+              </button>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Location acknowledgment — ONLY store tablets (company devices). No other
+          role is prompted for or has location captured. */}
+      {view === "tasks" && !locAsked && locDefaultOn && (
+        <div style={{ ...card(th), borderLeft: `4px solid #2f9e44`, padding: "0.9rem 1.1rem", marginBottom: "0.85rem", display: "flex", gap: "0.85rem", alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: "1.5rem", lineHeight: 1 }}>📍</span>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 800, color: th.text, fontSize: "0.92rem" }}>Location is on for this device</div>
+            <div style={{ color: th.muted, fontSize: "0.76rem", marginTop: 3, lineHeight: 1.45 }}>Completed tasks are stamped with this device's location to verify on-site work. It's checked <strong>only when you complete a task</strong> — never in the background. It <strong>stays on until someone turns it off</strong> with the Location button above.</div>
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
+            <button onClick={() => answerLocPrompt(true)} style={{ ...btn(th, { background: "#2f9e44", color: "#fff", border: "none" }), padding: "0.55rem 1.2rem", fontWeight: 800, minHeight: 40, touchAction: "manipulation" }}>Got it</button>
+            <button onClick={() => answerLocPrompt(false)} style={{ ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}55` }), padding: "0.55rem 1rem", minHeight: 40, touchAction: "manipulation" }}>Turn it off</button>
+          </div>
+        </div>
+      )}
+
+      {/* Permission actually blocked at the browser level — tell them how to fix it */}
+      {view === "tasks" && locDefaultOn && locDenied && (
+        <div style={{ ...card(th), borderLeft: `4px solid #ef4444`, background: "#ef444412", padding: "0.8rem 1.1rem", marginBottom: "0.85rem", display: "flex", gap: "0.7rem", alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: "1.3rem", lineHeight: 1 }}>⚠️</span>
+          <div style={{ flex: 1, minWidth: 200, fontSize: "0.78rem", color: th.text, lineHeight: 1.45 }}>
+            <strong>Location is blocked in the browser.</strong> Tasks completed now won't be location-verified. Allow location for this site in the browser's permission settings (tap the address-bar lock/⋮ → Site settings → Location → Allow), then reload.
+          </div>
         </div>
       )}
 
@@ -27462,6 +27574,65 @@ function OpsTasks({ stores, th, user }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── GPS Audit — off-site / missing-location completions (IT/Exec/DM) ── */}
+      {view === "gps" && (
+        <div>
+          <div style={{ display: "flex", gap: "0.45rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.85rem" }}>
+            {[7, 14, 30].map((d) => (
+              <button key={d} onClick={() => setGpsDays(d)} style={{ ...btn(th, { padding: "0.4rem 0.85rem", fontSize: "0.78rem", background: gpsDays === d ? O : th.card3, color: gpsDays === d ? "#fff" : th.muted, border: gpsDays === d ? "none" : `1px solid ${th.cardBorder}` }) }}>Last {d}d</button>
+            ))}
+            <button onClick={loadGps} style={{ ...btn(th, { padding: "0.4rem 0.85rem", fontSize: "0.78rem" }) }}>Refresh</button>
+            <div style={{ marginLeft: "auto", display: "inline-flex", gap: "0.25rem", background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: "0.2rem" }}>
+              {[["list", "List"], ["map", "Map"]].map(([k, l]) => (
+                <button key={k} onClick={() => setGpsTab(k)} style={{ border: "none", borderRadius: 999, padding: "0.32rem 0.9rem", fontSize: "0.74rem", fontWeight: 800, cursor: "pointer", background: gpsTab === k ? O : "transparent", color: gpsTab === k ? "#fff" : th.muted }}>{l}</button>
+              ))}
+            </div>
+          </div>
+          {gpsLoading ? <TaskSkeleton th={th} rows={3} /> : gpsRows ? (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" }}>
+                {[["Completions", gpsRows.summary.total, th.text], ["On-site", gpsRows.summary.onsite ?? 0, "#2f9e44"], ["Off-site", gpsRows.summary.offsite, "#e8590c"], ["No location", gpsRows.summary.noLocation, th.muted]].map(([lbl, n, c]) => (
+                  <div key={lbl} style={{ ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" }}>
+                    <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: c }}>{n}</div>
+                    <div style={{ color: th.muted, fontSize: "0.56rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}>{lbl}</div>
+                  </div>
+                ))}
+              </div>
+              {gpsTab === "map" ? (
+                (gpsRows.points || []).length === 0 ? (
+                  <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>No location-stamped completions in this range to map.</div>
+                ) : (<>
+                  <div ref={gpsMapDiv} style={{ height: 440, borderRadius: "0.75rem", overflow: "hidden", border: `1px solid ${th.cardBorder}` }} />
+                  <div style={{ display: "flex", gap: "1rem", marginTop: "0.5rem", fontSize: "0.66rem", color: th.muted }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "#2f9e44" }} /> On-site</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "#e8590c" }} /> Off-site</span>
+                    {gpsRows.summary.unverified > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "#9ca3af" }} /> Unverified</span>}
+                    <span>· {(gpsRows.points || []).length} completion{(gpsRows.points || []).length !== 1 ? "s" : ""} mapped</span>
+                  </div>
+                </>)
+              ) : gpsRows.exceptions.length === 0 ? (
+                <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>✅ No off-site or missing-location completions in this range.</div>
+              ) : gpsRows.exceptions.map((e) => {
+                const nm = (stores || []).find((s) => String(s.pc) === String(e.store_pc));
+                const off = e.status === "offsite";
+                const c = off ? "#e8590c" : th.muted;
+                const distLabel = e.dist_m != null ? (e.dist_m >= 1000 ? (e.dist_m / 1000).toFixed(1) + "km" : Math.round(e.dist_m) + "m") : "";
+                return (
+                  <div key={e.id} style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${c}`, display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: "1.1rem" }}>{off ? "⚠️" : "📍"}</span>
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <div style={{ fontWeight: 700, fontSize: "0.85rem" }}>{nm?.name || e.store_pc} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.74rem" }}>· {e.store_pc}</span></div>
+                      <div style={{ fontSize: "0.75rem", color: th.muted }}>{e.name} · {e.by || "—"} · {new Date(e.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
+                    </div>
+                    <span style={{ fontSize: "0.66rem", fontWeight: 800, color: c, background: `${c}1e`, border: `1px solid ${c}55`, borderRadius: 999, padding: "0.12rem 0.55rem", whiteSpace: "nowrap" }}>{off ? `Off-site${distLabel ? " · " + distLabel : ""}` : "No location"}</span>
+                  </div>
+                );
+              })}
+            </>
+          ) : null}
         </div>
       )}
 
