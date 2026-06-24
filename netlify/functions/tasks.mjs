@@ -410,6 +410,75 @@ export default async (request, context) => {
       return reply(200, { exceptions, points, summary, from, to });
     }
 
+    if (action === 'audit_report') {
+      // Health-inspector audit: one store, a date range, every completed task with
+      // its checklist/temp answers (pass/fail), photo flag, GPS verdict, sign-off,
+      // and any corrective actions. Assembly only — all data already captured.
+      const storePc = String(body.store_pc || '');
+      const to = String(body.to || '');
+      let from = String(body.from || '');
+      if (!storePc || !from || !to) return reply(400, { error: 'store_pc, from, to required' });
+      // Clamp to a 366-day window (protect the 26s budget + payload size).
+      const fromD = new Date(from + 'T00:00:00'), toD = new Date(to + 'T00:00:00');
+      if (!isNaN(fromD) && !isNaN(toD) && (toD - fromD) > 366 * 86400000) {
+        const c = new Date(toD.getTime() - 366 * 86400000);
+        from = `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, '0')}-${String(c.getDate()).padStart(2, '0')}`;
+      }
+
+      const rows = await db`
+        SELECT i.id, i.template_id, i.business_date::text AS business_date, i.value, i.note,
+               i.completed_by, i.completed_at, i.signed_off_by, i.signed_off_at,
+               (i.photo_url IS NOT NULL) AS has_photo,
+               i.gps_onsite, i.gps_dist_m, (i.gps_lat IS NOT NULL) AS has_gps,
+               t.name, t.category, t.input_type, t.unit, t.target, t.min_val, t.max_val
+        FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+        WHERE i.store_pc = ${storePc} AND i.business_date BETWEEN ${from} AND ${to} AND i.status = 'completed'
+        ORDER BY i.business_date DESC, t.category, t.name`;
+
+      const tplIds = [...new Set(rows.map(r => r.template_id))];
+      const instIds = rows.map(r => r.id);
+      let items = [], equip = [], answers = [], cas = [];
+      if (tplIds.length) {
+        items = await db`SELECT id, label, unit FROM task_template_items WHERE template_id = ANY(${tplIds})`;
+        equip = await db`SELECT id, unit_name FROM task_template_equipment WHERE template_id = ANY(${tplIds})`;
+      }
+      if (instIds.length) {
+        answers = await db`SELECT instance_id, item_id, equipment_id, checked, value, in_range, "by" AS answered_by, "at" AS answered_at FROM task_instance_answers WHERE instance_id = ANY(${instIds})`;
+        cas = await db`SELECT instance_id, title, measured_value, unit, status, resolved_by FROM corrective_actions WHERE instance_id = ANY(${instIds})`;
+      }
+      const itemById = {}; items.forEach(i => { itemById[i.id] = i; });
+      const equipById = {}; equip.forEach(e => { equipById[e.id] = e; });
+      const ansByInst = {}; answers.forEach(a => { (ansByInst[a.instance_id] = ansByInst[a.instance_id] || []).push(a); });
+      const caByInst = {}; cas.forEach(c => { (caByInst[c.instance_id] = caByInst[c.instance_id] || []).push(c); });
+
+      const tasks = rows.map(r => ({
+        id: r.id, date: r.business_date, name: r.name, category: r.category, input_type: r.input_type,
+        value: r.value, note: r.note, unit: r.unit, target: r.target, min_val: r.min_val, max_val: r.max_val,
+        by: r.completed_by, at: r.completed_at, signed_off_by: r.signed_off_by, signed_off_at: r.signed_off_at,
+        has_photo: r.has_photo, gps_onsite: r.gps_onsite, gps_dist_m: r.gps_dist_m, has_gps: r.has_gps,
+        answers: (ansByInst[r.id] || []).map(a => ({
+          label: itemById[a.item_id]?.label || '', unit: itemById[a.item_id]?.unit || r.unit || '',
+          equipment: a.equipment_id ? (equipById[a.equipment_id]?.unit_name || '') : '',
+          checked: a.checked, value: a.value, in_range: a.in_range, by: a.answered_by,
+        })),
+        corrective: (caByInst[r.id] || []).map(c => ({ title: c.title, measured: c.measured_value, unit: c.unit, status: c.status, resolved_by: c.resolved_by })),
+      }));
+
+      const tempAns = answers.filter(a => a.in_range != null);
+      const summary = {
+        completions: rows.length,
+        days: new Set(rows.map(r => r.business_date)).size,
+        photos: rows.filter(r => r.has_photo).length,
+        gpsVerified: rows.filter(r => r.has_gps).length,
+        onsite: rows.filter(r => r.gps_onsite === true).length,
+        offsite: rows.filter(r => r.gps_onsite === false).length,
+        tempReadings: tempAns.length,
+        tempPass: tempAns.filter(a => a.in_range === true).length,
+        correctiveActions: cas.length,
+      };
+      return reply(200, { store_pc: storePc, from, to, tasks, summary });
+    }
+
     if (action === 'complete') {
       // Simple completion for tasks without items (Phase 1 compat)
       const id = +body.instance_id;
@@ -623,13 +692,17 @@ export default async (request, context) => {
         WHERE i.id = ${id} AND i.store_pc = ${storePc}
         LIMIT 1`;
       const taskName = taskRow[0]?.name || 'Task';
-      // Auto-complete photo tasks when a photo is saved
+      // Auto-complete photo tasks when a photo is saved — geofence it too, so photo
+      // tasks are GPS-verified just like checklist/temp completions.
+      const g = geoFromBody(body, body.store_pc);
       await db`
         UPDATE task_instances
         SET photo_url=${photoUrl},
             status='completed',
             completed_by=${by},
-            completed_at=NOW()
+            completed_at=NOW(),
+            gps_lat=${g.lat}, gps_lng=${g.lng}, gps_accuracy=${g.acc},
+            gps_dist_m=${g.dist}, gps_onsite=${g.onsite}
         WHERE id=${id} AND store_pc=${storePc}
       `;
       // Notify DM (fire-and-forget)

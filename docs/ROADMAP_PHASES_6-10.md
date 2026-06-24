@@ -85,11 +85,14 @@
 - Gamify: leaderboards for training completion, badges for milestones
 - Correlate: "Stores with >90% training completion average 8% higher sales"
 
-### 8.3 Digital Checklists & Task Management
-- Opening/closing checklists, food safety temp logs, cleaning verification — all digital, timestamped, GPS-verified
-- Photo verification: "Take a photo of the clean drive-thru area" — timestamped and stored
-- Escalation: incomplete checklists trigger DM notification
-- Audit trail: 90 days of digital records for health inspector visits
+### 8.3 Digital Checklists & Task Management ✅ DONE (v17.24)
+- [x] Opening/closing checklists, food safety temp logs, cleaning verification — all digital, timestamped, GPS-verified
+  - Ops Task system (templates → instances → answers); shift-windowed; temp logs with target/min/max + in-range pass/fail; completed_at/answers.at timestamps. **GPS-verified** at completion (store-tablet opt-in, default-on w/ acknowledgment; 250m geofence vs STORE_COORDS; on-site/off-site flag).
+- [x] Photo verification: "Take a photo of the clean drive-thru area" — timestamped and stored
+  - `requires_photo` items + `photo_url` on instances (Netlify Blobs), completion timestamp, `sendPhotoPush` alert.
+- [x] Escalation: incomplete checklists trigger DM notification
+  - `tasks-cron` aggregates yesterday's missed tasks → district-scoped DM + manager push/compliance alerts.
+- [x] Audit trail: 90 days of digital records for health inspector visits
 
 ### 8.4 Shift Marketplace
 - Employees post shifts to drop, pick up available shifts across nearby stores in same district

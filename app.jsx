@@ -19827,7 +19827,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.23";
+const APP_VERSION = "v17.27";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -26873,6 +26873,16 @@ function OpsTasks({ stores, th, user }) {
   const gpsMapDiv = useRef(null);
   const gpsMapRef = useRef(null);
   const gpsLayerRef = useRef(null);
+  // Inspector audit report (IT/Exec/DM): one store, date range, PDF export
+  const [auditData, setAuditData] = useState(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditStore, setAuditStore] = useState("");
+  const [auditFrom, setAuditFrom] = useState("");
+  const [auditTo, setAuditTo] = useState("");
+  const [auditPhotos, setAuditPhotos] = useState(false);
+  const [auditPhotoUrls, setAuditPhotoUrls] = useState({});
+  const [auditExporting, setAuditExporting] = useState(false);
+  const auditRef = useRef(null);
   const [photoLightbox, setPhotoLightbox] = useState(null);
   const [photoUrls, setPhotoUrls] = useState({});
   const [photoDetail, setPhotoDetail] = useState(null); // { task, url }
@@ -27064,6 +27074,46 @@ function OpsTasks({ stores, th, user }) {
   // Also tear the map down on unmount (leaving Tasks entirely), or it leaks.
   useEffect(() => () => { if (gpsMapRef.current) { try { gpsMapRef.current.remove(); } catch {} gpsMapRef.current = null; gpsLayerRef.current = null; } }, []);
 
+  // ── Inspector audit report ──
+  const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  // Seed defaults (last 90 days, first in-scope store) the first time the view opens.
+  useEffect(() => {
+    if (view !== "audit" || auditTo) return;
+    const to = todayET();
+    const d = new Date(to + "T12:00:00"); d.setDate(d.getDate() - 89);
+    setAuditFrom(isoDate(d)); setAuditTo(to);
+    if (!auditStore) setAuditStore(scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
+  }, [view]); // eslint-disable-line
+
+  const loadAudit = useCallback(async () => {
+    if (!auditStore || !auditFrom || !auditTo) return;
+    setAuditLoading(true); setAuditData(null); setAuditPhotoUrls({});
+    try {
+      const r = await api("audit_report", { store_pc: auditStore, from: auditFrom, to: auditTo });
+      setAuditData(r);
+    } finally { setAuditLoading(false); }
+  }, [api, auditStore, auditFrom, auditTo]);
+
+  // Lazy-fetch photos only when the toggle is on and a report is loaded.
+  useEffect(() => {
+    if (!auditPhotos || !auditData) return;
+    const need = (auditData.tasks || []).filter((t) => t.has_photo && auditPhotoUrls[t.id] === undefined);
+    if (!need.length) return;
+    setAuditPhotoUrls((p) => { const n = { ...p }; need.forEach((t) => { n[t.id] = null; }); return n; });
+    Promise.all(need.map((t) => api("get_task_photo", { instance_id: t.id, store_pc: auditStore }).then((r) => ({ id: t.id, url: r.photo_url })).catch(() => null)))
+      .then((res) => { const up = {}; res.filter(Boolean).forEach((r) => { if (r.url) up[r.id] = r.url; }); if (Object.keys(up).length) setAuditPhotoUrls((p) => ({ ...p, ...up })); });
+  }, [auditPhotos, auditData]); // eslint-disable-line
+
+  const exportAuditPdf = async () => {
+    if (typeof html2pdf === "undefined" || !auditRef.current) return;
+    setAuditExporting(true);
+    try {
+      const st = (stores || []).find((s) => String(s.pc) === String(auditStore));
+      const fname = `audit_${auditStore}_${auditFrom}_to_${auditTo}.pdf`;
+      await html2pdf().set({ margin: 0.4, filename: fname, image: { type: "jpeg", quality: 0.95 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" }, pagebreak: { mode: ["css", "legacy"] } }).from(auditRef.current).save();
+    } finally { setAuditExporting(false); }
+  };
+
   useEffect(() => {
     if (view !== "tasks" && view !== "dashboard") return;
     const id = setInterval(() => loadStore(true), 25000);
@@ -27175,7 +27225,8 @@ function OpsTasks({ stores, th, user }) {
             canvas.height = Math.round(img.height * scale);
             canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
             const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-            await api("task_add_photo", { instance_id: tk.id, store_pc: tk.store_pc, photo_url: dataUrl, by: byName });
+            const loc = await getLocation();
+            await api("task_add_photo", { instance_id: tk.id, store_pc: tk.store_pc, photo_url: dataUrl, by: byName, ...(loc || {}) });
             setPhotoUrls((prev) => ({ ...prev, [tk.id]: dataUrl }));
             await loadStore(true);
           } catch (err) {
@@ -27231,7 +27282,7 @@ function OpsTasks({ stores, th, user }) {
   );
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", paddingBottom: "3rem" }}>
+    <div style={{ maxWidth: 1140, margin: "0 auto", paddingBottom: "3rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
         <h2 style={{ ...pageTitle(th), margin: 0 }}>Tasks</h2>
         <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
@@ -27240,12 +27291,14 @@ function OpsTasks({ stores, th, user }) {
           {!isManager && viewTab("stores", "Stores")}
           {viewTab("cas", "Corrective Actions", "#e03131")}
           {!isManager && viewTab("gps", "GPS Audit", "#2f9e44")}
+          {!isManager && viewTab("audit", "Audit Report", "#6366f1")}
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Controls — match the Tasks list's 880px column so the date picker doesn't
+          overhang the cards; Dashboard stays full-width to match its grid. */}
       {(view === "tasks" || view === "dashboard") && (
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem", maxWidth: view === "tasks" ? 880 : undefined }}>
           {!isManager && (
             <select value={storePc} onChange={(e) => setStorePc(e.target.value)} style={{ ...inp(th), flex: 1, minWidth: 160 }}>
               {scopeStores.map((s) => <option key={s.pc} value={String(s.pc)}>{s.pc} — {s.name}</option>)}
@@ -27314,23 +27367,25 @@ function OpsTasks({ stores, th, user }) {
               <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: th.muted }}>View →</span>
             </div>
           )}
-          {dash.categories.map((c) => (
-            <div key={c.category} style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` }}>
-              <TaskRing pct={c.pct} th={th} size={40} color={complianceColor(c.pct)} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700 }}>{c.category}</div>
-                <div style={{ fontSize: "0.75rem", color: th.muted }}>
-                  {c.open} open · <span style={{ color: "#e03131" }}>{c.overdue} overdue</span> · {c.completed}/{c.all} done
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))", gap: "0.6rem" }}>
+            {dash.categories.map((c) => (
+              <div key={c.category} style={{ ...card(th), padding: "0.7rem 0.9rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` }}>
+                <TaskRing pct={c.pct} th={th} size={40} color={complianceColor(c.pct)} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700 }}>{c.category}</div>
+                  <div style={{ fontSize: "0.75rem", color: th.muted }}>
+                    {c.open} open · <span style={{ color: "#e03131" }}>{c.overdue} overdue</span> · {c.completed}/{c.all} done
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
-      {/* ── Tasks list ── */}
+      {/* ── Tasks list ── (capped for readable line length; it's an interaction column) */}
       {view === "tasks" && data && !loading && (
-        <div>
+        <div style={{ maxWidth: 880 }}>
           <div style={{ display: "flex", background: th.muted + "1a", borderRadius: 12, padding: 4, marginBottom: "0.9rem", gap: 4 }}>
             {segBtn("open", "Now", nowCount)}
             {segBtn("missed", "Missing", data.counts.missed + data.counts.overdue)}
@@ -27561,9 +27616,10 @@ function OpsTasks({ stores, th, user }) {
       {view === "stores" && rollup && !loading && (
         <div>
           <div style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" }}>{rollup.stores.length} stores · {date}{isDM ? ` · District ${user?.district}` : ""}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "0.6rem" }}>
           {rollup.stores.map((s) => (
             <div key={s.pc} onClick={() => { setStorePc(String(s.pc)); setView("tasks"); }}
-              style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem", cursor: "pointer" }}>
+              style={{ ...card(th), padding: "0.7rem 0.9rem", display: "flex", alignItems: "center", gap: "0.75rem", cursor: "pointer" }}>
               <TaskRing pct={s.pct} th={th} size={40} color={complianceColor(s.pct)} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{s.name} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.78rem" }}>· {s.pc}</span></div>
@@ -27574,6 +27630,7 @@ function OpsTasks({ stores, th, user }) {
               </div>
             </div>
           ))}
+          </div>
         </div>
       )}
 
@@ -27615,13 +27672,15 @@ function OpsTasks({ stores, th, user }) {
                 </>)
               ) : gpsRows.exceptions.length === 0 ? (
                 <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>✅ No off-site or missing-location completions in this range.</div>
-              ) : gpsRows.exceptions.map((e) => {
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))", gap: "0.5rem" }}>
+                {gpsRows.exceptions.map((e) => {
                 const nm = (stores || []).find((s) => String(s.pc) === String(e.store_pc));
                 const off = e.status === "offsite";
                 const c = off ? "#e8590c" : th.muted;
                 const distLabel = e.dist_m != null ? (e.dist_m >= 1000 ? (e.dist_m / 1000).toFixed(1) + "km" : Math.round(e.dist_m) + "m") : "";
                 return (
-                  <div key={e.id} style={{ ...card(th), padding: "0.7rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${c}`, display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                  <div key={e.id} style={{ ...card(th), padding: "0.7rem 0.9rem", borderLeft: `4px solid ${c}`, display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
                     <span style={{ fontSize: "1.1rem" }}>{off ? "⚠️" : "📍"}</span>
                     <div style={{ flex: 1, minWidth: 160 }}>
                       <div style={{ fontWeight: 700, fontSize: "0.85rem" }}>{nm?.name || e.store_pc} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.74rem" }}>· {e.store_pc}</span></div>
@@ -27630,15 +27689,112 @@ function OpsTasks({ stores, th, user }) {
                     <span style={{ fontSize: "0.66rem", fontWeight: 800, color: c, background: `${c}1e`, border: `1px solid ${c}55`, borderRadius: 999, padding: "0.12rem 0.55rem", whiteSpace: "nowrap" }}>{off ? `Off-site${distLabel ? " · " + distLabel : ""}` : "No location"}</span>
                   </div>
                 );
-              })}
+                })}
+                </div>
+              )}
             </>
           ) : null}
         </div>
       )}
 
+      {/* ── Inspector Audit Report ── */}
+      {view === "audit" && (() => {
+        const st = (stores || []).find((s) => String(s.pc) === String(auditStore));
+        const s = auditData?.summary;
+        const onsitePct = s && s.gpsVerified > 0 ? Math.round((s.onsite / s.gpsVerified) * 100) : null;
+        const tempPct = s && s.tempReadings > 0 ? Math.round((s.tempPass / s.tempReadings) * 100) : null;
+        const byDay = {};
+        (auditData?.tasks || []).forEach((t) => { (byDay[t.date] = byDay[t.date] || []).push(t); });
+        const days = Object.keys(byDay).sort((a, b) => b.localeCompare(a));
+        const fmtDay = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" });
+        const fmtAt = (at) => at ? new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+        return (
+          <div>
+            {/* Controls (not part of the printable report) */}
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "1rem" }}>
+              {!isManager && (
+                <select value={auditStore} onChange={(e) => setAuditStore(e.target.value)} style={{ ...inp(th), minWidth: 170 }}>
+                  {scopeStores.map((s2) => <option key={s2.pc} value={String(s2.pc)}>{s2.pc} — {s2.name}</option>)}
+                </select>
+              )}
+              <input type="date" value={auditFrom} max={auditTo} onChange={(e) => setAuditFrom(e.target.value)} style={{ ...inp(th), width: 150 }} />
+              <span style={{ color: th.muted }}>→</span>
+              <input type="date" value={auditTo} min={auditFrom} onChange={(e) => setAuditTo(e.target.value)} style={{ ...inp(th), width: 150 }} />
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.78rem", color: th.text, cursor: "pointer" }}>
+                <input type="checkbox" checked={auditPhotos} onChange={(e) => setAuditPhotos(e.target.checked)} /> Include photos
+              </label>
+              <button onClick={loadAudit} disabled={auditLoading} style={{ ...btn(th, { background: O, color: "#fff", border: "none", padding: "0.5rem 1rem", fontWeight: 800 }) }}>{auditLoading ? "Generating…" : "Generate"}</button>
+              {auditData && <button onClick={exportAuditPdf} disabled={auditExporting} style={{ ...btn(th, { padding: "0.5rem 1rem" }) }}>{auditExporting ? "Exporting…" : "⬇ Export PDF"}</button>}
+            </div>
+
+            {auditLoading ? <TaskSkeleton th={th} rows={4} /> : !auditData ? (
+              <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>Pick a store and date range, then Generate.</div>
+            ) : (
+              /* Printable report — fixed light palette so the PDF is always clean */
+              <div ref={auditRef} style={{ background: "#ffffff", color: "#111827", padding: "1.5rem", borderRadius: "0.5rem", border: "1px solid #e5e7eb", fontFamily: "'Source Sans 3', sans-serif" }}>
+                <div style={{ borderBottom: "2px solid #FF671F", paddingBottom: "0.75rem", marginBottom: "1rem" }}>
+                  <div style={{ fontFamily: "'Raleway', sans-serif", fontWeight: 900, fontSize: "1.3rem", color: "#111827" }}>Food Safety & Operations Audit</div>
+                  <div style={{ fontSize: "0.85rem", color: "#374151", marginTop: 2 }}>{st ? `${st.name} · #${auditStore}` : `Store #${auditStore}`}</div>
+                  <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: 2 }}>{fmtDay(auditFrom)} – {fmtDay(auditTo)} · Generated {new Date().toLocaleString("en-US")}</div>
+                </div>
+
+                {/* Summary KPIs */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(95px, 1fr))", gap: "0.5rem", marginBottom: "1.25rem" }}>
+                  {[["Completions", s.completions, "#111827"], ["Days", s.days, "#111827"], ["On-site", onsitePct != null ? onsitePct + "%" : "—", "#15803d"], ["Temp pass", tempPct != null ? tempPct + "%" : "—", tempPct != null && tempPct < 100 ? "#b45309" : "#15803d"], ["Photos", s.photos, "#111827"], ["Corrective", s.correctiveActions, s.correctiveActions > 0 ? "#b91c1c" : "#15803d"]].map(([l, v, c]) => (
+                    <div key={l} style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, padding: "0.6rem 0.3rem", textAlign: "center" }}>
+                      <div style={{ fontFamily: "'Raleway', sans-serif", fontWeight: 900, fontSize: "1.2rem", color: c }}>{v}</div>
+                      <div style={{ fontSize: "0.55rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, color: "#6b7280" }}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {days.length === 0 ? <div style={{ color: "#6b7280", padding: "1rem 0" }}>No completed tasks in this range.</div> : days.map((d) => (
+                  <div key={d} style={{ marginBottom: "1.25rem", pageBreakInside: "avoid" }}>
+                    <div style={{ fontWeight: 800, fontSize: "0.9rem", color: "#111827", borderBottom: "1px solid #e5e7eb", paddingBottom: 4, marginBottom: "0.5rem" }}>{fmtDay(d)}</div>
+                    {byDay[d].map((t) => {
+                      const off = t.gps_onsite === false;
+                      const gpsTxt = !t.has_gps ? null : t.gps_onsite === true ? "On-site" : off ? `Off-site${t.gps_dist_m != null ? " " + Math.round(t.gps_dist_m) + "m" : ""}` : "Located";
+                      const gpsC = t.gps_onsite === true ? "#15803d" : off ? "#b91c1c" : "#6b7280";
+                      return (
+                        <div key={t.id} style={{ padding: "0.5rem 0", borderBottom: "1px solid #f3f4f6", pageBreakInside: "avoid" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
+                            <span style={{ fontWeight: 700, fontSize: "0.82rem", color: "#111827" }}>{t.name} <span style={{ color: "#9ca3af", fontWeight: 400 }}>· {t.category}</span></span>
+                            <span style={{ fontSize: "0.72rem", color: "#6b7280" }}>{t.by || "—"} · {fmtAt(t.at)}{gpsTxt ? <span style={{ color: gpsC, fontWeight: 700 }}> · 📍 {gpsTxt}</span> : null}{t.signed_off_by ? " · ✓ signed off" : ""}</span>
+                          </div>
+                          {t.answers.length > 0 && (
+                            <div style={{ marginTop: "0.3rem", display: "grid", gap: "0.15rem" }}>
+                              {t.answers.map((a, i) => (
+                                <div key={i} style={{ fontSize: "0.74rem", color: "#374151", display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
+                                  <span>{a.equipment ? a.equipment + " — " : ""}{a.label}</span>
+                                  <span style={{ fontWeight: 700, color: a.in_range === false ? "#b91c1c" : a.in_range === true ? "#15803d" : "#374151", whiteSpace: "nowrap" }}>
+                                    {a.value != null ? `${a.value}${a.unit || ""}` : a.checked ? "✓" : "—"}{a.in_range === true ? " ✓" : a.in_range === false ? " ✗ out of range" : ""}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {t.value != null && t.answers.length === 0 && <div style={{ fontSize: "0.74rem", color: "#374151", marginTop: 2 }}>Recorded: {t.value}{t.unit || ""}</div>}
+                          {t.corrective.map((c, i) => (
+                            <div key={i} style={{ fontSize: "0.72rem", color: "#b91c1c", marginTop: 2 }}>⚠ Corrective: {c.title}{c.measured != null ? ` (${c.measured}${c.unit || ""})` : ""} — {c.status}{c.resolved_by ? ` by ${c.resolved_by}` : ""}</div>
+                          ))}
+                          {auditPhotos && t.has_photo && auditPhotoUrls[t.id] && (
+                            <img src={auditPhotoUrls[t.id]} alt="task" style={{ marginTop: "0.4rem", maxWidth: 180, maxHeight: 135, borderRadius: 6, border: "1px solid #e5e7eb", objectFit: "cover" }} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+                <div style={{ fontSize: "0.6rem", color: "#9ca3af", marginTop: "1rem", borderTop: "1px solid #e5e7eb", paddingTop: "0.5rem" }}>PCG Unified Operations Portal — digital task records. Location is device-reported and captured at completion. {APP_VERSION}</div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* ── Corrective Actions (Phase 3) ── */}
       {view === "cas" && (
-        <div>
+        <div style={{ maxWidth: 880 }}>
           <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
             {[["open", "Open"], ["resolved", "Resolved"], ["all", "All"]].map(([f, lbl]) => (
               <button key={f} onClick={() => setCaFilter(f)} style={{
