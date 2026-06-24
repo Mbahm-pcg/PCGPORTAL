@@ -7,7 +7,7 @@
     "drizzle-orm": "^1.0.0-beta.22",
     "googleapis": "^149.0.0",
     "minimalistic-assert": "^1.0.1",
-    "nodemailer": "^8.0.8",
+    "nodemailer": "^9.0.1",
     "pdf-parse": "^1.1.4",
     "sharp": "^0.34.5",
     "web-push": "^3.6.7"
@@ -28,7 +28,11 @@
     "esbuild": "^0.28.0"
   },
   "overrides": {
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "@opentelemetry/core": "2.8.0",
+    "@opentelemetry/resources": "2.8.0",
+    "@opentelemetry/sdk-trace-base": "2.8.0",
+    "@opentelemetry/sdk-trace-node": "2.8.0"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

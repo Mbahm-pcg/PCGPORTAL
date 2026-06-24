@@ -70,6 +70,13 @@
 [functions.ndcp-sync-cron]
   schedule = "0 */6 * * *"
 
+# Hexnode MDM device + GPS sync — every 15 min (matches Hexnode's poll interval).
+# Background function (15-min timeout): the Hexnode detail API is slow and
+# rate-limits concurrency, so the full pull needs more than the 26s sync budget.
+# Caches device locations to pcg_hexnode_devices_v1 so the Devices view reads instantly.
+[functions.hexnode-sync-cron-background]
+  schedule = "*/15 * * * *"
+
 # Google Reviews + sentiment — Sunday 1 AM ET (05:00 UTC)
 [functions.reviews-cron]
   schedule = "0 5 * * 0"
