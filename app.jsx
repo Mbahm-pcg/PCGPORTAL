@@ -1224,7 +1224,11 @@ function Login({ onLogin, dark, toggleDark, users }) {
 
             {/* Username — floating label */}
             {authStage === "password" ? (
-              <>
+              // Wrap credentials in a form (display:contents keeps layout identical) so the
+              // password field has a form ancestor — silences the DOM warning and lets the
+              // browser's password manager save/fill. onSubmit is prevented; Enter still
+              // routes through the existing onKeyDown → submit() so there's no page reload.
+              <form onSubmit={e => e.preventDefault()} style={{ display: "contents" }}>
             <div className="login-input-wrap" style={{ position: "relative", marginBottom: "1.1rem" }}>
               <input
                 id="login-user"
@@ -1351,7 +1355,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
               </span>
               Remember me
             </button>
-              </>
+              </form>
             ) : (
               <>
                 <div style={{
@@ -2581,7 +2585,6 @@ function Todos({ todos, setTodos, user, users, th, deepLinkRef }) {
           fontFamily: "'Source Sans 3'",
           textTransform: "uppercase",
           letterSpacing: 0.7,
-          color: "#fff",
           background: addOpen ? th.card3 : `linear-gradient(135deg, ${O} 0%, #ff8040 100%)`,
           border: addOpen ? `1px solid ${th.cardBorder}` : "none",
           borderRadius: "0.625rem",
@@ -4671,7 +4674,6 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
             <button onClick={() => setAddMode(a => !a)} style={{
               padding: "0.65rem 1.1rem",
               fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7,
-              color: "#fff",
               background: addMode ? th.card3 : `linear-gradient(135deg, ${O} 0%, #ff8040 100%)`,
               color: addMode ? th.muted : "#fff",
               border: addMode ? `1px solid ${th.cardBorder}` : "none",
@@ -13944,7 +13946,6 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
           <button onClick={() => { setAddMode(a => !a); setEditId(null); setForm({ ...EMPTY_PROJECT }); setManualAddr(false); }} style={{
             padding: "0.65rem 1.1rem",
             fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7,
-            color: "#fff",
             background: (addMode && !editId) ? th.card3 : `linear-gradient(135deg, ${O} 0%, #ff8040 100%)`,
             color: (addMode && !editId) ? th.muted : "#fff",
             border: (addMode && !editId) ? `1px solid ${th.cardBorder}` : "none",
@@ -14299,7 +14300,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                         setDragIdx(null);
                         setDragOverIdx(null);
                       }}
-                      style={{ borderBottom: `1px solid ${th.cardBorder}`, cursor: reorderLocked ? "pointer" : "grab", transition: "background .1s, border-top .15s", borderTop: isDragTarget && dragIdx > i ? `2px solid ${O}` : "none", borderBottom: isDragTarget && dragIdx < i ? `2px solid ${O}` : `1px solid ${th.cardBorder}`, opacity: dragIdx === i ? 0.4 : 1 }}
+                      style={{ cursor: reorderLocked ? "pointer" : "grab", transition: "background .1s, border-top .15s", borderTop: isDragTarget && dragIdx > i ? `2px solid ${O}` : "none", borderBottom: isDragTarget && dragIdx < i ? `2px solid ${O}` : `1px solid ${th.cardBorder}`, opacity: dragIdx === i ? 0.4 : 1 }}
                       onMouseEnter={e => { if (reorderLocked) e.currentTarget.style.background = th.card2; }}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                       <td style={{ padding: "0.625rem 0.75rem", color: th.muted, fontWeight: 600 }}>
@@ -15781,7 +15782,7 @@ function ReceiptThumb({ receiptKey, size = 48, expandable = true }) {
     }).catch(() => setLoading(false));
   }, [receiptKey]);
   if (!receiptKey) return null;
-  if (loading) return <span style={{ display:'inline-block', width:size, height:size, borderRadius:6, background:'#f59e0b22', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.65rem', color:'#f59e0b' }}>...</span>;
+  if (loading) return <span style={{ width:size, height:size, borderRadius:6, background:'#f59e0b22', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.65rem', color:'#f59e0b' }}>...</span>;
   if (!src) return <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:size, height:size, borderRadius:6, background:'#ef444422', fontSize:'0.6rem', color:'#ef4444' }}>✗</span>;
   return (
     <>
@@ -16310,12 +16311,21 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
   const KIOSK = new Set(['kiosk_pulse', 'kiosk_upload']);
   const ov = accessOverrides || {};
 
-  // A section is locked-on (cannot be toggled off) if it's the Admin tab for a full-admin role.
-  const isLocked = (rt, tabId) => tabId === 'admin' && (rt === 'executive' || rt === 'it');
+  // A section is locked-on (cannot be toggled off) if it's the Admin tab for a
+  // full-admin role, or Tickets/Tasks for a Store Tablet (its whole purpose — the
+  // tablet renders a fixed StoreTabletView that ignores these overrides anyway).
+  const isLocked = (rt, tabId) =>
+    (tabId === 'admin' && (rt === 'executive' || rt === 'it')) ||
+    (rt === 'store_tablet' && (tabId === 'tickets' || tabId === 'tasks'));
   const isOn = (rt, tabId) => ov[rt]?.[tabId] !== false;
 
   const toggle = (rt, tabId) => {
-    if (isLocked(rt, tabId)) { showAlert && showAlert('error', 'The Admin console stays visible for IT/Executive — lockout guard.'); return; }
+    if (isLocked(rt, tabId)) {
+      const msg = rt === 'store_tablet'
+        ? 'Store Tablet is a fixed Tickets + Tasks kiosk view — these can’t be turned off.'
+        : 'The Admin console stays visible for IT/Executive — lockout guard.';
+      showAlert && showAlert('error', msg); return;
+    }
     setAccessOverrides(prev => {
       const next = { ...prev, [rt]: { ...(prev[rt] || {}) } };
       if (next[rt][tabId] === false) delete next[rt][tabId];   // turn back ON (default)
@@ -16347,8 +16357,12 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
           const meta = ROLE_META[rt];
           // Dedupe tabs by id; exclude universal base tabs (always visible, not toggleable)
           const seen = new Set();
-          const tabs = (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: '000000' }))
-            .filter(t => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
+          // Store Tablet bypasses getTabs/the sidebar entirely (fixed StoreTabletView),
+          // so surface its Tickets + Tasks as locked, informational chips instead.
+          const tabs = rt === 'store_tablet'
+            ? [{ id: 'tickets', label: 'Tickets' }, { id: 'tasks', label: 'Tasks' }]
+            : (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: '000000' }))
+                .filter(t => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
           const visibleN = tabs.filter(t => isOn(rt, t.id)).length;
           return (
             <div key={rt} style={card(th, { padding: '1rem 1.15rem' })}>
@@ -18874,9 +18888,16 @@ function StoreForecastTab({ pc, date, actualHourly, th }) {
     if (mode !== 'week' || !pc) return;
     let cancelled = false;
     setWeekLoading(true); setWeekErr(false);
+    // Sunday of the current calendar week + today (user-local) — the week view is a
+    // fixed Sun→Sat window, and `today` lets the server skip actuals for future days.
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const todayLocal = new Date();
+    const sunday = new Date(todayLocal); sunday.setDate(sunday.getDate() - sunday.getDay());
+    const weekStart = iso(sunday);
+    const today = iso(todayLocal);
     fetch('/.netlify/functions/analyst', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'forecast', storePC: String(pc), date, range: 'week' }),
+      body: JSON.stringify({ action: 'forecast', storePC: String(pc), date, range: 'week', weekStart, today }),
     })
       .then(r => (r.ok ? r.json() : Promise.reject()))
       .then(j => { if (!cancelled) { setWeek(j.week); setWeekLoading(false); } })
@@ -18888,7 +18909,7 @@ function StoreForecastTab({ pc, date, actualHourly, th }) {
 
   const toggle = (
     <div style={{ display: 'inline-flex', gap: '0.25rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: '0.2rem', alignSelf: 'start' }}>
-      {[['day', 'Tomorrow'], ['week', 'Next 7 Days']].map(([m, label]) => (
+      {[['day', 'Tomorrow'], ['week', 'This Week']].map(([m, label]) => (
         <button key={m} onClick={() => setMode(m)}
           style={{ border: 'none', borderRadius: 999, padding: '0.35rem 0.95rem', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer', fontFamily: "'Raleway',sans-serif", background: mode === m ? O : 'transparent', color: mode === m ? '#fff' : th.muted, transition: 'all .15s' }}>{label}</button>
       ))}
@@ -18902,7 +18923,7 @@ function StoreForecastTab({ pc, date, actualHourly, th }) {
     else if (!data || !data.forecast) body = wrap('Not enough history yet — the model needs a few more weeks of data for this store.');
     else body = <ForecastDayView data={data} actualHourly={actualHourly} th={th} />;
   } else {
-    if (weekLoading) body = wrap('Building 7-day forecast…');
+    if (weekLoading) body = wrap('Building this week’s forecast…');
     else if (weekErr) body = wrap('Forecast unavailable right now — try again shortly.');
     else if (!week || !(week.days || []).some(d => d.dayTotal != null)) body = wrap('Not enough history yet — the model needs a few more weeks of data for this store.');
     else body = <ForecastWeekView week={week} th={th} />;
@@ -18915,8 +18936,31 @@ function StoreForecastTab({ pc, date, actualHourly, th }) {
 function ForecastDayView({ data, actualHourly, th }) {
   const f = n => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
   const hourLabel = h => (h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p');
-  const fc = data.forecast;
+  let fc = data.forecast;
   const acc = data.accuracy;
+
+  // Anchor the projection to last year's same weekday +2% (the realistic target),
+  // keeping the model's intraday SHAPE but rescaling every hour/daypart/total so the
+  // day sums to the LY+2% number. The recent-weeks model overshoots on a thin sample
+  // (e.g. +25% over LY), so we plan against the grounded year-over-year figure instead.
+  const anchored = !!(fc && fc.lyAnchor > 0 && fc.dayTotal > 0);
+  if (anchored && fc.lyAnchor !== fc.dayTotal) {
+    const k = fc.lyAnchor / fc.dayTotal;
+    fc = {
+      ...fc,
+      modelDayTotal: fc.dayTotal,
+      dayTotal: fc.lyAnchor,
+      low: Math.round(fc.low * k),
+      high: Math.round(fc.high * k),
+      hourly: (fc.hourly || []).map(h => ({ ...h, sales: Math.round(h.sales * k) })),
+      dayparts: {
+        amRush: Math.round(fc.dayparts.amRush * k),
+        midMorning: Math.round(fc.dayparts.midMorning * k),
+        lunch: Math.round(fc.dayparts.lunch * k),
+        afternoon: Math.round(fc.dayparts.afternoon * k),
+      },
+    };
+  }
 
   const actualBy = {};
   (actualHourly || []).forEach(h => { if (h && h.hour != null) actualBy[h.hour] = h.sales || 0; });
@@ -18962,15 +19006,18 @@ function ForecastDayView({ data, actualHourly, th }) {
           </div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.5rem', marginTop: '1rem' }}>
-          {[['AM rush', fc.dayparts.amRush], ['Mid-morn', fc.dayparts.midMorning], ['Lunch', fc.dayparts.lunch], ['Afternoon', fc.dayparts.afternoon]].map(([k, v]) => (
+          {[['AM rush', '5–9a', fc.dayparts.amRush], ['Mid-morn', '9–11a', fc.dayparts.midMorning], ['Lunch', '11a–2p', fc.dayparts.lunch], ['Afternoon', '2p–close', fc.dayparts.afternoon]].map(([k, t, v]) => (
             <div key={k} style={{ textAlign: 'center', background: th.card2, borderRadius: 8, padding: '0.5rem 0.3rem' }}>
               <div style={{ color: th.muted, fontSize: '0.54rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4 }}>{k}</div>
+              <div style={{ color: th.subtle, fontSize: '0.5rem', fontWeight: 700, marginTop: '0.1rem' }}>{t}</div>
               <div style={{ color: th.text, fontWeight: 800, fontSize: '0.82rem', marginTop: '0.2rem' }}>{f(v)}</div>
             </div>
           ))}
         </div>
         <div style={{ marginTop: '0.85rem', paddingTop: '0.6rem', borderTop: `1px solid ${th.cardBorder}`, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.65rem', color: th.muted }}>
-          <span>Based on {fc.samples} prior {fc.dowLabel}s{wPct !== 0 ? ` · weather ${wPct > 0 ? '+' : ''}${wPct}%` : ''}{fc.holidayName ? (fc.holidayUnknown ? ` · ${fc.holidayName} (impact unknown — no prior-year data)` : ` · ${fc.holidayName} ${hPct >= 0 ? '+' : ''}${hPct}%`) : ''}</span>
+          <span>{anchored
+            ? `Anchored to LY same ${fc.dowLabel} +2% · shape from ${fc.samples} recent ${fc.dowLabel}s`
+            : `Based on ${fc.samples} prior ${fc.dowLabel}s`}{wPct !== 0 ? ` · weather ${wPct > 0 ? '+' : ''}${wPct}%` : ''}{fc.holidayName ? (fc.holidayUnknown ? ` · ${fc.holidayName} (impact unknown — no prior-year data)` : ` · ${fc.holidayName} ${hPct >= 0 ? '+' : ''}${hPct}%`) : ''}</span>
           {acc ? <span>Model accuracy <span style={{ color: th.text, fontWeight: 800 }}>±{acc.mape}%</span> over last {acc.window} days</span> : null}
         </div>
       </div>
@@ -19012,51 +19059,70 @@ function ForecastDayView({ data, actualHourly, th }) {
   );
 }
 
-// Week view — model-driven next-7-days projection. Each day is forecast from its
-// own weekday history (server-side), summed into a weekly total + per-day bars.
+// Week view — the Sunday→Saturday calendar week. Each day is forecast from its own
+// weekday history (server-side, anchored to LY same-day +2%); days that have already
+// happened overlay their actual net sales so managers can see forecast vs actual.
 function ForecastWeekView({ week, th }) {
   const f = n => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
   const days = week.days || [];
   const valid = days.filter(d => d.dayTotal != null);
-  const maxBar = Math.max(1, ...valid.map(d => d.dayTotal));
+  const maxBar = Math.max(1, ...valid.map(d => d.dayTotal), ...days.map(d => d.actual || 0));
   const confColor = week.confidence === 'medium' ? '#22c55e' : week.confidence === 'low' ? '#f59e0b' : '#ef4444';
   const confLabel = { medium: 'Good confidence', low: 'Early estimate', 'very-low': 'Very early' };
   const dowShort = { Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
   const holidays = [...new Set(days.filter(d => d.holidayName).map(d => d.holidayName))];
+  const todayISO = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
   const fmtRange = (s, e) => {
     const o = { month: 'short', day: 'numeric' };
     return `${new Date(s + 'T12:00:00').toLocaleDateString('en-US', o)} – ${new Date(e + 'T12:00:00').toLocaleDateString('en-US', o)}`;
   };
+  // Week-to-date pace: actual vs the forecast for those same elapsed days.
+  const pace = (week.weekActual != null && week.forecastToDate > 0) ? (week.weekActual / week.forecastToDate - 1) : null;
+  const paceColor = pace == null ? th.muted : pace >= 0 ? '#22c55e' : '#ef4444';
 
   return (
     <>
       {/* Summary */}
       <div style={{ ...card(th), padding: '1.25rem 1.4rem', borderLeft: `4px solid ${O}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
-          <span style={{ color: th.muted, fontSize: '0.62rem', fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase' }}>Next 7 Days · {fmtRange(week.startDate, week.endDate)}</span>
+          <span style={{ color: th.muted, fontSize: '0.62rem', fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase' }}>This Week · {fmtRange(week.startDate, week.endDate)}</span>
           <span style={{ fontSize: '0.6rem', fontWeight: 800, color: confColor, background: confColor + '1e', padding: '0.15rem 0.5rem', borderRadius: 99 }}>{confLabel[week.confidence]}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem', flexWrap: 'wrap' }}>
           <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2.2rem', color: th.text, lineHeight: 1 }}>{f(week.weekTotal)}</span>
           <span style={{ color: th.muted, fontSize: '0.78rem' }}>projected · range {f(week.low)}–{f(week.high)}</span>
         </div>
+        {week.weekActual != null && (
+          <div style={{ marginTop: '0.7rem', fontSize: '0.88rem', fontWeight: 700, color: paceColor }}>
+            {pace != null && <>{pace >= 0 ? '▲' : '▼'} {pace >= 0 ? '+' : ''}{Math.round(pace * 100)}% vs forecast </>}
+            <span style={{ color: th.muted, fontWeight: 500, fontSize: '0.72rem' }}>week-to-date ({f(week.weekActual)} actual vs {f(week.forecastToDate)} expected)</span>
+          </div>
+        )}
         <div style={{ marginTop: '0.85rem', paddingTop: '0.6rem', borderTop: `1px solid ${th.cardBorder}`, fontSize: '0.65rem', color: th.muted }}>
-          {week.daysWithData < 7 ? `${week.daysWithData} of 7 days have enough history. ` : ''}Each day is projected from its own weekday history — plan staffing, ordering, and prep for the week ahead.{holidays.length ? ` Includes ${holidays.join(', ')} (adjusted from prior-year sales).` : ''}
+          {week.daysWithData < 7 ? `${week.daysWithData} of 7 days have enough history. ` : ''}Each day is anchored to LY same weekday +2%; elapsed days show actual net sales.{holidays.length ? ` Includes ${holidays.join(', ')} (adjusted from prior-year sales).` : ''}
         </div>
       </div>
 
-      {/* Per-day bars */}
+      {/* Per-day bars — forecast vs actual */}
       <div style={{ ...card(th), padding: '1.25rem 1.4rem' }}>
-        <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: th.text, marginBottom: '1rem' }}>Projected sales — by day</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: th.text }}>Forecast vs Actual — by day</span>
+          <div style={{ display: 'flex', gap: '0.9rem', fontSize: '0.62rem', color: th.muted }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: 10, height: 10, borderRadius: 2, background: th.card3 || th.cardBorder }} /> Forecast</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: 10, height: 10, borderRadius: 2, background: O }} /> Actual</span>
+          </div>
+        </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 175 }}>
           {days.map(d => {
-            const hPct = d.dayTotal != null ? Math.round((d.dayTotal / maxBar) * 92) : 0;
+            const fPct = d.dayTotal != null ? Math.round((d.dayTotal / maxBar) * 92) : 0;
+            const aPct = d.actual != null ? Math.round((d.actual / maxBar) * 92) : 0;
             return (
-              <div key={d.date} title={d.dayTotal != null ? `${d.dowLabel}${d.holidayName ? ` (${d.holidayName})` : ''} — ${f(d.dayTotal)} (range ${f(d.low)}–${f(d.high)}, ${d.samples} prior ${d.dowLabel}s)` : `${d.dowLabel}${d.holidayName ? ` (${d.holidayName})` : ''} — not enough history`}
+              <div key={d.date} title={d.dayTotal != null ? `${d.dowLabel}${d.holidayName ? ` (${d.holidayName})` : ''} — forecast ${f(d.dayTotal)}${d.actual != null ? `, actual ${f(d.actual)}` : ''} (range ${f(d.low)}–${f(d.high)})` : `${d.dowLabel} — not enough history`}
                 style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
-                <span style={{ fontSize: '0.55rem', color: d.dayTotal != null ? th.muted : th.subtle, fontWeight: 700, marginBottom: 3, whiteSpace: 'nowrap' }}>{d.holidayName ? '🎉 ' : ''}{d.dayTotal != null ? f(d.dayTotal) : '—'}</span>
-                <div style={{ width: '100%', flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-                  <div style={{ width: '62%', height: (d.dayTotal != null ? Math.max(2, hPct) : 2) + '%', background: d.dayTotal != null ? O : th.cardBorder, borderRadius: '4px 4px 0 0', transition: 'height .4s ease' }} />
+                <span style={{ fontSize: '0.55rem', color: d.actual != null ? O : (d.dayTotal != null ? th.muted : th.subtle), fontWeight: 800, marginBottom: 3, whiteSpace: 'nowrap' }}>{d.holidayName ? '🎉 ' : ''}{d.actual != null ? f(d.actual) : (d.dayTotal != null ? f(d.dayTotal) : '—')}</span>
+                <div style={{ width: '100%', flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 2 }}>
+                  <div style={{ width: '40%', height: (d.dayTotal != null ? Math.max(2, fPct) : 2) + '%', background: d.dayTotal != null ? (th.card3 || th.cardBorder) : th.cardBorder, borderRadius: '4px 4px 0 0', transition: 'height .4s ease' }} />
+                  {d.actual != null && <div style={{ width: '40%', height: Math.max(2, aPct) + '%', background: O, borderRadius: '4px 4px 0 0', transition: 'height .4s ease' }} />}
                 </div>
               </div>
             );
@@ -19064,7 +19130,7 @@ function ForecastWeekView({ week, th }) {
         </div>
         <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
           {days.map(d => (
-            <div key={d.date} style={{ flex: 1, textAlign: 'center', fontSize: '0.56rem', color: d.holidayName ? O : th.subtle, fontWeight: d.holidayName ? 800 : 700 }}>{dowShort[d.dowLabel] || ''}</div>
+            <div key={d.date} style={{ flex: 1, textAlign: 'center', fontSize: '0.56rem', color: d.date === todayISO ? O : d.holidayName ? O : th.subtle, fontWeight: d.date === todayISO || d.holidayName ? 800 : 700 }}>{dowShort[d.dowLabel] || ''}{d.date === todayISO ? ' •' : ''}</div>
           ))}
         </div>
       </div>
@@ -19072,7 +19138,7 @@ function ForecastWeekView({ week, th }) {
   );
 }
 
-function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onLogout }) {
+function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onPulse, onLabor, onLogout }) {
   const store = getManagerStore(stores, user) || {};
   const pc = store.pc;
   const todayStr = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
@@ -19084,8 +19150,6 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [labor, setLabor] = useState(null);
   const [hourly, setHourly] = useState(null);
   const [workers, setWorkers] = useState([]);
-  const [orderTypes, setOrderTypes] = useState([]);
-  const [tenders, setTenders] = useState([]);
   const [lwDaySales, setLwDaySales] = useState(null);
   const [activeAnnouncements, setActiveAnnouncements] = useState([]);
   const [carouselPage, setCarouselPage] = useState(0);
@@ -19095,6 +19159,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [showStoreInfo, setShowStoreInfo] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [dayOffset, setDayOffset] = useState(0);
   const [storeBlob, setStoreBlob] = useState(null);
   const [histHourly, setHistHourly] = useState(null);
@@ -19192,18 +19257,14 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra }),
       }).then(r => r.ok ? r.json() : null).catch(() => null);
 
-      const [opsRes, laborBlob, checkRes, storeBlobData, orderDims, orderTotals, announceBlob, opsYestRes, opsLYRes, tenderDims, tenderTotals] = await Promise.all([
+      const [opsRes, laborBlob, checkRes, storeBlobData, announceBlob, opsYestRes, opsLYRes] = await Promise.all([
         fetchOpsTotals(pc, todayStr).catch(() => null),
         cloudLoad('pcg_labor_v1').catch(() => null),
         pulsePost('getGuestChecks', { include: 'guestChecks' }),
         cloudLoad(`pcg_labor_store_${pc}`).catch(() => null),
-        pulsePost('getOrderTypeDimensions'),
-        pulsePost('getOrderTypeDailyTotals', { include: 'revenueCenters.orderTypes' }),
         cloudLoad('pcg_announcements_v1').catch(() => null),
         fetchOpsTotals(pc, yesterdayStr).catch(() => null),
         fetchOpsTotals(pc, lastYearStr).catch(() => null),
-        pulsePost('getTenderMediaDimensions'),
-        pulsePost('getTenderMediaDailyTotals', { include: 'revenueCenters.tenderMedias' }),
       ]);
 
       if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
@@ -19228,36 +19289,6 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
             if (k.startsWith('embed_hourly_') && k.length >= 10 && k.slice(-10) < cutoffStr) localStorage.removeItem(k);
           }
         } catch {}
-      }
-
-      // Order type breakdown
-      if (orderTotals?.revenueCenters) {
-        const nameMap = {};
-        for (const o of (orderDims?.orderTypes || [])) nameMap[o.num] = o.name;
-        const agg = {};
-        for (const rc of orderTotals.revenueCenters) {
-          for (const ot of (rc.orderTypes || [])) {
-            if (!agg[ot.otNum]) agg[ot.otNum] = { name: nameMap[ot.otNum] || `Type ${ot.otNum}`, sales: 0, checks: 0 };
-            agg[ot.otNum].sales += ot.netSlsTtl || 0;
-            agg[ot.otNum].checks += ot.chkCnt || 0;
-          }
-        }
-        setOrderTypes(Object.values(agg).filter(o => o.sales > 0).sort((a, b) => b.sales - a.sales));
-      }
-
-      // Tender media breakdown
-      if (tenderTotals?.revenueCenters) {
-        const nameMap = {};
-        for (const t of (tenderDims?.tenderMedias || [])) nameMap[t.num] = t.name;
-        const agg = {};
-        for (const rc of tenderTotals.revenueCenters) {
-          for (const tm of (rc.tenderMedias || [])) {
-            if (!agg[tm.tmedNum]) agg[tm.tmedNum] = { name: nameMap[tm.tmedNum] || `Tender ${tm.tmedNum}`, sales: 0, cnt: 0 };
-            agg[tm.tmedNum].sales += tm.tmedTtl || 0;
-            agg[tm.tmedNum].cnt += tm.tmedCnt || 0;
-          }
-        }
-        setTenders(Object.values(agg).filter(t => t.sales > 0).sort((a, b) => b.sales - a.sales));
       }
 
       // Last week same-day sales from store blob history
@@ -19395,11 +19426,31 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     borderRadius: 10,
     boxShadow: dark ? "0 12px 28px rgba(0,0,0,0.22)" : "0 2px 8px rgba(0,0,0,0.07), 0 8px 24px rgba(0,0,0,0.06)",
   };
-  const Card = ({ children, accent, style }) => <div style={{ ...cardBase, borderLeft: accent ? `3px solid ${accent}` : `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, padding: "0.9rem", ...style }}>{children}</div>;
+  const Card = ({ children, accent, style, onClick, ariaLabel }) => <div
+    onClick={onClick}
+    role={onClick ? "button" : undefined}
+    tabIndex={onClick ? 0 : undefined}
+    aria-label={onClick ? ariaLabel : undefined}
+    onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } : undefined}
+    onPointerDown={onClick ? (e) => { e.currentTarget.style.transform = "scale(0.978)"; } : undefined}
+    onPointerUp={onClick ? (e) => { e.currentTarget.style.transform = "scale(1)"; } : undefined}
+    onPointerLeave={onClick ? (e) => { e.currentTarget.style.transform = "scale(1)"; } : undefined}
+    style={{ ...cardBase, borderLeft: accent ? `3px solid ${accent}` : `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, padding: "0.9rem", cursor: onClick ? "pointer" : undefined, transition: "transform 0.13s ease", ...style }}>{children}</div>;
+  const ChevR = (c = th.muted) => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>;
   const Label = ({ children, color, right }) => <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.65rem" }}><div style={{ color: color || th.muted, fontSize: "0.58rem", fontWeight: 900, letterSpacing: 1.4, textTransform: "uppercase" }}>{children}</div>{right}</div>;
   const Chip = ({ children, color = th.muted }) => <span style={{ color, background: `${color}18`, border: `1px solid ${color}55`, borderRadius: 999, padding: "0.12rem 0.42rem", fontSize: "0.56rem", fontWeight: 900, textTransform: "uppercase", whiteSpace: "nowrap" }}>{children}</span>;
   const MiniStat = ({ label, value, color }) => <div style={{ minWidth: 0 }}><div style={{ color: color || th.text, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</div><div style={{ color: th.muted, fontSize: "0.6rem", marginTop: "0.18rem" }}>{label}</div></div>;
   const IconButton = ({ children, onClick, title, btnRef }) => <button ref={btnRef} onClick={onClick} title={title} aria-label={title} style={{ width: 34, height: 34, borderRadius: 8, background: dark ? th.card : "#ffffff", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, boxShadow: dark ? "none" : "0 1px 4px rgba(0,0,0,0.08)", color: th.text, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>{children}</button>;
+  // Stat-tile + menu styling (clean fintech-style metric grid)
+  const tileLabel = { color: th.muted, fontSize: "0.54rem", fontWeight: 900, letterSpacing: 1.3, textTransform: "uppercase", marginBottom: "0.5rem" };
+  const tileNum   = { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.55rem", lineHeight: 1, fontVariantNumeric: "tabular-nums" };
+  const tileSub   = { color: th.muted, fontSize: "0.58rem", marginTop: "0.35rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+  const menuItem  = { display: "flex", alignItems: "center", gap: 9, padding: "0.55rem 0.6rem", borderRadius: 7, background: "none", border: "none", cursor: "pointer", color: th.text, fontSize: "0.74rem", fontWeight: 700, fontFamily: "'Source Sans 3'", textAlign: "left", width: "100%" };
+  // Greeting + avatar
+  const greetWord = currentHour < 12 ? "Good morning" : currentHour < 17 ? "Good afternoon" : "Good evening";
+  const firstName = ((user?.name || "").trim().split(/\s+/)[0]) || "there";
+  const userInitials = (user?.initials || (user?.name || "").split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join("") || "U").toUpperCase();
+  const StoreSvg = (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></svg>;
 
   return (
     <div style={{ minHeight: "100vh", background: dark ? "#0b0d13" : "#f1f3f7", color: th.text }}>
@@ -19407,22 +19458,29 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         <div style={{ height: 3, background: `linear-gradient(90deg, ${O} 0%, #ff9950 100%)` }} />
         <div style={{ background: dark ? "rgba(11,13,19,0.97)" : "rgba(255,255,255,0.97)", borderBottom: `1px solid ${th.headerBorder}`, padding: "0.65rem 0.85rem", backdropFilter: "blur(16px)" }}>
           <div style={{ maxWidth: 380, margin: "0 auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: "0.6rem", alignItems: "center" }}>
-            <img src={LOGOS[th.logoSeal]} alt="PCG" style={{ width: 30, height: 30, objectFit: "contain", flexShrink: 0 }} />
-            <button onClick={() => setShowStoreInfo(true)} title="View store details" style={{ background: "none", border: "none", cursor: "pointer", color: th.text, padding: 0, textAlign: "left", minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.38rem", minWidth: 0 }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: loading ? "#f59e0b" : isLive ? "#22c55e" : "#64748b", boxShadow: `0 0 0 3px ${(loading ? "#f59e0b" : isLive ? "#22c55e" : "#64748b")}22`, flexShrink: 0 }} />
-                <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.95rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name || `Store #${pc}`}</span>
-              </div>
-              <div style={{ color: th.muted, fontSize: "0.58rem", marginTop: "0.1rem", paddingLeft: "0.95rem" }}>#{pc} · {isLive ? now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · {isLive ? (loading ? "Syncing…" : "Live") : "History"}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "0.6rem", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", justifySelf: "start" }}>
+              <img src={LOGOS[th.logoSeal]} alt="PCG" style={{ width: 30, height: 30, objectFit: "contain", flexShrink: 0 }} />
+            </div>
+            <button onClick={onFullPortal} title="Open the full portal" style={{ justifySelf: "center", display: "inline-flex", alignItems: "center", gap: 6, height: 34, padding: "0 15px", borderRadius: 999, background: `${O}12`, border: `1px solid ${O}44`, color: O, fontSize: "0.74rem", fontWeight: 800, letterSpacing: 0.2, fontFamily: "'Source Sans 3'", cursor: "pointer", whiteSpace: "nowrap" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={O} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              Full Portal
             </button>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-              <IconButton onClick={handleToggle} title={dark ? "Switch to light" : "Switch to dark"} btnRef={toggleBtnRef}>{dark ? ICONS.sun("#f59e0b") : ICONS.moon(th.muted)}</IconButton>
-              <button onClick={onFullPortal} title="Full Portal" style={{ height: 34, borderRadius: 8, background: dark ? th.card : "#ffffff", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, boxShadow: dark ? "none" : "0 1px 4px rgba(0,0,0,0.08)", color: O, display: "flex", alignItems: "center", cursor: "pointer", padding: "0 8px", fontSize: "0.6rem", fontWeight: 800, letterSpacing: 0.4, fontFamily: "'Source Sans 3'", gap: 4 }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={O} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                Portal
-              </button>
-              <IconButton onClick={onLogout} title="Sign out">{ICONS.logout(th.muted)}</IconButton>
+            <div style={{ display: "flex", alignItems: "center", justifySelf: "end", position: "relative" }}>
+              <button onClick={() => setShowUserMenu(v => !v)} title="Account" aria-label="Account menu" style={{ width: 36, height: 36, borderRadius: "50%", background: `linear-gradient(135deg, ${O}, #ff9950)`, border: "none", color: "#fff", fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.8rem", letterSpacing: 0.3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 2px 8px ${O}55` }}>{userInitials}</button>
+              {showUserMenu && (<>
+                <div onClick={() => setShowUserMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                <div style={{ position: "absolute", top: 44, right: 0, zIndex: 50, minWidth: 196, ...cardBase, padding: "0.4rem" }}>
+                  <div style={{ padding: "0.5rem 0.6rem 0.4rem" }}>
+                    <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.84rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.name || "Manager"}</div>
+                    <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name || `Store #${pc}`} · #{pc}</div>
+                  </div>
+                  <div style={{ height: 1, background: th.cardBorder, margin: "0.15rem 0" }} />
+                  <button onClick={() => { setShowStoreInfo(true); setShowUserMenu(false); }} style={menuItem}>{StoreSvg(th.muted)}<span>Store details</span></button>
+                  <button ref={toggleBtnRef} onClick={() => { setShowUserMenu(false); handleToggle(); }} style={menuItem}>{dark ? ICONS.sun("#f59e0b") : ICONS.moon(th.muted)}<span>{dark ? "Light mode" : "Dark mode"}</span></button>
+                  <button onClick={onLogout} style={menuItem}>{ICONS.logout("#ef4444")}<span style={{ color: "#ef4444" }}>Sign out</span></button>
+                </div>
+              </>)}
             </div>
           </div>
           {/* Date navigation strip */}
@@ -19439,7 +19497,14 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         </div>
       </div>
 
-      <div className="fade-in" style={{ maxWidth: 380, margin: "0 auto", padding: "0.75rem 0.75rem 5.9rem", display: "grid", gap: "0.7rem" }}>
+      <div className="fade-in" style={{ maxWidth: 380, margin: "0 auto", padding: "0.9rem 0.75rem 5.9rem", display: "grid", gap: "0.7rem" }}>
+        {/* Greeting — gradient orange→white wash + elegant display name */}
+        <div style={{ marginBottom: "0.2rem", marginTop: "0.1rem" }}>
+          <div style={{ display: "inline-block", fontFamily: "'Source Sans 3'", fontSize: "0.8rem", fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", backgroundImage: `linear-gradient(90deg, ${O} 0%, #ff9950 45%, ${th.text} 100%)`, WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent" }}>{greetWord},</div>
+          <div className="grad-name" style={{ display: "inline-block", fontFamily: "'Raleway', sans-serif", fontWeight: 900, fontSize: "2.3rem", lineHeight: 1.04, letterSpacing: -0.6, marginTop: "0.05rem", backgroundImage: `linear-gradient(100deg, ${O} 0%, #ff9950 30%, ${th.text} 55%, #ff9950 80%, ${O} 100%)`, WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent", paddingRight: "0.12em", paddingBottom: "0.04em" }}>{firstName}</div>
+          <div style={{ color: th.subtle, fontSize: "0.63rem", marginTop: "0.32rem", fontWeight: 500 }}>{(store.name || `Store #${pc}`) + " · " + (isLive ? now : viewDate).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}</div>
+        </div>
+
         {displayLaborPct != null && displayLaborPct > 25.9 && (
           <div style={{ background: dark ? "#f59e0b14" : "#fffbeb", border: `1px solid ${dark ? "#f59e0b55" : "#fcd34d"}`, borderLeft: "3px solid #f59e0b", borderRadius: 10, padding: "0.62rem 0.8rem", display: "flex", alignItems: "center", gap: "0.55rem" }}>
             <span style={{ fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}>⚠️</span>
@@ -19451,18 +19516,10 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         )}
 
 
-        <Card style={{ padding: "1rem", borderColor: `${O}55`, background: `linear-gradient(160deg, ${O}18 0%, ${th.card} 46%, ${th.card2} 100%)` }}>
-          <Label right={<Chip color={isLive ? (loading ? "#f59e0b" : "#22c55e") : "#64748b"}>{isLive ? (loading ? "Syncing" : "Live") : "History"}</Chip>}>{isLive ? "Today's Sales" : (dayOffset === 1 ? "Yesterday's Sales" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))}</Label>
+        <Card onClick={isLive ? onPulse : undefined} ariaLabel="Open Pulse sales detail" style={{ padding: "1rem", borderColor: `${O}55`, background: `linear-gradient(160deg, ${O}18 0%, ${th.card} 46%, ${th.card2} 100%)` }}>
+          <Label right={<span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}><Chip color={isLive ? (loading ? "#f59e0b" : "#22c55e") : "#64748b"}>{isLive ? (loading ? "Syncing" : "Live") : "History"}</Chip>{isLive && ChevR(O)}</span>}>{isLive ? "Net Sales" : (dayOffset === 1 ? "Net Sales · Yesterday" : "Net Sales · " + viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))}</Label>
           {(isLive && loading) || histLoading ? <div style={{ color: th.muted, fontSize: "0.82rem", textAlign: "center", padding: "0.75rem" }}>Loading...</div> : (
-            <>
-              <div style={{ color: O, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.75rem", lineHeight: 1, letterSpacing: -1 }}>{displaySalesAmt != null ? fmt(displaySalesAmt) : "--"}</div>
-              {(isLive || displayGuests != null) && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.85rem" }}>
-                  <MiniStat label="Guests" value={displayGuests != null ? Math.round(displayGuests).toLocaleString() : "--"} color="#74c0fc" />
-                  <MiniStat label="Avg Check" value={displayGuests > 0 ? '$' + (displaySalesAmt / displayGuests).toFixed(2) : "--"} color="#fde047" />
-                </div>
-              )}
-            </>
+            <div style={{ color: O, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.85rem", lineHeight: 1, letterSpacing: -1, fontVariantNumeric: "tabular-nums" }}>{displaySalesAmt != null ? fmt(displaySalesAmt) : "--"}</div>
           )}
           {isLive && (vsLW !== null || salesLastYear) && <>
             <div style={{ height: 1, background: th.cardBorder, margin: "0.85rem 0 0.65rem" }} />
@@ -19493,28 +19550,37 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         </Card>
 
 
-        <Card accent={laborColor}>
-          <Label right={<Chip color={laborColor}>{laborLabel}</Chip>}>Labor</Label>
-          {(() => {
-            const wtd = storeBlob?.weekly?.[0] || null;
-            const wtdColor = wtd ? (wtd.laborPct <= 22.9 ? "#22c55e" : wtd.laborPct <= 25.9 ? "#f59e0b" : "#ef4444") : th.muted;
-            return (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", alignItems: "end" }}>
-                <div>
-                  <div style={{ color: laborColor, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.6rem", lineHeight: 1 }}>{(isLive && loading) ? "--" : displayLaborPct != null ? displayLaborPct.toFixed(1) + "%" : "--"}</div>
-                  <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: "0.35rem" }}>{displayLaborDollars ? `${fmt(displayLaborDollars)} labor` : "Target 22.9%"}</div>
-                </div>
-                {wtd && (
-                  <div style={{ borderLeft: `1px solid ${dark ? "rgba(255,255,255,0.08)" : "#e5e7eb"}`, paddingLeft: "0.65rem" }}>
-                    <div style={{ color: th.muted, fontSize: "0.54rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.2rem" }}>WTD</div>
-                    <div style={{ color: wtdColor, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.25rem", lineHeight: 1 }}>{(wtd.laborPct || 0).toFixed(1)}%</div>
-                    <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: "0.35rem" }}>{fmt(wtd.laborDollars || 0)} labor</div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </Card>
+        {/* Daily essentials — clean metric grid under the hero */}
+        {(() => {
+          const wtd = storeBlob?.weekly?.[0] || null;
+          const wtdColor = wtd ? (wtd.laborPct <= 22.9 ? "#22c55e" : wtd.laborPct <= 25.9 ? "#f59e0b" : "#ef4444") : th.muted;
+          const avgCheck = displayGuests > 0 ? "$" + (displaySalesAmt / displayGuests).toFixed(2) : "--";
+          const laborVal = (isLive && loading) ? "--" : displayLaborPct != null ? displayLaborPct.toFixed(1) + "%" : "--";
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.7rem" }}>
+              <Card accent={laborColor} onClick={onLabor} ariaLabel="Open Labor detail" style={{ padding: "0.85rem 0.9rem" }}>
+                <div style={{ ...tileLabel, display: "flex", alignItems: "center", justifyContent: "space-between" }}><span>Labor %</span>{ChevR(laborColor)}</div>
+                <div style={{ ...tileNum, color: laborColor }}>{laborVal}</div>
+                <div style={tileSub}>{displayLaborDollars ? fmt(displayLaborDollars) + " · " + laborLabel : "Target 22.9%"}</div>
+              </Card>
+              <Card accent={wtdColor} style={{ padding: "0.85rem 0.9rem" }}>
+                <div style={tileLabel}>WTD Labor</div>
+                <div style={{ ...tileNum, color: wtdColor }}>{wtd ? (wtd.laborPct || 0).toFixed(1) + "%" : "--"}</div>
+                <div style={tileSub}>{wtd ? fmt(wtd.laborDollars || 0) + " labor" : "Week to date"}</div>
+              </Card>
+              <Card accent="#74c0fc" style={{ padding: "0.85rem 0.9rem" }}>
+                <div style={tileLabel}>Guests</div>
+                <div style={{ ...tileNum, color: "#74c0fc" }}>{displayGuests != null ? Math.round(displayGuests).toLocaleString() : "--"}</div>
+                <div style={tileSub}>{isLive ? "So far today" : "Total"}</div>
+              </Card>
+              <Card accent="#eab308" style={{ padding: "0.85rem 0.9rem" }}>
+                <div style={tileLabel}>Avg Check</div>
+                <div style={{ ...tileNum, color: "#eab308" }}>{avgCheck}</div>
+                <div style={tileSub}>Per guest</div>
+              </Card>
+            </div>
+          );
+        })()}
 
         {!loading && visibleHours.length > 0 && (
           <Card style={{ padding: "0.9rem 0.9rem 0.75rem" }}>
@@ -19563,10 +19629,6 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
           </Card>
         )}
 
-        <ManagerOrionBrief pc={pc} storeName={store.name} th={th} />
-
-        <ForecastPrePlanCard pc={pc} storeName={store.name} th={th} />
-
         {(() => {
           const carouselPages = [
             { id: 'workers', show: isLive && workers.length > 0, content: (
@@ -19586,62 +19648,6 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
                   ))}
                   {workers.length > 5 && <div style={{ color: th.muted, fontSize: "0.62rem", textAlign: "center", marginTop: "0.2rem" }}>+{workers.length - 5} more in full portal</div>}
                 </div>
-              </>
-            )},
-            { id: 'orders', show: isLive && !loading, content: (
-              <>
-                <Label>Order Types</Label>
-                {orderTypes.length > 0 ? (() => {
-                  const total = orderTypes.reduce((s, o) => s + o.sales, 0);
-                  return (
-                    <div style={{ display: "grid", gap: "0.5rem" }}>
-                      {orderTypes.map((o, i) => {
-                        const pct = total > 0 ? Math.round((o.sales / total) * 100) : 0;
-                        const colors = [O, "#8b5cf6", "#74c0fc", "#f59e0b"];
-                        const c = colors[i % colors.length];
-                        return (
-                          <div key={o.name}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
-                              <span style={{ color: th.text, fontSize: "0.72rem", fontWeight: 600 }}>{o.name}</span>
-                              <span style={{ color: th.muted, fontSize: "0.65rem" }}>{fmt(o.sales)} <span style={{ color: c, fontWeight: 800 }}>{pct}%</span></span>
-                            </div>
-                            <div style={{ height: 5, borderRadius: 99, background: dark ? "rgba(255,255,255,0.07)" : "#e5e7eb" }}>
-                              <div style={{ height: "100%", width: pct + "%", borderRadius: 99, background: c, opacity: 0.85, transition: "width 0.5s ease" }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })() : <div style={{ color: th.muted, fontSize: "0.72rem" }}>No order type data yet.</div>}
-              </>
-            )},
-            { id: 'tenders', show: isLive && !loading, content: (
-              <>
-                <Label>Tender Media</Label>
-                {tenders.length > 0 ? (() => {
-                  const total = tenders.reduce((s, t) => s + t.sales, 0);
-                  const colors = ['#00d084', '#ffd43b', '#74c0fc', '#f06595', '#ff9800', '#8b5cf6'];
-                  return (
-                    <div style={{ display: "grid", gap: "0.5rem" }}>
-                      {tenders.map((t, i) => {
-                        const pct = total > 0 ? Math.round((t.sales / total) * 100) : 0;
-                        const c = colors[i % colors.length];
-                        return (
-                          <div key={t.name}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
-                              <span style={{ color: th.text, fontSize: "0.72rem", fontWeight: 600 }}>{t.name}</span>
-                              <span style={{ color: th.muted, fontSize: "0.65rem" }}>{fmt(t.sales)} <span style={{ color: c, fontWeight: 800 }}>{pct}%</span></span>
-                            </div>
-                            <div style={{ height: 5, borderRadius: 99, background: dark ? "rgba(255,255,255,0.07)" : "#e5e7eb" }}>
-                              <div style={{ height: "100%", width: pct + "%", borderRadius: 99, background: c, opacity: 0.85, transition: "width 0.5s ease" }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })() : <div style={{ color: th.muted, fontSize: "0.72rem" }}>No tender data yet — tap Refresh.</div>}
               </>
             )},
             { id: 'announce', show: activeAnnouncements.length > 0, content: (
@@ -19821,7 +19827,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v16.96";
+const APP_VERSION = "v17.12";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -26540,9 +26546,12 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
         <h2 style={{ ...pageTitle(th), margin: 0 }}>Labor</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <span style={{ fontSize: '0.75rem', color: th.muted }}>Updated {timeAgo(laborData?.lastUpdated)}</span>
-          <button onClick={handleRefresh} disabled={refreshing} style={{ ...btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem', opacity: refreshing ? 0.5 : 1 }) }}>
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
+          {/* Manual labor refresh triggers a Paycor background re-pull — limit to exec/IT only. */}
+          {isFullAdmin(user) && (
+            <button onClick={handleRefresh} disabled={refreshing} style={{ ...btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem', opacity: refreshing ? 0.5 : 1 }) }}>
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -37246,7 +37255,9 @@ function PCGPortal() {
   }} />;
 
   // ── First-Login Setup ──────────────────────────────────────────────────────
-  if (user.mustSetup) {
+  // Store tablets are shared-device logins (fixed password, stay logged in) — they
+  // never go through first-login setup, even if an older record still has the flag.
+  if (user.mustSetup && user.userType !== "store_tablet") {
     return <FirstLoginSetup user={user} setUser={setUser} setUsers={setUsers} th={th} />;
   }
 
@@ -37309,6 +37320,8 @@ function PCGPortal() {
         onFullPortal={() => togglePortalMode(true)}
         onTickets={() => { togglePortalMode(true); setTab("tickets"); }}
         onTasks={() => { togglePortalMode(true); setTab("tasks"); }}
+        onPulse={() => { togglePortalMode(true); setTab("pulse"); }}
+        onLabor={() => { togglePortalMode(true); setTab("labor"); }}
         onLogout={handleLogout}
       />
     );
@@ -37816,14 +37829,18 @@ function PCGPortal() {
 
       {/* ─── Nav body ─────────────────────────────────────────────────── */}
       <div ref={navRef} onScroll={onNavScroll} style={{ padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
-        {/* ── Pinned favorites — surfaced at the very top, user-customizable ── */}
+        {/* ── Pinned favorites — surfaced at the very top, user-customizable.
+             Dashboard is always pinned first (it can't be unpinned) so every role
+             lands on it; store tablets use a separate view and never reach here. ── */}
         {(() => {
+          const dashTab = TABS.find(t => t.id === 'dashboard');
           const pinnedTabs = pinnedNavIds.map(id => TABS.find(t => t.id === id)).filter(Boolean);
-          if (pinnedTabs.length === 0) return null;
+          const quickTabs = [dashTab, ...pinnedTabs.filter(t => t.id !== 'dashboard')].filter(Boolean);
+          if (quickTabs.length === 0) return null;
           return (
             <>
               <SectionHeader label="Quick Access" accent={O} collapsed={collapsed} />
-              {pinnedTabs.map(t => {
+              {quickTabs.map(t => {
                 const C = t.cash ? (cashMissingCount > 0 ? "#ef4444" : "#00d084") : (t.green ? "#00d084" : O);
                 return (
                   <NavButton
@@ -37850,7 +37867,8 @@ function PCGPortal() {
              No auto-open on active tab — stays closed until expanded manually. ── */}
         {(() => {
           const baseIds = new Set([...ESSENTIAL_BASE_IDS, ...WORKSPACE_BASE_IDS]);
-          const wsTabs = BASE_TABS.filter(t => baseIds.has(t.id) && !pinnedNavIds.includes(t.id));
+          // Dashboard lives in Quick Access (always pinned first), so keep it out of Workspace.
+          const wsTabs = BASE_TABS.filter(t => baseIds.has(t.id) && t.id !== 'dashboard' && !pinnedNavIds.includes(t.id));
           if (wsTabs.length === 0) return null;
           // Auto-open when the active tab lives here (e.g. the Dashboard landing tab) so
           // essential base tabs aren't buried behind a collapsed header on first load.

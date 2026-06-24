@@ -418,11 +418,16 @@ export default async (request, context) => {
       const weatherFor = (dt) => (condByDate[dt] ? { condition: condByDate[dt] } : undefined);
       const pulseSales = (pc, d) => getDailyNetSales(pc, d);
 
-      // range:'week' → model-driven next-7-days projection (each day from its
-      // own weekday history); default → single-day forecast + live accuracy.
-      // Both factor in weather + holidays (the latter learned from Pulse history).
+      // range:'week' → model-driven projection for the Sunday–Saturday calendar
+      // week (each day from its own weekday history); default → single-day
+      // forecast + live accuracy. Both factor in weather + holidays (the latter
+      // learned from Pulse history).
       if (range === 'week') {
-        const start = date || tomorrowISO();
+        // Anchor the week to its Sunday. Client passes weekStart (computed in the
+        // user's local time); fall back to the Sunday of the week containing the
+        // target date so the view is always a full Sun→Sat week, never a rolling 7.
+        const sundayOf = (iso) => { const dd = new Date(`${iso}T12:00:00`); dd.setDate(dd.getDate() - dd.getDay()); return `${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, '0')}-${String(dd.getDate()).padStart(2, '0')}`; };
+        const start = payload.weekStart || sundayOf(date || tomorrowISO());
         const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(start, i));
         const weatherByDate = {};
         dates.forEach(d => { if (condByDate[d]) weatherByDate[d] = { condition: condByDate[d] }; });
@@ -446,6 +451,52 @@ export default async (request, context) => {
           else { holidayNameByDate[d] = info.name; holidayUnknownByDate[d] = true; }
         }
         const week = await forecastStoreWeek(storePC, start, { weatherByDate, holidayFactorByDate, holidayNameByDate, holidayUnknownByDate });
+
+        if (week && Array.isArray(week.days)) {
+          // Per-day actual net sales (elapsed days only — future dates have no sales,
+          // so skip those Pulse calls) and the LY same-day +2% anchor (all 7 days).
+          // Fetched in parallel so the week adds ~one round-trip rather than many.
+          const today = payload.today || null;
+          const [actuals, lyNets] = await Promise.all([
+            Promise.all(dates.map(d => (!today || d <= today) ? getDailyNetSales(storePC, d) : Promise.resolve(null))),
+            Promise.all(dates.map(d => getDailyNetSales(storePC, addDaysISO(d, -364)))),
+          ]);
+          week.days.forEach((day, i) => {
+            const ly = lyNets[i];
+            // Re-anchor the model's per-day projection to LY same weekday +2%,
+            // keeping its shape (low/high/dayparts scale by the same factor).
+            if (ly > 0 && day.dayTotal > 0) {
+              const k = (ly * 1.02) / day.dayTotal;
+              day.modelDayTotal = day.dayTotal;
+              day.lyAnchor = Math.round(ly * 1.02);
+              day.dayTotal = day.lyAnchor;
+              day.low = Math.round(day.low * k);
+              day.high = Math.round(day.high * k);
+              if (day.dayparts) day.dayparts = {
+                amRush: Math.round(day.dayparts.amRush * k),
+                midMorning: Math.round(day.dayparts.midMorning * k),
+                lunch: Math.round(day.dayparts.lunch * k),
+                afternoon: Math.round(day.dayparts.afternoon * k),
+              };
+            }
+            if (actuals[i] > 0) day.actual = Math.round(actuals[i]);
+          });
+          // Recompute weekly totals from the (anchored) per-day numbers, combining
+          // day bands in quadrature (matches computeWeekForecast's method).
+          const valid = week.days.filter(d => d.dayTotal != null);
+          if (valid.length) {
+            week.weekTotal = Math.round(valid.reduce((s, d) => s + d.dayTotal, 0));
+            week.low = Math.round(week.weekTotal - Math.sqrt(valid.reduce((s, d) => s + Math.pow(d.dayTotal - d.low, 2), 0)));
+            week.high = Math.round(week.weekTotal + Math.sqrt(valid.reduce((s, d) => s + Math.pow(d.high - d.dayTotal, 2), 0)));
+          }
+          // Week-to-date actual vs the forecast for those same elapsed days (a fair
+          // pace). Only count days that have BOTH an actual and a model forecast, so a
+          // day with sales but no weekday-history forecast can't skew the ratio.
+          const done = week.days.filter(d => d.actual != null && d.dayTotal != null);
+          week.weekActual = done.length ? Math.round(done.reduce((s, d) => s + d.actual, 0)) : null;
+          week.forecastToDate = done.length ? Math.round(done.reduce((s, d) => s + d.dayTotal, 0)) : null;
+        }
+
         return respond(200, { storePC, startDate: start, week });
       }
 
@@ -460,6 +511,18 @@ export default async (request, context) => {
         holidayName: hf ? hf.name : (tgtHoliday ? tgtHoliday.name : null),
         holidayUnknown: !!tgtHoliday && !hf,
       });
+      // YoY cross-check: last year's same weekday (−364d preserves day-of-week) × 1.02.
+      // Surfaced alongside the model number so a manager can sanity-check the
+      // recent-weeks model against what the store actually did a year ago.
+      if (forecast) {
+        const lyDate = addDaysISO(target, -364);
+        const lyNet = await getDailyNetSales(storePC, lyDate);
+        if (lyNet > 0) {
+          forecast.lyDate = lyDate;
+          forecast.lyNet = Math.round(lyNet);
+          forecast.lyAnchor = Math.round(lyNet * 1.02);
+        }
+      }
       return respond(200, { storePC, date: target, forecast, accuracy });
     }
 

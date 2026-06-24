@@ -8,6 +8,7 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 <link rel="manifest" href="/manifest.json" />
 <meta name="theme-color" content="#FF671F" />
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -46,6 +47,8 @@
   @keyframes loginPulseRing{0%{transform:scale(1);opacity:.8}70%{transform:scale(2.2);opacity:0}100%{transform:scale(2.2);opacity:0}}
   @keyframes loginFadeInUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
   @keyframes heroShimmer{0%{background-position:0% 50%}100%{background-position:100% 50%}}
+  .grad-name{background-size:220% auto;animation:heroShimmer 4.5s ease-in-out infinite alternate;}
+  @media (prefers-reduced-motion:reduce){.grad-name{animation:none;}}
   @keyframes loginGradientFlow{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
   @keyframes loginAuroraSpin{0%{transform:rotate(0deg) scale(1.1)}100%{transform:rotate(-360deg) scale(1.1)}}
   @keyframes loginDotDrift{0%{background-position:0 0}100%{background-position:28px 28px}}

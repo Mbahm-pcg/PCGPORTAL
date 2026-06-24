@@ -95,6 +95,9 @@ export default async (request) => {
 
       const username = lc(u.username);
       const passwordHash = u.password ? hashPassword(String(u.password)) : null;
+      // Store tablets are shared-device logins with a fixed password that stays
+      // logged in — never force first-login setup or a password change on them.
+      const forceSetup = u.userType !== 'store_tablet';
 
       const [row] = await db`
         INSERT INTO users (
@@ -106,8 +109,8 @@ export default async (request) => {
           ${u.role || null}, ${u.userType}, ${u.district ?? null},
           ${u.storePC ? String(u.storePC) : null},
           ${u.active !== false}, ${u.darkMode || false},
-          ${u.initials || null}, ${u.isAdmin || false}, true,
-          ${u.region || 'PA'}, ${passwordHash}, true,
+          ${u.initials || null}, ${u.isAdmin || false}, ${forceSetup},
+          ${u.region || 'PA'}, ${passwordHash}, ${forceSetup},
           ${u.twoFactorRequired || false}, now(), now()
         )
         ON CONFLICT (username) DO NOTHING
