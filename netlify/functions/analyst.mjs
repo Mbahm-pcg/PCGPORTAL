@@ -2,8 +2,8 @@
 // Actions: ask, brief, brief-refresh, case-list, case-detail, case-update, feedback, report-settings
 
 import { askAnalyst, generateStructured } from './analyst-lib/analyst-claude.mjs';
-import { buildDataContext, buildKPISnapshot, buildStoreContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
-import { buildBriefPrompt, buildStoreBriefPrompt, buildPrePlanPrompt, buildAskPrompt, PERSONA, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
+import { buildDataContext, buildKPISnapshot, buildStoreContext, buildMaintenanceContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
+import { buildBriefPrompt, buildStoreBriefPrompt, buildPrePlanPrompt, buildAskPrompt, PERSONA, MAINT_ASK_SYSTEM, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
 import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
 import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
 import { getCases, loadCase, updateCaseStatus, loadDecisionLog } from './analyst-lib/analyst-cases.mjs';
@@ -79,9 +79,15 @@ export default async (request, context) => {
       // Build data context scoped to the caller's REAL role: store (managers), district (DMs),
       // or full network (execs). A manager is locked to their own store; a DM to their district.
       const effStorePC = effRole === 'manager' ? (caller?.storePC || storePC) : null;
+      const isMaint = effRole === 'maintenance';
       let dataContext;
       let scope;
-      if (effRole === 'manager' && effStorePC) {
+      if (isMaint) {
+        // Maintenance crew works the whole network — give Orion the full ticket board
+        // (triage, overdue, per-store history, recent resolutions) instead of financials.
+        dataContext = await buildMaintenanceContext({ now: new Date() });
+        scope = 'Maintenance — all stores';
+      } else if (effRole === 'manager' && effStorePC) {
         dataContext = await buildStoreContext({ storePC: effStorePC });
         scope = `Store ${effStorePC}`;
       } else {
@@ -115,7 +121,7 @@ export default async (request, context) => {
         if (stored && Array.isArray(stored)) chatHistory = stored;
       }
 
-      const result = await askAnalyst({ userPrompt: prompt, userId, forceDeep, history: chatHistory });
+      const result = await askAnalyst({ userPrompt: prompt, userId, forceDeep, history: chatHistory, system: isMaint ? MAINT_ASK_SYSTEM : undefined });
 
       const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 

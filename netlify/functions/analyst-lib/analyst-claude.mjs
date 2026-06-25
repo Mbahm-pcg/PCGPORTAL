@@ -62,8 +62,9 @@ async function callClaude({ system, userPrompt, action, userId, forceDeep, maxTo
  * Ask a question with the analyst persona. Returns { answer, model, tokens }
  * Supports conversation history for multi-turn chat.
  */
-async function askAnalyst({ userPrompt, userId, forceDeep, history }) {
-  const inputLength = (ASK_SYSTEM || '').length + (userPrompt || '').length;
+async function askAnalyst({ userPrompt, userId, forceDeep, history, system }) {
+  const sys = system || ASK_SYSTEM;
+  const inputLength = (sys || '').length + (userPrompt || '').length;
   const model = pickModel({ action: forceDeep ? 'deep' : 'ask', inputLength, forceDeep });
   const start = Date.now();
 
@@ -83,7 +84,7 @@ async function askAnalyst({ userPrompt, userId, forceDeep, history }) {
     const response = await getClient().messages.create({
       model,
       max_tokens: forceDeep ? 2048 : 1024,
-      system: ASK_SYSTEM,
+      system: sys,
       messages,
     });
 

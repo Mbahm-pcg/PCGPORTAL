@@ -862,6 +862,130 @@ async function buildOpsContext({ district } = {}) {
   }
 }
 
+// ── Maintenance ticket board (network-wide, full detail for the crew's Orion) ─
+// Read-only context: active tickets triage-sorted with full detail, overdue /
+// due-today / due-this-week buckets, per-store repeat-issue history, recently
+// closed tickets with their closing note, and a month-to-date expense rollup.
+async function buildMaintenanceContext({ now = new Date() } = {}) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const norm = (s) => { if (!s) return null; const d = new Date(s); return isNaN(d) ? String(s).slice(0, 10) : ymd(d); };
+  const today = ymd(now);
+  const weekEnd = new Date(now.getTime()); weekEnd.setDate(weekEnd.getDate() + 7);
+  const weekEndStr = ymd(weekEnd);
+  const monthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+  const daysBetween = (a, b) => Math.floor((new Date(a) - new Date(b)) / 86400000);
+
+  let rows = [];
+  const commentCounts = {}, expTotals = {};
+  let expMonth = { total: 0, n: 0 };
+  try {
+    rows = await sql`
+      SELECT id, number, title, status, priority, category,
+             store_pc, store_name, address, due_date, ticket_owner, created_by,
+             started_by, closed_by, closed_at,
+             COALESCE(jsonb_array_length(attachments), 0) AS attach_n, created_at
+      FROM maint_tickets ORDER BY created_at DESC`;
+    const cc = await sql`SELECT ticket_id, count(*)::int AS n FROM maint_ticket_comments GROUP BY ticket_id`;
+    cc.forEach((r) => { commentCounts[String(r.ticket_id)] = r.n; });
+    const et = await sql`SELECT ticket_id, COALESCE(sum(amount),0)::float AS total FROM maint_ticket_expenses WHERE no_expense IS NOT TRUE AND amount IS NOT NULL GROUP BY ticket_id`;
+    et.forEach((r) => { expTotals[String(r.ticket_id)] = r.total; });
+    const em = await sql`SELECT COALESCE(sum(amount),0)::float AS total, count(*)::int AS n FROM maint_ticket_expenses WHERE no_expense IS NOT TRUE AND amount IS NOT NULL AND added_at >= ${monthStart}::date`;
+    expMonth = { total: em[0]?.total || 0, n: em[0]?.n || 0 };
+  } catch (e) {
+    return `MAINTENANCE TICKET BOARD: unavailable (${e.message}).`;
+  }
+  if (!rows.length) return `MAINTENANCE TICKET BOARD (as of ${today}): no tickets on record.`;
+
+  const prank = (p) => ({ High: 0, Medium: 1, Low: 2 }[p] ?? 3);
+  const t = rows.map((r) => {
+    const due = norm(r.due_date);
+    const closed = r.status === 'Closed';
+    const age = r.created_at ? Math.max(0, daysBetween(now, r.created_at)) : null;
+    return {
+      id: String(r.id), number: r.number || `#${r.id}`, title: r.title || '(untitled)',
+      status: r.status || 'Open', priority: r.priority || 'Medium', category: r.category || 'Uncategorized',
+      pc: r.store_pc || '', store: r.store_name || r.store_pc || 'Unknown store', address: r.address || '',
+      due, owner: r.ticket_owner || r.started_by || '', closedBy: r.closed_by || '',
+      closedAt: r.closed_at ? norm(r.closed_at) : null,
+      attach: Number(r.attach_n) || 0, comments: commentCounts[String(r.id)] || 0, spent: expTotals[String(r.id)] || 0,
+      closed, age,
+      overdue: !!(due && !closed && due < today),
+      dueToday: !!(due && !closed && due === today),
+      dueWeek: !!(due && !closed && due >= today && due <= weekEndStr),
+    };
+  });
+
+  const active = t.filter((x) => !x.closed);
+  const closedAll = t.filter((x) => x.closed);
+  const inProg = active.filter((x) => x.status === 'In Progress').length;
+  const overdue = active.filter((x) => x.overdue);
+  const dueToday = active.filter((x) => x.dueToday);
+  const dueWeek = active.filter((x) => x.dueWeek);
+  const byP = { High: 0, Medium: 0, Low: 0 };
+  active.forEach((x) => { if (byP[x.priority] != null) byP[x.priority]++; });
+  const byCat = {};
+  active.forEach((x) => { byCat[x.category] = (byCat[x.category] || 0) + 1; });
+
+  const sortActive = (arr) => arr.slice().sort((a, b) =>
+    (Number(b.overdue) - Number(a.overdue)) ||
+    (prank(a.priority) - prank(b.priority)) ||
+    ((a.due || '9999-99-99') < (b.due || '9999-99-99') ? -1 : (a.due || '9999-99-99') > (b.due || '9999-99-99') ? 1 : 0) ||
+    ((b.age || 0) - (a.age || 0))
+  );
+  const fmtRow = (x) => `• ${x.number} | ${x.title} | ${x.store}${x.pc ? ` (PC ${x.pc})` : ''}${x.address ? ` ${x.address}` : ''} | ${x.category} | ${x.priority} | ${x.status} | due ${x.due || 'none'}${x.overdue && x.due ? ` (${daysBetween(today, x.due)}d overdue)` : ''} | age ${x.age != null ? x.age + 'd' : '?'}${x.owner ? ` | owner ${x.owner}` : ''}${x.comments ? ` | ${x.comments} comment(s)` : ''}${x.attach ? ` | ${x.attach} photo(s)` : ''}${x.spent ? ` | $${x.spent.toFixed(2)} spent` : ''}`;
+
+  const sec = [];
+  sec.push(`MAINTENANCE TICKET BOARD — network-wide, as of ${today}`);
+  sec.push(`SUMMARY: ${active.length} active (${inProg} in progress) · ${overdue.length} overdue · ${dueToday.length} due today · ${dueWeek.length} due within 7 days · ${closedAll.length} closed all-time`);
+  sec.push(`Active by priority: High ${byP.High} · Medium ${byP.Medium} · Low ${byP.Low}`);
+  sec.push(`Active by category: ${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} ${n}`).join(' · ') || 'none'}`);
+  sec.push(`Maintenance spend month-to-date: $${expMonth.total.toFixed(2)} across ${expMonth.n} expense line(s)`);
+
+  if (overdue.length) {
+    sec.push(`\nOVERDUE — handle first (${overdue.length}):`);
+    sortActive(overdue).slice(0, 25).forEach((x) => sec.push(fmtRow(x)));
+  }
+  sec.push(`\nACTIVE TICKETS, triage-sorted (showing ${Math.min(active.length, 40)} of ${active.length}):`);
+  sortActive(active).slice(0, 40).forEach((x) => sec.push(fmtRow(x)));
+
+  const byStore = {};
+  t.forEach((x) => {
+    const k = x.pc || x.store;
+    if (!byStore[k]) byStore[k] = { store: x.store, pc: x.pc, total: 0, open: 0, cats: {} };
+    byStore[k].total++; if (!x.closed) byStore[k].open++;
+    byStore[k].cats[x.category] = (byStore[k].cats[x.category] || 0) + 1;
+  });
+  const repeatStores = Object.values(byStore).filter((s) => s.total >= 2).sort((a, b) => b.open - a.open || b.total - a.total).slice(0, 20);
+  if (repeatStores.length) {
+    sec.push(`\nPER-STORE HISTORY (stores with 2+ tickets):`);
+    repeatStores.forEach((s) => {
+      const repeats = Object.entries(s.cats).filter(([, n]) => n >= 2).map(([c, n]) => `${c} ×${n}`).join(', ');
+      sec.push(`• ${s.store}${s.pc ? ` (PC ${s.pc})` : ''}: ${s.total} tickets · ${s.open} open${repeats ? ` · repeat: ${repeats}` : ''}`);
+    });
+  }
+
+  const recentClosed = closedAll.slice().sort((a, b) => ((b.closedAt || '') < (a.closedAt || '') ? -1 : 1)).slice(0, 15);
+  if (recentClosed.length) {
+    const lastNotes = {};
+    try {
+      const ids = recentClosed.map((x) => x.id);
+      const notes = await sql`
+        SELECT DISTINCT ON (ticket_id) ticket_id, text
+        FROM maint_ticket_comments WHERE ticket_id = ANY(${ids}::bigint[])
+        ORDER BY ticket_id, created_at DESC`;
+      notes.forEach((r) => { lastNotes[String(r.ticket_id)] = r.text; });
+    } catch { /* notes are best-effort */ }
+    sec.push(`\nRECENTLY CLOSED (resolution reference, last ${recentClosed.length}):`);
+    recentClosed.forEach((x) => {
+      const note = (lastNotes[x.id] || '').replace(/\s+/g, ' ').slice(0, 100);
+      sec.push(`• ${x.number} | ${x.title} | ${x.store} | ${x.category} | closed ${x.closedAt || '?'}${x.closedBy ? ` by ${x.closedBy}` : ''}${note ? ` | note: "${note}"` : ''}`);
+    });
+  }
+
+  return sec.join('\n');
+}
+
 export {
   STORES,
   getAllStores,
@@ -882,6 +1006,7 @@ export {
   buildEmailContext,
   buildProjectsContext,
   buildTicketsContext,
+  buildMaintenanceContext,
   loadAllTickets,
   buildCashContext,
   buildFoodCostContext,
