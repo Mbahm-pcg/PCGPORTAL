@@ -4721,6 +4721,19 @@
     const [cityLoading, setCityLoading] = useState(false);
     const [toolsOpen, setToolsOpen] = useState(false);
     const [activeTool, setActiveTool] = useState(null);
+    const [isNarrow, setIsNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < 760);
+    const frameRef = useRef(null);
+    const [frameH, setFrameH] = useState(null);
+    useEffect(() => {
+      const fn = () => {
+        setIsNarrow(window.innerWidth < 760);
+        const el = frameRef.current;
+        if (el) setFrameH(Math.max(340, Math.round(window.innerHeight - el.getBoundingClientRect().top - 16)));
+      };
+      fn();
+      window.addEventListener("resize", fn);
+      return () => window.removeEventListener("resize", fn);
+    }, []);
     const copyStoreInfo = async (s, e) => {
       if (e) {
         e.stopPropagation();
@@ -4831,17 +4844,16 @@
     const BridgeBadge = () => /* @__PURE__ */ React.createElement("span", { title: "Bridge Remodel", style: { fontSize: "0.65rem", fontWeight: 800, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: "#ffa94d22", color: "#ffa94d", letterSpacing: 0.5, border: "1px solid #ffa94d44", whiteSpace: "nowrap" } }, "\u{1F309} BRIDGE");
     const BaskinBadge = () => /* @__PURE__ */ React.createElement("span", { title: "Baskin-Robbins co-brand", style: { fontSize: "0.65rem", fontWeight: 800, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: "#ff69b422", color: "#ff69b4", letterSpacing: 0.5, border: "1px solid #ff69b444", whiteSpace: "nowrap" } }, "\u{1F366} BR");
     const COLS = "70px minmax(0,1.3fr) minmax(0,1.5fr) minmax(0,1.15fr) minmax(0,1fr) 92px 104px 132px";
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in loc-frame" }, /* @__PURE__ */ React.createElement("style", null, `
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in loc-frame", ref: frameRef, style: { height: frameH || void 0 } }, /* @__PURE__ */ React.createElement("style", null, `
         .loc-frame { display:flex; flex-direction:column; height:calc(100vh - 140px); overflow:hidden; }
         .loc-body { display:flex; gap:1.25rem; flex:1; min-height:0; }
         .loc-rail { width:280px; flex-shrink:0; display:flex; flex-direction:column; gap:0.85rem; overflow-y:auto; padding-right:4px; }
         .loc-right { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
         .loc-scroll { flex:1; min-height:0; overflow-y:auto; }
         @media (max-width:900px){
-          .loc-frame{ height:auto; overflow:visible; }
-          .loc-body{ flex-direction:column; }
-          .loc-rail{ width:100%; }
-          .loc-scroll{ overflow-y:visible; }
+          /* Section 1 (KPIs + filters) stays fixed; only the store list (loc-scroll) scrolls. */
+          .loc-body{ flex-direction:column; gap:0.6rem; }
+          .loc-rail{ width:100%; overflow:visible; }
         }
       `), (() => {
       const nxtCount = baseStores.filter((s) => s.isNextGen).length;
@@ -4849,13 +4861,13 @@
       const bridgeCount = baseStores.filter((s) => s.isBridge).length;
       const bridgePct = nxtCount > 0 ? Math.round(bridgeCount / nxtCount * 100) : 0;
       const districtValue = isDM ? user?.district || "\u2014" : new Set(baseStores.map((s) => String(s.district || "")).filter(Boolean)).size;
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))", gap: "0.75rem", marginBottom: "1rem", flexShrink: 0 } }, [
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isNarrow ? "repeat(auto-fit, minmax(140px,1fr))" : "repeat(auto-fit, minmax(180px,1fr))", gap: isNarrow ? "0.5rem" : "0.75rem", marginBottom: isNarrow ? "0.7rem" : "1rem", flexShrink: 0 } }, [
         { label: "Locations", value: baseStores.length, icon: "\u{1F4CD}", accent: O },
         { label: "Open", value: openCount, icon: "\u2705", accent: "#51cf66" },
         { label: "Next-Gen", value: nxtCount, icon: "\u26A1", sublabel: `${nxtPct}% of ${baseStores.length}`, accent: "#b197fc" },
         { label: "Bridge", value: bridgeCount, icon: "\u{1F309}", sublabel: nxtCount > 0 ? `${bridgePct}% of Next-Gen` : "\u2014", accent: "#ffa94d" },
         { label: isDM ? "District" : "Districts", value: districtValue, icon: "\u{1F5FA}\uFE0F", accent: "#4dabf7" }
-      ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { ...card(th), padding: "0.85rem 1rem", display: "flex", alignItems: "center", gap: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 44, height: 44, flexShrink: 0, borderRadius: "0.65rem", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.3rem", background: (k.accent || O) + "1f" } }, k.icon), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, lineHeight: 1.1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.4rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.75rem", color: k.accent || th.text } }, k.value), k.sublabel && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: k.accent || th.muted, fontWeight: 700, letterSpacing: 0.3, whiteSpace: "nowrap" } }, k.sublabel)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.2rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, k.label)))));
+      ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { ...card(th), padding: isNarrow ? "0.55rem 0.7rem" : "0.85rem 1rem", display: "flex", alignItems: "center", gap: isNarrow ? "0.55rem" : "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: isNarrow ? 32 : 44, height: isNarrow ? 32 : 44, flexShrink: 0, borderRadius: isNarrow ? "0.5rem" : "0.65rem", display: "flex", alignItems: "center", justifyContent: "center", fontSize: isNarrow ? "0.95rem" : "1.3rem", background: (k.accent || O) + "1f" } }, k.icon), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, lineHeight: 1.1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.35rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: isNarrow ? "1.3rem" : "1.75rem", color: k.accent || th.text } }, k.value), k.sublabel && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: k.accent || th.muted, fontWeight: 700, letterSpacing: 0.3, whiteSpace: "nowrap" } }, k.sublabel)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: isNarrow ? "0.7rem" : "0.78rem", color: th.muted, marginTop: "0.15rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, k.label)))));
     })(), /* @__PURE__ */ React.createElement("div", { className: "loc-body" }, /* @__PURE__ */ React.createElement("div", { className: "loc-rail" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "0.85rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: "1 1 240px", maxWidth: 300 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.85rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.8rem", color: th.muted, pointerEvents: "none" } }, "\u{1F50D}"), /* @__PURE__ */ React.createElement(
       "input",
       {
@@ -5233,7 +5245,29 @@
           setSelectedStore(null);
         }, style: btn(th, { marginLeft: "auto", fontSize: "0.75rem" }) }, "\u270F\uFE0F Edit")))
       );
-    })(), /* @__PURE__ */ React.createElement("div", { className: "loc-scroll" }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: COLS, gap: "0.7rem", padding: "1rem 1.25rem", background: th.card2, borderBottom: "1px solid " + th.cardBorder, position: "sticky", top: 0, zIndex: 2 } }, /* @__PURE__ */ React.createElement(SortTh, { label: "PC #", col: "pc" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Property", col: "name" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Address", col: "address" }), !isDM && /* @__PURE__ */ React.createElement(SortTh, { label: "District Mgr", col: "dmName" }), isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Manager"), /* @__PURE__ */ React.createElement(SortTh, { label: "Manager", col: "mgr" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Asset", col: "assetType" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Status", col: "status" }), canEditLocs && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Edit")), filtered.map((s, i) => {
+    })(), /* @__PURE__ */ React.createElement("div", { className: "loc-scroll" }, isNarrow ? (
+      /* ── Mobile: stacked store cards (the wide table is unreadable on phones) ── */
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.65rem" } }, filtered.map((s) => {
+        const ss = STATUS_STYLES[s.status] || STATUS_STYLES["Open"];
+        const nxt = s.isNextGen;
+        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((s.address || "") + " " + (s.city || "") + " " + (s.state || "") + " " + (s.zip || ""))}`;
+        const meta = (label, node) => /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.56rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: "0.1rem" } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, node));
+        return /* @__PURE__ */ React.createElement("div", { key: s.id, style: { ...card(th), padding: "0.85rem 0.95rem", display: "flex", flexDirection: "column", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            href: `https://mail.google.com/mail/?view=cm&to=${s.pc}@PeopleCapitalGroup.com`,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            style: { fontSize: "0.8rem", fontWeight: 800, color: O, textDecoration: "none" }
+          },
+          "#",
+          s.pc
+        ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", padding: "0.2rem 0.6rem", borderRadius: "1rem", background: ss.bg, color: ss.color, fontWeight: 700, whiteSpace: "nowrap" } }, s.status)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+          setCityData(null);
+          setSelectedStore(s);
+        }, style: { background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", width: "100%" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.05rem", fontWeight: 700, color: th.text } }, s.name || "\u2014")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" } }, nxt && /* @__PURE__ */ React.createElement(NextGenBadge, null), s.isBaskin && /* @__PURE__ */ React.createElement(BaskinBadge, null), s.isBridge && /* @__PURE__ */ React.createElement(BridgeBadge, null))), /* @__PURE__ */ React.createElement("a", { href: mapsUrl, target: "_blank", rel: "noopener noreferrer", style: { fontSize: "0.82rem", color: th.text, textDecoration: "none", display: "block" } }, "\u{1F4CD} ", s.address, s.city ? `, ${s.city}` : "", " ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: s.state === "PA" ? "#74c0fc" : "#b197fc" } }, s.state), s.zip ? " " + s.zip : ""), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.55rem 0.85rem", paddingTop: "0.55rem", borderTop: `1px solid ${th.cardBorder}` } }, meta("District", `${s.dmName ? s.dmName + " \xB7 " : ""}D${s.district || "\u2014"}`), meta("Manager", s.mgrPhone ? /* @__PURE__ */ React.createElement("a", { href: `tel:${s.mgrPhone.replace(/\D/g, "")}`, style: { color: "#69db7c", textDecoration: "none" } }, "\u{1F4DE} ", s.mgr || "\u2014") : s.mgr || "\u2014"), meta("Asset", assetLabel(s.baseAsset))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: (e) => copyStoreInfo(s, e), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem", background: copiedId === s.id ? "#22c55e" : th.card3, color: copiedId === s.id ? "#fff" : th.muted, border: `1px solid ${copiedId === s.id ? "#22c55e" : th.cardBorder}` }) }, copiedId === s.id ? "\u2713 Copied" : "\u{1F4CB} Copy"), canEditLocs && /* @__PURE__ */ React.createElement("button", { onClick: () => setEditStore({ ...s }), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem" }) }, "\u270F\uFE0F Edit")));
+      }), filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 40, textAlign: "center", color: th.muted } }, "No stores match filters."))
+    ) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: COLS, gap: "0.7rem", padding: "1rem 1.25rem", background: th.card2, borderBottom: "1px solid " + th.cardBorder, position: "sticky", top: 0, zIndex: 2 } }, /* @__PURE__ */ React.createElement(SortTh, { label: "PC #", col: "pc" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Property", col: "name" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Address", col: "address" }), !isDM && /* @__PURE__ */ React.createElement(SortTh, { label: "District Mgr", col: "dmName" }), isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Manager"), /* @__PURE__ */ React.createElement(SortTh, { label: "Manager", col: "mgr" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Asset", col: "assetType" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Status", col: "status" }), canEditLocs && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Edit")), filtered.map((s, i) => {
       const ss = STATUS_STYLES[s.status] || STATUS_STYLES["Open"];
       const nxt = s.isNextGen;
       return /* @__PURE__ */ React.createElement(
@@ -5328,7 +5362,7 @@
           copiedId === s.id ? "\u2713 Copied" : "\u{1F4CB} Copy"
         ), canEditLocs && /* @__PURE__ */ React.createElement("button", { onClick: () => setEditStore({ ...s }), style: btn(th, { padding: "0.25rem 0.625rem", fontSize: "0.688rem" }) }, "Edit"))
       );
-    }), filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: 40, textAlign: "center", color: th.muted } }, "No stores match filters."))))));
+    }), filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: 40, textAlign: "center", color: th.muted } }, "No stores match filters.")))))));
   }
   function AdminDistricts({ districts, setDistricts, stores, setStores, users, th }) {
     const [editDist, setEditDist] = useState(null);
@@ -15841,7 +15875,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.55";
+  var APP_VERSION = "v17.57";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

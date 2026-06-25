@@ -4392,6 +4392,22 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
   const [cityLoading,  setCityLoading]  = useState(false);
   const [toolsOpen,    setToolsOpen]    = useState(false);
   const [activeTool,   setActiveTool]   = useState(null);
+  // Below this width the 8-column table can't fit — swap it for stacked store cards.
+  const [isNarrow,     setIsNarrow]     = useState(() => typeof window !== "undefined" && window.innerWidth < 760);
+  // Measure the real space below the frame so Section 1 (KPIs + filters) stays fixed and only
+  // the store list scrolls — on mobile too, not just desktop.
+  const frameRef = useRef(null);
+  const [frameH, setFrameH] = useState(null);
+  useEffect(() => {
+    const fn = () => {
+      setIsNarrow(window.innerWidth < 760);
+      const el = frameRef.current;
+      if (el) setFrameH(Math.max(340, Math.round(window.innerHeight - el.getBoundingClientRect().top - 16)));
+    };
+    fn();
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
 
   // Copy PC# / address / city-state-zip / Google Maps URL to clipboard.
   // Each field on its own line so users can paste into any text field.
@@ -4522,7 +4538,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
   const COLS = "70px minmax(0,1.3fr) minmax(0,1.5fr) minmax(0,1.15fr) minmax(0,1fr) 92px 104px 132px";
 
   return (
-    <div className="fade-in loc-frame">
+    <div className="fade-in loc-frame" ref={frameRef} style={{ height: frameH || undefined }}>
       <style>{`
         .loc-frame { display:flex; flex-direction:column; height:calc(100vh - 140px); overflow:hidden; }
         .loc-body { display:flex; gap:1.25rem; flex:1; min-height:0; }
@@ -4530,10 +4546,9 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
         .loc-right { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
         .loc-scroll { flex:1; min-height:0; overflow-y:auto; }
         @media (max-width:900px){
-          .loc-frame{ height:auto; overflow:visible; }
-          .loc-body{ flex-direction:column; }
-          .loc-rail{ width:100%; }
-          .loc-scroll{ overflow-y:visible; }
+          /* Section 1 (KPIs + filters) stays fixed; only the store list (loc-scroll) scrolls. */
+          .loc-body{ flex-direction:column; gap:0.6rem; }
+          .loc-rail{ width:100%; overflow:visible; }
         }
       `}</style>
       {/* KPI row */}
@@ -4544,7 +4559,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
         const bridgePct = nxtCount > 0 ? Math.round((bridgeCount / nxtCount) * 100) : 0;
         const districtValue = isDM ? (user?.district || "—") : new Set(baseStores.map(s => String(s.district || "")).filter(Boolean)).size;
         return (
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px,1fr))", gap:"0.75rem", marginBottom:"1rem", flexShrink:0 }}>
+          <div style={{ display:"grid", gridTemplateColumns: isNarrow ? "repeat(auto-fit, minmax(140px,1fr))" : "repeat(auto-fit, minmax(180px,1fr))", gap: isNarrow ? "0.5rem" : "0.75rem", marginBottom: isNarrow ? "0.7rem" : "1rem", flexShrink:0 }}>
             {[
               { label:"Locations", value: baseStores.length, icon:"📍", accent: O },
               { label:"Open",      value: openCount,          icon:"✅", accent:"#51cf66" },
@@ -4552,16 +4567,16 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
               { label:"Bridge",    value: bridgeCount,        icon:"🌉", sublabel: nxtCount > 0 ? `${bridgePct}% of Next-Gen` : "—", accent:"#ffa94d" },
               { label: isDM ? "District" : "Districts", value: districtValue, icon:"🗺️", accent:"#4dabf7" },
             ].map(k => (
-              <div key={k.label} style={{ ...card(th), padding:"0.85rem 1rem", display:"flex", alignItems:"center", gap:"0.8rem" }}>
-                <div style={{ width:44, height:44, flexShrink:0, borderRadius:"0.65rem", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.3rem", background:(k.accent || O)+"1f" }}>{k.icon}</div>
+              <div key={k.label} style={{ ...card(th), padding: isNarrow ? "0.55rem 0.7rem" : "0.85rem 1rem", display:"flex", alignItems:"center", gap: isNarrow ? "0.55rem" : "0.8rem" }}>
+                <div style={{ width: isNarrow ? 32 : 44, height: isNarrow ? 32 : 44, flexShrink:0, borderRadius: isNarrow ? "0.5rem" : "0.65rem", display:"flex", alignItems:"center", justifyContent:"center", fontSize: isNarrow ? "0.95rem" : "1.3rem", background:(k.accent || O)+"1f" }}>{k.icon}</div>
                 <div style={{ minWidth:0, lineHeight:1.1 }}>
-                  <div style={{ display:"flex", alignItems:"baseline", gap:"0.4rem", flexWrap:"wrap" }}>
-                    <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"1.75rem", color: k.accent || th.text }}>{k.value}</span>
+                  <div style={{ display:"flex", alignItems:"baseline", gap:"0.35rem", flexWrap:"wrap" }}>
+                    <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize: isNarrow ? "1.3rem" : "1.75rem", color: k.accent || th.text }}>{k.value}</span>
                     {k.sublabel && (
-                      <span style={{ fontSize:"0.68rem", color: k.accent || th.muted, fontWeight:700, letterSpacing:0.3, whiteSpace:"nowrap" }}>{k.sublabel}</span>
+                      <span style={{ fontSize:"0.62rem", color: k.accent || th.muted, fontWeight:700, letterSpacing:0.3, whiteSpace:"nowrap" }}>{k.sublabel}</span>
                     )}
                   </div>
-                  <div style={{ fontSize:"0.78rem", color:th.muted, marginTop:"0.2rem", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{k.label}</div>
+                  <div style={{ fontSize: isNarrow ? "0.7rem" : "0.78rem", color:th.muted, marginTop:"0.15rem", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{k.label}</div>
                 </div>
               </div>
             ))}
@@ -5220,6 +5235,62 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
       })()}
 
       <div className="loc-scroll">
+      {isNarrow ? (
+      /* ── Mobile: stacked store cards (the wide table is unreadable on phones) ── */
+      <div style={{ display:"flex", flexDirection:"column", gap:"0.65rem" }}>
+        {filtered.map((s) => {
+          const ss  = STATUS_STYLES[s.status] || STATUS_STYLES["Open"];
+          const nxt = s.isNextGen;
+          const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((s.address||"")+" "+(s.city||"")+" "+(s.state||"")+" "+(s.zip||""))}`;
+          const meta = (label, node) => (
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:"0.56rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.6, marginBottom:"0.1rem" }}>{label}</div>
+              <div style={{ fontSize:"0.8rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{node}</div>
+            </div>
+          );
+          return (
+            <div key={s.id} style={{ ...card(th), padding:"0.85rem 0.95rem", display:"flex", flexDirection:"column", gap:"0.6rem" }}>
+              {/* PC# + status */}
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:"0.5rem" }}>
+                <a href={`https://mail.google.com/mail/?view=cm&to=${s.pc}@PeopleCapitalGroup.com`} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize:"0.8rem", fontWeight:800, color:O, textDecoration:"none" }}>#{s.pc}</a>
+                <span style={{ fontSize:"0.68rem", padding:"0.2rem 0.6rem", borderRadius:"1rem", background:ss.bg, color:ss.color, fontWeight:700, whiteSpace:"nowrap" }}>{s.status}</span>
+              </div>
+              {/* Name + badges */}
+              <div>
+                <button onClick={()=>{setCityData(null);setSelectedStore(s);}} style={{ background:"none", border:"none", padding:0, textAlign:"left", cursor:"pointer", width:"100%" }}>
+                  <span style={{ fontSize:"1.05rem", fontWeight:700, color:th.text }}>{s.name||"—"}</span>
+                </button>
+                <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap", marginTop:"0.3rem" }}>
+                  {nxt && <NextGenBadge />}{s.isBaskin && <BaskinBadge />}{s.isBridge && <BridgeBadge />}
+                </div>
+              </div>
+              {/* Address (tap → Maps) */}
+              <a href={mapsUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize:"0.82rem", color:th.text, textDecoration:"none", display:"block" }}>
+                📍 {s.address}{s.city ? `, ${s.city}` : ""} <span style={{ fontWeight:700, color: s.state==="PA"?"#74c0fc":"#b197fc" }}>{s.state}</span>{s.zip ? " "+s.zip : ""}
+              </a>
+              {/* Meta */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.55rem 0.85rem", paddingTop:"0.55rem", borderTop:`1px solid ${th.cardBorder}` }}>
+                {meta("District", `${s.dmName ? s.dmName+" · " : ""}D${s.district||"—"}`)}
+                {meta("Manager", s.mgrPhone
+                  ? <a href={`tel:${s.mgrPhone.replace(/\D/g,"")}`} style={{ color:"#69db7c", textDecoration:"none" }}>📞 {s.mgr||"—"}</a>
+                  : (s.mgr||"—"))}
+                {meta("Asset", assetLabel(s.baseAsset))}
+              </div>
+              {/* Actions */}
+              <div style={{ display:"flex", gap:"0.5rem" }}>
+                <button onClick={(e)=>copyStoreInfo(s, e)} style={btn(th, { flex:1, minHeight:42, fontSize:"0.78rem", background: copiedId===s.id?"#22c55e":th.card3, color: copiedId===s.id?"#fff":th.muted, border:`1px solid ${copiedId===s.id?"#22c55e":th.cardBorder}` })}>
+                  {copiedId===s.id ? "✓ Copied" : "📋 Copy"}
+                </button>
+                {canEditLocs && <button onClick={()=>setEditStore({...s})} style={btn(th, { flex:1, minHeight:42, fontSize:"0.78rem" })}>✏️ Edit</button>}
+              </div>
+            </div>
+          );
+        })}
+        {filtered.length === 0 && <div style={{ ...card(th), padding:40, textAlign:"center", color:th.muted }}>No stores match filters.</div>}
+      </div>
+      ) : (
+      <>
       {/* Store table */}
       <div style={{ ...card(th), overflow:"hidden" }}>
         {/* Header (sticky so column labels stay visible while rows scroll) */}
@@ -5342,6 +5413,8 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
         })}
         {filtered.length === 0 && <div style={{ padding:40, textAlign:"center", color:th.muted }}>No stores match filters.</div>}
       </div>
+      </>
+      )}
         </div>{/* /loc-scroll */}
         </div>{/* /loc-right */}
       </div>{/* /loc-body */}
@@ -19893,7 +19966,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.55";
+const APP_VERSION = "v17.57";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
