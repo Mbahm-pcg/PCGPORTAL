@@ -303,6 +303,18 @@ async function generateInstances(db, storePcs, dateStr) {
     ON CONFLICT (template_id, store_pc, business_date) DO NOTHING`;
 }
 
+// Server-side scope enforcement for read endpoints: a manager is locked to their own store,
+// a DM to their district; exec/IT (or unresolved/server callers) get exactly what they requested.
+function enforceScope(caller, requested) {
+  if (!caller || isExec(caller.role)) return requested;
+  if (caller.role === 'manager') return caller.storePC ? [caller.storePC] : [];
+  if (caller.role === 'dm' && caller.district != null) {
+    const dp = Object.values(STORE_BY_PC).filter((s) => s.district === caller.district).map((s) => String(s.pc));
+    return requested.length ? requested.filter((p) => dp.includes(p)) : dp;
+  }
+  return requested;
+}
+
 export default async (request, context) => {
   const cors = corsFor(request);
   const reply = (code, obj) => new Response(JSON.stringify(obj), { status: code, headers: cors });
@@ -380,24 +392,19 @@ export default async (request, context) => {
       // Server-side scope enforcement: a manager is locked to their own store, a DM to their
       // district — claimed store_pcs are intersected with what their real role allows. Exec/IT
       // (or unresolved/server callers) get exactly what they requested.
-      const caller = await resolveCaller(body.userId);
-      let pcs = requested;
-      if (caller && !isExec(caller.role)) {
-        if (caller.role === 'manager') {
-          pcs = caller.storePC ? [caller.storePC] : [];
-        } else if (caller.role === 'dm' && caller.district != null) {
-          const districtPcs = Object.values(STORE_BY_PC).filter((s) => s.district === caller.district).map((s) => String(s.pc));
-          pcs = requested.length ? requested.filter((p) => districtPcs.includes(p)) : districtPcs;
-        }
-      }
+      const pcs = enforceScope(await resolveCaller(body.userId), requested);
       const page = Math.max(1, parseInt(body.page, 10) || 1);
       const pageSize = Math.min(24, Math.max(1, parseInt(body.page_size, 10) || 6));
       const offset = (page - 1) * pageSize;
-      if (!pcs.length) return reply(200, { photos: [], total: 0, page, page_size: pageSize });
+      // Optional single-day filter (business_date) so photos from different days don't mix.
+      // null = all dates.
+      const date = body.date ? String(body.date) : null;
+      if (!pcs.length) return reply(200, { photos: [], total: 0, page, page_size: pageSize, date });
       const countRows = await db`
         SELECT COUNT(*)::int AS n
         FROM task_instances i JOIN task_templates t ON t.id = i.template_id
         WHERE i.photo_url IS NOT NULL AND i.store_pc = ANY(${pcs})
+          AND (${date}::text IS NULL OR i.business_date = ${date}::date)
           AND (t.category ILIKE 'merchandising' OR t.name ILIKE '%merchandising%' OR t.name ILIKE '%donut%')`;
       const total = countRows[0]?.n || 0;
       const rows = await db`
@@ -405,6 +412,7 @@ export default async (request, context) => {
                i.completed_at, i.completed_by, i.photo_url, t.name, t.category
         FROM task_instances i JOIN task_templates t ON t.id = i.template_id
         WHERE i.photo_url IS NOT NULL AND i.store_pc = ANY(${pcs})
+          AND (${date}::text IS NULL OR i.business_date = ${date}::date)
           AND (t.category ILIKE 'merchandising' OR t.name ILIKE '%merchandising%' OR t.name ILIKE '%donut%')
         ORDER BY i.completed_at DESC NULLS LAST, i.business_date DESC, i.id DESC
         LIMIT ${pageSize} OFFSET ${offset}`;
@@ -416,7 +424,120 @@ export default async (request, context) => {
         business_date: r.business_date, completed_at: r.completed_at, completed_by: r.completed_by,
         photo_url: r.photo_url,
       }));
-      return reply(200, { photos, total, page, page_size: pageSize });
+      return reply(200, { photos, total, page, page_size: pageSize, date });
+    }
+
+    // ── Compliance & trend report: daily completion % over a date range ──
+    if (action === 'trends') {
+      const pcs = enforceScope(await resolveCaller(body.userId), (Array.isArray(body.store_pcs) ? body.store_pcs : []).map(String));
+      const from = String(body.from || ''), to = String(body.to || '');
+      if (!pcs.length || !from || !to) return reply(200, { days: [], summary: { all: 0, completed: 0, pct: 0 } });
+      const dayRows = await db`
+        SELECT i.business_date::text AS d,
+               COUNT(*)::int AS all,
+               COUNT(*) FILTER (WHERE i.status = 'completed')::int AS completed
+        FROM task_instances i
+        WHERE i.store_pc = ANY(${pcs}) AND i.business_date BETWEEN ${from}::date AND ${to}::date
+        GROUP BY i.business_date ORDER BY i.business_date ASC`;
+      const days = dayRows.map((r) => ({ date: r.d, all: r.all, completed: r.completed, pct: r.all ? Math.round((r.completed / r.all) * 100) : 0 }));
+      const catRows = await db`
+        SELECT t.category AS category,
+               COUNT(*)::int AS all,
+               COUNT(*) FILTER (WHERE i.status = 'completed')::int AS completed
+        FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+        WHERE i.store_pc = ANY(${pcs}) AND i.business_date BETWEEN ${from}::date AND ${to}::date
+        GROUP BY t.category ORDER BY (COUNT(*) FILTER (WHERE i.status='completed')::float / NULLIF(COUNT(*),0)) ASC NULLS FIRST`;
+      const categories = catRows.map((r) => ({ category: r.category || 'Other', all: r.all, completed: r.completed, pct: r.all ? Math.round((r.completed / r.all) * 100) : 0 }));
+      const allT = days.reduce((s, d) => s + d.all, 0), compT = days.reduce((s, d) => s + d.completed, 0);
+      return reply(200, { from, to, days, categories, summary: { all: allT, completed: compT, pct: allT ? Math.round((compT / allT) * 100) : 0 } });
+    }
+
+    // ── Task History: past completions/misses over a date range (paginated) ──
+    if (action === 'history') {
+      const pcs = enforceScope(await resolveCaller(body.userId), (Array.isArray(body.store_pcs) ? body.store_pcs : []).map(String));
+      const from = String(body.from || ''), to = String(body.to || '');
+      const statusFilter = body.status ? String(body.status) : 'all';
+      const page = Math.max(1, parseInt(body.page, 10) || 1);
+      const pageSize = Math.min(100, Math.max(1, parseInt(body.page_size, 10) || 30));
+      const offset = (page - 1) * pageSize;
+      if (!pcs.length || !from || !to) return reply(200, { rows: [], total: 0, page, page_size: pageSize });
+      // Replicate computeStatus() in SQL so status filtering, total count, and pagination all
+      // happen in the DB — otherwise an exec-scope range would pull every instance into memory on
+      // each page. `pastShifts` = the shift windows already closed at the current ET time, so
+      // today's not-yet-done tasks in those windows resolve to 'overdue' (mirrors computeStatus).
+      const pastShifts = Object.keys(SHIFT_WINDOWS).filter((st) => {
+        const w = SHIFT_WINDOWS[st];
+        return now.hour > w.endHour || (now.hour === w.endHour && now.minute > w.endMin);
+      });
+      const out = await db`
+        SELECT *, COUNT(*) OVER()::int AS _total FROM (
+          SELECT i.id, i.store_pc, i.business_date::text AS business_date, i.shift_time,
+                 i.completed_by, i.completed_at, t.name, t.category,
+                 CASE
+                   WHEN i.status = 'completed' THEN 'completed'
+                   WHEN i.business_date < ${now.date}::date THEN 'missed'
+                   WHEN i.business_date = ${now.date}::date AND i.shift_time = ANY(${pastShifts}::text[]) THEN 'overdue'
+                   ELSE 'open'
+                 END AS sc
+          FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+          WHERE i.store_pc = ANY(${pcs}) AND i.business_date BETWEEN ${from}::date AND ${to}::date
+        ) h
+        WHERE (${statusFilter} = 'all' OR h.sc = ${statusFilter})
+        ORDER BY h.business_date DESC, h.completed_at DESC NULLS LAST, h.id DESC
+        LIMIT ${pageSize} OFFSET ${offset}`;
+      const total = out[0]?._total || 0;
+      const rows = out.map((r) => ({
+        id: r.id, store_pc: r.store_pc, store_name: STORE_BY_PC[r.store_pc]?.name || r.store_pc,
+        district: STORE_BY_PC[r.store_pc]?.district ?? null,
+        business_date: r.business_date, shift_time: r.shift_time, name: r.name, category: r.category,
+        status: r.sc, completed_by: r.completed_by, completed_at: r.completed_at,
+      }));
+      return reply(200, { rows, total, page, page_size: pageSize });
+    }
+
+    // ── Temp Compliance log: numeric temp/quality readings with pass/fail over a range ──
+    if (action === 'temp_log') {
+      const pcs = enforceScope(await resolveCaller(body.userId), (Array.isArray(body.store_pcs) ? body.store_pcs : []).map(String));
+      const from = String(body.from || ''), to = String(body.to || '');
+      const page = Math.max(1, parseInt(body.page, 10) || 1);
+      const pageSize = Math.min(200, Math.max(1, parseInt(body.page_size, 10) || 50));
+      const offset = (page - 1) * pageSize;
+      if (!pcs.length || !from || !to) return reply(200, { rows: [], total: 0, page, page_size: pageSize });
+      const countRows = await db`
+        SELECT COUNT(*)::int AS n
+        FROM task_instance_answers a
+        JOIN task_instances i ON i.id = a.instance_id
+        JOIN task_template_items it ON it.id = a.item_id
+        JOIN task_templates t ON t.id = i.template_id
+        LEFT JOIN task_template_equipment e ON e.id = a.equipment_id
+        WHERE i.store_pc = ANY(${pcs}) AND i.business_date BETWEEN ${from}::date AND ${to}::date
+          AND a.value IS NOT NULL AND (it.min_val IS NOT NULL OR it.max_val IS NOT NULL)`;
+      const total = countRows[0]?.n || 0;
+      const rows = await db`
+        SELECT i.store_pc, i.business_date::text AS business_date, a.at, a.value, a.in_range, a.by,
+               t.category, COALESCE(t.label, t.name) AS task_name,
+               it.label AS item_label, it.min_val, it.max_val, it.unit, e.unit_name AS equipment
+        FROM task_instance_answers a
+        JOIN task_instances i ON i.id = a.instance_id
+        JOIN task_template_items it ON it.id = a.item_id
+        JOIN task_templates t ON t.id = i.template_id
+        LEFT JOIN task_template_equipment e ON e.id = a.equipment_id
+        WHERE i.store_pc = ANY(${pcs}) AND i.business_date BETWEEN ${from}::date AND ${to}::date
+          AND a.value IS NOT NULL AND (it.min_val IS NOT NULL OR it.max_val IS NOT NULL)
+        ORDER BY a.at DESC NULLS LAST, i.business_date DESC
+        LIMIT ${pageSize} OFFSET ${offset}`;
+      const inRangeCount = rows.filter((r) => r.in_range === true).length;
+      const mapped = rows.map((r) => ({
+        store_pc: r.store_pc, store_name: STORE_BY_PC[r.store_pc]?.name || r.store_pc,
+        district: STORE_BY_PC[r.store_pc]?.district ?? null,
+        business_date: r.business_date, at: r.at, category: r.category, task_name: r.task_name,
+        item_label: r.item_label, equipment: r.equipment,
+        value: r.value != null ? Number(r.value) : null,
+        min_val: r.min_val != null ? Number(r.min_val) : null,
+        max_val: r.max_val != null ? Number(r.max_val) : null,
+        unit: r.unit, in_range: r.in_range, by: r.by,
+      }));
+      return reply(200, { rows: mapped, total, page, page_size: pageSize, page_in_range: inRangeCount });
     }
 
     if (action === 'gps_audit') {

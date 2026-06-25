@@ -2998,7 +2998,19 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const [welcomeSent, setWelcomeSent] = useState(null);
   const [saveFlash, setSaveFlash] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-  const savedScrollY = React.useRef(0);
+  // Measure the real space below the list frame so Section 1 stays fixed without a hardcoded
+  // viewport offset (the chrome above differs: standalone Users tab vs inside the admin console).
+  const frameRef = React.useRef(null);
+  const [frameH, setFrameH] = useState(null);
+  React.useEffect(() => {
+    const measure = () => {
+      const el = frameRef.current; if (!el) return;
+      setFrameH(Math.max(360, Math.round(window.innerHeight - el.getBoundingClientRect().top - 20)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
 
   const nextId = () => Math.max(0, ...users.map(u => u.id)) + 1;
   const initials = (name) => name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0,2);
@@ -3094,17 +3106,21 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   };
 
   const openEditPage = (u = null) => {
-    savedScrollY.current = window.scrollY;
     setEditId(u ? u.id : null);
     setForm(u ? { ...u } : { username:"", password:"", name:"", role:"", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
     setView('edit');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const closeEditPage = () => {
     setView('list');
     setEditId(null);
-    setTimeout(() => window.scrollTo({ top: savedScrollY.current, behavior: 'instant' }), 0);
   };
+  // Esc closes the contained edit dialog (matches click-on-backdrop behavior)
+  React.useEffect(() => {
+    if (view !== 'edit') return;
+    const onKey = (e) => { if (e.key === 'Escape') closeEditPage(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [view]);
 
   const save = async () => {
     if (!form.username || !form.name) return;
@@ -3207,43 +3223,13 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const formTwoFactorLocked = isAdminTwoFactorLocked(form) || isAhmed(form) || !isAhmed(currentUser);
   const formTwoFactorLockedReason = isAhmed(form) ? "Your 2FA cannot be disabled" : !isAhmed(currentUser) ? "Only the IT admin can manage 2FA settings" : "Executive and IT users always require 2FA";
 
-  // ── Edit page view (blurred users list as background) ─────────────────────
-  if (view === 'edit') {
-    return (
-      // Negative margins cancel the parent's 3vw/5vw padding so blur fills edge-to-edge
-      // Sidebar and top bar are unaffected (no fixed positioning)
-      <div style={{ position:"relative", margin:"-3vw -5vw", minHeight:"calc(100vh - 80px)", display:"flex", justifyContent:"center", alignItems:"flex-start", padding:"4rem 1rem 4rem" }}>
-        {/* Blurred user cards — absolute, stays within content area only */}
-        <div style={{ position:"absolute", inset:0, overflow:"hidden", pointerEvents:"none" }}>
-          <div style={{ filter:"blur(7px)", opacity:0.72, padding:"2rem 1.5rem", transform:"scale(1.04)", transformOrigin:"top left" }}>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:"0.875rem" }}>
-              {users.slice(0, 16).map(u => {
-                const urc = roleColor(u.userType);
-                return (
-                  <div key={u.id} style={{ background:th.card, borderRadius:"0.75rem", overflow:"hidden", border:`1px solid ${th.cardBorder}` }}>
-                    <div style={{ background:`${urc}18`, padding:"0.875rem 1.1rem", display:"flex", alignItems:"center", gap:"0.65rem" }}>
-                      <div style={{ width:36, height:36, borderRadius:"50%", background:`${urc}30`, border:`2px solid ${urc}66`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.78rem", fontWeight:800, color:urc, flexShrink:0 }}>
-                        {(u.initials || (u.name||"?").split(" ").map(w=>w[0]).join("")).toUpperCase().slice(0,2)}
-                      </div>
-                      <div style={{ minWidth:0 }}>
-                        <div style={{ fontSize:"0.8rem", fontWeight:700, color:th.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{u.name}</div>
-                        <div style={{ fontSize:"0.63rem", color:urc, fontWeight:600 }}>{ROLE_LABEL[u.userType] || u.role || "—"}</div>
-                      </div>
-                    </div>
-                    <div style={{ padding:"0.5rem 1.1rem", fontSize:"0.67rem", color:th.muted }}>{u.email || u.role || "—"}</div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-        {/* Frosted overlay */}
-        <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.38)", pointerEvents:"none" }} />
-        {/* Edit card */}
-        <div style={{ position:"relative", zIndex:2, width:"100%", maxWidth:520 }}>
-          <div style={{ borderRadius:"1.5rem", overflow:"hidden", boxShadow:`0 0 0 1px ${rc}33, 0 8px 32px rgba(0,0,0,0.18), 0 40px 80px rgba(0,0,0,0.45)` }}>
-            {/* Frosted glass header — blurred bg shows through, tinted by role color */}
-            <div style={{ backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)", background:`linear-gradient(135deg,${rc}88,${rc}55)`, borderBottom:`1px solid ${rc}44`, padding:"1.5rem 1.75rem", display:"flex", alignItems:"center", gap:"1rem" }}>
+  // ── Edit modal — clean fixed overlay; the real list stays normal behind it ──
+  const editModal = () => (
+      <div onClick={closeEditPage} style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(0,0,0,0.55)", backdropFilter:"blur(3px)", WebkitBackdropFilter:"blur(3px)", display:"flex", alignItems:"flex-start", justifyContent:"center", padding:"5vh 20px", overflowY:"auto" }}>
+        <div onClick={e => e.stopPropagation()} className="fade-in" style={{ position:"relative", width:"100%", maxWidth:520 }}>
+          <div style={{ borderRadius:"1rem", overflow:"hidden", boxShadow:`0 0 0 1px ${rc}33, 0 30px 70px rgba(0,0,0,0.5)`, display:"flex", flexDirection:"column" }}>
+            {/* Header — solid role-color tint (varies per role) */}
+            <div style={{ background:`linear-gradient(135deg,${rc},${rc}cc)`, borderBottom:`1px solid ${rc}55`, padding:"1.35rem 1.6rem", display:"flex", alignItems:"center", gap:"1rem", flexShrink:0 }}>
                 <div style={{ width:54, height:54, borderRadius:"50%", background:"rgba(255,255,255,0.18)", border:"2.5px solid rgba(255,255,255,0.5)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.1rem", fontWeight:800, color:"#fff", flexShrink:0, boxShadow:"0 2px 12px rgba(0,0,0,0.2)" }}>
                   {form.name ? form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2) : "?"}
                 </div>
@@ -3254,7 +3240,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                 <button onClick={closeEditPage} style={{ background:"rgba(255,255,255,0.18)", border:"1.5px solid rgba(255,255,255,0.4)", borderRadius:"50%", width:34, height:34, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:"1.1rem", cursor:"pointer", flexShrink:0, lineHeight:1 }}>×</button>
               </div>
               {/* Form body — solid, clean */}
-              <div style={{ ...card(th), borderRadius:0, padding:"1.5rem 1.75rem" }}>
+              <div style={{ ...card(th), borderRadius:0, padding:"1.5rem 1.75rem", overflowY:"auto", flex:1, minHeight:0 }}>
                 {/* Account section */}
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                   <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
@@ -3356,14 +3342,15 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
             </div>
           </div>
         </div>
-    );
-  }
+  );
 
   // ── List view ─────────────────────────────────────────────────────────────
   return (
-    <div className="fade-in">
-      {/* ─── Top bar ─────────────────────────────────────────────── */}
-      <div style={{ display:"flex", gap:"0.6rem", marginBottom:"1.5rem", alignItems:"center", flexWrap:"wrap" }}>
+    <div className="fade-in" ref={frameRef} style={{ display:"flex", flexDirection:"column", height: frameH || "calc(100vh - 200px)", minHeight:360 }}>
+      {/* ─── Section 1 — controls (fixed, non-scrolling) ─────────── */}
+      <div style={{ flexShrink:0 }}>
+      {/* Top bar */}
+      <div style={{ display:"flex", gap:"0.6rem", marginBottom:"1rem", alignItems:"center", flexWrap:"wrap" }}>
         <div style={{ position:"relative", flex:"1 1 240px", maxWidth:340 }}>
           <span style={{ position:"absolute", left:"0.85rem", top:"50%", transform:"translateY(-50%)", fontSize:"0.82rem", color:th.muted, pointerEvents:"none" }}>🔍</span>
           <input style={{ ...inp(th), padding:"0.65rem 0.85rem 0.65rem 2.4rem", fontSize:"0.85rem", width:"100%" }} placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} />
@@ -3394,8 +3381,10 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
           </button>
         )}
       </div>
+      </div>{/* ── /Section 1 ── */}
 
-      {/* ─── User cards grid ──────────────────────────────────────── */}
+      {/* ─── Section 2 — user cards (scrollable) ──────────────────── */}
+      <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:4 }}>
       {displayUsers.length === 0 && (
         <div style={{ ...card(th), padding:"3rem", textAlign:"center", color:th.muted, fontSize:"0.875rem" }}>No users found.</div>
       )}
@@ -3491,6 +3480,8 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
           );
         })}
       </div>
+      </div>{/* ── /Section 2 ── */}
+      {view === 'edit' && editModal()}
     </div>
   );
 }
@@ -4525,11 +4516,26 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
     <span title="Baskin-Robbins co-brand" style={{ fontSize:"0.65rem", fontWeight:800, padding:"0.15rem 0.5rem", borderRadius:"0.25rem", background:"#ff69b422", color:"#ff69b4", letterSpacing:0.5, border:"1px solid #ff69b444", whiteSpace:"nowrap" }}>🍦 BR</span>
   );
 
-  // Columns: PC# | Property | Address | City/State | DM | Manager | Asset | Status | Edit
-  const COLS = "90px 1.2fr 2fr 1.3fr 1.3fr 120px 120px auto";
+  // Columns: PC# | Property | Address | DM | Manager | Asset | Status | Actions
+  // minmax(0,…) lets the flexible tracks shrink below their content's min-content
+  // width so long names/addresses ellipsize instead of forcing horizontal overflow.
+  const COLS = "70px minmax(0,1.3fr) minmax(0,1.5fr) minmax(0,1.15fr) minmax(0,1fr) 92px 104px 132px";
 
   return (
-    <div className="fade-in">
+    <div className="fade-in loc-frame">
+      <style>{`
+        .loc-frame { display:flex; flex-direction:column; height:calc(100vh - 140px); overflow:hidden; }
+        .loc-body { display:flex; gap:1.25rem; flex:1; min-height:0; }
+        .loc-rail { width:280px; flex-shrink:0; display:flex; flex-direction:column; gap:0.85rem; overflow-y:auto; padding-right:4px; }
+        .loc-right { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
+        .loc-scroll { flex:1; min-height:0; overflow-y:auto; }
+        @media (max-width:900px){
+          .loc-frame{ height:auto; overflow:visible; }
+          .loc-body{ flex-direction:column; }
+          .loc-rail{ width:100%; }
+          .loc-scroll{ overflow-y:visible; }
+        }
+      `}</style>
       {/* KPI row */}
       {(() => {
         const nxtCount = baseStores.filter(s => s.isNextGen).length;
@@ -4538,29 +4544,33 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
         const bridgePct = nxtCount > 0 ? Math.round((bridgeCount / nxtCount) * 100) : 0;
         const districtValue = isDM ? (user?.district || "—") : new Set(baseStores.map(s => String(s.district || "")).filter(Boolean)).size;
         return (
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:"0.75rem", marginBottom:"1.5rem" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px,1fr))", gap:"0.75rem", marginBottom:"1rem", flexShrink:0 }}>
             {[
-              { label:"Locations", value: baseStores.length, icon:"📍" },
-              { label:"Open",      value: openCount,          icon:"✅" },
+              { label:"Locations", value: baseStores.length, icon:"📍", accent: O },
+              { label:"Open",      value: openCount,          icon:"✅", accent:"#51cf66" },
               { label:"Next-Gen",  value: nxtCount,           icon:"⚡", sublabel: `${nxtPct}% of ${baseStores.length}`, accent:"#b197fc" },
               { label:"Bridge",    value: bridgeCount,        icon:"🌉", sublabel: nxtCount > 0 ? `${bridgePct}% of Next-Gen` : "—", accent:"#ffa94d" },
-              { label: isDM ? "District" : "Districts", value: districtValue, icon:"🗺️" },
+              { label: isDM ? "District" : "Districts", value: districtValue, icon:"🗺️", accent:"#4dabf7" },
             ].map(k => (
-              <div key={k.label} style={{ ...card(th), padding:"1.3rem 1.5rem" }}>
-                <div style={{ fontSize:"1.3rem", marginBottom:"0.3rem" }}>{k.icon}</div>
-                <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"2.2rem", color: k.accent || th.text }}>{k.value}</div>
-                <div style={{ fontSize:"0.85rem", color:th.muted, marginTop:"0.3rem" }}>{k.label}</div>
-                {k.sublabel && (
-                  <div style={{ fontSize:"0.7rem", color: k.accent || th.muted, fontWeight:700, marginTop:"0.2rem", letterSpacing:0.3 }}>
-                    {k.sublabel}
+              <div key={k.label} style={{ ...card(th), padding:"0.85rem 1rem", display:"flex", alignItems:"center", gap:"0.8rem" }}>
+                <div style={{ width:44, height:44, flexShrink:0, borderRadius:"0.65rem", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.3rem", background:(k.accent || O)+"1f" }}>{k.icon}</div>
+                <div style={{ minWidth:0, lineHeight:1.1 }}>
+                  <div style={{ display:"flex", alignItems:"baseline", gap:"0.4rem", flexWrap:"wrap" }}>
+                    <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:"1.75rem", color: k.accent || th.text }}>{k.value}</span>
+                    {k.sublabel && (
+                      <span style={{ fontSize:"0.68rem", color: k.accent || th.muted, fontWeight:700, letterSpacing:0.3, whiteSpace:"nowrap" }}>{k.sublabel}</span>
+                    )}
                   </div>
-                )}
+                  <div style={{ fontSize:"0.78rem", color:th.muted, marginTop:"0.2rem", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{k.label}</div>
+                </div>
               </div>
             ))}
           </div>
         );
       })()}
 
+      <div className="loc-body">
+        <div className="loc-rail">
       {/* ─── Filter bar ──────────────────────────────────────────────
           Unified top bar: search + state + status + district. Each filter
           uses the new segmented-pill style with gradient-active treatment. */}
@@ -4727,6 +4737,8 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
           🍦 Baskin{filterBaskin ? ` · ${baseStores.filter(s => s.isBaskin).length}` : ""}
         </button>
       </div>
+        </div>{/* /loc-rail */}
+        <div className="loc-right">
 
       {/* Add location form */}
       {addMode && isAdmin && (
@@ -5207,10 +5219,11 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
         );
       })()}
 
+      <div className="loc-scroll">
       {/* Store table */}
       <div style={{ ...card(th), overflow:"hidden" }}>
-        {/* Header */}
-        <div style={{ display:"grid", gridTemplateColumns:COLS, gap:"0.8rem", padding:"1rem 1.5rem", background:th.card2, borderBottom:"1px solid "+th.cardBorder }}>
+        {/* Header (sticky so column labels stay visible while rows scroll) */}
+        <div style={{ display:"grid", gridTemplateColumns:COLS, gap:"0.7rem", padding:"1rem 1.25rem", background:th.card2, borderBottom:"1px solid "+th.cardBorder, position:"sticky", top:0, zIndex:2 }}>
           <SortTh label="PC #"     col="pc"       />
           <SortTh label="Property" col="name"     />
           <SortTh label="Address"  col="address"  />
@@ -5226,7 +5239,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
           const ss  = STATUS_STYLES[s.status] || STATUS_STYLES["Open"];
           const nxt = s.isNextGen;
           return (
-            <div key={s.id} style={{ display:"grid", gridTemplateColumns:COLS, gap:"0.8rem", padding:"1rem 1.5rem", borderBottom: i<filtered.length-1?`1px solid ${th.cardBorder}`:"none", alignItems:"center" }}
+            <div key={s.id} style={{ display:"grid", gridTemplateColumns:COLS, gap:"0.7rem", padding:"1rem 1.25rem", borderBottom: i<filtered.length-1?`1px solid ${th.cardBorder}`:"none", alignItems:"center" }}
               onMouseEnter={e=>e.currentTarget.style.background=th.card2}
               onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
 
@@ -5243,7 +5256,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
               </a>
 
               {/* Property name + NXT badge — clickable for detail popup */}
-              <div style={{ display:"flex", flexDirection:"column", gap:"0.188rem" }}>
+              <div style={{ display:"flex", flexDirection:"column", gap:"0.188rem", minWidth:0 }}>
                 <button onClick={()=>{setCityData(null);setSelectedStore(s);}} style={{ background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
                   <span style={{ fontSize:"1rem", fontWeight:600, color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block" }}
                     onMouseEnter={e=>{e.currentTarget.style.color=O;e.currentTarget.style.textDecoration="underline";}}
@@ -5259,7 +5272,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
               </div>
 
               {/* Address + City + State + ZIP combined */}
-              <div>
+              <div style={{ minWidth:0 }}>
                 <a
                   href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((s.address||"") + " " + (s.city||"") + " " + (s.state||"") + " " + (s.zip||""))}`}
                   target="_blank" rel="noopener noreferrer"
@@ -5277,30 +5290,30 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
 
               {/* District Mgr (admin) or store Mgr col (DM view) */}
               {!isDM && (
-                <div>
+                <div style={{ minWidth:0 }}>
                   <div style={{ fontSize:"0.85rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.dmName||"—"}</div>
                   <div style={{ fontSize:"0.75rem", color:th.muted }}>District {s.district}</div>
                 </div>
               )}
               {isDM && (
-                <span style={{ fontSize:"0.85rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.mgr||"—"}</span>
+                <span style={{ fontSize:"0.85rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>{s.mgr||"—"}</span>
               )}
 
               {/* Store Manager — click to call */}
               {s.mgrPhone ? (
                 <a href={`tel:${s.mgrPhone.replace(/\D/g,"")}`}
-                  style={{ fontSize:"0.75rem", color:th.muted, textDecoration:"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block" }}
+                  style={{ fontSize:"0.8rem", color:th.text, textDecoration:"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block", minWidth:0 }}
                   title={`Call ${s.mgr}: ${s.mgrPhone}`}
                   onMouseEnter={e=>{e.currentTarget.style.color="#69db7c";e.currentTarget.style.textDecoration="underline";}}
-                  onMouseLeave={e=>{e.currentTarget.style.color=th.muted;e.currentTarget.style.textDecoration="none";}}>
+                  onMouseLeave={e=>{e.currentTarget.style.color=th.text;e.currentTarget.style.textDecoration="none";}}>
                   📞 {s.mgr||"—"}
                 </a>
               ) : (
-                <span style={{ fontSize:"0.85rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.mgr||"—"}</span>
+                <span style={{ fontSize:"0.8rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block", minWidth:0 }}>{s.mgr||"—"}</span>
               )}
 
               {/* Asset Type */}
-              <span title={s.baseAsset} style={{ fontSize:"0.8rem", fontWeight:600, color: nxt?"#b197fc":th.muted }}>{assetLabel(s.baseAsset)}</span>
+              <span title={s.baseAsset} style={{ fontSize:"0.8rem", fontWeight:600, color: nxt?"#b197fc":th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>{assetLabel(s.baseAsset)}</span>
 
               {/* Status */}
               <span style={{ fontSize:"0.75rem", padding:"0.2rem 0.6rem", borderRadius:"1rem", background:ss.bg, color:ss.color, fontWeight:600, whiteSpace:"nowrap" }}>{s.status}</span>
@@ -5329,6 +5342,9 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
         })}
         {filtered.length === 0 && <div style={{ padding:40, textAlign:"center", color:th.muted }}>No stores match filters.</div>}
       </div>
+        </div>{/* /loc-scroll */}
+        </div>{/* /loc-right */}
+      </div>{/* /loc-body */}
     </div>
   );
 }
@@ -16448,6 +16464,20 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Measure the real space below the frame instead of a hardcoded viewport offset (the admin
+  // sub-tab bar above this component makes a fixed calc() mis-estimate on some screen sizes).
+  const frameRef = useRef(null);
+  const [frameH, setFrameH] = useState(null);
+  useEffect(() => {
+    const measure = () => {
+      const el = frameRef.current; if (!el) return;
+      setFrameH(Math.max(360, Math.round(window.innerHeight - el.getBoundingClientRect().top - 20)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
   const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
   const filtered = (templates || []).filter((t) => {
     if (activeFilter === "active" && !t.active) return false;
@@ -16503,8 +16533,26 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
   const num = (v, set) => <input type="number" value={v ?? ""} onChange={(e) => set(e.target.value === "" ? null : Number(e.target.value))} style={{ ...inp(th), fontSize: "0.85rem" }} />;
   const sel = (v, set, opts) => <select value={v ?? ""} onChange={(e) => set(e.target.value)} style={{ ...inp(th), fontSize: "0.85rem" }}>{opts.map((o) => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? (o === "" ? "—" : o)}</option>)}</select>;
 
+  // Fixed-overlay modal wrapper — keeps editor/assignment/items popups centered in
+  // the viewport instead of rendering inline at the top of the page (which forced a
+  // scroll-up to reach them). Defined as a called helper (not a <Component/>) so the
+  // inputs inside don't remount/lose focus on each keystroke.
+  const modalWrap = (accent, onClose, children) => (
+    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 20px", overflowY: "auto" }}>
+      <div className="fade-in" style={{ ...card(th), width: "100%", maxWidth: 680, border: `1px solid ${accent}66`, boxShadow: "0 32px 80px rgba(0,0,0,0.45)", padding: "1.15rem 1.3rem" }}>
+        {children}
+      </div>
+    </div>
+  );
+
+  const totalT  = (templates || []).length;
+  const activeT = (templates || []).filter((t) => t.active).length;
+
   return (
-    <div>
+    <div ref={frameRef} style={{ display: "flex", flexDirection: "column", height: frameH || "calc(100vh - 200px)", minHeight: 360 }}>
+      {/* ── Section 1 — header, stats & filters (fixed, non-scrolling) ── */}
+      <div style={{ flexShrink: 0 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.9rem" }}>
         <h3 style={{ ...sectionTitle(th), margin: 0 }}>Book Task — Task Templates</h3>
         <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -16514,10 +16562,25 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
         </div>
       </div>
 
-      {/* Editor panel */}
-      {editing && (
-        <div style={{ ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid ${O}66` }}>
-          <div style={{ fontWeight: 800, marginBottom: "0.75rem" }}>{editing.id ? "Edit Task" : "New Task"}</div>
+      {/* KPI stat strip — compact, left-aligned to save vertical space */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.7rem" }}>
+        {[
+          { label: "Templates",  value: totalT,            icon: "📋", accent: "#38bdf8" },
+          { label: "Active",     value: activeT,           icon: "✅", accent: "#2f9e44" },
+          { label: "Inactive",   value: totalT - activeT,  icon: "⏸️", accent: th.muted },
+          { label: "Categories", value: categories.length, icon: "🗂️", accent: "#a78bfa" },
+        ].map((k) => (
+          <div key={k.label} style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", padding: "0.32rem 0.7rem", borderRadius: 999, background: (k.accent || O) + "14", border: `1px solid ${(k.accent || O)}33` }}>
+            <span style={{ fontSize: "0.82rem" }}>{k.icon}</span>
+            <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.98rem", color: k.accent || th.text }}>{k.value}</span>
+            <span style={{ fontSize: "0.72rem", color: th.muted, fontWeight: 600 }}>{k.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Editor — fixed modal overlay, always centered in view */}
+      {editing && modalWrap(O, () => setEditing(null), (<>
+          <div style={{ fontWeight: 800, marginBottom: "0.75rem", fontSize: "1rem" }}>{editing.id ? "Edit Task" : "New Task"}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: "0.75rem" }}>
             {field("Name", <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} style={{ ...inp(th), fontSize: "0.85rem" }} />)}
             {field("Category", <input value={editing.category || ""} onChange={(e) => setEditing({ ...editing, category: e.target.value })} list="task-cats" style={{ ...inp(th), fontSize: "0.85rem" }} />)}
@@ -16543,13 +16606,11 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
             <button onClick={() => save(editing)} disabled={busy} style={{ ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" }}>{busy ? "Saving…" : "Save"}</button>
             <button onClick={() => setEditing(null)} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" }}>Cancel</button>
           </div>
-        </div>
-      )}
+      </>))}
       <datalist id="task-cats">{categories.map((c) => <option key={c} value={c} />)}</datalist>
 
-      {/* Location assignment panel */}
-      {locFor && (
-        <div style={{ ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid #38bdf866` }}>
+      {/* Location assignment — fixed modal overlay */}
+      {locFor && modalWrap("#38bdf8", () => setLocFor(null), (<>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
             <div style={{ fontWeight: 800 }}>Assign locations — {locFor.name} <span style={{ color: th.muted, fontWeight: 400 }}>({locPcs.length} selected)</span></div>
             <div style={{ display: "flex", gap: "0.4rem" }}>
@@ -16577,12 +16638,10 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
             <button onClick={saveLocations} disabled={busy} style={{ ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" }}>{busy ? "Saving…" : "Save assignments"}</button>
             <button onClick={() => setLocFor(null)} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" }}>Cancel</button>
           </div>
-        </div>
-      )}
+      </>))}
 
-      {/* Items editor panel */}
-      {itemsFor && (
-        <div style={{ ...card(th), padding: "1rem", marginBottom: "1rem", border: `1px solid #a78bfa55` }}>
+      {/* Items editor — fixed modal overlay */}
+      {itemsFor && modalWrap("#a78bfa", () => setItemsFor(null), (<>
           <div style={{ fontWeight: 800, marginBottom: "0.75rem", color: "#a78bfa" }}>Sub-items — {itemsFor.name} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.8rem" }}>({itemsFor.items_count || 0} current)</span></div>
 
           {/* Equipment units */}
@@ -16633,8 +16692,7 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
             <button onClick={saveItems} disabled={busy} style={{ ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" }}>{busy ? "Saving…" : "Save items"}</button>
             <button onClick={() => setItemsFor(null)} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" }}>Cancel</button>
           </div>
-        </div>
-      )}
+      </>))}
 
       {/* Filters */}
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
@@ -16647,11 +16705,14 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
           <option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option>
         </select>
       </div>
-
-      {loading && <div style={{ textAlign: "center", color: th.muted, padding: "1.5rem" }}>Loading…</div>}
       {!loading && templates && (
         <div style={{ fontSize: "0.75rem", color: th.muted, marginBottom: "0.5rem" }}>{filtered.length} of {templates.length} tasks</div>
       )}
+      </div>{/* ── /Section 1 ── */}
+
+      {/* ── Section 2 — scrollable task list ── */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+      {loading && <div style={{ textAlign: "center", color: th.muted, padding: "1.5rem" }}>Loading…</div>}
       {!loading && filtered.map((tp) => (
         <div key={tp.id} style={{ ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.4rem", display: "flex", alignItems: "center", gap: "0.75rem", opacity: tp.active ? 1 : 0.55 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -16668,6 +16729,7 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
           <button onClick={() => setEditing({ ...tp })} style={{ ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" }}>Edit</button>
         </div>
       ))}
+      </div>{/* ── /Section 2 ── */}
     </div>
   );
 }
@@ -16695,7 +16757,7 @@ function AdminConsole(props) {
   return (
     <div>
       {/* Single flat tab bar */}
-      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1.25rem', borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: '0.6rem' }}>
+      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.85rem', borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: '0.55rem' }}>
         {SUBS.map(s => {
           const on = sub === s.id;
           return (
@@ -19831,7 +19893,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.43";
+const APP_VERSION = "v17.55";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -26892,11 +26954,23 @@ function OpsTasks({ stores, th, user }) {
   const auditRef = useRef(null);
   const [photoLightbox, setPhotoLightbox] = useState(null);
   const [photoUrls, setPhotoUrls] = useState({});
-  // Merchandising photo gallery (role-scoped, 6/page)
+  // Merchandising photo gallery (role-scoped, single-day filter so days don't mix)
   const [merch, setMerch] = useState(null);
   const [merchPage, setMerchPage] = useState(1);
   const [merchLoading, setMerchLoading] = useState(false);
-  const MERCH_PAGE_SIZE = 6;
+  const [merchAllDates, setMerchAllDates] = useState(false); // false = single day (default)
+  const MERCH_PAGE_SIZE = 8;
+  // WorkPulse-parity reports: compliance trends, task history, temp-compliance log
+  const [rangeDays, setRangeDays] = useState(14); // shared lookback for reports/history/temp
+  const [reportData, setReportData] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [hist, setHist] = useState(null);
+  const [histLoading, setHistLoading] = useState(false);
+  const [histPage, setHistPage] = useState(1);
+  const [histStatus, setHistStatus] = useState("all"); // all | completed | missed | overdue
+  const [tempLog, setTempLog] = useState(null);
+  const [tempLoading, setTempLoading] = useState(false);
+  const [tempPage, setTempPage] = useState(1);
   const byName = user?.name || user?.email || "user";
 
   // Client-side shift window start hours (mirrors catalog.js SHIFT_WINDOWS)
@@ -27048,7 +27122,7 @@ function OpsTasks({ stores, th, user }) {
   const loadMerch = useCallback(async () => {
     setMerchLoading(true);
     try {
-      const r = await api("merchandising", { userId: user?.id, store_pcs: scopeStores.map((s) => String(s.pc)), page: merchPage, page_size: MERCH_PAGE_SIZE });
+      const r = await api("merchandising", { userId: user?.id, store_pcs: scopeStores.map((s) => String(s.pc)), date: merchAllDates ? null : date, page: merchPage, page_size: MERCH_PAGE_SIZE });
       if (r && Array.isArray(r.photos)) {
         setMerch(r);
         // If data shrank below the current page (e.g. photos deleted, or scope narrowed),
@@ -27061,7 +27135,10 @@ function OpsTasks({ stores, th, user }) {
         setMerch({ photos: [], total: 0, page: merchPage, page_size: MERCH_PAGE_SIZE });
       }
     } finally { setMerchLoading(false); }
-  }, [api, scopeStores, merchPage]);
+  }, [api, scopeStores, merchPage, date, merchAllDates]);
+
+  // Reset to page 1 whenever the day filter changes so we don't land past the end.
+  useEffect(() => { setMerchPage(1); }, [date, merchAllDates]);
 
   useEffect(() => { if (view === "tasks" || view === "dashboard") loadStore(); }, [view, loadStore]);
   useEffect(() => { if (view === "stores") loadRollup(); }, [view, loadRollup]);
@@ -27070,6 +27147,38 @@ function OpsTasks({ stores, th, user }) {
   // loadMerch is stable now (scopeStores is memoized), so this re-fires only when the view,
   // page, or actual scope changes — reloads correctly after stores load async, no infinite loop.
   useEffect(() => { if (view === "merchandising") loadMerch(); }, [view, loadMerch]);
+
+  // Shared lookback window (from..to) for the WorkPulse-parity report views.
+  const rangeFromTo = useCallback(() => {
+    const to = todayET();
+    const d = new Date(to + "T12:00:00"); d.setDate(d.getDate() - (rangeDays - 1));
+    const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return { from, to };
+  }, [rangeDays]);
+  const scopePcs = useCallback(() => scopeStores.map((s) => String(s.pc)), [scopeStores]);
+
+  const loadReports = useCallback(async () => {
+    setReportLoading(true);
+    try { const { from, to } = rangeFromTo(); setReportData(await api("trends", { userId: user?.id, store_pcs: scopePcs(), from, to })); }
+    finally { setReportLoading(false); }
+  }, [api, scopePcs, rangeFromTo, user]);
+  const loadHistory = useCallback(async () => {
+    setHistLoading(true);
+    try { const { from, to } = rangeFromTo(); setHist(await api("history", { userId: user?.id, store_pcs: scopePcs(), from, to, status: histStatus, page: histPage, page_size: 30 })); }
+    finally { setHistLoading(false); }
+  }, [api, scopePcs, rangeFromTo, histStatus, histPage, user]);
+  const loadTemp = useCallback(async () => {
+    setTempLoading(true);
+    try { const { from, to } = rangeFromTo(); setTempLog(await api("temp_log", { userId: user?.id, store_pcs: scopePcs(), from, to, page: tempPage, page_size: 50 })); }
+    finally { setTempLoading(false); }
+  }, [api, scopePcs, rangeFromTo, tempPage, user]);
+
+  useEffect(() => { if (view === "reports") loadReports(); }, [view, loadReports]);
+  useEffect(() => { if (view === "history") loadHistory(); }, [view, loadHistory]);
+  useEffect(() => { if (view === "temp") loadTemp(); }, [view, loadTemp]);
+  // Reset pagination when the range or filter changes so we don't land past the end.
+  useEffect(() => { setHistPage(1); setTempPage(1); }, [rangeDays]);
+  useEffect(() => { setHistPage(1); }, [histStatus]);
 
   // Render the completion-location map (on-site green / off-site red).
   useEffect(() => {
@@ -27312,16 +27421,26 @@ function OpsTasks({ stores, th, user }) {
   );
 
   return (
-    <div style={{ maxWidth: 1140, margin: "0 auto", paddingBottom: "3rem" }}>
+    <div style={{ maxWidth: 1600, margin: "0 auto", paddingBottom: "3rem" }}>
       <style>{`
         .ops-layout { display: flex; gap: 1.25rem; align-items: flex-start; }
         .ops-nav { display: flex; flex-direction: column; gap: 0.4rem; flex-shrink: 0; width: 210px; position: sticky; top: 0.5rem; }
-        .ops-nav > button { width: 100%; text-align: left; }
+        .ops-nav > button { width: 100%; text-align: left; transition: background .15s, border-color .15s, transform .12s; }
+        .ops-nav > button:hover { transform: translateX(2px); }
         .ops-content { flex: 1; min-width: 0; }
+        .ops-kpi { transition: transform .16s ease, box-shadow .16s ease; }
+        .ops-kpi:hover { transform: translateY(-2px); box-shadow: 0 10px 24px ${th.dark ? "rgba(0,0,0,.45)" : "rgba(15,23,42,.10)"}; }
+        .ops-cat-card { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+        .ops-cat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px ${th.dark ? "rgba(0,0,0,.45)" : "rgba(15,23,42,.10)"}; }
+        .ops-chip { font-size: .68rem; font-weight: 700; padding: .12rem .5rem; border-radius: 999px; white-space: nowrap; line-height: 1.5; }
         @media (max-width: 760px) {
           .ops-layout { flex-direction: column; gap: 0.75rem; }
           .ops-nav { flex-direction: row; flex-wrap: wrap; width: 100%; position: static; }
           .ops-nav > button { width: auto; text-align: center; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .ops-kpi, .ops-cat-card, .ops-nav > button { transition: none !important; }
+          .ops-kpi:hover, .ops-cat-card:hover, .ops-nav > button:hover { transform: none !important; }
         }
       `}</style>
       <h2 style={{ ...pageTitle(th), margin: "0 0 0.85rem" }}>Tasks</h2>
@@ -27330,6 +27449,9 @@ function OpsTasks({ stores, th, user }) {
           {!isManager && viewTab("dashboard", "Dashboard")}
           {viewTab("tasks", "Tasks")}
           {viewTab("merchandising", "Merchandising", "#d6336c")}
+          {viewTab("reports", "Reports", "#0ca678")}
+          {viewTab("history", "History", "#7048e8")}
+          {viewTab("temp", "Temp Log", "#1098ad")}
           {!isManager && viewTab("stores", "Stores")}
           {viewTab("cas", "Corrective Actions", "#e03131")}
           {!isManager && viewTab("gps", "GPS Audit", "#2f9e44")}
@@ -27349,7 +27471,7 @@ function OpsTasks({ stores, th, user }) {
           {isManager && myStore && (
             <div style={{ ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 }}>{myStore.pc} — {myStore.name}</div>
           )}
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp(th), width: 160 }} />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp(th), width: 188, flexShrink: 0, colorScheme: th.dark ? "dark" : "light" }} />
           {view === "tasks" && locDefaultOn && (() => {
             const blocked = locDenied;
             const c = blocked ? "#ef4444" : shareLoc ? "#2f9e44" : th.muted;
@@ -27394,13 +27516,25 @@ function OpsTasks({ stores, th, user }) {
       {/* ── Dashboard ── */}
       {view === "dashboard" && dash && !loading && (
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.5rem", marginBottom: "0.9rem" }}>
-            {[["open", "Open"], ["overdue", "Overdue"], ["completed", "Completed"], ["all", "All"]].map(([k, lbl]) => (
-              <div key={k} style={{ ...card(th), padding: "0.7rem 0.3rem", textAlign: "center" }}>
-                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: k === "overdue" ? "#e03131" : k === "completed" ? "#2f9e44" : th.text }}>{dash.totals[k] || 0}</div>
-                <div style={{ fontSize: "0.7rem", color: th.muted, fontWeight: 600 }}>{lbl}</div>
-              </div>
-            ))}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "0.85rem", marginBottom: "1.1rem" }}>
+            {(() => {
+              const ic = (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}>{p}</svg>;
+              const KPI = [
+                { k: "open", lbl: "Open", accent: O, icon: ic(<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>) },
+                { k: "overdue", lbl: "Overdue", accent: "#e03131", icon: ic(<><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></>) },
+                { k: "completed", lbl: "Completed", accent: "#2f9e44", icon: ic(<><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m9 11 3 3L22 4"/></>) },
+                { k: "all", lbl: "All Tasks", accent: th.muted, icon: ic(<><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></>) },
+              ];
+              return KPI.map(({ k, lbl, accent, icon }) => (
+                <div key={k} className="ops-kpi" style={{ ...card(th), padding: "1.05rem 1.15rem", display: "flex", alignItems: "center", gap: "0.9rem" }}>
+                  <div style={{ width: 46, height: 46, borderRadius: 13, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: accent + "1f", color: accent }}>{icon}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: "1.85rem", fontWeight: 800, lineHeight: 1, color: th.text, fontVariantNumeric: "tabular-nums" }}>{dash.totals[k] || 0}</div>
+                    <div style={{ fontSize: "0.7rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 5 }}>{lbl}</div>
+                  </div>
+                </div>
+              ));
+            })()}
           </div>
           {dash.open_cas > 0 && (
             <div onClick={() => setView("cas")} style={{ ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", borderLeft: "4px solid #e03131" }}>
@@ -27409,18 +27543,23 @@ function OpsTasks({ stores, th, user }) {
               <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: th.muted }}>View →</span>
             </div>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))", gap: "0.6rem" }}>
-            {dash.categories.map((c) => (
-              <div key={c.category} style={{ ...card(th), padding: "0.7rem 0.9rem", display: "flex", alignItems: "center", gap: "0.75rem", borderLeft: `3px solid ${complianceColor(c.pct)}` }}>
-                <TaskRing pct={c.pct} th={th} size={40} color={complianceColor(c.pct)} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700 }}>{c.category}</div>
-                  <div style={{ fontSize: "0.75rem", color: th.muted }}>
-                    {c.open} open · <span style={{ color: "#e03131" }}>{c.overdue} overdue</span> · {c.completed}/{c.all} done
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: "0.9rem" }}>
+            {dash.categories.map((c) => {
+              const cc = complianceColor(c.pct);
+              return (
+              <div key={c.category} className="ops-cat-card" style={{ ...card(th), padding: "1rem 1.1rem", display: "flex", alignItems: "center", gap: "0.95rem", borderLeft: `4px solid ${cc}` }}>
+                <TaskRing pct={c.pct} th={th} size={54} color={cc} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: "0.94rem", color: th.text, marginBottom: 7, overflow: "hidden", textOverflow: "ellipsis" }}>{c.category}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                    {c.open > 0 && <span className="ops-chip" style={{ background: th.muted + "1f", color: th.text }}>{c.open} open</span>}
+                    {c.overdue > 0 && <span className="ops-chip" style={{ background: "#e0313119", color: "#e03131" }}>{c.overdue} overdue</span>}
+                    <span className="ops-chip" style={{ background: cc + "1a", color: cc }}>{c.completed}/{c.all} done</span>
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -27902,10 +28041,19 @@ function OpsTasks({ stores, th, user }) {
       {/* ── Merchandising photo gallery (role-scoped: exec=all, DM=district, manager=store) ── */}
       {view === "merchandising" && (
         <div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.85rem" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.85rem" }}>
             <div style={{ fontSize: "0.8rem", color: th.muted }}>
               Donut case & merchandising photos · {isManager ? (myStore ? `${myStore.pc} — ${myStore.name}` : "your store") : isDM ? `District ${user?.district}` : "all stores"}
               {merch ? ` · ${merch.total} photo${merch.total !== 1 ? "s" : ""}` : ""}
+            </div>
+            {/* Day filter — keeps one day's photos separate from another's */}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+              <input type="date" value={date} disabled={merchAllDates} onChange={(e) => setDate(e.target.value)}
+                style={{ ...inp(th), width: 188, flexShrink: 0, colorScheme: th.dark ? "dark" : "light", opacity: merchAllDates ? 0.5 : 1 }} />
+              <button onClick={() => setMerchAllDates((v) => !v)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "0 0.9rem", minHeight: 40, borderRadius: 999, cursor: "pointer", touchAction: "manipulation", fontSize: "0.78rem", fontWeight: 700, fontFamily: "'Source Sans 3'", whiteSpace: "nowrap", border: `1px solid ${merchAllDates ? O : th.muted + "55"}`, background: merchAllDates ? O + "18" : "transparent", color: merchAllDates ? O : th.text }}>
+                {merchAllDates ? "Showing all days" : "All days"}
+              </button>
             </div>
           </div>
 
@@ -27914,8 +28062,8 @@ function OpsTasks({ stores, th, user }) {
           {!merchLoading && merch && merch.photos.length === 0 && (
             <div style={{ ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted }}>
               <div style={{ fontSize: "1.9rem", marginBottom: 8, opacity: 0.5 }}>🍩</div>
-              <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>No merchandising photos yet</div>
-              <div style={{ fontSize: "0.76rem", marginTop: 3 }}>Photos attached to merchandising tasks show up here, newest first.</div>
+              <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>No merchandising photos {merchAllDates ? "yet" : "for this day"}</div>
+              <div style={{ fontSize: "0.76rem", marginTop: 3 }}>{merchAllDates ? "Photos attached to merchandising tasks show up here." : "Pick another date, or tap “All days” to see every photo."}</div>
             </div>
           )}
 
@@ -27923,15 +28071,15 @@ function OpsTasks({ stores, th, user }) {
             const totalPages = Math.max(1, Math.ceil((merch.total || 0) / MERCH_PAGE_SIZE));
             return (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.85rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem" }}>
                 {merch.photos.map((p) => {
                   const ts = p.completed_at
-                    ? new Date(p.completed_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true })
+                    ? new Date(p.completed_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })
                     : (p.business_date || "");
                   return (
-                    <div key={p.id} style={{ ...card(th), padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                    <div key={p.id} className="ops-cat-card" style={{ ...card(th), padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                       <img src={p.photo_url} alt={`${p.store_name} merchandising`} onClick={() => setPhotoLightbox(p.photo_url)}
-                        style={{ width: "100%", aspectRatio: "4 / 3", objectFit: "cover", cursor: "zoom-in", background: th.bg, display: "block" }} />
+                        style={{ width: "100%", aspectRatio: "16 / 11", objectFit: "cover", cursor: "zoom-in", background: th.bg, display: "block" }} />
                       <div style={{ padding: "0.6rem 0.8rem" }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                           <span style={{ fontWeight: 800, fontSize: "0.86rem", color: th.text }}>{p.store_pc}</span>
@@ -27952,6 +28100,171 @@ function OpsTasks({ stores, th, user }) {
                 <span style={{ fontSize: "0.8rem", color: th.muted, fontWeight: 600 }}>Page {merchPage} of {totalPages}</span>
                 <button disabled={merchPage >= totalPages || merchLoading} onClick={() => setMerchPage((p) => p + 1)}
                   style={{ ...btn(th, { background: "transparent", color: merchPage >= totalPages ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: merchPage >= totalPages ? 0.5 : 1, touchAction: "manipulation" }}>Next →</button>
+              </div>
+            </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ── Compliance & Trend Reports ── */}
+      {view === "reports" && (() => {
+        const rangePills = (
+          <div style={{ display: "flex", gap: 6 }}>
+            {[7, 14, 30].map((n) => (
+              <button key={n} onClick={() => setRangeDays(n)} style={{ padding: "0.35rem 0.7rem", borderRadius: 999, minHeight: 36, border: `1px solid ${rangeDays === n ? O : th.muted + "55"}`, background: rangeDays === n ? O + "18" : "transparent", color: rangeDays === n ? O : th.text, fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" }}>{n}d</button>
+            ))}
+          </div>
+        );
+        return (
+        <div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.95rem" }}>
+            <div style={{ fontSize: "0.8rem", color: th.muted }}>Task compliance · last {rangeDays} days · {isManager ? (myStore ? myStore.name : "your store") : isDM ? `District ${user?.district}` : "all stores"}</div>
+            {rangePills}
+          </div>
+          {reportLoading && <div style={{ textAlign: "center", padding: "2.5rem", color: th.muted }}>Loading report…</div>}
+          {!reportLoading && reportData && (() => {
+            const s = reportData.summary || { all: 0, completed: 0, pct: 0 };
+            const days = reportData.days || [];
+            const cats = reportData.categories || [];
+            if (!s.all) return <div style={{ ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted }}><div style={{ fontWeight: 700 }}>No task data in this window</div></div>;
+            return (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px,1fr))", gap: "0.85rem", marginBottom: "1.1rem" }}>
+                <div className="ops-kpi" style={{ ...card(th), padding: "1.05rem 1.15rem", display: "flex", alignItems: "center", gap: "0.9rem" }}>
+                  <TaskRing pct={s.pct} th={th} size={52} color={complianceColor(s.pct)} />
+                  <div><div style={{ fontSize: "0.7rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Overall completion</div><div style={{ fontSize: "0.84rem", color: th.text, fontWeight: 600, marginTop: 3 }}>{s.completed}/{s.all} tasks</div></div>
+                </div>
+              </div>
+              {/* Daily completion trend */}
+              <div style={{ ...card(th), padding: "1rem 1.1rem", marginBottom: "1.1rem" }}>
+                <div style={{ fontSize: "0.78rem", fontWeight: 700, color: th.text, marginBottom: "0.85rem" }}>Daily completion %</div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 130 }}>
+                  {days.map((d) => (
+                    <div key={d.date} title={`${d.date}: ${d.pct}% (${d.completed}/${d.all})`} style={{ flex: 1, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", gap: 4, minWidth: 0 }}>
+                      <span style={{ fontSize: "0.58rem", color: th.muted, fontWeight: 600 }}>{d.pct}</span>
+                      <div style={{ width: "72%", maxWidth: 30, height: `${Math.max(2, d.pct)}%`, background: complianceColor(d.pct), borderRadius: "4px 4px 0 0", transition: "height .3s" }} />
+                      <span style={{ fontSize: "0.55rem", color: th.muted }}>{d.date.slice(8)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* By category (worst first) */}
+              <div style={{ ...card(th), padding: "1rem 1.1rem" }}>
+                <div style={{ fontSize: "0.78rem", fontWeight: 700, color: th.text, marginBottom: "0.85rem" }}>Compliance by category</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+                  {cats.map((c) => (
+                    <div key={c.category} style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                      <span style={{ width: 150, flexShrink: 0, fontSize: "0.8rem", color: th.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.category}</span>
+                      <div style={{ flex: 1, height: 8, borderRadius: 999, background: th.muted + "22", overflow: "hidden" }}>
+                        <div style={{ width: `${c.pct}%`, height: "100%", background: complianceColor(c.pct), borderRadius: 999, transition: "width .3s" }} />
+                      </div>
+                      <span style={{ width: 78, textAlign: "right", flexShrink: 0, fontSize: "0.75rem", color: th.muted, fontVariantNumeric: "tabular-nums" }}>{c.pct}% · {c.completed}/{c.all}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+            );
+          })()}
+        </div>
+        );
+      })()}
+
+      {/* ── Task History ── */}
+      {view === "history" && (
+        <div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.6rem", marginBottom: "0.9rem" }}>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+              {["all", "completed", "missed", "overdue"].map((f) => (
+                <button key={f} onClick={() => setHistStatus(f)} style={{ padding: "0.35rem 0.75rem", borderRadius: 999, minHeight: 36, border: `1px solid ${histStatus === f ? O : th.muted + "55"}`, background: histStatus === f ? O + "18" : "transparent", color: histStatus === f ? O : th.text, fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", textTransform: "capitalize", touchAction: "manipulation" }}>{f}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[7, 14, 30].map((n) => (
+                <button key={n} onClick={() => setRangeDays(n)} style={{ padding: "0.35rem 0.7rem", borderRadius: 999, minHeight: 36, border: `1px solid ${rangeDays === n ? O : th.muted + "55"}`, background: rangeDays === n ? O + "18" : "transparent", color: rangeDays === n ? O : th.text, fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" }}>{n}d</button>
+              ))}
+            </div>
+          </div>
+          {histLoading && <div style={{ textAlign: "center", padding: "2.5rem", color: th.muted }}>Loading history…</div>}
+          {!histLoading && hist && hist.rows.length === 0 && <div style={{ ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted, fontWeight: 700 }}>No matching task history</div>}
+          {!histLoading && hist && hist.rows.length > 0 && (() => {
+            const totalPages = Math.max(1, Math.ceil((hist.total || 0) / (hist.page_size || 30)));
+            return (
+            <>
+              <div style={{ ...card(th), padding: 0, overflow: "hidden" }}>
+                {hist.rows.map((r, i) => {
+                  const sc = TASK_STATUS_COLOR[r.status] || th.muted;
+                  const when = r.completed_at ? new Date(r.completed_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : null;
+                  return (
+                    <div key={r.id} style={{ display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.7rem 1rem", borderTop: i ? `1px solid ${th.cardBorder}` : "none" }}>
+                      <span style={{ width: 92, flexShrink: 0, fontSize: "0.74rem", color: th.muted, fontVariantNumeric: "tabular-nums" }}>{r.business_date}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: "0.85rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                        <div style={{ fontSize: "0.7rem", color: th.muted }}>{r.category}{r.shift_time ? ` · ${r.shift_time}` : ""}{!isManager ? ` · ${r.store_name}` : ""}{when ? ` · ${r.completed_by || ""} ${when}` : ""}</div>
+                      </div>
+                      <span className="ops-chip" style={{ background: sc + "1e", color: sc, textTransform: "capitalize", flexShrink: 0 }}>{r.status}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem", marginTop: "1rem" }}>
+                <button disabled={histPage <= 1 || histLoading} onClick={() => setHistPage((p) => Math.max(1, p - 1))} style={{ ...btn(th, { background: "transparent", color: histPage <= 1 ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: histPage <= 1 ? 0.5 : 1 }}>← Prev</button>
+                <span style={{ fontSize: "0.8rem", color: th.muted, fontWeight: 600 }}>Page {histPage} of {totalPages} · {hist.total} records</span>
+                <button disabled={histPage >= totalPages || histLoading} onClick={() => setHistPage((p) => p + 1)} style={{ ...btn(th, { background: "transparent", color: histPage >= totalPages ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: histPage >= totalPages ? 0.5 : 1 }}>Next →</button>
+              </div>
+            </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ── Temp Compliance Log ── */}
+      {view === "temp" && (
+        <div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.6rem", marginBottom: "0.9rem" }}>
+            <div style={{ fontSize: "0.8rem", color: th.muted }}>
+              Temperature & quality readings · last {rangeDays} days
+              {tempLog && tempLog.rows.length > 0 ? ` · ${tempLog.page_in_range}/${tempLog.rows.length} in range on this page` : ""}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[7, 14, 30].map((n) => (
+                <button key={n} onClick={() => setRangeDays(n)} style={{ padding: "0.35rem 0.7rem", borderRadius: 999, minHeight: 36, border: `1px solid ${rangeDays === n ? O : th.muted + "55"}`, background: rangeDays === n ? O + "18" : "transparent", color: rangeDays === n ? O : th.text, fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" }}>{n}d</button>
+              ))}
+            </div>
+          </div>
+          {tempLoading && <div style={{ textAlign: "center", padding: "2.5rem", color: th.muted }}>Loading readings…</div>}
+          {!tempLoading && tempLog && tempLog.rows.length === 0 && <div style={{ ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted, fontWeight: 700 }}>No temperature readings in this window</div>}
+          {!tempLoading && tempLog && tempLog.rows.length > 0 && (() => {
+            const totalPages = Math.max(1, Math.ceil((tempLog.total || 0) / (tempLog.page_size || 50)));
+            return (
+            <>
+              <div style={{ ...card(th), padding: 0, overflow: "hidden" }}>
+                {tempLog.rows.map((r, i) => {
+                  const pass = r.in_range === true, fail = r.in_range === false;
+                  const c = pass ? "#2f9e44" : fail ? "#e03131" : th.muted;
+                  const rng = (r.min_val != null || r.max_val != null) ? `${r.min_val ?? ""}–${r.max_val ?? ""}${r.unit || ""}` : "";
+                  const when = r.at ? new Date(r.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : r.business_date;
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.7rem 1rem", borderTop: i ? `1px solid ${th.cardBorder}` : "none", borderLeft: `3px solid ${c}` }}>
+                      <span style={{ width: 118, flexShrink: 0, fontSize: "0.72rem", color: th.muted }}>{when}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: "0.84rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.item_label}{r.equipment ? ` · ${r.equipment}` : ""}</div>
+                        <div style={{ fontSize: "0.7rem", color: th.muted }}>{r.task_name}{!isManager ? ` · ${r.store_name}` : ""}{r.by ? ` · ${r.by}` : ""}</div>
+                      </div>
+                      <span style={{ flexShrink: 0, fontSize: "0.95rem", fontWeight: 800, color: c, fontVariantNumeric: "tabular-nums" }}>{r.value}{r.unit || ""}</span>
+                      <div style={{ width: 92, flexShrink: 0, textAlign: "right" }}>
+                        {rng && <div style={{ fontSize: "0.64rem", color: th.muted }}>{rng}</div>}
+                        <span className="ops-chip" style={{ background: c + "1e", color: c }}>{pass ? "In range" : fail ? "Out of range" : "—"}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem", marginTop: "1rem" }}>
+                <button disabled={tempPage <= 1 || tempLoading} onClick={() => setTempPage((p) => Math.max(1, p - 1))} style={{ ...btn(th, { background: "transparent", color: tempPage <= 1 ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: tempPage <= 1 ? 0.5 : 1 }}>← Prev</button>
+                <span style={{ fontSize: "0.8rem", color: th.muted, fontWeight: 600 }}>Page {tempPage} of {totalPages} · {tempLog.total} readings</span>
+                <button disabled={tempPage >= totalPages || tempLoading} onClick={() => setTempPage((p) => p + 1)} style={{ ...btn(th, { background: "transparent", color: tempPage >= totalPages ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: tempPage >= totalPages ? 0.5 : 1 }}>Next →</button>
               </div>
             </>
             );
@@ -38980,7 +39293,7 @@ function PCGPortal() {
           document.body
         )}
 
-        <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : "3vw 5vw" }}>
+        <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : (tab === "locations" || tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : "3vw 5vw" }}>
           {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} />}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
