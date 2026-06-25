@@ -13,6 +13,7 @@ import { forecastStoreFull, forecastStoreWeek, learnHolidayFactor, tomorrowISO, 
 import { holidayInfo } from './analyst-lib/holidays.mjs';
 import { loadKBContent, buildKBContext } from './analyst-lib/analyst-kb.mjs';
 import { loadReportSettings, sendExecReport, sendExecDailyReport, sendDMBriefs } from './analyst-lib/analyst-reports.mjs';
+import { resolveCaller } from './_shared/auth.mjs';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -49,24 +50,46 @@ export default async (request, context) => {
     return json(status, body);
   };
 
+  // ── Access control ───────────────────────────────────────────────────
+  // Resolve the caller's AUTHORITATIVE role/scope from the users table by id, so a crafted
+  // payload can't claim a role/district/store it doesn't have. When the caller can't be
+  // resolved (no userId / server-internal cron/MCP), fall back to the claimed values.
+  const EXEC_ROLES = new Set(['executive', 'it']);
+  const caller = await resolveCaller(userId);
+  const effRole = caller?.role || userRole;
+  const isExecRole = EXEC_ROLES.has(effRole);
+  // exec/IT may target any district (drill-down) or null=network; everyone else is locked to
+  // their own district, and managers to their own store — claimed values are ignored for them.
+  const effDistrict = isExecRole ? (district ?? null) : (caller ? (caller.district ?? null) : (district ?? null));
+  const EXEC_ONLY_ACTIONS = new Set([
+    'snapshot', 'report-settings', 'send-report', 'create-report',
+    'case-list', 'case-detail', 'case-update', 'decision-log', 'audit-log',
+  ]);
+
   try {
+    if (EXEC_ONLY_ACTIONS.has(action) && !isExecRole) {
+      return respond(403, { error: 'This information is limited to Exec/IT.' });
+    }
+
     // ── Ask Analyst (omnibar / chat) ─────────────────────────────────────
     if (action === 'ask') {
       const { question, forceDeep, channelId, threadId, storePC, history, tickets } = payload;
       if (!question) return respond(400, { error: 'Missing question' });
 
-      // Build data context scoped to user's role: store (managers), district (DMs), or full network (execs)
+      // Build data context scoped to the caller's REAL role: store (managers), district (DMs),
+      // or full network (execs). A manager is locked to their own store; a DM to their district.
+      const effStorePC = effRole === 'manager' ? (caller?.storePC || storePC) : null;
       let dataContext;
       let scope;
-      if (storePC && userRole === 'manager') {
-        dataContext = await buildStoreContext({ storePC });
-        scope = `Store ${storePC}`;
+      if (effRole === 'manager' && effStorePC) {
+        dataContext = await buildStoreContext({ storePC: effStorePC });
+        scope = `Store ${effStorePC}`;
       } else {
-        scope = district ? `District ${district}` : 'Network';
-        dataContext = await buildDataContext({ district: district || null, includeStoreDetail: true });
+        scope = effDistrict ? `District ${effDistrict}` : 'Network';
+        dataContext = await buildDataContext({ district: effDistrict || null, includeStoreDetail: true });
       }
 
-      const [kbFiles] = await Promise.all([loadKBContent({ district: district || null, userId, userRole })]);
+      const [kbFiles] = await Promise.all([loadKBContent({ district: effDistrict || null, userId, userRole: effRole })]);
       const kbContext = buildKBContext(kbFiles);
 
       // Build open tickets context block (passed from frontend, already scoped to user's district/store)
@@ -78,7 +101,7 @@ export default async (request, context) => {
         ticketsContext = `\n\nOpen support tickets (${tickets.length}):\n${lines}`;
       }
 
-      const prompt = buildAskPrompt(question, userRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext);
+      const prompt = buildAskPrompt(question, effRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext);
 
       // Use thread-scoped history key when threadId is provided
       const historyKey = threadId

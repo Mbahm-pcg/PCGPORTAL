@@ -15793,7 +15793,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.34";
+  var APP_VERSION = "v17.43";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -20475,11 +20475,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager" || user?.userType === "store_tablet";
     const myStore = getManagerStore(stores, user) || ((stores || []).find((s) => String(s.pc) === String(user?.storePC)) || null);
-    const scopeStores = (stores || []).filter((s) => {
+    const scopeStores = React.useMemo(() => (stores || []).filter((s) => {
       if (isManager) return myStore && String(s.pc) === String(myStore.pc);
       if (isDM) return String(s.district) === String(user?.district);
       return true;
-    }).filter((s) => s.pc);
+    }).filter((s) => s.pc), [stores, isManager, isDM, myStore, user?.district]);
     const todayET = () => {
       const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
       return f.format(/* @__PURE__ */ new Date());
@@ -20518,11 +20518,10 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const auditRef = useRef(null);
     const [photoLightbox, setPhotoLightbox] = useState(null);
     const [photoUrls, setPhotoUrls] = useState({});
-    const [photoDetail, setPhotoDetail] = useState(null);
-    const photoDetailRef = useRef(null);
-    useEffect(() => {
-      if (photoDetail && photoDetailRef.current) photoDetailRef.current.scrollTop = 0;
-    }, [photoDetail]);
+    const [merch, setMerch] = useState(null);
+    const [merchPage, setMerchPage] = useState(1);
+    const [merchLoading, setMerchLoading] = useState(false);
+    const MERCH_PAGE_SIZE = 6;
     const byName = user?.name || user?.email || "user";
     const SHIFT_WINDOWS_CLIENT = {
       "1 AM": 0,
@@ -20713,6 +20712,21 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         setGpsLoading(false);
       }
     }, [api, gpsDays, scopeStores]);
+    const loadMerch = useCallback(async () => {
+      setMerchLoading(true);
+      try {
+        const r = await api("merchandising", { userId: user?.id, store_pcs: scopeStores.map((s) => String(s.pc)), page: merchPage, page_size: MERCH_PAGE_SIZE });
+        if (r && Array.isArray(r.photos)) {
+          setMerch(r);
+          const totalPages = Math.max(1, Math.ceil((r.total || 0) / MERCH_PAGE_SIZE));
+          if (merchPage > totalPages) setMerchPage(totalPages);
+        } else {
+          setMerch({ photos: [], total: 0, page: merchPage, page_size: MERCH_PAGE_SIZE });
+        }
+      } finally {
+        setMerchLoading(false);
+      }
+    }, [api, scopeStores, merchPage]);
     useEffect(() => {
       if (view === "tasks" || view === "dashboard") loadStore();
     }, [view, loadStore]);
@@ -20725,6 +20739,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     useEffect(() => {
       if (view === "gps") loadGps();
     }, [view, gpsDays]);
+    useEffect(() => {
+      if (view === "merchandising") loadMerch();
+    }, [view, loadMerch]);
     useEffect(() => {
       if (view !== "gps" || gpsTab !== "map" || !gpsRows || !gpsMapDiv.current || !window.L) return;
       const L = window.L;
@@ -21008,10 +21025,10 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       boxShadow: seg === id ? "0 1px 4px rgba(0,0,0,0.18)" : "none"
     } }, label, typeof n === "number" ? ` (${n})` : "");
     const viewTab = (id, label, accent) => /* @__PURE__ */ React.createElement("button", { onClick: () => setView(id), style: {
-      padding: "0.62rem 1rem",
-      borderRadius: 999,
+      padding: "0.6rem 0.95rem",
+      borderRadius: 10,
       minHeight: 40,
-      border: `1px solid ${view === id ? accent || O : th.muted + "55"}`,
+      border: `1px solid ${view === id ? accent || O : th.muted + "33"}`,
       background: view === id ? accent || O : "transparent",
       color: view === id ? "#fff" : th.text,
       fontSize: "0.82rem",
@@ -21020,7 +21037,17 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       whiteSpace: "nowrap",
       touchAction: "manipulation"
     } }, label);
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1140, margin: "0 auto", paddingBottom: "3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Tasks"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, !isManager && viewTab("dashboard", "Dashboard"), viewTab("tasks", "Tasks"), !isManager && viewTab("stores", "Stores"), viewTab("cas", "Corrective Actions", "#e03131"), !isManager && viewTab("gps", "GPS Audit", "#2f9e44"), !isManager && viewTab("audit", "Audit Report", "#6366f1"))), (view === "tasks" || view === "dashboard") && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem", maxWidth: view === "tasks" ? 880 : void 0 } }, !isManager && /* @__PURE__ */ React.createElement("select", { value: storePc, onChange: (e) => setStorePc(e.target.value), style: { ...inp(th), flex: 1, minWidth: 160 } }, scopeStores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: String(s.pc) }, s.pc, " \u2014 ", s.name))), isManager && myStore && /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 } }, myStore.pc, " \u2014 ", myStore.name), /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: { ...inp(th), width: 160 } }), view === "tasks" && locDefaultOn && (() => {
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1140, margin: "0 auto", paddingBottom: "3rem" } }, /* @__PURE__ */ React.createElement("style", null, `
+        .ops-layout { display: flex; gap: 1.25rem; align-items: flex-start; }
+        .ops-nav { display: flex; flex-direction: column; gap: 0.4rem; flex-shrink: 0; width: 210px; position: sticky; top: 0.5rem; }
+        .ops-nav > button { width: 100%; text-align: left; }
+        .ops-content { flex: 1; min-width: 0; }
+        @media (max-width: 760px) {
+          .ops-layout { flex-direction: column; gap: 0.75rem; }
+          .ops-nav { flex-direction: row; flex-wrap: wrap; width: 100%; position: static; }
+          .ops-nav > button { width: auto; text-align: center; }
+        }
+      `), /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: "0 0 0.85rem" } }, "Tasks"), /* @__PURE__ */ React.createElement("div", { className: "ops-layout" }, /* @__PURE__ */ React.createElement("nav", { className: "ops-nav" }, !isManager && viewTab("dashboard", "Dashboard"), viewTab("tasks", "Tasks"), viewTab("merchandising", "Merchandising", "#d6336c"), !isManager && viewTab("stores", "Stores"), viewTab("cas", "Corrective Actions", "#e03131"), !isManager && viewTab("gps", "GPS Audit", "#2f9e44"), !isManager && viewTab("audit", "Audit Report", "#6366f1")), /* @__PURE__ */ React.createElement("div", { className: "ops-content" }, (view === "tasks" || view === "dashboard") && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem", maxWidth: view === "tasks" ? 880 : void 0 } }, !isManager && /* @__PURE__ */ React.createElement("select", { value: storePc, onChange: (e) => setStorePc(e.target.value), style: { ...inp(th), flex: 1, minWidth: 160 } }, scopeStores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: String(s.pc) }, s.pc, " \u2014 ", s.name))), isManager && myStore && /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), flex: 1, minWidth: 160, display: "flex", alignItems: "center", fontWeight: 700 } }, myStore.pc, " \u2014 ", myStore.name), /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: { ...inp(th), width: 160 } }), view === "tasks" && locDefaultOn && (() => {
       const blocked = locDenied;
       const c = blocked ? "#ef4444" : shareLoc ? "#2f9e44" : th.muted;
       return /* @__PURE__ */ React.createElement(
@@ -21041,8 +21068,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         return acc;
       }, {});
       const orderedGroups = Object.keys(shiftGroups).sort((a, b) => {
-        const ah = a === "General" ? 999 : SHIFT_WINDOWS_CLIENT[a] !== void 0 ? SHIFT_WINDOWS_CLIENT[a] : 998;
-        const bh = b === "General" ? 999 : SHIFT_WINDOWS_CLIENT[b] !== void 0 ? SHIFT_WINDOWS_CLIENT[b] : 998;
+        const ah = a === "General" ? -1 : SHIFT_WINDOWS_CLIENT[a] !== void 0 ? SHIFT_WINDOWS_CLIENT[a] : 998;
+        const bh = b === "General" ? -1 : SHIFT_WINDOWS_CLIENT[b] !== void 0 ? SHIFT_WINDOWS_CLIENT[b] : 998;
         return ah - bh;
       });
       const showHeaders = orderedGroups.length > 1;
@@ -21064,7 +21091,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: th.muted } }, tk.category, !showHeaders && tk.shift_time ? ` \xB7 ${tk.shift_time}` : ""), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "0.18rem 0.5rem", borderRadius: 99, background: sc + "22", color: sc } }, tk.statusComputed)),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1rem", lineHeight: 1.3 } }, tk.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.25rem", flexWrap: "wrap" } }, hasItems && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, tk.answers_count, "/", tk.items_count, " items"), !hasItems && isMeas && tk.min_val != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.73rem", color: th.muted } }, tk.min_val, "\u2013", tk.max_val, tk.unit), done && !hasItems && tk.value != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.73rem", color: th.muted } }, "Recorded: ", tk.value, tk.unit || "", tk.completed_by ? ` \xB7 ${tk.completed_by}` : ""), isPhoto && tk.has_photo && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.73rem", color: "#2f9e44", fontWeight: 700 } }, "\u{1F4F7} Photo attached"), isPhoto && !tk.has_photo && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.73rem", color: th.muted } }, "\u{1F4F7} Photo required"))), isPhoto && photoUrls[tk.id] && /* @__PURE__ */ React.createElement("img", { src: photoUrls[tk.id], alt: "task photo", onClick: (e) => {
             e.stopPropagation();
-            setPhotoDetail({ task: tk, url: photoUrls[tk.id] });
+            setPhotoLightbox(photoUrls[tk.id]);
           }, style: { width: 44, height: 44, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" } }), /* @__PURE__ */ React.createElement(TaskRing, { pct: itemPct, th, size: 40, color: hasItems ? complianceColor(itemPct) : void 0 }), hasItems && /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "50%", background: isExpanded ? O + "18" : "transparent", color: isExpanded ? O : th.muted, fontSize: "0.78rem", flexShrink: 0, transition: "background 0.15s, color 0.15s" } }, isExpanded ? "\u25B2" : "\u25BC"))
         ), hasItems && isExpanded && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}`, paddingTop: "0.5rem" } }, tk.items.map((item) => {
           const equipList = tk.equipment.length ? tk.equipment : [null];
@@ -21097,15 +21124,18 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
               }
             ), outRange && /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131", fontSize: "0.8rem" } }, "\u26A0"), existing?.in_range === true && /* @__PURE__ */ React.createElement("span", { style: { color: "#2f9e44", fontSize: "0.8rem" } }, "\u2713")));
           });
-        }), isPhoto && !done && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", display: "flex", gap: "0.5rem", alignItems: "center" } }, tk.has_photo ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: "#2f9e44", fontWeight: 700 } }, "\u{1F4F7} Photo attached") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: "#f59e0b", fontWeight: 700 } }, "\u{1F4F7} Photo required to complete"), /* @__PURE__ */ React.createElement(
-          "button",
-          {
-            onClick: () => pickTaskPhoto(tk),
-            disabled: busyId === tk.id,
-            style: { ...btn(th, { background: O + "18", color: O, border: `1px solid ${O}44` }), fontSize: "0.75rem", padding: "0.35rem 0.75rem", minHeight: 34, touchAction: "manipulation" }
-          },
-          busyId === tk.id ? "Saving\u2026" : "Add Photo"
-        ))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" } }, done ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, "Completed", tk.completed_by ? ` \xB7 ${tk.completed_by}` : "", tk.signed_off_by ? ` \xB7 Signed off` : "", gpsBadge(tk)) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Enter readings or check off items to record"), done && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem" } }, tk.allow_signoff && !tk.signed_off_by && /* @__PURE__ */ React.createElement(
+        }), isPhoto && !done && (() => {
+          const allItemsDone = (tk.answers_count || 0) >= (tk.items_count || 0);
+          return /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" } }, tk.has_photo ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: "#2f9e44", fontWeight: 700 } }, "\u{1F4F7} Photo attached") : allItemsDone ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: "#f59e0b", fontWeight: 700 } }, "\u{1F4F7} Photo required to complete"), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: () => pickTaskPhoto(tk),
+              disabled: busyId === tk.id,
+              style: { ...btn(th, { background: O + "18", color: O, border: `1px solid ${O}44` }), fontSize: "0.75rem", padding: "0.35rem 0.75rem", minHeight: 34, touchAction: "manipulation" }
+            },
+            busyId === tk.id ? "Saving\u2026" : "Add Photo"
+          )) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600 } }, "\u{1F4F7} Check off all ", tk.items_count, " items first, then attach the photo"));
+        })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" } }, done ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, "Completed", tk.completed_by ? ` \xB7 ${tk.completed_by}` : "", tk.signed_off_by ? ` \xB7 Signed off` : "", gpsBadge(tk)) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Enter readings or check off items to record"), done && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem" } }, tk.allow_signoff && !tk.signed_off_by && /* @__PURE__ */ React.createElement(
           "button",
           {
             onClick: () => signOffTask(tk),
@@ -21167,7 +21197,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
             style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.55rem 0.8rem", minHeight: 44, touchAction: "manipulation" }
           },
           "\u2715"
-        )) : isPhoto ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", width: "100%" } }, photoUrls[tk.id] ? /* @__PURE__ */ React.createElement("img", { src: photoUrls[tk.id], alt: "task photo", onClick: () => setPhotoDetail({ task: tk, url: photoUrls[tk.id] }), style: { width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" } }) : /* @__PURE__ */ React.createElement("div", { style: { width: 56, height: 56, borderRadius: 8, background: th.bg, border: `1px dashed ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", flexShrink: 0, opacity: photoUrls[tk.id] === null ? 0.4 : 1 } }, "\u{1F4F7}"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement(
+        )) : isPhoto ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", width: "100%" } }, photoUrls[tk.id] ? /* @__PURE__ */ React.createElement("img", { src: photoUrls[tk.id], alt: "task photo", onClick: () => setPhotoLightbox(photoUrls[tk.id]), style: { width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" } }) : /* @__PURE__ */ React.createElement("div", { style: { width: 56, height: 56, borderRadius: 8, background: th.bg, border: `1px dashed ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", flexShrink: 0, opacity: photoUrls[tk.id] === null ? 0.4 : 1 } }, "\u{1F4F7}"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement(
           "button",
           {
             onClick: () => pickTaskPhoto(tk),
@@ -21246,22 +21276,37 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       const filtered = (cas || []).filter((c) => caFilter === "all" || c.status === caFilter);
       if (!filtered.length) return /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "2.5rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", marginBottom: "0.4rem" } }, "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, marginBottom: "0.25rem" } }, "No ", caFilter !== "all" ? caFilter : "", " corrective actions"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem" } }, caFilter === "open" ? "All corrective actions have been resolved." : caFilter === "resolved" ? "No resolved actions yet." : "No corrective actions recorded."));
       return filtered.map((ca) => /* @__PURE__ */ React.createElement("div", { key: ca.id, style: { ...card(th), padding: "0.75rem 0.9rem", marginBottom: "0.5rem", borderLeft: `4px solid ${ca.status === "resolved" ? "#2f9e44" : "#e03131"}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.88rem" } }, ca.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, !isManager && /* @__PURE__ */ React.createElement("span", null, ca.store_name), /* @__PURE__ */ React.createElement("span", { style: { color: ca.status === "resolved" ? "#2f9e44" : "#e03131", fontWeight: 700, textTransform: "capitalize" } }, ca.status), ca.created_at && /* @__PURE__ */ React.createElement("span", null, new Date(ca.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })), ca.due_date && ca.status === "open" && /* @__PURE__ */ React.createElement("span", { style: { color: "#f59e0b" } }, "Due ", ca.due_date)), ca.photo_url && /* @__PURE__ */ React.createElement("img", { src: ca.photo_url, alt: "CA photo", onClick: () => setPhotoLightbox(ca.photo_url), style: { marginTop: "0.5rem", width: 80, height: 60, objectFit: "cover", borderRadius: 4, display: "block", cursor: "zoom-in" } }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginTop: "0.6rem", flexWrap: "wrap" } }, ca.status === "open" && /* @__PURE__ */ React.createElement("button", { onClick: () => resolveCA(ca), style: { ...btn(th, { background: "transparent", color: "#2f9e44", border: "1px solid #2f9e4455" }), fontSize: "0.82rem", padding: "0.5rem 1rem", minHeight: 40, touchAction: "manipulation" } }, "Mark Resolved"), /* @__PURE__ */ React.createElement("button", { onClick: () => pickCaPhoto(ca), style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.muted}44` }), fontSize: "0.82rem", padding: "0.5rem 0.85rem", minHeight: 40, touchAction: "manipulation" } }, "\u{1F4F7} ", ca.photo_url ? "Replace Photo" : "Add Photo")), ca.status === "resolved" && ca.resolved_by && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#2f9e44", marginTop: "0.3rem" } }, "Resolved by ", ca.resolved_by)));
-    })()), photoDetail && (() => {
-      const tk = photoDetail.task;
-      const completedAt = tk.completed_at ? new Date(tk.completed_at) : null;
-      const completedStr = completedAt ? completedAt.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : null;
-      return /* @__PURE__ */ React.createElement("div", { ref: photoDetailRef, style: { position: "fixed", inset: 0, zIndex: 9990, background: th.bg, color: th.text, overflowY: "auto", overflowAnchor: "none", display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.9rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, background: th.sidebar, position: "sticky", top: 0, zIndex: 1 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoDetail(null), style: { display: "flex", alignItems: "center", gap: "0.4rem", background: "transparent", border: "none", color: O, fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", padding: "0.35rem 0.5rem", borderRadius: 8, minHeight: 40, touchAction: "manipulation" } }, "\u2190 Back"), /* @__PURE__ */ React.createElement("span", { style: { flex: 1, fontWeight: 700, fontSize: "0.9rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "Task Photo")), /* @__PURE__ */ React.createElement("div", { style: { padding: "1.25rem 1rem", display: "flex", flexDirection: "column", gap: "1rem", maxWidth: 600, width: "100%", margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: th.muted, marginBottom: "0.3rem" } }, tk.category, tk.shift_time ? ` \xB7 ${tk.shift_time}` : ""), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.75rem" } }, tk.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, minWidth: 100 } }, "Status"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", fontWeight: 700, color: "#2f9e44", background: "#2f9e4418", padding: "0.15rem 0.6rem", borderRadius: 99 } }, "Completed")), tk.completed_by && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, minWidth: 100 } }, "Completed by"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, tk.completed_by)), completedStr && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, minWidth: 100 } }, "Completed at"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, completedStr)))), /* @__PURE__ */ React.createElement("div", { style: { borderRadius: 14, overflow: "hidden", border: `1px solid ${th.cardBorder}`, background: th.card } }, /* @__PURE__ */ React.createElement(
-        "img",
+    })()), view === "merchandising" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Donut case & merchandising photos \xB7 ", isManager ? myStore ? `${myStore.pc} \u2014 ${myStore.name}` : "your store" : isDM ? `District ${user?.district}` : "all stores", merch ? ` \xB7 ${merch.total} photo${merch.total !== 1 ? "s" : ""}` : "")), merchLoading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "2.5rem", color: th.muted } }, "Loading photos\u2026"), !merchLoading && merch && merch.photos.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.9rem", marginBottom: 8, opacity: 0.5 } }, "\u{1F369}"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.9rem" } }, "No merchandising photos yet"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", marginTop: 3 } }, "Photos attached to merchandising tasks show up here, newest first.")), !merchLoading && merch && merch.photos.length > 0 && (() => {
+      const totalPages = Math.max(1, Math.ceil((merch.total || 0) / MERCH_PAGE_SIZE));
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.85rem" } }, merch.photos.map((p) => {
+        const ts = p.completed_at ? new Date(p.completed_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : p.business_date || "";
+        return /* @__PURE__ */ React.createElement("div", { key: p.id, style: { ...card(th), padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement(
+          "img",
+          {
+            src: p.photo_url,
+            alt: `${p.store_name} merchandising`,
+            onClick: () => setPhotoLightbox(p.photo_url),
+            style: { width: "100%", aspectRatio: "4 / 3", objectFit: "cover", cursor: "zoom-in", background: th.bg, display: "block" }
+          }
+        ), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.6rem 0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "0.86rem", color: th.text } }, p.store_pc), p.district != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: "#d6336c", background: "#d6336c1e", borderRadius: 999, padding: "0.08rem 0.45rem" } }, "D", p.district)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, p.store_name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: 4 } }, "\u{1F551} ", ts, p.shift_time ? ` \xB7 ${p.shift_time}` : ""), p.completed_by && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: 2 } }, "by ", p.completed_by)));
+      })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem", marginTop: "1.1rem" } }, /* @__PURE__ */ React.createElement(
+        "button",
         {
-          src: photoDetail.url,
-          alt: "Task photo proof",
-          onLoad: () => {
-            if (photoDetailRef.current) photoDetailRef.current.scrollTop = 0;
-          },
-          style: { width: "100%", display: "block", objectFit: "contain", maxHeight: "65vh" }
-        }
-      )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, textAlign: "center" } }, "Photo proof of task completion")));
-    })(), photoLightbox && /* @__PURE__ */ React.createElement("div", { onClick: () => setPhotoLightbox(null), style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoLightbox(null), style: { position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"), /* @__PURE__ */ React.createElement("img", { src: photoLightbox, alt: "Full size photo", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" } })));
+          disabled: merchPage <= 1 || merchLoading,
+          onClick: () => setMerchPage((p) => Math.max(1, p - 1)),
+          style: { ...btn(th, { background: "transparent", color: merchPage <= 1 ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: merchPage <= 1 ? 0.5 : 1, touchAction: "manipulation" }
+        },
+        "\u2190 Prev"
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted, fontWeight: 600 } }, "Page ", merchPage, " of ", totalPages), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          disabled: merchPage >= totalPages || merchLoading,
+          onClick: () => setMerchPage((p) => p + 1),
+          style: { ...btn(th, { background: "transparent", color: merchPage >= totalPages ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: merchPage >= totalPages ? 0.5 : 1, touchAction: "manipulation" }
+        },
+        "Next \u2192"
+      )));
+    })()), photoLightbox && /* @__PURE__ */ React.createElement("div", { onClick: () => setPhotoLightbox(null), style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoLightbox(null), style: { position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"), /* @__PURE__ */ React.createElement("img", { src: photoLightbox, alt: "Full size photo", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" } })))));
   }
   function ImpactRadar({ th, user, dark, salesWeeks }) {
     const [eventAddr, setEventAddr] = useState("2310 W Passyunk Ave, Philadelphia, PA 19145");
@@ -24986,14 +25031,16 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             setLeaderboard(lb || null);
           }
           fetchPulseData((/* @__PURE__ */ new Date()).toISOString().slice(0, 10));
-          const caseRes = await fetch("/.netlify/functions/analyst", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "case-list", userId: user.id, district: isExec ? void 0 : district, limit: 15 })
-          }).catch(() => null);
-          if (caseRes?.ok) {
-            const caseData = await caseRes.json();
-            setCases(Array.isArray(caseData.cases) ? caseData.cases : []);
+          if (isExec) {
+            const caseRes = await fetch("/.netlify/functions/analyst", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "case-list", userId: user.id, limit: 15 })
+            }).catch(() => null);
+            if (caseRes?.ok) {
+              const caseData = await caseRes.json();
+              setCases(Array.isArray(caseData.cases) ? caseData.cases : []);
+            }
           }
         } catch {
         }

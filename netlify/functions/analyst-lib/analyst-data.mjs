@@ -420,6 +420,35 @@ async function buildStoreContext({ storePC }) {
     sections.push(`\nOpen tickets: none`);
   }
 
+  // Ops tasks & checklists for THIS store (so the manager brief / "what's open at my store?"
+  // answers from the per-store path). Uses the shared loadStoreTasks loader, then formats compactly.
+  try {
+    const t = await loadStoreTasks([storePC]);
+    if (t && (t.instances.length || t.correctiveActions.length)) {
+      const tally = { open: 0, overdue: 0, missed: 0, completed: 0 };
+      const incomplete = [];
+      for (const i of t.instances) {
+        tally[i.status] = (tally[i.status] || 0) + 1;
+        if (i.status === 'overdue' || i.status === 'missed') incomplete.push(`${i.name}${i.shiftTime ? ` (${i.shiftTime})` : ''} — ${i.status}`);
+      }
+      const when = t.isToday ? 'today' : `as of ${t.bizDate} (latest with data)`;
+      sections.push(`\nOps tasks ${when}: ${tally.completed}/${t.instances.length} complete — ${tally.open} open, ${tally.overdue} overdue, ${tally.missed} missed`);
+      if (incomplete.length) sections.push(`  Overdue/missed: ${incomplete.slice(0, 12).join('; ')}`);
+      if (t.correctiveActions.length) {
+        sections.push(`  Open corrective actions (${t.correctiveActions.length}):`);
+        t.correctiveActions.slice(0, 8).forEach(c => {
+          const meas = c.measuredValue != null ? ` measured ${c.measuredValue}${c.unit || ''}${c.target != null ? ` vs target ${c.target}${c.unit || ''}` : ''}` : '';
+          sections.push(`    ${c.title}${c.station ? ` [${c.station}]` : ''}${meas}${c.dueDate ? ` due ${c.dueDate}` : ''}`);
+        });
+      }
+    } else {
+      sections.push(`\nOps tasks: none scheduled / no data yet`);
+    }
+  } catch (e) {
+    // Non-fatal — tasks DB unavailable; brief degrades gracefully
+    console.warn(`[analyst-data] store tasks failed: ${e.message}`);
+  }
+
   // Load this week's NDCP/DCP spend from Postgres
   try {
     const db = sql();
@@ -634,54 +663,54 @@ function computeTaskStatus(row, nowP) {
   return 'open';
 }
 
+// Shared task loader (single source of truth for the query + status computation, used by both
+// the network/district summary and the per-store manager brief). Reports the most recent business
+// date with instances in the last 7d, so Orion never blanks out just because today's daily
+// instances haven't been generated yet. Returns null when there are no stores to query.
+async function loadStoreTasks(storePcs) {
+  const pcs = (storePcs || []).map(String);
+  if (pcs.length === 0) return null;
+  const nowP = etNowParts();
+  const db = sql(); // db.mjs exports a factory — must invoke to get the tagged-template fn
+  const weekAgo = new Date(Date.parse(`${nowP.date}T12:00:00`) - 7 * 86400000).toISOString().slice(0, 10);
+  const latest = await db`
+    SELECT max(business_date)::text AS d FROM task_instances
+    WHERE store_pc = ANY(${pcs}) AND business_date <= ${nowP.date} AND business_date >= ${weekAgo}`;
+  const bizDate = latest?.[0]?.d || nowP.date;
+  // Instances for the target date + open corrective actions are independent → run in parallel.
+  const [rows, caRows] = await Promise.all([
+    db`
+      SELECT i.store_pc, i.business_date::text AS business_date, i.shift_time, i.status,
+             i.completed_by, t.category, COALESCE(t.label, t.name) AS name
+      FROM task_instances i
+      JOIN task_templates t ON t.id = i.template_id
+      WHERE i.business_date = ${bizDate} AND i.store_pc = ANY(${pcs})`,
+    db`
+      SELECT store_pc, title, station, assignee, due_date::text AS due_date,
+             measured_value, target, unit, created_at
+      FROM corrective_actions
+      WHERE status = 'open' AND store_pc = ANY(${pcs})
+      ORDER BY created_at ASC`,
+  ]);
+  const instances = rows.map(r => ({
+    storePC: String(r.store_pc), status: computeTaskStatus(r, nowP),
+    category: r.category, name: r.name, shiftTime: r.shift_time, completedBy: r.completed_by,
+  }));
+  const correctiveActions = caRows.map(c => ({
+    storePC: String(c.store_pc), title: c.title, station: c.station, assignee: c.assignee,
+    dueDate: c.due_date, measuredValue: c.measured_value != null ? Number(c.measured_value) : null,
+    target: c.target != null ? Number(c.target) : null, unit: c.unit,
+  }));
+  return { bizDate, isToday: bizDate === nowP.date, instances, correctiveActions };
+}
+
 async function buildTasksContext({ district } = {}) {
   try {
-    const nowP = etNowParts();
     const stores = district ? getStoresByDistrict(district) : STORES;
-    const pcs = stores.map(s => String(s.pc));
-    if (pcs.length === 0) return { available: false };
-    // Read-only: report the most recent business date that actually has instances
-    // (within the last week) so Orion never blanks out just because today's daily
-    // instances haven't been generated yet by a manager opening the Tasks tab.
-    const db = sql(); // db.mjs exports a factory — must invoke to get the tagged-template fn
-    const weekAgo = new Date(Date.parse(`${nowP.date}T12:00:00`) - 7 * 86400000).toISOString().slice(0, 10);
-    const latest = await db`
-      SELECT max(business_date)::text AS d FROM task_instances
-      WHERE store_pc = ANY(${pcs}) AND business_date <= ${nowP.date} AND business_date >= ${weekAgo}`;
-    const bizDate = latest?.[0]?.d || nowP.date;
-
-    // Instances for the target date + open corrective actions are independent → run in parallel.
-    const [rows, caRows] = await Promise.all([
-      db`
-        SELECT i.store_pc, i.business_date::text AS business_date, i.shift_time, i.status,
-               i.completed_by, t.category, COALESCE(t.label, t.name) AS name
-        FROM task_instances i
-        JOIN task_templates t ON t.id = i.template_id
-        WHERE i.business_date = ${bizDate} AND i.store_pc = ANY(${pcs})`,
-      db`
-        SELECT store_pc, title, station, assignee, due_date::text AS due_date,
-               measured_value, target, unit, created_at
-        FROM corrective_actions
-        WHERE status = 'open' AND store_pc = ANY(${pcs})
-        ORDER BY created_at ASC`,
-    ]);
-
-    const instances = rows.map(r => ({
-      storePC: String(r.store_pc),
-      status: computeTaskStatus(r, nowP),
-      category: r.category,
-      name: r.name,
-      shiftTime: r.shift_time,
-      completedBy: r.completed_by,
-    }));
-    const correctiveActions = caRows.map(c => ({
-      storePC: String(c.store_pc), title: c.title, station: c.station, assignee: c.assignee,
-      dueDate: c.due_date, measuredValue: c.measured_value != null ? Number(c.measured_value) : null,
-      target: c.target != null ? Number(c.target) : null, unit: c.unit,
-    }));
-
+    const data = await loadStoreTasks(stores.map(s => s.pc));
+    if (!data) return { available: false };
     return summarizeTasks(
-      { instances, correctiveActions, date: bizDate, isToday: bizDate === nowP.date },
+      { instances: data.instances, correctiveActions: data.correctiveActions, date: data.bizDate, isToday: data.isToday },
       district || null, STORES,
     );
   } catch (e) {

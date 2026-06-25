@@ -19831,7 +19831,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.34";
+const APP_VERSION = "v17.43";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -26840,11 +26840,14 @@ function OpsTasks({ stores, th, user }) {
   const isManager = user?.userType === "manager" || user?.userType === "store_tablet";
   const myStore = getManagerStore(stores, user) || ((stores || []).find(s => String(s.pc) === String(user?.storePC)) || null);
 
-  const scopeStores = (stores || []).filter((s) => {
+  // Memoized so its identity is stable across renders — otherwise every effect/callback
+  // that depends on it (e.g. loadMerch) re-fires on every render. Recomputes only when the
+  // actual scope inputs change (store list, role, the manager's store, or DM's district).
+  const scopeStores = React.useMemo(() => (stores || []).filter((s) => {
     if (isManager) return myStore && String(s.pc) === String(myStore.pc);
     if (isDM) return String(s.district) === String(user?.district);
     return true;
-  }).filter((s) => s.pc);
+  }).filter((s) => s.pc), [stores, isManager, isDM, myStore, user?.district]);
 
   const todayET = () => {
     const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -26889,9 +26892,11 @@ function OpsTasks({ stores, th, user }) {
   const auditRef = useRef(null);
   const [photoLightbox, setPhotoLightbox] = useState(null);
   const [photoUrls, setPhotoUrls] = useState({});
-  const [photoDetail, setPhotoDetail] = useState(null); // { task, url }
-  const photoDetailRef = useRef(null);
-  useEffect(() => { if (photoDetail && photoDetailRef.current) photoDetailRef.current.scrollTop = 0; }, [photoDetail]);
+  // Merchandising photo gallery (role-scoped, 6/page)
+  const [merch, setMerch] = useState(null);
+  const [merchPage, setMerchPage] = useState(1);
+  const [merchLoading, setMerchLoading] = useState(false);
+  const MERCH_PAGE_SIZE = 6;
   const byName = user?.name || user?.email || "user";
 
   // Client-side shift window start hours (mirrors catalog.js SHIFT_WINDOWS)
@@ -27040,10 +27045,31 @@ function OpsTasks({ stores, th, user }) {
     } finally { setGpsLoading(false); }
   }, [api, gpsDays, scopeStores]);
 
+  const loadMerch = useCallback(async () => {
+    setMerchLoading(true);
+    try {
+      const r = await api("merchandising", { userId: user?.id, store_pcs: scopeStores.map((s) => String(s.pc)), page: merchPage, page_size: MERCH_PAGE_SIZE });
+      if (r && Array.isArray(r.photos)) {
+        setMerch(r);
+        // If data shrank below the current page (e.g. photos deleted, or scope narrowed),
+        // snap back to the last real page instead of stranding the user on an empty "Page 3 of 1".
+        const totalPages = Math.max(1, Math.ceil((r.total || 0) / MERCH_PAGE_SIZE));
+        if (merchPage > totalPages) setMerchPage(totalPages);
+      } else {
+        // Error/non-200 (api returns {error}); keep the gallery in a safe empty shape so the
+        // render never dereferences merch.photos on a non-array.
+        setMerch({ photos: [], total: 0, page: merchPage, page_size: MERCH_PAGE_SIZE });
+      }
+    } finally { setMerchLoading(false); }
+  }, [api, scopeStores, merchPage]);
+
   useEffect(() => { if (view === "tasks" || view === "dashboard") loadStore(); }, [view, loadStore]);
   useEffect(() => { if (view === "stores") loadRollup(); }, [view, loadRollup]);
   useEffect(() => { if (view === "cas") loadCAs(); }, [view, loadCAs]);
   useEffect(() => { if (view === "gps") loadGps(); }, [view, gpsDays]); // eslint-disable-line
+  // loadMerch is stable now (scopeStores is memoized), so this re-fires only when the view,
+  // page, or actual scope changes — reloads correctly after stores load async, no infinite loop.
+  useEffect(() => { if (view === "merchandising") loadMerch(); }, [view, loadMerch]);
 
   // Render the completion-location map (on-site green / off-site red).
   useEffect(() => {
@@ -27277,8 +27303,8 @@ function OpsTasks({ stores, th, user }) {
 
   const viewTab = (id, label, accent) => (
     <button onClick={() => setView(id)} style={{
-      padding: "0.62rem 1rem", borderRadius: 999, minHeight: 40,
-      border: `1px solid ${view === id ? (accent || O) : th.muted + "55"}`,
+      padding: "0.6rem 0.95rem", borderRadius: 10, minHeight: 40,
+      border: `1px solid ${view === id ? (accent || O) : th.muted + "33"}`,
       background: view === id ? (accent || O) : "transparent",
       color: view === id ? "#fff" : th.text,
       fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", touchAction: "manipulation",
@@ -27287,17 +27313,29 @@ function OpsTasks({ stores, th, user }) {
 
   return (
     <div style={{ maxWidth: 1140, margin: "0 auto", paddingBottom: "3rem" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
-        <h2 style={{ ...pageTitle(th), margin: 0 }}>Tasks</h2>
-        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+      <style>{`
+        .ops-layout { display: flex; gap: 1.25rem; align-items: flex-start; }
+        .ops-nav { display: flex; flex-direction: column; gap: 0.4rem; flex-shrink: 0; width: 210px; position: sticky; top: 0.5rem; }
+        .ops-nav > button { width: 100%; text-align: left; }
+        .ops-content { flex: 1; min-width: 0; }
+        @media (max-width: 760px) {
+          .ops-layout { flex-direction: column; gap: 0.75rem; }
+          .ops-nav { flex-direction: row; flex-wrap: wrap; width: 100%; position: static; }
+          .ops-nav > button { width: auto; text-align: center; }
+        }
+      `}</style>
+      <h2 style={{ ...pageTitle(th), margin: "0 0 0.85rem" }}>Tasks</h2>
+      <div className="ops-layout">
+        <nav className="ops-nav">
           {!isManager && viewTab("dashboard", "Dashboard")}
           {viewTab("tasks", "Tasks")}
+          {viewTab("merchandising", "Merchandising", "#d6336c")}
           {!isManager && viewTab("stores", "Stores")}
           {viewTab("cas", "Corrective Actions", "#e03131")}
           {!isManager && viewTab("gps", "GPS Audit", "#2f9e44")}
           {!isManager && viewTab("audit", "Audit Report", "#6366f1")}
-        </div>
-      </div>
+        </nav>
+        <div className="ops-content">
 
       {/* Controls — match the Tasks list's 880px column so the date picker doesn't
           overhang the cards; Dashboard stays full-width to match its grid. */}
@@ -27414,8 +27452,9 @@ function OpsTasks({ stores, th, user }) {
               return acc;
             }, {});
             const orderedGroups = Object.keys(shiftGroups).sort((a, b) => {
-              const ah = a === "General" ? 999 : (SHIFT_WINDOWS_CLIENT[a] !== undefined ? SHIFT_WINDOWS_CLIENT[a] : 998);
-              const bh = b === "General" ? 999 : (SHIFT_WINDOWS_CLIENT[b] !== undefined ? SHIFT_WINDOWS_CLIENT[b] : 998);
+              // General (non-timed) tasks first, then time-based shift groups in chronological order
+              const ah = a === "General" ? -1 : (SHIFT_WINDOWS_CLIENT[a] !== undefined ? SHIFT_WINDOWS_CLIENT[a] : 998);
+              const bh = b === "General" ? -1 : (SHIFT_WINDOWS_CLIENT[b] !== undefined ? SHIFT_WINDOWS_CLIENT[b] : 998);
               return ah - bh;
             });
             const showHeaders = orderedGroups.length > 1;
@@ -27466,7 +27505,7 @@ function OpsTasks({ stores, th, user }) {
                       </div>
                     </div>
                     {isPhoto && photoUrls[tk.id] && (
-                      <img src={photoUrls[tk.id]} alt="task photo" onClick={(e) => { e.stopPropagation(); setPhotoDetail({ task: tk, url: photoUrls[tk.id] }); }} style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
+                      <img src={photoUrls[tk.id]} alt="task photo" onClick={(e) => { e.stopPropagation(); setPhotoLightbox(photoUrls[tk.id]); }} style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
                     )}
                     <TaskRing pct={itemPct} th={th} size={40} color={hasItems ? complianceColor(itemPct) : undefined} />
                     {hasItems && (
@@ -27516,21 +27555,28 @@ function OpsTasks({ stores, th, user }) {
                         );
                       });
                     })}
-                    {/* Photo required banner for multi-item photo tasks */}
-                    {isPhoto && !done && (
-                      <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    {/* Photo required banner for multi-item photo tasks.
+                        Gate the photo behind item completion: the photo is proof of the
+                        finished work, so it can't be attached until all items are checked. */}
+                    {isPhoto && !done && (() => {
+                      const allItemsDone = (tk.answers_count || 0) >= (tk.items_count || 0);
+                      return (
+                      <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
                         {tk.has_photo
                           ? <span style={{ fontSize: "0.75rem", color: "#2f9e44", fontWeight: 700 }}>📷 Photo attached</span>
-                          : <>
-                              <span style={{ fontSize: "0.75rem", color: "#f59e0b", fontWeight: 700 }}>📷 Photo required to complete</span>
-                              <button onClick={() => pickTaskPhoto(tk)} disabled={busyId === tk.id}
-                                style={{ ...btn(th, { background: O + "18", color: O, border: `1px solid ${O}44` }), fontSize: "0.75rem", padding: "0.35rem 0.75rem", minHeight: 34, touchAction: "manipulation" }}>
-                                {busyId === tk.id ? "Saving…" : "Add Photo"}
-                              </button>
-                            </>
+                          : allItemsDone
+                            ? <>
+                                <span style={{ fontSize: "0.75rem", color: "#f59e0b", fontWeight: 700 }}>📷 Photo required to complete</span>
+                                <button onClick={() => pickTaskPhoto(tk)} disabled={busyId === tk.id}
+                                  style={{ ...btn(th, { background: O + "18", color: O, border: `1px solid ${O}44` }), fontSize: "0.75rem", padding: "0.35rem 0.75rem", minHeight: 34, touchAction: "manipulation" }}>
+                                  {busyId === tk.id ? "Saving…" : "Add Photo"}
+                                </button>
+                              </>
+                            : <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 600 }}>📷 Check off all {tk.items_count} items first, then attach the photo</span>
                         }
                       </div>
-                    )}
+                      );
+                    })()}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
                       {done
                         ? <span style={{ fontSize: "0.78rem", color: "#2f9e44", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>Completed{tk.completed_by ? ` · ${tk.completed_by}` : ""}{tk.signed_off_by ? ` · Signed off` : ""}{gpsBadge(tk)}</span>
@@ -27588,7 +27634,7 @@ function OpsTasks({ stores, th, user }) {
                     ) : isPhoto ? (
                       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", width: "100%" }}>
                         {photoUrls[tk.id]
-                          ? <img src={photoUrls[tk.id]} alt="task photo" onClick={() => setPhotoDetail({ task: tk, url: photoUrls[tk.id] })} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
+                          ? <img src={photoUrls[tk.id]} alt="task photo" onClick={() => setPhotoLightbox(photoUrls[tk.id])} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: `1px solid ${th.cardBorder}`, flexShrink: 0, cursor: "zoom-in" }} />
                           : <div style={{ width: 56, height: 56, borderRadius: 8, background: th.bg, border: `1px dashed ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", flexShrink: 0, opacity: photoUrls[tk.id] === null ? 0.4 : 1 }}>📷</div>
                         }
                         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.35rem" }}>
@@ -27852,63 +27898,66 @@ function OpsTasks({ stores, th, user }) {
         </div>
       )}
 
-      {/* Photo detail page */}
-      {photoDetail && (() => {
-        const tk = photoDetail.task;
-        const completedAt = tk.completed_at ? new Date(tk.completed_at) : null;
-        const completedStr = completedAt ? completedAt.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : null;
-        return (
-          <div ref={photoDetailRef} style={{ position: "fixed", inset: 0, zIndex: 9990, background: th.bg, color: th.text, overflowY: "auto", overflowAnchor: "none", display: "flex", flexDirection: "column" }}>
-            {/* Header bar */}
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.9rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, background: th.sidebar, position: "sticky", top: 0, zIndex: 1 }}>
-              <button onClick={() => setPhotoDetail(null)} style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "transparent", border: "none", color: O, fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", padding: "0.35rem 0.5rem", borderRadius: 8, minHeight: 40, touchAction: "manipulation" }}>
-                ← Back
-              </button>
-              <span style={{ flex: 1, fontWeight: 700, fontSize: "0.9rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Task Photo</span>
-            </div>
 
-            {/* Body */}
-            <div style={{ padding: "1.25rem 1rem", display: "flex", flexDirection: "column", gap: "1rem", maxWidth: 600, width: "100%", margin: "0 auto" }}>
-              {/* Task info card */}
-              <div style={{ ...card(th), padding: "1rem 1.1rem" }}>
-                <div style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: th.muted, marginBottom: "0.3rem" }}>
-                  {tk.category}{tk.shift_time ? ` · ${tk.shift_time}` : ""}
-                </div>
-                <div style={{ fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.75rem" }}>{tk.name}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                    <span style={{ fontSize: "0.75rem", color: th.muted, minWidth: 100 }}>Status</span>
-                    <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#2f9e44", background: "#2f9e4418", padding: "0.15rem 0.6rem", borderRadius: 99 }}>Completed</span>
-                  </div>
-                  {tk.completed_by && (
-                    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                      <span style={{ fontSize: "0.75rem", color: th.muted, minWidth: 100 }}>Completed by</span>
-                      <span style={{ fontSize: "0.82rem", fontWeight: 600, color: th.text }}>{tk.completed_by}</span>
-                    </div>
-                  )}
-                  {completedStr && (
-                    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                      <span style={{ fontSize: "0.75rem", color: th.muted, minWidth: 100 }}>Completed at</span>
-                      <span style={{ fontSize: "0.82rem", color: th.text }}>{completedStr}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Full image */}
-              <div style={{ borderRadius: 14, overflow: "hidden", border: `1px solid ${th.cardBorder}`, background: th.card }}>
-                <img
-                  src={photoDetail.url}
-                  alt="Task photo proof"
-                  onLoad={() => { if (photoDetailRef.current) photoDetailRef.current.scrollTop = 0; }}
-                  style={{ width: "100%", display: "block", objectFit: "contain", maxHeight: "65vh" }}
-                />
-              </div>
-              <div style={{ fontSize: "0.73rem", color: th.muted, textAlign: "center" }}>Photo proof of task completion</div>
+      {/* ── Merchandising photo gallery (role-scoped: exec=all, DM=district, manager=store) ── */}
+      {view === "merchandising" && (
+        <div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.85rem" }}>
+            <div style={{ fontSize: "0.8rem", color: th.muted }}>
+              Donut case & merchandising photos · {isManager ? (myStore ? `${myStore.pc} — ${myStore.name}` : "your store") : isDM ? `District ${user?.district}` : "all stores"}
+              {merch ? ` · ${merch.total} photo${merch.total !== 1 ? "s" : ""}` : ""}
             </div>
           </div>
-        );
-      })()}
+
+          {merchLoading && <div style={{ textAlign: "center", padding: "2.5rem", color: th.muted }}>Loading photos…</div>}
+
+          {!merchLoading && merch && merch.photos.length === 0 && (
+            <div style={{ ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted }}>
+              <div style={{ fontSize: "1.9rem", marginBottom: 8, opacity: 0.5 }}>🍩</div>
+              <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>No merchandising photos yet</div>
+              <div style={{ fontSize: "0.76rem", marginTop: 3 }}>Photos attached to merchandising tasks show up here, newest first.</div>
+            </div>
+          )}
+
+          {!merchLoading && merch && merch.photos.length > 0 && (() => {
+            const totalPages = Math.max(1, Math.ceil((merch.total || 0) / MERCH_PAGE_SIZE));
+            return (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.85rem" }}>
+                {merch.photos.map((p) => {
+                  const ts = p.completed_at
+                    ? new Date(p.completed_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true })
+                    : (p.business_date || "");
+                  return (
+                    <div key={p.id} style={{ ...card(th), padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                      <img src={p.photo_url} alt={`${p.store_name} merchandising`} onClick={() => setPhotoLightbox(p.photo_url)}
+                        style={{ width: "100%", aspectRatio: "4 / 3", objectFit: "cover", cursor: "zoom-in", background: th.bg, display: "block" }} />
+                      <div style={{ padding: "0.6rem 0.8rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <span style={{ fontWeight: 800, fontSize: "0.86rem", color: th.text }}>{p.store_pc}</span>
+                          {p.district != null && <span style={{ fontSize: "0.62rem", fontWeight: 700, color: "#d6336c", background: "#d6336c1e", borderRadius: 999, padding: "0.08rem 0.45rem" }}>D{p.district}</span>}
+                        </div>
+                        <div style={{ fontSize: "0.74rem", color: th.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.store_name}</div>
+                        <div style={{ fontSize: "0.7rem", color: th.muted, marginTop: 4 }}>🕑 {ts}{p.shift_time ? ` · ${p.shift_time}` : ""}</div>
+                        {p.completed_by && <div style={{ fontSize: "0.68rem", color: th.muted, marginTop: 2 }}>by {p.completed_by}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem", marginTop: "1.1rem" }}>
+                <button disabled={merchPage <= 1 || merchLoading} onClick={() => setMerchPage((p) => Math.max(1, p - 1))}
+                  style={{ ...btn(th, { background: "transparent", color: merchPage <= 1 ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: merchPage <= 1 ? 0.5 : 1, touchAction: "manipulation" }}>← Prev</button>
+                <span style={{ fontSize: "0.8rem", color: th.muted, fontWeight: 600 }}>Page {merchPage} of {totalPages}</span>
+                <button disabled={merchPage >= totalPages || merchLoading} onClick={() => setMerchPage((p) => p + 1)}
+                  style={{ ...btn(th, { background: "transparent", color: merchPage >= totalPages ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: merchPage >= totalPages ? 0.5 : 1, touchAction: "manipulation" }}>Next →</button>
+              </div>
+            </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Photo lightbox (CA photos only) */}
       {photoLightbox && (
@@ -27917,6 +27966,8 @@ function OpsTasks({ stores, th, user }) {
           <img src={photoLightbox} alt="Full size photo" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" }} />
         </div>
       )}
+        </div>{/* /.ops-content */}
+      </div>{/* /.ops-layout */}
     </div>
   );
 }
@@ -32695,15 +32746,17 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, o
         // Initial Pulse fetch after labor data loads
         fetchPulseData(new Date().toISOString().slice(0,10));
 
-        // Cases
-        const caseRes = await fetch('/.netlify/functions/analyst', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'case-list', userId: user.id, district: isExec ? undefined : district, limit: 15 }),
-        }).catch(() => null);
-        if (caseRes?.ok) {
-          const caseData = await caseRes.json();
-          setCases(Array.isArray(caseData.cases) ? caseData.cases : []);
+        // Cases — business cases are Exec/IT-only (server now 403s others), so only fetch for them.
+        if (isExec) {
+          const caseRes = await fetch('/.netlify/functions/analyst', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'case-list', userId: user.id, limit: 15 }),
+          }).catch(() => null);
+          if (caseRes?.ok) {
+            const caseData = await caseRes.json();
+            setCases(Array.isArray(caseData.cases) ? caseData.cases : []);
+          }
         }
       } catch {}
       setLoading(false);

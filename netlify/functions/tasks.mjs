@@ -30,6 +30,7 @@
 import webpush from 'web-push';
 import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
+import { resolveCaller, isExec } from './_shared/auth.mjs';
 import { STORE_BY_PC } from './ndcp-lib/store-map.js';
 import { CATALOG, SHIFT_WINDOWS, ITEMS_CATALOG } from './tasks-lib/catalog.js';
 import { STORE_COORDS } from './analyst-lib/store-coords.mjs';
@@ -369,6 +370,53 @@ export default async (request, context) => {
 
       const { totals } = tally(rows, now);
       return reply(200, { store_pc: storePc, date, counts: totals, tasks });
+    }
+
+    if (action === 'merchandising') {
+      // Photo gallery of merchandising / donut-case proof photos, scoped to the
+      // store_pcs the caller passes (frontend already role-scopes: exec=all,
+      // DM=district, manager=own store). Paginated, newest first.
+      const requested = (Array.isArray(body.store_pcs) ? body.store_pcs : []).map(String);
+      // Server-side scope enforcement: a manager is locked to their own store, a DM to their
+      // district — claimed store_pcs are intersected with what their real role allows. Exec/IT
+      // (or unresolved/server callers) get exactly what they requested.
+      const caller = await resolveCaller(body.userId);
+      let pcs = requested;
+      if (caller && !isExec(caller.role)) {
+        if (caller.role === 'manager') {
+          pcs = caller.storePC ? [caller.storePC] : [];
+        } else if (caller.role === 'dm' && caller.district != null) {
+          const districtPcs = Object.values(STORE_BY_PC).filter((s) => s.district === caller.district).map((s) => String(s.pc));
+          pcs = requested.length ? requested.filter((p) => districtPcs.includes(p)) : districtPcs;
+        }
+      }
+      const page = Math.max(1, parseInt(body.page, 10) || 1);
+      const pageSize = Math.min(24, Math.max(1, parseInt(body.page_size, 10) || 6));
+      const offset = (page - 1) * pageSize;
+      if (!pcs.length) return reply(200, { photos: [], total: 0, page, page_size: pageSize });
+      const countRows = await db`
+        SELECT COUNT(*)::int AS n
+        FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+        WHERE i.photo_url IS NOT NULL AND i.store_pc = ANY(${pcs})
+          AND (t.category ILIKE 'merchandising' OR t.name ILIKE '%merchandising%' OR t.name ILIKE '%donut%')`;
+      const total = countRows[0]?.n || 0;
+      const rows = await db`
+        SELECT i.id, i.store_pc, i.business_date::text AS business_date, i.shift_time,
+               i.completed_at, i.completed_by, i.photo_url, t.name, t.category
+        FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+        WHERE i.photo_url IS NOT NULL AND i.store_pc = ANY(${pcs})
+          AND (t.category ILIKE 'merchandising' OR t.name ILIKE '%merchandising%' OR t.name ILIKE '%donut%')
+        ORDER BY i.completed_at DESC NULLS LAST, i.business_date DESC, i.id DESC
+        LIMIT ${pageSize} OFFSET ${offset}`;
+      const photos = rows.map((r) => ({
+        id: r.id, store_pc: r.store_pc,
+        store_name: STORE_BY_PC[r.store_pc]?.name || r.store_pc,
+        district: STORE_BY_PC[r.store_pc]?.district ?? null,
+        name: r.name, category: r.category, shift_time: r.shift_time,
+        business_date: r.business_date, completed_at: r.completed_at, completed_by: r.completed_by,
+        photo_url: r.photo_url,
+      }));
+      return reply(200, { photos, total, page, page_size: pageSize });
     }
 
     if (action === 'gps_audit') {
