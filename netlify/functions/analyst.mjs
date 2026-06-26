@@ -1,7 +1,8 @@
 // analyst.mjs — HTTP handler for the UOP Analyst module
 // Actions: ask, brief, brief-refresh, case-list, case-detail, case-update, feedback, report-settings
 
-import { askAnalyst, generateStructured } from './analyst-lib/analyst-claude.mjs';
+import { askAnalyst, askAnalystWithTools, generateStructured } from './analyst-lib/analyst-claude.mjs';
+import { MAINT_TOOLS, executeMaintTool } from './analyst-lib/maint-actions.mjs';
 import { buildDataContext, buildKPISnapshot, buildStoreContext, buildMaintenanceContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
 import { buildBriefPrompt, buildStoreBriefPrompt, buildPrePlanPrompt, buildAskPrompt, PERSONA, MAINT_ASK_SYSTEM, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
 import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
@@ -121,7 +122,16 @@ export default async (request, context) => {
         if (stored && Array.isArray(stored)) chatHistory = stored;
       }
 
-      const result = await askAnalyst({ userPrompt: prompt, userId, forceDeep, history: chatHistory, system: isMaint ? MAINT_ASK_SYSTEM : undefined });
+      // Maintenance gets tool-use so Orion can act on tickets (close/comment/assign/etc.);
+      // the executor re-checks the caller's real role before any write.
+      const maintCtx = { actorId: caller?.id, role: effRole }; // stable so the actor-name lookup memoizes
+      const result = isMaint
+        ? await askAnalystWithTools({
+            userPrompt: prompt, system: MAINT_ASK_SYSTEM, history: chatHistory, userId,
+            tools: MAINT_TOOLS,
+            executeTool: (name, input) => executeMaintTool(name, input, maintCtx),
+          })
+        : await askAnalyst({ userPrompt: prompt, userId, forceDeep, history: chatHistory });
 
       const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
