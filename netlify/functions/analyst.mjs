@@ -3,7 +3,7 @@
 
 import { askAnalyst, askAnalystWithTools, generateStructured } from './analyst-lib/analyst-claude.mjs';
 import { MAINT_TOOLS, executeMaintTool } from './analyst-lib/maint-actions.mjs';
-import { buildDataContext, buildKPISnapshot, buildStoreContext, buildStoreRosterContext, buildMaintenanceContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
+import { buildDataContext, buildKPISnapshot, buildStoreContext, buildStoreRosterContext, buildPulseComparisonContext, buildSentimentContext, buildWeatherContext, buildMaintenanceContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
 import { buildBriefPrompt, buildStoreBriefPrompt, buildPrePlanPrompt, buildAskPrompt, PERSONA, MAINT_ASK_SYSTEM, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
 import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
 import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
@@ -116,7 +116,32 @@ export default async (request, context) => {
       if (effRole === 'dm' && effDistrict != null) rosterContext = await buildStoreRosterContext({ district: effDistrict });
       else if (effRole === 'manager' && effStorePC) rosterContext = await buildStoreRosterContext({ storePC: effStorePC });
 
-      const prompt = buildAskPrompt(question, effRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext, rosterContext);
+      // Guest sentiment (review themes/ratings) + weather forecast (with historical sales
+      // impact) give DMs/execs a fuller picture — coaching grounded in what guests actually
+      // complain about, and planning around weather. Both are compact, read-only, and
+      // district-scoped. Fail closed for DMs (a null district gets nothing, never network);
+      // execs may see network or a drilled-in district.
+      let extraContext = rosterContext;
+      if ((effRole === 'dm' && effDistrict != null) || isExecRole) {
+        const distArg = isExecRole ? (effDistrict || null) : effDistrict;
+        const [sentiment, weather] = await Promise.all([
+          buildSentimentContext({ district: distArg }),
+          buildWeatherContext({ district: distArg }),
+        ]);
+        extraContext += (sentiment || '') + (weather || '');
+      }
+      // Pulse comparison engine — today-so-far vs yesterday-same-time / WTD vs last week /
+      // MTD vs last month + voids/refunds/discounts + today-by-hour, per store + district.
+      // Reads the pcg_pulse_today_v1 cache (pulse-compare-cron) so it's normally ZERO live
+      // calls; only a cold cache triggers a live fallback for this district's ~6 stores.
+      // Still gated to Pulse-relevant questions so roster/metadata asks stay lean.
+      const PULSE_Q = /\b(sales?|sell|sold|revenue|labou?r|guest|traffic|customer|check|avg|average|upsell|hour|hourly|rush|morning|afternoon|today|yesterday|week|wtd|month|mtd|compare|comparison|vs|versus|trend|pace|pacing|forecast|rank|top|bottom|worst|best|drop|decline|grow|void|refund|discount|exception|anomal|unusual|wrong|attention|focus|priorit|call first|coach|recap|target|profit|perform)\b/i;
+      if (effRole === 'dm' && effDistrict != null && PULSE_Q.test(question || '')) {
+        try { extraContext += await buildPulseComparisonContext({ district: effDistrict }); }
+        catch (e) { console.warn('[analyst] pulse comparison failed:', e.message); }
+      }
+
+      const prompt = buildAskPrompt(question, effRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext, extraContext);
 
       // Use thread-scoped history key when threadId is provided
       const historyKey = threadId

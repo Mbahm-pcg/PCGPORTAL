@@ -44,6 +44,12 @@
 [functions.pulse-hourly-snapshot]
   schedule = "30 2 * * *"
 
+# Pulse "today so far" cache for Orion DM comparison engine — every 30 min (in-function
+# ET business-hours guard skips overnight). Writes pcg_pulse_today_v1 so the analyst chat
+# path reads cached data instead of making live Pulse calls per question.
+[functions.pulse-compare-cron]
+  schedule = "*/30 * * * *"
+
 # Daily reports backup — 11:59 PM ET (4:59 AM UTC). Keeps 7 days of rolling backups.
 [functions.reports-backup]
   schedule = "59 4 * * *"

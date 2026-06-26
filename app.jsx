@@ -19966,7 +19966,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.62";
+const APP_VERSION = "v17.67";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -20789,14 +20789,35 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
           {/* ── Analyst starter prompts (empty state) ── */}
           {activeChannel.type === "analyst" && (!threadedMessages || threadedMessages.length === 0) && !orionThinking && (() => {
             const prompts = user.userType === "dm" ? [
+              // Headline: what changed + why + what to do
+              "What changed today vs yesterday, and what should I do?",
               "What needs my attention today?",
-              "Summarize my district",
-              "Rank my stores by risk",
+              "Which store should I call first and why?",
+              // Time comparisons (the comparison engine)
+              "Compare today vs yesterday at the same time",
+              "Compare this week to last week",
+              "Compare this month to last month",
+              // Sales decomposition
+              "Is my sales drop traffic or average check?",
+              "Which store is killing my district sales?",
+              "Rank my stores by net sales",
+              "Which stores have low sales and high labor?",
+              // Labor
               "Which stores are over labor today?",
-              "Show me low average-check stores",
-              "What tasks are overdue across my district?",
-              "Which stores have open tickets?",
-              "Show me today's anomalies",
+              "Why is labor high today — sales or hours?",
+              // Average check / upsell
+              "Which stores have the lowest average check?",
+              "Which stores can grow sales without more traffic?",
+              // Hourly + exceptions (voids/refunds/discounts)
+              "Which hour was busiest today?",
+              "Which stores have the most voids or refunds today?",
+              "Are discounts hurting net sales today?",
+              // Guest experience (reviews)
+              "Which store has the worst guest reviews?",
+              "What are guests complaining about in my district?",
+              // Ops + planning + coaching
+              "Which stores have open tickets or overdue tasks?",
+              "How will the weather affect sales this week?",
               "Write a coaching message for my lowest store",
             ] : user.userType === "manager" ? [
               "How's my store doing today?",

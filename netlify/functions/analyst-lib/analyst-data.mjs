@@ -327,6 +327,244 @@ async function buildStoreRosterContext({ district = null, storePC = null } = {})
   return `\n\nSTORE ROSTER (${list.length} store${list.length !== 1 ? 's' : ''}${scopeLbl}). Use this for store metadata — status, Next-Gen/Baskin, asset type (Drive-Thru/In-Line/Free Standing/Gas Station), manager, address:\n${lines.join('\n')}`;
 }
 
+// ── Pulse comparison engine (DM intelligence) ───────────────────────────────
+// Builds the time-comparison context a DM lives in: today-so-far vs yesterday at
+// the SAME time of day, week-to-date vs last week, month-to-date vs last month —
+// for sales, guest count (checks), average check, and labor %. "Today" is fetched
+// LIVE from Pulse (getGuestChecks) so it's current to the hour; history comes from
+// the cached pcg_hourly_history_{pc} blob (90 days, hour-by-hour) and the labor
+// blob — so the only live calls are the district's own stores (~6), never 45.
+// Sales here = sum of check totals (chkTtl||subTtl), matching how the hourly-history
+// snapshot records sales, so today-vs-history is apples-to-apples. NOTE: Pulse weeks
+// start SUNDAY (labor weeks start Monday — do not confuse them).
+
+function etNowDate() { return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })); }
+function currentETHour() { return etNowDate().getHours(); }
+function ymdOf(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function addDaysYmd(ymd, n) { const d = new Date(ymd + 'T12:00:00'); d.setDate(d.getDate() + n); return ymdOf(d); }
+function weekdayOfYmd(ymd) { return new Date(ymd + 'T12:00:00').getDay(); } // 0=Sun
+function etHourFromUTC(utc) {
+  if (!utc) return null;
+  // Force UTC interpretation even when the timestamp lacks a 'Z' (same guard as
+  // getVoidsAndRefunds and pulse-hourly-snapshot's etHour) — otherwise a non-UTC
+  // runtime would bucket today's checks into a different hour than the cached blob.
+  const d = new Date(utc.endsWith('Z') ? utc : utc + 'Z');
+  if (isNaN(d.getTime())) return null;
+  const h = Number(d.toLocaleString('en-US', { timeZone: 'America/New_York', hour: '2-digit', hour12: false }));
+  return Number.isFinite(h) ? (h === 24 ? 0 : h) : null;
+}
+
+// Today's checks so far, live from Pulse — ONE call yields sales, guest count,
+// hourly buckets, and void/refund detail (so Wave-2 exceptions need no extra call).
+// Sales = sum(chkTtl||subTtl) to match the hourly-history snapshot methodology.
+async function getTodayLive(pc, busDt) {
+  try {
+    const json = await pulsePostJSON(pc, 'getGuestChecks', {
+      locRef: pc, busDt,
+      include: 'guestChecks.chkNum,guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl,guestChecks.vdTtl,guestChecks.mgrVdTtl,guestChecks.returnTtl',
+    });
+    const checks = json?.guestChecks || [];
+    let sales = 0, voidTtl = 0, voidCnt = 0, refundTtl = 0, refundCnt = 0;
+    const byHour = {};
+    const exceptions = [];
+    for (const c of checks) {
+      const amt = c.chkTtl || c.subTtl || 0;
+      sales += amt;
+      const h = etHourFromUTC(c.opnUTC);
+      if (h != null) { if (!byHour[h]) byHour[h] = { h, sales: 0, checks: 0 }; byHour[h].sales += amt; byHour[h].checks += 1; }
+      const v = Math.abs(c.vdTtl || 0) + Math.abs(c.mgrVdTtl || 0);
+      const isRefund = Math.abs(c.returnTtl || 0) > 0 || (c.chkTtl || 0) < 0;
+      if (v > 0) { voidTtl += v; voidCnt += 1; }
+      if (isRefund) { refundTtl += Math.abs(c.returnTtl || c.chkTtl || 0); refundCnt += 1; }
+      if (v > 0 || isRefund) {
+        const raw = c.opnUTC || '';
+        const dt = raw ? new Date(raw.endsWith('Z') ? raw : raw + 'Z') : null;
+        const time = dt && !isNaN(dt.getTime()) ? dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '?';
+        exceptions.push({ type: isRefund ? 'refund' : 'void', amount: isRefund ? Math.abs(c.returnTtl || c.chkTtl || 0) : v, time, chkNum: c.chkNum });
+      }
+    }
+    const hours = Object.values(byHour).map(e => ({ ...e, sales: Math.round(e.sales * 100) / 100 })).sort((a, b) => a.h - b.h);
+    const r2 = n => Math.round(n * 100) / 100;
+    return {
+      sales: r2(sales), checks: checks.length, hours,
+      voids: { count: voidCnt, total: r2(voidTtl) },
+      refunds: { count: refundCnt, total: r2(refundTtl) },
+      exceptions: exceptions.sort((a, b) => b.amount - a.amount).slice(0, 5),
+    };
+  } catch (e) {
+    console.warn(`[analyst-data] getTodayLive failed for ${pc} ${busDt}: ${e.message}`);
+    return null;
+  }
+}
+
+// Today's daily operations totals — gross sales + discounts (not derivable from
+// guest-check totals). One call per store; used for the exceptions/discount block.
+async function getDailyOps(pc, busDt) {
+  try {
+    const json = await pulsePostJSON(pc, 'getOperationsDailyTotals', { locRef: pc, busDt, include: 'locRef,busDt,revenueCenters' });
+    const rcs = json?.revenueCenters || [];
+    const sum = f => rcs.reduce((s, rc) => s + (rc[f] || 0), 0);
+    const disc = sum('dscntTtl') || (sum('itmDscTtl') + sum('subDscTtl'));
+    return { net: sum('netSlsTtl'), gross: sum('grsSlsTtl'), guests: sum('chkCnt'), discounts: Math.round(disc * 100) / 100 };
+  } catch (e) {
+    console.warn(`[analyst-data] getDailyOps failed for ${pc} ${busDt}: ${e.message}`);
+    return null;
+  }
+}
+
+// One store's "today so far" — sales/checks/hourly/voids/refunds (getTodayLive) plus
+// gross/discounts/net (getDailyOps), in two live Pulse calls. Used by pulse-compare-cron
+// to pre-cache all stores into pcg_pulse_today_v1, and as the live fallback in
+// buildPulseComparisonContext when that cache is cold/stale. Returns null if both fail.
+async function getStoreToday(pc, busDt) {
+  const day = busDt || todayET();
+  const [live, ops] = await Promise.all([getTodayLive(pc, day), getDailyOps(pc, day)]);
+  if (!live && !ops) return null;
+  const base = live || { sales: 0, checks: 0, hours: [], voids: { count: 0, total: 0 }, refunds: { count: 0, total: 0 }, exceptions: [] };
+  return { ...base, ops: ops || null };
+}
+
+// Sum cached hourly-history entries whose date falls in [fromYmd, toYmd] inclusive.
+function sumHourlyEntries(entries, fromYmd, toYmd) {
+  let sales = 0, checks = 0;
+  for (const e of entries) {
+    if (!e?.date || e.date < fromYmd || e.date > toYmd) continue;
+    for (const h of (e.hours || [])) { sales += h.sales || 0; checks += h.checks || 0; }
+  }
+  return { sales: Math.round(sales * 100) / 100, checks };
+}
+
+// Cumulative sales/checks for a single day's entry through the given ET hour (inclusive).
+function cumThroughHour(entry, hour) {
+  let sales = 0, checks = 0;
+  for (const h of (entry?.hours || [])) { if (h.h <= hour) { sales += h.sales || 0; checks += h.checks || 0; } }
+  return { sales: Math.round(sales * 100) / 100, checks };
+}
+
+async function buildPulseComparisonContext({ district } = {}) {
+  if (district == null) return ''; // district-scoped render only (network would be 45 stores of text)
+  const stores = getStoresByDistrict(district);
+  if (!stores.length) return '';
+
+  const today = todayET();
+  const hour = currentETHour();
+
+  // Today's live data comes from the pcg_pulse_today_v1 cache (written every ~30 min by
+  // pulse-compare-cron) so the DM chat path makes ZERO live Pulse calls. If the cache is
+  // missing or stale (>45 min, e.g. right after a deploy before the cron runs), fall back
+  // to live per-store fetches for this district only (~6 stores).
+  const todayBlob = await cacheLoad('pcg_pulse_today_v1').catch(() => null);
+  const blobFresh = !!todayBlob && todayBlob.busDt === today && !!todayBlob.asOf &&
+    (Date.now() - new Date(todayBlob.asOf).getTime() < 45 * 60 * 1000);
+  const yesterday = addDaysYmd(today, -1);
+  const thisSun = addDaysYmd(today, -weekdayOfYmd(today));
+  const lastSun = addDaysYmd(thisSun, -7);
+  const lastWkSameDay = addDaysYmd(lastSun, weekdayOfYmd(today));
+  const t = new Date(today + 'T12:00:00');
+  const dom = t.getDate();
+  const thisMonthStart = ymdOf(new Date(t.getFullYear(), t.getMonth(), 1));
+  const lastMonthStart = ymdOf(new Date(t.getFullYear(), t.getMonth() - 1, 1));
+  const prevMonthDays = new Date(t.getFullYear(), t.getMonth(), 0).getDate();
+  const lastMonthEnd = ymdOf(new Date(t.getFullYear(), t.getMonth() - 1, Math.min(dom, prevMonthDays)));
+
+  const rows = await Promise.all(stores.map(async (s) => {
+    const pc = s.pc;
+    const [raw, hist, labor] = await Promise.all([
+      (blobFresh && todayBlob.stores?.[pc]) ? Promise.resolve(todayBlob.stores[pc]) : getStoreToday(pc, today),
+      cacheLoad(`pcg_hourly_history_${pc}`).catch(() => null),
+      cacheLoad(`pcg_labor_store_${pc}`).catch(() => null),
+    ]);
+    const live = raw || null;
+    const ops = live?.ops || null;
+    const entries = Array.isArray(hist) ? hist : [];
+    // Prefer the exact prior day; fall back to the most-recent entry only if it's within
+    // ~3 days, so a cache gap can't make us label a 2-week-old day "yesterday same time".
+    const minDate = addDaysYmd(today, -3);
+    const yEntry = entries.find(e => e.date === yesterday) || (entries[0]?.date >= minDate ? entries[0] : null);
+    const todayTot = live ? { sales: live.sales, checks: live.checks } : { sales: 0, checks: 0 };
+    const yST = yEntry ? cumThroughHour(yEntry, hour) : { sales: 0, checks: 0 };
+    const wtdCached = sumHourlyEntries(entries, thisSun, yesterday);
+    const wtd = { sales: wtdCached.sales + todayTot.sales, checks: wtdCached.checks + todayTot.checks };
+    const lastWtd = sumHourlyEntries(entries, lastSun, lastWkSameDay);
+    const mtdCached = sumHourlyEntries(entries, thisMonthStart, yesterday);
+    const mtd = { sales: mtdCached.sales + todayTot.sales, checks: mtdCached.checks + todayTot.checks };
+    const lastMtd = sumHourlyEntries(entries, lastMonthStart, lastMonthEnd);
+    const ld = labor?.daily?.[0] || {};
+    return {
+      name: s.name, live: !!live,
+      today: todayTot, yST, wtd, lastWtd, mtd, lastMtd,
+      hours: live?.hours || [],
+      voids: live?.voids || { count: 0, total: 0 }, refunds: live?.refunds || { count: 0, total: 0 },
+      exceptions: live?.exceptions || [],
+      ops: ops || null,
+      labor: { today: ld.laborPct ?? null },
+    };
+  }));
+
+  // ── Render ──
+  const ac = o => (o.checks > 0 ? o.sales / o.checks : 0);
+  const money = n => '$' + Math.round(n).toLocaleString();
+  const delta = (a, b) => (b > 0 ? `${a - b >= 0 ? '+' : ''}${Math.round(((a - b) / b) * 1000) / 10}%` : 'n/a');
+  const pair = (cur, prev, label) =>
+    `${label}: ${money(cur.sales)} (${delta(cur.sales, prev.sales)}) · ${cur.checks} guests (${delta(cur.checks, prev.checks)}) · avg chk ${money(ac(cur))} (${delta(ac(cur), ac(prev))})`;
+
+  const sum = (sel) => rows.reduce((a, r) => ({ sales: a.sales + sel(r).sales, checks: a.checks + sel(r).checks }), { sales: 0, checks: 0 });
+  const dTodaySoFar = sum(r => r.today), dYST = sum(r => r.yST);
+  const dWtd = sum(r => r.wtd), dLastWtd = sum(r => r.lastWtd);
+  const dMtd = sum(r => r.mtd), dLastMtd = sum(r => r.lastMtd);
+
+  const tod = etNowDate();
+  const clock = tod.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+  const dataAge = blobFresh ? Math.round((Date.now() - new Date(todayBlob.asOf).getTime()) / 60000) : 0;
+  const freshNote = blobFresh ? ` (sales data ~${dataAge} min old)` : ' (live)';
+  const netToday = rows.reduce((s, r) => s + (r.ops?.net || 0), 0);
+  const lines = [];
+  lines.push(`\n\nPULSE COMPARISON — District ${district}, as of ${clock} ET${freshNote}.`);
+  lines.push(`Methodology: "today so far" = sales/guests through the current hour; "yesterday same time" = yesterday cumulative through the same hour. Avg check = sales ÷ guest checks. WTD = Sunday→today vs last Sun→same weekday. MTD = month 1st→today vs last month 1st→same day. SALES here are guest-check totals (include tax), so they run a few % above the NET sales shown in the main summary — that gap is expected, don't flag it as a discrepancy. Use this block for ALL today/yesterday/week/month comparison questions; do NOT invent figures beyond it.`);
+  lines.push(`\nDISTRICT TOTALS`);
+  lines.push(`  ${pair(dTodaySoFar, dYST, 'Today so far vs yesterday same time')}`);
+  if (netToday) lines.push(`  Today net sales (for reference, ties to main summary): ${money(netToday)}`);
+  lines.push(`  ${pair(dWtd, dLastWtd, 'WTD vs last week')}`);
+  lines.push(`  ${pair(dMtd, dLastMtd, 'MTD vs last month')}`);
+  lines.push(`\nPER STORE (today so far vs yesterday same time — sales, guests, avg check, labor%):`);
+  rows.sort((a, b) => b.today.sales - a.today.sales);
+  for (const r of rows) {
+    // Only today's labor% — labor WTD is a Monday-start week (Pulse sales WTD here is
+    // Sunday-start), so showing them together as "WTD" would imply the same period.
+    const labStr = r.labor.today != null ? `, labor ${r.labor.today}%` : '';
+    const stale = r.live ? '' : ' [today live data unavailable]';
+    lines.push(`  ${r.name}: ${money(r.today.sales)} sales (${delta(r.today.sales, r.yST.sales)}), ${r.today.checks} guests (${delta(r.today.checks, r.yST.checks)}), avg chk ${money(ac(r.today))} (${delta(ac(r.today), ac(r.yST))})${labStr}${stale}`);
+  }
+
+  // ── Today by hour (district) — supports "busiest/slowest hour", "morning rush" Qs ──
+  const distByHour = {};
+  for (const r of rows) for (const h of r.hours) { if (!distByHour[h.h]) distByHour[h.h] = { h: h.h, sales: 0, checks: 0 }; distByHour[h.h].sales += h.sales; distByHour[h.h].checks += h.checks; }
+  const hourArr = Object.values(distByHour).sort((a, b) => a.h - b.h);
+  if (hourArr.length) {
+    const hr12 = h => `${((h + 11) % 12) + 1}${h < 12 ? 'a' : 'p'}`;
+    const peak = [...hourArr].sort((a, b) => b.sales - a.sales)[0];
+    lines.push(`\nTODAY BY HOUR (district, through ${hour}:00 ET) — busiest ${hr12(peak.h)} (${money(peak.sales)}):`);
+    lines.push('  ' + hourArr.map(h => `${hr12(h.h)} ${money(h.sales)}`).join(', '));
+  }
+
+  // ── Exceptions: voids / refunds / discounts (today, live) ──
+  const tV = rows.reduce((s, r) => s + r.voids.total, 0), tVc = rows.reduce((s, r) => s + r.voids.count, 0);
+  const tR = rows.reduce((s, r) => s + r.refunds.total, 0), tRc = rows.reduce((s, r) => s + r.refunds.count, 0);
+  const tD = rows.reduce((s, r) => s + (r.ops?.discounts || 0), 0);
+  const tG = rows.reduce((s, r) => s + (r.ops?.gross || 0), 0);
+  lines.push(`\nEXCEPTIONS TODAY (live; voids/refunds from checks, discounts from daily totals — these are TODAY only, not comparable to prior periods here):`);
+  lines.push(`  District totals: voids ${money(tV)} (${tVc}), refunds ${money(tR)} (${tRc}), discounts ${money(tD)}${tG ? `, gross ${money(tG)}` : ''}`);
+  for (const r of rows) {
+    if (r.voids.count || r.refunds.count || (r.ops?.discounts || 0) > 0) {
+      const big = r.exceptions.length ? ` — largest: ${r.exceptions.slice(0, 2).map(e => `${e.type} ${money(e.amount)} @ ${e.time}`).join('; ')}` : '';
+      lines.push(`  ${r.name}: voids ${money(r.voids.total)} (${r.voids.count}), refunds ${money(r.refunds.total)} (${r.refunds.count}), discounts ${money(r.ops?.discounts || 0)}${big}`);
+    }
+  }
+  lines.push(`(Comps, no-sale drawer opens, order cancellations, and order-channel/mobile/delivery splits are NOT available from Pulse — say so if asked, do not estimate. For item-mix/upsell, use the GUEST SENTIMENT/upsell data if present.)`);
+
+  return lines.join('\n');
+}
+
 /**
  * Get recent daily history for a store (for trend analysis).
  */
@@ -1026,6 +1264,9 @@ export {
   buildDataContext,
   buildStoreContext,
   buildStoreRosterContext,
+  buildPulseComparisonContext,
+  getStoreToday,
+  todayET,
   getStoreDailyHistory,
   getWeatherForecast,
   getWeatherCorrelations,
