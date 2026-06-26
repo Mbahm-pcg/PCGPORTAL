@@ -2,7 +2,7 @@
 // list action is public (no auth). All mutations require a valid portal token.
 import { sql } from './_shared/db.mjs';
 import { requireUser } from './auth-lib/require-user.js';
-import { hashPassword } from './auth-lib/passwords.js';
+import { hashPassword, validatePasswordComplexity, isSharedDevice } from './auth-lib/passwords.js';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -40,6 +40,8 @@ function toClient(row) {
     twoFactorRequired:  row.two_factor_required,
     twoFactorEnabled:   row.two_factor_enabled,
     mustChange:         row.must_change,
+    locked:             row.locked,
+    failedAttempts:     row.failed_attempts,
   };
 }
 
@@ -55,7 +57,7 @@ function canManage(claims, targetUserType) {
 export default async (request) => {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
-  const eventShim = { headers: { authorization: request.headers.get('authorization') || '' } };
+  const eventShim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
   const claims = requireUser(eventShim); // null = unauthenticated (list is still allowed)
 
   const db = sql();
@@ -77,7 +79,7 @@ export default async (request) => {
         SELECT id, username, name, email, phone, role, user_type, district, store_pc,
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
-               two_factor_required, two_factor_enabled, must_change
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts
         FROM users ORDER BY id
       `;
       return reply(200, rows.map(toClient));
@@ -94,6 +96,11 @@ export default async (request) => {
       if (!canManage(claims, u.userType)) return reply(403, { error: 'cannot create users of this role' });
 
       const username = lc(u.username);
+      // Enforce password complexity on create — except for shared devices (store tablets/kiosks).
+      if (u.password && !isSharedDevice(u.userType)) {
+        const v = validatePasswordComplexity(String(u.password));
+        if (!v.ok) return reply(400, { error: v.message });
+      }
       const passwordHash = u.password ? hashPassword(String(u.password)) : null;
       // Store tablets are shared-device logins with a fixed password that stays
       // logged in — never force first-login setup or a password change on them.
@@ -122,7 +129,7 @@ export default async (request) => {
         SELECT id, username, name, email, phone, role, user_type, district, store_pc,
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
-               two_factor_required, two_factor_enabled, must_change
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts
         FROM users WHERE id = ${row.id}
       `;
       return reply(201, { user: toClient(created) });
@@ -138,8 +145,14 @@ export default async (request) => {
       if (!canManage(claims, target.user_type)) return reply(403, { error: 'forbidden' });
       if (patch.userType && !canManage(claims, patch.userType)) return reply(403, { error: 'cannot assign this role' });
 
-      // Hash and apply password change separately
+      // Hash and apply password change separately. Complexity is enforced unless the
+      // user is (or is becoming) a shared device (store tablet/kiosk).
       if (patch.password) {
+        const effType = patch.userType || target.user_type;
+        if (!isSharedDevice(effType)) {
+          const v = validatePasswordComplexity(String(patch.password));
+          if (!v.ok) return reply(400, { error: v.message });
+        }
         await db`UPDATE users SET password_hash = ${hashPassword(String(patch.password))}, must_change = true, updated_at = now() WHERE id = ${id}`;
       }
 
@@ -167,7 +180,7 @@ export default async (request) => {
         SELECT id, username, name, email, phone, role, user_type, district, store_pc,
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
-               two_factor_required, two_factor_enabled, must_change
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts
         FROM users WHERE id = ${id}
       `;
       return reply(200, { user: toClient(updated) });
@@ -185,7 +198,25 @@ export default async (request) => {
         SELECT id, username, name, email, phone, role, user_type, district, store_pc,
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
-               two_factor_required, two_factor_enabled, must_change
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts
+        FROM users WHERE id = ${id}
+      `;
+      return reply(200, { user: toClient(updated) });
+    }
+
+    // ── UNLOCK — clear a failed-attempt lockout. IT admin ONLY (per policy). ──────
+    if (action === 'unlock') {
+      if (claims.userType !== 'it') return reply(403, { error: 'only IT admins can unlock accounts' });
+      const { id } = body;
+      if (!id) return reply(400, { error: 'id required' });
+      const [target] = await db`SELECT id FROM users WHERE id = ${id}`;
+      if (!target) return reply(404, { error: 'user not found' });
+      await db`UPDATE users SET locked = false, failed_attempts = 0, updated_at = now() WHERE id = ${id}`;
+      const [updated] = await db`
+        SELECT id, username, name, email, phone, role, user_type, district, store_pc,
+               active, dark_mode, avatar_url, google_id, last_login, created_at,
+               initials, is_admin, must_setup, region,
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts
         FROM users WHERE id = ${id}
       `;
       return reply(200, { user: toClient(updated) });

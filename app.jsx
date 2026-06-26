@@ -3,7 +3,7 @@ import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
-import { portalLogin, portalLoginGoogle, authHeader, clearSessionToken } from './src/portal-auth.mjs';
+import { portalLogin, portalLoginGoogle, authHeader, portalChangePassword, portalLogout } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 
@@ -376,6 +376,21 @@ function getOverallCompletion(project) {
 }
 const canEditProjects = (u) => u && (u.userType === "executive" || u.userType === "it" || u.userType === "office_staff" || u.userType === "construction");
 const canViewProjects = (u) => u && u.userType !== "manager";
+
+// ── Password policy (client-side mirror of auth-lib/passwords.js) ─────────────
+// ≥12 chars with lowercase, uppercase, number, and special char. Shared devices
+// (store tablets / kiosks) are exempt — server enforces the same rule.
+const PASSWORD_POLICY_TEXT = "At least 12 characters, including an uppercase letter, a lowercase letter, a number, and a special character.";
+const isSharedDeviceType = (t) => { const s = String(t || ""); return s === "store_tablet" || s.startsWith("kiosk"); };
+function validatePasswordClient(pw) {
+  const s = String(pw == null ? "" : pw);
+  if (s.length < 12) return "Password must be at least 12 characters long.";
+  if (!/[a-z]/.test(s)) return "Password must include a lowercase letter.";
+  if (!/[A-Z]/.test(s)) return "Password must include an uppercase letter.";
+  if (!/\d/.test(s)) return "Password must include a number.";
+  if (!/[^A-Za-z0-9]/.test(s)) return "Password must include a special character.";
+  return null; // valid
+}
 const ADMIN_2FA_TYPES = [];
 const isAdminTwoFactorLocked = (u) => !!u && ADMIN_2FA_TYPES.includes(u.userType);
 const isTwoFactorRequired = (u) => !!u && (isAdminTwoFactorLocked(u) || u.twoFactorRequired === true);
@@ -784,7 +799,14 @@ function Login({ onLogin, dark, toggleDark, users }) {
       }
     } else {
       setLoading(false);
-      setErr("Invalid credentials. Try again.");
+      // Surface the server's lockout message / remaining-attempt count when present.
+      if (res.status === 423 || res.locked) {
+        setErr(res.error || "Account locked. Contact your IT administrator to unlock it.");
+      } else if (typeof res.attemptsRemaining === "number" && res.attemptsRemaining >= 0) {
+        setErr(`Invalid credentials. ${res.attemptsRemaining} attempt${res.attemptsRemaining === 1 ? "" : "s"} remaining before your account is locked.`);
+      } else {
+        setErr("Invalid credentials. Try again.");
+      }
       setShake(true);
       setTimeout(() => setShake(false), 520);
     }
@@ -3124,6 +3146,11 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
 
   const save = async () => {
     if (!form.username || !form.name) return;
+    // Enforce password complexity client-side (server also enforces); shared devices exempt.
+    if (form.password && !isSharedDeviceType(form.userType)) {
+      const pwErr = validatePasswordClient(form.password);
+      if (pwErr) { showAlert('error', pwErr); return; }
+    }
     const ini = form.initials || initials(form.name);
     const securedForm = { ...form, initials: ini, twoFactorRequired: isTwoFactorRequired(form) };
     if (editId) {
@@ -3172,6 +3199,19 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
       setUsers(us => us.map(u => u.id === id ? { ...u, ...json.user } : u));
       logClientEvent(currentUser?.id, currentUser?.userType, json.user?.active ? 'user_activated' : 'user_deactivated', { targetName: target?.name, targetRole: target?.userType });
     }
+  };
+  const unlockUser = async (id) => {
+    const target = users.find(u => u.id === id);
+    const res = await fetch('/.netlify/functions/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'unlock', id }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { showAlert('error', json.error || 'Unlock failed'); return; }
+    setUsers(us => us.map(u => u.id === id ? { ...u, ...json.user } : u));
+    logClientEvent(currentUser?.id, currentUser?.userType, 'user_unlocked', { targetName: target?.name, targetId: id });
+    showAlert('success', `${target?.name || 'Account'} unlocked.`);
   };
   const del = async (id) => {
     const target = users.find(u => u.id === id);
@@ -3250,8 +3290,11 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                   <input style={inp(th)} placeholder="Full Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
                   <input style={inp(th)} placeholder="Username *" value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} />
                   <div style={{ position:"relative" }}>
-                    <input style={inp(th)} placeholder="Password" type={showPw?"text":"password"} autoComplete="new-password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} />
+                    <input style={inp(th)} placeholder={editId ? "Password (leave blank to keep)" : "Password"} title={isSharedDeviceType(form.userType) ? "" : PASSWORD_POLICY_TEXT} type={showPw?"text":"password"} autoComplete="new-password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} />
                     <button type="button" onClick={()=>setShowPw(s=>!s)} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:th.muted, cursor:"pointer", fontSize:"0.72rem" }}>{showPw?"Hide":"Show"}</button>
+                    {(() => { const pwHint = form.password && !isSharedDeviceType(form.userType) ? validatePasswordClient(form.password) : null; return pwHint ? (
+                      <div style={{ fontSize:"0.6rem", color:"#f59e0b", marginTop:"0.2rem", lineHeight:1.3 }}>{pwHint}</div>
+                    ) : null; })()}
                   </div>
                   <select style={inp(th)} value={form.region} onChange={e=>setForm(f=>({...f,region:e.target.value}))}>
                     <option value="All">All Regions</option>
@@ -3406,6 +3449,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                 <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"0.3rem", flexShrink:0 }}>
                   <span style={{ fontSize:"0.62rem", fontWeight:700, color:rc, background:`${rc}20`, border:`1px solid ${rc}44`, borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap" }}>{roleLabel(u.userType)}</span>
                   <span style={{ fontSize:"0.62rem", fontWeight:700, color: isInactive?"#f87171":"#4ade80", background: isInactive?"#f8717118":"#4ade8018", border:`1px solid ${isInactive?"#f8717144":"#4ade8044"}`, borderRadius:999, padding:"0.15rem 0.55rem" }}>{isInactive?"Inactive":"Active"}</span>
+                  {u.locked && <span title={`Locked after ${u.failedAttempts || 5} failed login attempts`} style={{ fontSize:"0.62rem", fontWeight:700, color:"#f87171", background:"#f8717118", border:"1px solid #f8717155", borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap" }}>🔒 Locked</span>}
                 </div>
               </div>
 
@@ -3441,6 +3485,11 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                 {canManageUser(currentUser, u) && (
                   <button onClick={() => toggleActive(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>
                     {isInactive ? "✅ Enable" : "⏸ Disable"}
+                  </button>
+                )}
+                {u.locked && currentUser?.userType === "it" && (
+                  <button onClick={() => unlockUser(u.id)} title="Clear the failed-attempt lockout (IT only)" style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", background:"#f8717122", color:"#f87171", border:"1px solid #f8717155" }) }}>
+                    🔓 Unlock
                   </button>
                 )}
                 {isFullAdmin(currentUser) && (
@@ -19966,7 +20015,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.67";
+const APP_VERSION = "v17.69";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -21215,16 +21264,22 @@ function FirstLoginSetup({ user, setUser, setUsers, th }) {
 
   const handleStep1 = () => {
     setErr("");
-    if (!form.newPassword || form.newPassword.length < 6) { setErr("Password must be at least 6 characters."); return; }
+    if (!isSharedDeviceType(user.userType)) {
+      const pwErr = validatePasswordClient(form.newPassword);
+      if (pwErr) { setErr(pwErr); return; }
+    }
     if (form.newPassword !== form.confirmPassword) { setErr("Passwords do not match."); return; }
     setStep(2);
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     setErr("");
     if (!form.phone && form.smsNotify) { setErr("Please add a phone number to enable SMS notifications."); return; }
+    // Set the password through the server (hashed). On first login the old-password check is
+    // skipped server-side, so we pass an empty old password. Plaintext never touches client state.
+    const r = await portalChangePassword("", form.newPassword);
+    if (!r.ok) { setErr(r.error || "Could not set your password. Please try again."); setStep(1); return; }
     const updates = {
-      password: form.newPassword,
       phone: form.phone, email: form.email,
       emailNotify: form.emailNotify, smsNotify: form.smsNotify, pushNotify: form.pushNotify,
       mustSetup: false,
@@ -21253,7 +21308,7 @@ function FirstLoginSetup({ user, setUser, setUsers, th }) {
           {step === 1 && (
             <>
               <div style={{ fontSize:"1rem", fontWeight:700, color:th.text, marginBottom:"0.25rem" }}>🔒 Create Your Password</div>
-              <div style={{ fontSize:"0.8rem", color:th.muted, marginBottom:"1.25rem" }}>Choose a secure password you'll remember. Must be at least 6 characters.</div>
+              <div style={{ fontSize:"0.8rem", color:th.muted, marginBottom:"1.25rem" }}>Choose a secure password you'll remember. {isSharedDeviceType(user.userType) ? "" : PASSWORD_POLICY_TEXT}</div>
               <div style={{ display:"grid", gap:"0.75rem", marginBottom:"1rem" }}>
                 <div>
                   <label style={{ fontSize:"0.7rem", color:th.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5 }}>New Password</label>
@@ -21368,22 +21423,24 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
   });
   const [profileMsg, setProfileMsg] = useState(null);
 
-  const handleProfileSave = () => {
+  const handleProfileSave = async () => {
+    // Password change goes through the server (verifies the current password against the
+    // scrypt hash and stores the new one hashed). The plaintext is NEVER written to client
+    // state or storage. Complexity is enforced client- and server-side (shared devices exempt).
     if (profileForm.newPassword) {
-      if (profileForm.currentPassword !== user.password) {
-        setProfileMsg({ type:"error", text:"Current password is incorrect." });
-        return;
-      }
-      if (profileForm.newPassword.length < 6) {
-        setProfileMsg({ type:"error", text:"New password must be at least 6 characters." });
-        return;
+      if (!isSharedDeviceType(user.userType)) {
+        const pwErr = validatePasswordClient(profileForm.newPassword);
+        if (pwErr) { setProfileMsg({ type:"error", text: pwErr }); return; }
       }
       if (profileForm.newPassword !== profileForm.confirmPassword) {
         setProfileMsg({ type:"error", text:"New passwords do not match." });
         return;
       }
+      const r = await portalChangePassword(profileForm.currentPassword, profileForm.newPassword);
+      if (!r.ok) { setProfileMsg({ type:"error", text: r.error || "Could not change password — check your current password." }); return; }
     }
-    const notifUpdate = { email: profileForm.email, phone: profileForm.phone, emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify, ...(profileForm.newPassword ? { password: profileForm.newPassword } : {}) };
+    // Contact/notification fields only — no password ever stored client-side.
+    const notifUpdate = { email: profileForm.email, phone: profileForm.phone, emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify };
     setUsers(us => us.map(u => u.id === user.id ? { ...u, ...notifUpdate } : u));
     setUser(prev => ({ ...prev, ...notifUpdate }));
     setProfileMsg({ type:"success", text:"Profile updated!" });
@@ -36664,7 +36721,7 @@ function PCGPortal() {
   const handleLogout = () => {
     try { window.google?.accounts?.id?.disableAutoSelect(); } catch {}
     logClientEvent(user?.id, user?.userType, 'logout', { name: user?.name });
-    clearSessionToken(); // drop the portal token (Phase B) so it can't be reused
+    portalLogout(); // drop the portal token AND expire the secure session cookie server-side
     setManagerMode(null);
     try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
     setPreferFullPortal(false);

@@ -29,6 +29,9 @@ export const users = pgTable("users", {
   isAdmin: boolean("is_admin").default(false),
   mustSetup: boolean("must_setup").default(false),
   region: varchar("region", { length: 10 }),
+  // Login security — failed-attempt lockout (IT-admin unlock only)
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  locked: boolean("locked").notNull().default(false),
 });
 
 // ── Tickets ───────────────────────────────────────────────────────────────────

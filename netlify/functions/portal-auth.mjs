@@ -7,13 +7,21 @@
 import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { signToken } from './deal-lib/token.js';
-import { hashPassword, verifyPassword } from './auth-lib/passwords.js';
+import { hashPassword, verifyPassword, validatePasswordComplexity, isSharedDevice } from './auth-lib/passwords.js';
 import { requireUser } from './auth-lib/require-user.js';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Content-Type': 'application/json' };
-const reply = (code, obj) => new Response(JSON.stringify(obj), { status: code, headers: cors });
+const reply = (code, obj, extraHeaders) => new Response(JSON.stringify(obj), { status: code, headers: { ...cors, ...(extraHeaders || {}) } });
 const lc = (s) => (s == null ? '' : String(s).trim().toLowerCase());
 const TTL = 43200; // 12 hours
+const MAX_ATTEMPTS = 5; // failed logins before lockout (IT-admin unlock only)
+const LOCKED_MSG = 'Account locked after too many failed attempts. Contact your IT administrator to unlock it.';
+
+// Secure session cookie carrying the portal token: HttpOnly (no JS/XSS read),
+// Secure (HTTPS only), SameSite=Lax (sent on same-origin navigation/fetch). The
+// Authorization-header flow still works in parallel; this is defense-in-depth.
+const sessionCookie = (token) => `pcg_session=${encodeURIComponent(token)}; Max-Age=${TTL}; Path=/; HttpOnly; Secure; SameSite=Lax`;
+const clearedCookie = () => `pcg_session=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`;
 
 const GSI_CLIENT_ID = '450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com';
 
@@ -84,7 +92,7 @@ export default async (request, context) => {
   const action = body.action || 'login';
   const db = sql();
 
-  const eventShim = { headers: { authorization: request.headers.get('authorization') || '' } };
+  const eventShim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
 
   try {
     if (action === 'ping') return reply(200, { ok: true });
@@ -92,6 +100,11 @@ export default async (request, context) => {
     if (action === 'me') {
       const claims = requireUser(eventShim);
       return claims ? reply(200, { user: claims }) : reply(401, { error: 'unauthorized' });
+    }
+
+    if (action === 'logout') {
+      // Clear the secure session cookie. (The Bearer token is cleared client-side.)
+      return reply(200, { ok: true }, { 'Set-Cookie': clearedCookie() });
     }
 
     if (action === 'login') {
@@ -131,7 +144,7 @@ export default async (request, context) => {
         }
         // Update last_login
         db`UPDATE users SET last_login = now() WHERE id = ${row.id}`.catch(() => {});
-        return reply(200, out);
+        return reply(200, out, { 'Set-Cookie': sessionCookie(out.token) });
       }
 
       // ── Username + password ──
@@ -142,9 +155,16 @@ export default async (request, context) => {
       const [row] = await db`
         SELECT id, username, name, email, user_type, district, store_pc, active,
                is_admin, region, initials, must_setup, dark_mode,
-               password_hash, must_change, two_factor_required, two_factor_enabled, two_factor_secret
+               password_hash, must_change, two_factor_required, two_factor_enabled, two_factor_secret,
+               failed_attempts, locked
         FROM users WHERE username = ${username}
       `;
+
+      // Shared devices (store tablets / kiosks) are exempt from the failed-attempt lockout.
+      const exempt = isSharedDevice(row?.user_type);
+
+      // Locked accounts are refused before any password check; only an IT admin can unlock.
+      if (row && row.locked && !exempt) return reply(423, { error: LOCKED_MSG, locked: true });
 
       let ok = false, mustChange = false, identity = null;
 
@@ -175,15 +195,35 @@ export default async (request, context) => {
         }
       }
 
-      if (!ok) return reply(401, { error: 'invalid credentials' });
+      if (!ok) {
+        // Count the failed attempt against a real, non-exempt account and lock at the
+        // threshold. Unknown usernames and shared devices never accrue a lock.
+        if (row && !exempt) {
+          // Atomic increment so concurrent failed attempts can't lose-update the counter.
+          const [bumped] = await db`
+            UPDATE users SET failed_attempts = failed_attempts + 1, updated_at = now()
+            WHERE id = ${row.id} RETURNING failed_attempts`;
+          const attempts = bumped?.failed_attempts ?? ((row.failed_attempts || 0) + 1);
+          if (attempts >= MAX_ATTEMPTS) {
+            await db`UPDATE users SET locked = true WHERE id = ${row.id}`.catch(() => {});
+            return reply(423, { error: LOCKED_MSG, locked: true });
+          }
+          return reply(401, { error: 'invalid credentials', attemptsRemaining: Math.max(0, MAX_ATTEMPTS - attempts) });
+        }
+        return reply(401, { error: 'invalid credentials' });
+      }
 
       const out = issue(identity, mustChange);
       if (!out) return reply(500, { error: 'server not configured' });
       if (identity.two_factor_required && identity.two_factor_secret) {
         out.twoFactorSecret = identity.two_factor_secret;
       }
+      // Successful login clears any accumulated failed attempts.
+      if (identity?.id && (identity.failed_attempts || 0) > 0) {
+        db`UPDATE users SET failed_attempts = 0, locked = false WHERE id = ${identity.id}`.catch(() => {});
+      }
       db`UPDATE users SET last_login = now() WHERE username = ${username}`.catch(() => {});
-      return reply(200, out);
+      return reply(200, out, { 'Set-Cookie': sessionCookie(out.token) });
     }
 
     // Returns twoFactorSecret for Google-authenticated users who already have 2FA set up.
@@ -219,17 +259,26 @@ export default async (request, context) => {
       if (!claims) return reply(401, { error: 'unauthorized' });
       const oldPw = String(body.oldPassword == null ? '' : body.oldPassword);
       const newPw = String(body.newPassword == null ? '' : body.newPassword);
-      if (newPw.length < 8) return reply(400, { error: 'new password must be at least 8 characters' });
+      // Enforce the complexity policy for everyone except shared devices (store tablets/kiosks).
+      if (!isSharedDevice(claims.userType)) {
+        const v = validatePasswordComplexity(newPw);
+        if (!v.ok) return reply(400, { error: v.message });
+      }
 
       const username = lc(claims.username);
-      const [row] = await db`SELECT id, password_hash FROM users WHERE username = ${username}`;
+      const [row] = await db`SELECT id, password_hash, must_change, must_setup FROM users WHERE username = ${username}`;
       const legacy = (await loadUsers()).find(x => lc(x.username) === username);
-      const oldOk = (row?.password_hash && verifyPassword(oldPw, row.password_hash))
+      // On a FORCED first change (must_change/must_setup), the user already proved identity
+      // by logging in with the provisioned password, so the old-password re-entry is skipped
+      // — this lets first-login set a hashed password without ever holding plaintext client-side.
+      const firstTime = !!(row && (row.must_change || row.must_setup));
+      const oldOk = firstTime
+                 || (row?.password_hash && verifyPassword(oldPw, row.password_hash))
                  || (legacy && String(legacy.password || '') === oldPw);
       if (!oldOk) return reply(401, { error: 'current password incorrect' });
 
       await db`
-        UPDATE users SET password_hash = ${hashPassword(newPw)}, must_change = false, updated_at = now()
+        UPDATE users SET password_hash = ${hashPassword(newPw)}, must_change = false, must_setup = false, updated_at = now()
         WHERE username = ${username}
       `;
       return reply(200, { ok: true });

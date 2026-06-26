@@ -31,4 +31,26 @@ function isHashed(stored) {
   return typeof stored === 'string' && stored.startsWith('scrypt$');
 }
 
-module.exports = { hashPassword, verifyPassword, isHashed };
+// Password complexity policy: ≥12 chars with a lowercase letter, an uppercase
+// letter, a number, and a special character. Single-regex form (used for quick
+// client/server gating) plus a granular validator that explains what's missing.
+const PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
+
+function validatePasswordComplexity(password) {
+  const pw = String(password == null ? '' : password);
+  if (pw.length < 12) return { ok: false, message: 'Password must be at least 12 characters long.' };
+  if (!/[a-z]/.test(pw)) return { ok: false, message: 'Password must include a lowercase letter.' };
+  if (!/[A-Z]/.test(pw)) return { ok: false, message: 'Password must include an uppercase letter.' };
+  if (!/\d/.test(pw)) return { ok: false, message: 'Password must include a number.' };
+  if (!/[^A-Za-z0-9]/.test(pw)) return { ok: false, message: 'Password must include a special character.' };
+  return { ok: true };
+}
+
+// Shared-device logins (store tablets, kiosks) use a fixed shared password and are
+// EXEMPT from the complexity policy and the failed-attempt lockout.
+function isSharedDevice(userType) {
+  const t = String(userType || '');
+  return t === 'store_tablet' || t.startsWith('kiosk');
+}
+
+module.exports = { hashPassword, verifyPassword, isHashed, validatePasswordComplexity, PASSWORD_RE, isSharedDevice };

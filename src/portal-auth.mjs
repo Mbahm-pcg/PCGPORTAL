@@ -32,6 +32,14 @@ export function setSessionToken(token) {
 
 export function clearSessionToken() { setSessionToken(null); }
 
+// Clear the held token AND ask the server to expire the secure session cookie.
+// Best-effort: the local token is always cleared even if the network call fails.
+export async function portalLogout() {
+  clearSessionToken();
+  try { await fetch(`${FN}/portal-auth`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout' }) }); }
+  catch { /* ignore — cookie also expires on its own */ }
+}
+
 // Authorization header object for fetch(), or {} when no token is held. Spread it
 // into a headers object: fetch(url, { headers: { ...authHeader(), ... } }).
 export function authHeader() {
@@ -57,7 +65,7 @@ async function post(body) {
   if (res.status >= 500) return { ok: false, unreachable: true, status: res.status };
   let j = {};
   try { j = await res.json(); } catch { /* non-JSON body */ }
-  if (!res.ok) return { ok: false, unreachable: false, status: res.status, error: j.error || `login ${res.status}` };
+  if (!res.ok) return { ok: false, unreachable: false, status: res.status, error: j.error || `login ${res.status}`, locked: !!j.locked, attemptsRemaining: j.attemptsRemaining };
   setSessionToken(j.token || null);
   return { ok: true, token: j.token || null, user: j.user || null, mustChange: !!j.mustChange, expiresIn: j.expiresIn };
 }

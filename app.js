@@ -263,6 +263,13 @@
   function clearSessionToken() {
     setSessionToken(null);
   }
+  async function portalLogout() {
+    clearSessionToken();
+    try {
+      await fetch(`${FN2}/portal-auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "logout" }) });
+    } catch {
+    }
+  }
   function authHeader() {
     return _token ? { Authorization: `Bearer ${_token}` } : {};
   }
@@ -283,12 +290,15 @@
       j = await res.json();
     } catch {
     }
-    if (!res.ok) return { ok: false, unreachable: false, status: res.status, error: j.error || `login ${res.status}` };
+    if (!res.ok) return { ok: false, unreachable: false, status: res.status, error: j.error || `login ${res.status}`, locked: !!j.locked, attemptsRemaining: j.attemptsRemaining };
     setSessionToken(j.token || null);
     return { ok: true, token: j.token || null, user: j.user || null, mustChange: !!j.mustChange, expiresIn: j.expiresIn };
   }
   async function portalLogin(username, password) {
     return post({ action: "login", username, password });
+  }
+  async function portalChangePassword(oldPassword, newPassword) {
+    return post({ action: "change-password", oldPassword, newPassword });
   }
 
   // src/deal-dates.mjs
@@ -1344,6 +1354,20 @@
   }
   var canEditProjects = (u) => u && (u.userType === "executive" || u.userType === "it" || u.userType === "office_staff" || u.userType === "construction");
   var canViewProjects = (u) => u && u.userType !== "manager";
+  var PASSWORD_POLICY_TEXT = "At least 12 characters, including an uppercase letter, a lowercase letter, a number, and a special character.";
+  var isSharedDeviceType = (t) => {
+    const s = String(t || "");
+    return s === "store_tablet" || s.startsWith("kiosk");
+  };
+  function validatePasswordClient(pw) {
+    const s = String(pw == null ? "" : pw);
+    if (s.length < 12) return "Password must be at least 12 characters long.";
+    if (!/[a-z]/.test(s)) return "Password must include a lowercase letter.";
+    if (!/[A-Z]/.test(s)) return "Password must include an uppercase letter.";
+    if (!/\d/.test(s)) return "Password must include a number.";
+    if (!/[^A-Za-z0-9]/.test(s)) return "Password must include a special character.";
+    return null;
+  }
   var ADMIN_2FA_TYPES = [];
   var isAdminTwoFactorLocked = (u) => !!u && ADMIN_2FA_TYPES.includes(u.userType);
   var isTwoFactorRequired = (u) => !!u && (isAdminTwoFactorLocked(u) || u.twoFactorRequired === true);
@@ -1733,7 +1757,13 @@
         }
       } else {
         setLoading(false);
-        setErr("Invalid credentials. Try again.");
+        if (res.status === 423 || res.locked) {
+          setErr(res.error || "Account locked. Contact your IT administrator to unlock it.");
+        } else if (typeof res.attemptsRemaining === "number" && res.attemptsRemaining >= 0) {
+          setErr(`Invalid credentials. ${res.attemptsRemaining} attempt${res.attemptsRemaining === 1 ? "" : "s"} remaining before your account is locked.`);
+        } else {
+          setErr("Invalid credentials. Try again.");
+        }
         setShake(true);
         setTimeout(() => setShake(false), 520);
       }
@@ -3794,6 +3824,13 @@
     }, [view]);
     const save = async () => {
       if (!form.username || !form.name) return;
+      if (form.password && !isSharedDeviceType(form.userType)) {
+        const pwErr = validatePasswordClient(form.password);
+        if (pwErr) {
+          showAlert("error", pwErr);
+          return;
+        }
+      }
       const ini = form.initials || initials(form.name);
       const securedForm = { ...form, initials: ini, twoFactorRequired: isTwoFactorRequired(form) };
       if (editId) {
@@ -3851,6 +3888,22 @@
         logClientEvent(currentUser?.id, currentUser?.userType, json.user?.active ? "user_activated" : "user_deactivated", { targetName: target?.name, targetRole: target?.userType });
       }
     };
+    const unlockUser = async (id) => {
+      const target = users.find((u) => u.id === id);
+      const res = await fetch("/.netlify/functions/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "unlock", id })
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showAlert("error", json.error || "Unlock failed");
+        return;
+      }
+      setUsers((us) => us.map((u) => u.id === id ? { ...u, ...json.user } : u));
+      logClientEvent(currentUser?.id, currentUser?.userType, "user_unlocked", { targetName: target?.name, targetId: id });
+      showAlert("success", `${target?.name || "Account"} unlocked.`);
+    };
     const del = async (id) => {
       const target = users.find((u) => u.id === id);
       if (!canManageUser(currentUser, target)) return;
@@ -3892,7 +3945,10 @@
     const isAhmed = (u) => u?.id === 92 || (u?.email || "").toLowerCase() === AHMED_EMAIL || (u?.username || "").toLowerCase() === AHMED_EMAIL;
     const formTwoFactorLocked = isAdminTwoFactorLocked(form) || isAhmed(form) || !isAhmed(currentUser);
     const formTwoFactorLockedReason = isAhmed(form) ? "Your 2FA cannot be disabled" : !isAhmed(currentUser) ? "Only the IT admin can manage 2FA settings" : "Executive and IT users always require 2FA";
-    const editModal = () => /* @__PURE__ */ React.createElement("div", { onClick: closeEditPage, style: { position: "fixed", inset: 0, zIndex: 1e3, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 20px", overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), className: "fade-in", style: { position: "relative", width: "100%", maxWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { borderRadius: "1rem", overflow: "hidden", boxShadow: `0 0 0 1px ${rc}33, 0 30px 70px rgba(0,0,0,0.5)`, display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { background: `linear-gradient(135deg,${rc},${rc}cc)`, borderBottom: `1px solid ${rc}55`, padding: "1.35rem 1.6rem", display: "flex", alignItems: "center", gap: "1rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 54, height: 54, borderRadius: "50%", background: "rgba(255,255,255,0.18)", border: "2.5px solid rgba(255,255,255,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem", fontWeight: 800, color: "#fff", flexShrink: 0, boxShadow: "0 2px 12px rgba(0,0,0,0.2)" } }, form.name ? form.name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) : "?"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.1rem", fontWeight: 800, color: "#fff", lineHeight: 1.2, textShadow: "0 1px 4px rgba(0,0,0,0.2)" } }, form.name || (editId ? "Edit User" : "New User")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: "rgba(255,255,255,0.8)", fontWeight: 600, marginTop: "0.15rem" } }, ROLE_LABEL[form.userType] || "User", " \xB7 ", editId ? "Editing" : "New account")), /* @__PURE__ */ React.createElement("button", { onClick: closeEditPage, style: { background: "rgba(255,255,255,0.18)", border: "1.5px solid rgba(255,255,255,0.4)", borderRadius: "50%", width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "1.1rem", cursor: "pointer", flexShrink: 0, lineHeight: 1 } }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderRadius: 0, padding: "1.5rem 1.75rem", overflowY: "auto", flex: 1, minHeight: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.63rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Account")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Full Name *", value: form.name, onChange: (e) => setForm((f) => ({ ...f, name: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Username *", value: form.username, onChange: (e) => setForm((f) => ({ ...f, username: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Password", type: showPw ? "text" : "password", autoComplete: "new-password", value: form.password, onChange: (e) => setForm((f) => ({ ...f, password: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setShowPw((s) => !s), style: { position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.72rem" } }, showPw ? "Hide" : "Show")), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.region, onChange: (e) => setForm((f) => ({ ...f, region: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "All" }, "All Regions"), /* @__PURE__ */ React.createElement("option", { value: "PA" }, "PA Only"), /* @__PURE__ */ React.createElement("option", { value: "NJ" }, "NJ Only"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.63rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Access & Role")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), ...form.userType === "store_tablet" ? { gridColumn: "1 / -1" } : {} }, value: form.userType || "manager", onChange: (e) => setForm((f) => ({ ...f, userType: e.target.value, ...e.target.value === "store_tablet" ? { role: "Store Tablet" } : {} })) }, USERTYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))), form.userType !== "store_tablet" && /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Job title (e.g. Store Manager)", value: form.role || "", onChange: (e) => setForm((f) => ({ ...f, role: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { title: formTwoFactorLocked ? formTwoFactorLockedReason : "Require this user to use an authenticator code at login", style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: formTwoFactorLocked ? "not-allowed" : "pointer", fontSize: "0.8rem", color: th.text, padding: "0.6rem 0.875rem", background: th.inputBg, border: `1px solid ${th.inputBorder}`, borderRadius: "0.5rem", gridColumn: "1 / -1", opacity: formTwoFactorLocked ? 0.82 : 1 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: formTwoFactorLocked && isAhmed(form) ? true : !!form.twoFactorRequired, disabled: formTwoFactorLocked, onChange: (e) => setForm((f) => ({ ...f, twoFactorRequired: e.target.checked })), style: { accentColor: "#FF671F", width: 15, height: 15 } }), " Require 2FA", formTwoFactorLocked ? ` (${isAhmed(form) ? "always on" : "IT admin only"})` : "")), (form.userType === "manager" || form.userType === "store_tablet") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.63rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Store Assignment")), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement(
+    const editModal = () => /* @__PURE__ */ React.createElement("div", { onClick: closeEditPage, style: { position: "fixed", inset: 0, zIndex: 1e3, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 20px", overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), className: "fade-in", style: { position: "relative", width: "100%", maxWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { borderRadius: "1rem", overflow: "hidden", boxShadow: `0 0 0 1px ${rc}33, 0 30px 70px rgba(0,0,0,0.5)`, display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { background: `linear-gradient(135deg,${rc},${rc}cc)`, borderBottom: `1px solid ${rc}55`, padding: "1.35rem 1.6rem", display: "flex", alignItems: "center", gap: "1rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 54, height: 54, borderRadius: "50%", background: "rgba(255,255,255,0.18)", border: "2.5px solid rgba(255,255,255,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem", fontWeight: 800, color: "#fff", flexShrink: 0, boxShadow: "0 2px 12px rgba(0,0,0,0.2)" } }, form.name ? form.name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) : "?"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.1rem", fontWeight: 800, color: "#fff", lineHeight: 1.2, textShadow: "0 1px 4px rgba(0,0,0,0.2)" } }, form.name || (editId ? "Edit User" : "New User")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: "rgba(255,255,255,0.8)", fontWeight: 600, marginTop: "0.15rem" } }, ROLE_LABEL[form.userType] || "User", " \xB7 ", editId ? "Editing" : "New account")), /* @__PURE__ */ React.createElement("button", { onClick: closeEditPage, style: { background: "rgba(255,255,255,0.18)", border: "1.5px solid rgba(255,255,255,0.4)", borderRadius: "50%", width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "1.1rem", cursor: "pointer", flexShrink: 0, lineHeight: 1 } }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderRadius: 0, padding: "1.5rem 1.75rem", overflowY: "auto", flex: 1, minHeight: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.63rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Account")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Full Name *", value: form.name, onChange: (e) => setForm((f) => ({ ...f, name: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Username *", value: form.username, onChange: (e) => setForm((f) => ({ ...f, username: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: editId ? "Password (leave blank to keep)" : "Password", title: isSharedDeviceType(form.userType) ? "" : PASSWORD_POLICY_TEXT, type: showPw ? "text" : "password", autoComplete: "new-password", value: form.password, onChange: (e) => setForm((f) => ({ ...f, password: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setShowPw((s) => !s), style: { position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.72rem" } }, showPw ? "Hide" : "Show"), (() => {
+      const pwHint = form.password && !isSharedDeviceType(form.userType) ? validatePasswordClient(form.password) : null;
+      return pwHint ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: "#f59e0b", marginTop: "0.2rem", lineHeight: 1.3 } }, pwHint) : null;
+    })()), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.region, onChange: (e) => setForm((f) => ({ ...f, region: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "All" }, "All Regions"), /* @__PURE__ */ React.createElement("option", { value: "PA" }, "PA Only"), /* @__PURE__ */ React.createElement("option", { value: "NJ" }, "NJ Only"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.63rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Access & Role")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), ...form.userType === "store_tablet" ? { gridColumn: "1 / -1" } : {} }, value: form.userType || "manager", onChange: (e) => setForm((f) => ({ ...f, userType: e.target.value, ...e.target.value === "store_tablet" ? { role: "Store Tablet" } : {} })) }, USERTYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))), form.userType !== "store_tablet" && /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Job title (e.g. Store Manager)", value: form.role || "", onChange: (e) => setForm((f) => ({ ...f, role: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { title: formTwoFactorLocked ? formTwoFactorLockedReason : "Require this user to use an authenticator code at login", style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: formTwoFactorLocked ? "not-allowed" : "pointer", fontSize: "0.8rem", color: th.text, padding: "0.6rem 0.875rem", background: th.inputBg, border: `1px solid ${th.inputBorder}`, borderRadius: "0.5rem", gridColumn: "1 / -1", opacity: formTwoFactorLocked ? 0.82 : 1 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: formTwoFactorLocked && isAhmed(form) ? true : !!form.twoFactorRequired, disabled: formTwoFactorLocked, onChange: (e) => setForm((f) => ({ ...f, twoFactorRequired: e.target.checked })), style: { accentColor: "#FF671F", width: 15, height: 15 } }), " Require 2FA", formTwoFactorLocked ? ` (${isAhmed(form) ? "always on" : "IT admin only"})` : "")), (form.userType === "manager" || form.userType === "store_tablet") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.63rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Store Assignment")), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement(
       "select",
       {
         style: { ...inp(th), width: "100%" },
@@ -3943,10 +3999,10 @@
     ))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, displayUsers.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center", color: th.muted, fontSize: "0.875rem" } }, "No users found."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobileUsers ? "1fr" : "repeat(2,1fr)", gap: "1rem" } }, displayUsers.map((u) => {
       const rc2 = roleColor(u.userType);
       const isInactive = u.active === false;
-      return /* @__PURE__ */ React.createElement("div", { key: u.id, style: { ...card(th), padding: 0, overflow: "hidden", opacity: isInactive ? 0.6 : 1, border: `1px solid ${th.cardBorder}`, display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { background: `${rc2}14`, borderBottom: `1px solid ${rc2}22`, padding: "1rem 1.25rem", display: "flex", alignItems: "center", gap: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 46, height: 46, borderRadius: "50%", background: `${rc2}22`, border: `2px solid ${rc2}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", fontWeight: 800, color: rc2, flexShrink: 0, letterSpacing: 0.5 } }, u.initials || (u.name || "?").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, u.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "@", u.username)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.3rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: rc2, background: `${rc2}20`, border: `1px solid ${rc2}44`, borderRadius: 999, padding: "0.15rem 0.55rem", whiteSpace: "nowrap" } }, roleLabel(u.userType)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: isInactive ? "#f87171" : "#4ade80", background: isInactive ? "#f8717118" : "#4ade8018", border: `1px solid ${isInactive ? "#f8717144" : "#4ade8044"}`, borderRadius: 999, padding: "0.15rem 0.55rem" } }, isInactive ? "Inactive" : "Active"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", flex: 1, display: "flex", flexDirection: "column", gap: "0.45rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.text, fontWeight: 500 } }, u.role || "\u2014"), u.email && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "\u2709 ", u.email), u.phone && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, "\u{1F4F1} ", u.phone), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.25rem", display: "flex", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", null, u.darkMode ? "\u{1F319} Dark" : "\u2600\uFE0F Light", " \xB7 ", u.region || "PA"), /* @__PURE__ */ React.createElement("span", null, u.lastLogin ? new Date(u.lastLogin).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Never logged in")), isTwoFactorRequired(u) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#FF671F", fontWeight: 800, marginTop: "0.15rem" } }, "2FA required", u.twoFactorSecret ? " and set up" : " - setup pending"), u.userType === "manager" && (() => {
+      return /* @__PURE__ */ React.createElement("div", { key: u.id, style: { ...card(th), padding: 0, overflow: "hidden", opacity: isInactive ? 0.6 : 1, border: `1px solid ${th.cardBorder}`, display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { background: `${rc2}14`, borderBottom: `1px solid ${rc2}22`, padding: "1rem 1.25rem", display: "flex", alignItems: "center", gap: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 46, height: 46, borderRadius: "50%", background: `${rc2}22`, border: `2px solid ${rc2}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", fontWeight: 800, color: rc2, flexShrink: 0, letterSpacing: 0.5 } }, u.initials || (u.name || "?").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, u.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "@", u.username)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.3rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: rc2, background: `${rc2}20`, border: `1px solid ${rc2}44`, borderRadius: 999, padding: "0.15rem 0.55rem", whiteSpace: "nowrap" } }, roleLabel(u.userType)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: isInactive ? "#f87171" : "#4ade80", background: isInactive ? "#f8717118" : "#4ade8018", border: `1px solid ${isInactive ? "#f8717144" : "#4ade8044"}`, borderRadius: 999, padding: "0.15rem 0.55rem" } }, isInactive ? "Inactive" : "Active"), u.locked && /* @__PURE__ */ React.createElement("span", { title: `Locked after ${u.failedAttempts || 5} failed login attempts`, style: { fontSize: "0.62rem", fontWeight: 700, color: "#f87171", background: "#f8717118", border: "1px solid #f8717155", borderRadius: 999, padding: "0.15rem 0.55rem", whiteSpace: "nowrap" } }, "\u{1F512} Locked"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", flex: 1, display: "flex", flexDirection: "column", gap: "0.45rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.text, fontWeight: 500 } }, u.role || "\u2014"), u.email && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "\u2709 ", u.email), u.phone && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, "\u{1F4F1} ", u.phone), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.25rem", display: "flex", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", null, u.darkMode ? "\u{1F319} Dark" : "\u2600\uFE0F Light", " \xB7 ", u.region || "PA"), /* @__PURE__ */ React.createElement("span", null, u.lastLogin ? new Date(u.lastLogin).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Never logged in")), isTwoFactorRequired(u) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#FF671F", fontWeight: 800, marginTop: "0.15rem" } }, "2FA required", u.twoFactorSecret ? " and set up" : " - setup pending"), u.userType === "manager" && (() => {
         const assigned = u.storePC ? (stores || []).find((s) => String(s.pc) === String(u.storePC)) : (stores || []).find((s) => isManagersStore(s, u));
         return assigned ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#3b82f6", fontWeight: 700, marginTop: "0.15rem" } }, "\u{1F4CD} ", assigned.name, " \xB7 D", assigned.district) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#f59e0b", fontWeight: 600, marginTop: "0.15rem" } }, "\u26A0\uFE0F No store assigned");
-      })()), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.625rem 1rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", gap: "0.4rem", flexWrap: "wrap", background: th.card2 } }, canManageUser(currentUser, u) && /* @__PURE__ */ React.createElement("button", { onClick: () => startEdit(u), style: { ...btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem", flex: 1 }) } }, "\u270F\uFE0F Edit"), canManageUser(currentUser, u) && /* @__PURE__ */ React.createElement("button", { onClick: () => toggleActive(u.id), style: { ...btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem", background: th.card3, color: th.muted, border: `1px solid ${th.cardBorder}` }) } }, isInactive ? "\u2705 Enable" : "\u23F8 Disable"), isFullAdmin(currentUser) && /* @__PURE__ */ React.createElement(
+      })()), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.625rem 1rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", gap: "0.4rem", flexWrap: "wrap", background: th.card2 } }, canManageUser(currentUser, u) && /* @__PURE__ */ React.createElement("button", { onClick: () => startEdit(u), style: { ...btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem", flex: 1 }) } }, "\u270F\uFE0F Edit"), canManageUser(currentUser, u) && /* @__PURE__ */ React.createElement("button", { onClick: () => toggleActive(u.id), style: { ...btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem", background: th.card3, color: th.muted, border: `1px solid ${th.cardBorder}` }) } }, isInactive ? "\u2705 Enable" : "\u23F8 Disable"), u.locked && currentUser?.userType === "it" && /* @__PURE__ */ React.createElement("button", { onClick: () => unlockUser(u.id), title: "Clear the failed-attempt lockout (IT only)", style: { ...btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem", background: "#f8717122", color: "#f87171", border: "1px solid #f8717155" }) } }, "\u{1F513} Unlock"), isFullAdmin(currentUser) && /* @__PURE__ */ React.createElement(
         "button",
         {
           onClick: () => sendPasswordReset(u),
@@ -15871,7 +15927,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.67";
+  var APP_VERSION = "v17.69";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -16876,9 +16932,12 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [err, setErr] = useState("");
     const handleStep1 = () => {
       setErr("");
-      if (!form.newPassword || form.newPassword.length < 6) {
-        setErr("Password must be at least 6 characters.");
-        return;
+      if (!isSharedDeviceType(user.userType)) {
+        const pwErr = validatePasswordClient(form.newPassword);
+        if (pwErr) {
+          setErr(pwErr);
+          return;
+        }
       }
       if (form.newPassword !== form.confirmPassword) {
         setErr("Passwords do not match.");
@@ -16886,14 +16945,19 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       }
       setStep(2);
     };
-    const handleFinish = () => {
+    const handleFinish = async () => {
       setErr("");
       if (!form.phone && form.smsNotify) {
         setErr("Please add a phone number to enable SMS notifications.");
         return;
       }
+      const r = await portalChangePassword("", form.newPassword);
+      if (!r.ok) {
+        setErr(r.error || "Could not set your password. Please try again.");
+        setStep(1);
+        return;
+      }
       const updates = {
-        password: form.newPassword,
         phone: form.phone,
         email: form.email,
         emailNotify: form.emailNotify,
@@ -16904,7 +16968,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       setUsers((us) => us.map((u) => u.id === user.id ? { ...u, ...updates } : u));
       setUser((prev) => ({ ...prev, ...updates }));
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", background: th.bg, color: th.text, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, transition: "background .3s, color .3s" } }, /* @__PURE__ */ React.createElement("div", { style: { width: "100%", maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2.5rem", marginBottom: "0.5rem" } }, "\u{1F44B}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.5rem", color: th.text } }, "Welcome to PCG Portal"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, "Let's set up your account, ", user.name.split(" ")[0])), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "center", marginBottom: "1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 32, height: 32, borderRadius: "50%", background: step >= 1 ? O : th.card3, color: step >= 1 ? W : th.muted, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.8rem", transition: "all .3s" } }, "1"), /* @__PURE__ */ React.createElement("div", { style: { width: 40, height: 2, background: step >= 2 ? O : th.card3, transition: "background .3s" } }), /* @__PURE__ */ React.createElement("div", { style: { width: 32, height: 32, borderRadius: "50%", background: step >= 2 ? O : th.card3, color: step >= 2 ? W : th.muted, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.8rem", transition: "all .3s" } }, "2")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 32 }, className: "fade-in" }, step === 1 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1rem", fontWeight: 700, color: th.text, marginBottom: "0.25rem" } }, "\u{1F512} Create Your Password"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "1.25rem" } }, "Choose a secure password you'll remember. Must be at least 6 characters."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 } }, "New Password"), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", background: th.bg, color: th.text, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, transition: "background .3s, color .3s" } }, /* @__PURE__ */ React.createElement("div", { style: { width: "100%", maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2.5rem", marginBottom: "0.5rem" } }, "\u{1F44B}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.5rem", color: th.text } }, "Welcome to PCG Portal"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, "Let's set up your account, ", user.name.split(" ")[0])), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "center", marginBottom: "1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 32, height: 32, borderRadius: "50%", background: step >= 1 ? O : th.card3, color: step >= 1 ? W : th.muted, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.8rem", transition: "all .3s" } }, "1"), /* @__PURE__ */ React.createElement("div", { style: { width: 40, height: 2, background: step >= 2 ? O : th.card3, transition: "background .3s" } }), /* @__PURE__ */ React.createElement("div", { style: { width: 32, height: 32, borderRadius: "50%", background: step >= 2 ? O : th.card3, color: step >= 2 ? W : th.muted, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.8rem", transition: "all .3s" } }, "2")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 32 }, className: "fade-in" }, step === 1 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1rem", fontWeight: 700, color: th.text, marginBottom: "0.25rem" } }, "\u{1F512} Create Your Password"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "1.25rem" } }, "Choose a secure password you'll remember. ", isSharedDeviceType(user.userType) ? "" : PASSWORD_POLICY_TEXT), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 } }, "New Password"), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         style: inp(th),
@@ -16979,22 +17043,26 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       showConfirm: false
     });
     const [profileMsg, setProfileMsg] = useState(null);
-    const handleProfileSave = () => {
+    const handleProfileSave = async () => {
       if (profileForm.newPassword) {
-        if (profileForm.currentPassword !== user.password) {
-          setProfileMsg({ type: "error", text: "Current password is incorrect." });
-          return;
-        }
-        if (profileForm.newPassword.length < 6) {
-          setProfileMsg({ type: "error", text: "New password must be at least 6 characters." });
-          return;
+        if (!isSharedDeviceType(user.userType)) {
+          const pwErr = validatePasswordClient(profileForm.newPassword);
+          if (pwErr) {
+            setProfileMsg({ type: "error", text: pwErr });
+            return;
+          }
         }
         if (profileForm.newPassword !== profileForm.confirmPassword) {
           setProfileMsg({ type: "error", text: "New passwords do not match." });
           return;
         }
+        const r = await portalChangePassword(profileForm.currentPassword, profileForm.newPassword);
+        if (!r.ok) {
+          setProfileMsg({ type: "error", text: r.error || "Could not change password \u2014 check your current password." });
+          return;
+        }
       }
-      const notifUpdate = { email: profileForm.email, phone: profileForm.phone, emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify, ...profileForm.newPassword ? { password: profileForm.newPassword } : {} };
+      const notifUpdate = { email: profileForm.email, phone: profileForm.phone, emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify };
       setUsers((us) => us.map((u) => u.id === user.id ? { ...u, ...notifUpdate } : u));
       setUser((prev) => ({ ...prev, ...notifUpdate }));
       setProfileMsg({ type: "success", text: "Profile updated!" });
@@ -27328,7 +27396,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       } catch {
       }
       logClientEvent(user?.id, user?.userType, "logout", { name: user?.name });
-      clearSessionToken();
+      portalLogout();
       setManagerMode(null);
       try {
         localStorage.removeItem("pcg_prefer_full_portal");

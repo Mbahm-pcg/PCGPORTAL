@@ -7,7 +7,15 @@ const { verifyToken } = require('../deal-lib/token');
 function bearer(event) {
   const h = (event && event.headers) || {};
   const raw = h.authorization || h.Authorization || '';
-  return raw.startsWith('Bearer ') ? raw.slice(7) : '';
+  if (raw.startsWith('Bearer ')) return raw.slice(7);
+  // Fallback: HttpOnly session cookie (pcg_session) set by portal-auth on login.
+  // Lets the secure cookie authenticate even when no Authorization header is sent.
+  const cookie = h.cookie || h.Cookie || '';
+  const m = /(?:^|;\s*)pcg_session=([^;]*)/.exec(cookie);
+  if (!m) return '';
+  // decodeURIComponent throws on malformed encoding (e.g. "%XY"); never let a crafted
+  // cookie crash auth — fall back to the raw value (the token has no %-encoded chars).
+  try { return decodeURIComponent(m[1]); } catch { return m[1]; }
 }
 
 // Returns the token claims { kind:'portal', username, userType, district, name }
