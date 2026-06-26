@@ -395,7 +395,8 @@ async function buildStoreContext({ storePC }) {
   // legacy blob if the DB query fails, so the brief degrades gracefully.
   let openTickets = [];
   try {
-    const rows = await sql`
+    const db = sql(); // db.mjs exports a factory — must invoke to get the tagged-template fn
+    const rows = await db`
       SELECT title, category, priority, description, created_at
       FROM maint_tickets
       WHERE status <> 'Closed' AND store_pc = ${String(storePC)}
@@ -615,7 +616,8 @@ async function buildProjectsContext({ district } = {}) {
 // the summarizers/crons expect. Falls back to the legacy blob if the query fails.
 async function loadAllTickets() {
   try {
-    const rows = await sql`
+    const db = sql(); // db.mjs exports a factory — must invoke to get the tagged-template fn
+    const rows = await db`
       SELECT id, number, title, status, priority, category, store_pc, store_name,
              ticket_owner, due_date, description, created_at, updated_at
       FROM maint_tickets ORDER BY created_at DESC`;
@@ -879,18 +881,19 @@ async function buildMaintenanceContext({ now = new Date() } = {}) {
   let rows = [];
   const commentCounts = {}, expTotals = {};
   let expMonth = { total: 0, n: 0 };
+  const db = sql(); // db.mjs exports a factory — must invoke to get the tagged-template fn
   try {
-    rows = await sql`
+    rows = await db`
       SELECT id, number, title, status, priority, category,
              store_pc, store_name, address, due_date, ticket_owner, created_by,
              started_by, closed_by, closed_at,
              COALESCE(jsonb_array_length(attachments), 0) AS attach_n, created_at
       FROM maint_tickets ORDER BY created_at DESC`;
-    const cc = await sql`SELECT ticket_id, count(*)::int AS n FROM maint_ticket_comments GROUP BY ticket_id`;
+    const cc = await db`SELECT ticket_id, count(*)::int AS n FROM maint_ticket_comments GROUP BY ticket_id`;
     cc.forEach((r) => { commentCounts[String(r.ticket_id)] = r.n; });
-    const et = await sql`SELECT ticket_id, COALESCE(sum(amount),0)::float AS total FROM maint_ticket_expenses WHERE no_expense IS NOT TRUE AND amount IS NOT NULL GROUP BY ticket_id`;
+    const et = await db`SELECT ticket_id, COALESCE(sum(amount),0)::float AS total FROM maint_ticket_expenses WHERE no_expense IS NOT TRUE AND amount IS NOT NULL GROUP BY ticket_id`;
     et.forEach((r) => { expTotals[String(r.ticket_id)] = r.total; });
-    const em = await sql`SELECT COALESCE(sum(amount),0)::float AS total, count(*)::int AS n FROM maint_ticket_expenses WHERE no_expense IS NOT TRUE AND amount IS NOT NULL AND added_at >= ${monthStart}::date`;
+    const em = await db`SELECT COALESCE(sum(amount),0)::float AS total, count(*)::int AS n FROM maint_ticket_expenses WHERE no_expense IS NOT TRUE AND amount IS NOT NULL AND added_at >= ${monthStart}::date`;
     expMonth = { total: em[0]?.total || 0, n: em[0]?.n || 0 };
   } catch (e) {
     return `MAINTENANCE TICKET BOARD: unavailable (${e.message}).`;
@@ -970,7 +973,7 @@ async function buildMaintenanceContext({ now = new Date() } = {}) {
     const lastNotes = {};
     try {
       const ids = recentClosed.map((x) => x.id);
-      const notes = await sql`
+      const notes = await db`
         SELECT DISTINCT ON (ticket_id) ticket_id, text
         FROM maint_ticket_comments WHERE ticket_id = ANY(${ids}::bigint[])
         ORDER BY ticket_id, created_at DESC`;
