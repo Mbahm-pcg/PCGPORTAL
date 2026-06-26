@@ -39,6 +39,10 @@
   *{scrollbar-width:auto;scrollbar-color:#FF671F55 transparent;}
   .fade-in{animation:fadeIn .3s ease;}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  /* Contain Leaflet's internal stacking (panes ~400, controls ~1000) inside a
+     z-index:0 context so the map never renders above the sidebar drawer (z:200),
+     notification/chat popups, or modals on mobile. */
+  .leaflet-container{position:relative;z-index:0;}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.92)}}
   @keyframes navDotPing{0%{transform:scale(1);opacity:1}70%,100%{transform:scale(2.2);opacity:0}}
   @keyframes loginMeshShift{0%{transform:rotate(0deg) scale(1)}50%{transform:rotate(180deg) scale(1.15)}100%{transform:rotate(360deg) scale(1)}}

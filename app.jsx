@@ -18780,14 +18780,14 @@ const getTabs = (user) => {
     { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
     { id: "chat",     label: "Chat",     icon: (c) => ICONS.chat(c) },
   ];
-  // Maintenance → dashboard + locations (view) + projects + chat
+  // Maintenance → full workspace (base tabs) + locations + projects.
+  // Must include the base tabs (links/notes/todos/contacts/kb/announcements) — the shared
+  // Dashboard quick-actions and the sidebar "Workspace" section link to them, and the
+  // tab-access guard bounces you to the dashboard if you navigate to a tab you don't have.
   if (ut === "maintenance") return [
-    { id: "dashboard",  label: "Dashboard",  icon: (c) => ICONS.dashboard(c) },
+    ...BASE_TABS,
     { id: "locations",  label: "Locations",  icon: (c) => ICONS.locations(c) },
     { id: "projects",   label: "Projects",   icon: (c) => ICONS.projects(c) },
-    { id: "tickets",    label: "Tickets",    icon: (c) => ICONS.tickets(c) },
-    { id: "calendar",   label: "Calendar",   icon: (c) => ICONS.calendar(c) }, // calendar now in BASE_TABS too; kept here for sidebar ordering
-    { id: "chat",       label: "Chat",       icon: (c) => ICONS.chat(c) },
   ];
   return BASE_TABS;
 };
@@ -19966,7 +19966,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.57";
+const APP_VERSION = "v17.61";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -22880,6 +22880,10 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
   ];
   if (isExec || isDM || isConstruction) quickActions.push({ label: "View Projects", icon: ICONS.projects, tab: "projects" });
   if (isExec) quickActions.push({ label: "Open Pulse", icon: ICONS.pulse, tab: "pulse" });
+  // Only offer quick-actions for tabs this user can actually open — otherwise the tab-access
+  // guard in PCGPortal bounces them straight back to the dashboard.
+  const allowedTabIds = new Set(getTabs(user).map(t => t.id));
+  const visibleQuickActions = quickActions.filter(a => allowedTabIds.has(a.tab));
 
   return (
     <div className="fade-in">
@@ -23319,6 +23323,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
 
 
       {/* ─── Quick Actions ─────────────────────────────────────────────── */}
+      {visibleQuickActions.length > 0 && (
       <div style={{ marginBottom: "1.75rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.28rem 0.7rem", background: `${O}15`, border: `1px solid ${O}33`, borderRadius: "999px" }}>
@@ -23328,7 +23333,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
           <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.cardBorder}, transparent)` }} />
         </div>
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          {quickActions.map(a => (
+          {visibleQuickActions.map(a => (
             <button
               key={a.label}
               onClick={() => setTab(a.tab)}
@@ -23365,6 +23370,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
           ))}
         </div>
       </div>
+      )}
 
       {/* Pulse Snapshot — all executives */}
       {user?.userType === "executive" && <DashboardPulse stores={stores} th={th} setTab={setTab} isMobile={isMobile} onAskOrion={onAskOrion} />}
@@ -34499,7 +34505,7 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
                     <span style={{ color: O }}>🔮</span>
                     <span style={{ fontSize: '0.68rem', color: O, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>Orion</span>
                   </div>
-                  <div style={{ fontSize: '0.875rem', color: th.text, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{orionAnswer.answer}</div>
+                  <div style={{ fontSize: '0.875rem', color: th.text, lineHeight: 1.65 }}>{renderAnalystMarkdown(orionAnswer.answer, th)}</div>
                 </div>
                 <button onClick={() => setOrionAnswer(null)} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', padding: '0.38rem 0.75rem', color: th.muted, fontSize: '0.77rem', cursor: 'pointer', marginTop: 8, fontFamily: "'Source Sans 3'" }}>Ask another</button>
               </div>
@@ -34510,7 +34516,7 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
 
       {/* Orion input bar */}
       {activeTab === 'orion' && (
-        <div style={{ padding: '8px 14px', background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0, paddingBottom: 'max(8px, env(safe-area-inset-bottom))', marginBottom: 64 }}>
+        <div style={{ padding: '8px 14px', background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0, paddingBottom: 'max(8px, env(safe-area-inset-bottom))', marginBottom: 'calc(118px + env(safe-area-inset-bottom))' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '0.5rem 0.75rem' }}>
             <input value={orionInput} onChange={e => setOrionInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && askOrion()} placeholder="Ask anything about your tickets..." style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: th.text, fontSize: '0.9rem', fontFamily: "'Source Sans 3'" }} />
             <button onClick={() => askOrion()} disabled={orionLoading || !orionInput.trim()} style={{ background: O, border: 'none', borderRadius: '0.5rem', padding: '0.32rem 0.7rem', color: '#fff', fontSize: '0.77rem', fontWeight: 700, cursor: 'pointer', opacity: (orionLoading || !orionInput.trim()) ? 0.5 : 1, fontFamily: "'Source Sans 3'" }}>Ask</button>
@@ -35999,11 +36005,19 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
   const monthName = viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
+  // On phones the calendar grid + side panel can't sit side-by-side — stack them.
+  const [isNarrow, setIsNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < 760);
+  useEffect(() => {
+    const fn = () => setIsNarrow(window.innerWidth < 760);
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
+
   const todayStr = today.toISOString().slice(0,10);
   const upcomingEntries = Object.entries(eventMap).filter(([d]) => d >= todayStr).sort(([a],[b]) => a.localeCompare(b)).slice(0,10);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)', padding: '1.25rem 1.25rem 1.25rem', boxSizing: 'border-box', gap: '1rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: isNarrow ? 'auto' : 'calc(100vh - 56px)', overflowY: isNarrow ? 'auto' : 'visible', padding: isNarrow ? '1rem 0.85rem 90px' : '1.25rem 1.25rem 1.25rem', boxSizing: 'border-box', gap: '1rem' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', flexShrink: 0 }}>
         <div>
@@ -36018,11 +36032,11 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
         </div>
       </div>
 
-      {/* Body: calendar 3/4 + sidebar 1/4 */}
-      <div style={{ display: 'flex', gap: '1rem', flex: 1, minHeight: 0 }}>
+      {/* Body: calendar 3/4 + sidebar 1/4 (stacks on mobile) */}
+      <div style={{ display: 'flex', flexDirection: isNarrow ? 'column' : 'row', gap: '1rem', flex: 1, minHeight: 0 }}>
 
-        {/* Calendar — 3/4 */}
-        <div style={{ flex: 3, display: 'flex', flexDirection: 'column', background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, overflow: 'hidden', minWidth: 0 }}>
+        {/* Calendar — 3/4 (full width on mobile) */}
+        <div style={{ flex: isNarrow ? 'none' : 3, width: isNarrow ? '100%' : undefined, display: 'flex', flexDirection: 'column', background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, overflow: 'hidden', minWidth: 0 }}>
           {/* Day-of-week header */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', background: th.card2, flexShrink: 0 }}>
             {DAYS.map(d => (
@@ -36030,7 +36044,7 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
             ))}
           </div>
           {/* Day cells — fill remaining height */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gridAutoRows: '1fr', gap: 1, background: th.cardBorder, flex: 1 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gridAutoRows: isNarrow ? 'minmax(58px, auto)' : '1fr', gap: 1, background: th.cardBorder, flex: 1 }}>
             {Array.from({ length: firstDay }).map((_, i) => (
               <div key={`e${i}`} style={{ background: th.card, opacity: 0.5 }} />
             ))}
@@ -36059,11 +36073,11 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
           </div>
         </div>
 
-        {/* Right panel — 1/4 */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.75rem', minWidth: 220, maxWidth: 300 }}>
+        {/* Right panel — 1/4 (full width, below the grid, on mobile) */}
+        <div style={{ flex: isNarrow ? 'none' : 1, display: 'flex', flexDirection: 'column', gap: '0.75rem', minWidth: isNarrow ? 0 : 220, maxWidth: isNarrow ? 'none' : 300 }}>
 
           {/* Selected day detail or Upcoming */}
-          <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: '1rem', flex: 1, overflowY: 'auto', minHeight: 0 }}>
+          <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: '1rem', flex: isNarrow ? 'none' : 1, maxHeight: isNarrow ? 340 : undefined, overflowY: 'auto', minHeight: 0 }}>
             {selectedDay ? (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
@@ -36739,6 +36753,7 @@ function PCGPortal() {
 
   const [showNotifs, setShowNotifs] = useState(false);
   const notifRef = useRef(null);
+  const chatPanelRef = useRef(null);
   const [showChatPanel, setShowChatPanel] = useState(false);
   const [chatQuickReply, setChatQuickReply] = useState({ channelId: null, text: "" });
   const [salesWeeks, setSalesWeeks] = useState([]);
@@ -37834,6 +37849,21 @@ function PCGPortal() {
     };
   }, [showNotifs]);
 
+  // Close the chat quick-access panel when clicking anywhere outside it (or Esc)
+  useEffect(() => {
+    if (!showChatPanel) return;
+    const handleOutside = (e) => {
+      if (chatPanelRef.current && !chatPanelRef.current.contains(e.target)) setShowChatPanel(false);
+    };
+    const handleEsc = (e) => { if (e.key === "Escape") setShowChatPanel(false); };
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEsc);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEsc);
+    };
+  }, [showChatPanel]);
+
   // Notification: deadline/overdue check (runs on mount + once a day)
   useEffect(() => {
     const mkId = () => `notif_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
@@ -38713,7 +38743,9 @@ function PCGPortal() {
         {(() => {
           const baseIds = new Set([...ESSENTIAL_BASE_IDS, ...WORKSPACE_BASE_IDS]);
           // Dashboard lives in Quick Access (always pinned first), so keep it out of Workspace.
-          const wsTabs = BASE_TABS.filter(t => baseIds.has(t.id) && t.id !== 'dashboard' && !pinnedNavIds.includes(t.id));
+          // Only show base tabs this user actually has — otherwise navigating to one hits the
+          // tab-access guard and bounces back to the dashboard (e.g. vendor → todos/links/notes).
+          const wsTabs = BASE_TABS.filter(t => baseIds.has(t.id) && t.id !== 'dashboard' && !pinnedNavIds.includes(t.id) && TABS.some(x => x.id === t.id));
           if (wsTabs.length === 0) return null;
           // Auto-open when the active tab lives here (e.g. the Dashboard landing tab) so
           // essential base tabs aren't buried behind a collapsed header on first load.
@@ -39158,7 +39190,7 @@ function PCGPortal() {
               </div>
             )}
             {/* Chat quick-access icon */}
-            <div style={{ position: "relative" }}>
+            <div ref={chatPanelRef} style={{ position: "relative" }}>
               <button onClick={() => { setShowChatPanel(s => !s); setShowNotifs(false); setChatQuickReply({ channelId: null, text: "" }); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4 }}>
                 💬
                 {chatUnreadCount > 0 && (
