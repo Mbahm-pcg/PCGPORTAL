@@ -19966,7 +19966,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.61";
+const APP_VERSION = "v17.62";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -20785,6 +20785,66 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
                 : "No messages yet. Say hello! 👋"}
             </div>
           )}
+
+          {/* ── Analyst starter prompts (empty state) ── */}
+          {activeChannel.type === "analyst" && (!threadedMessages || threadedMessages.length === 0) && !orionThinking && (() => {
+            const prompts = user.userType === "dm" ? [
+              "What needs my attention today?",
+              "Summarize my district",
+              "Rank my stores by risk",
+              "Which stores are over labor today?",
+              "Show me low average-check stores",
+              "What tasks are overdue across my district?",
+              "Which stores have open tickets?",
+              "Show me today's anomalies",
+              "Write a coaching message for my lowest store",
+            ] : user.userType === "manager" ? [
+              "How's my store doing today?",
+              "Is my labor on track?",
+              "What tasks are overdue?",
+              "Any open tickets for my store?",
+              "How can I improve average check today?",
+            ] : (user.userType === "executive" || user.userType === "it") ? [
+              // Network-scoped prompts only for leadership (Exec/IT); other roles are
+              // scope-restricted server-side, so showing them network prompts is misleading.
+              "What needs attention across the network?",
+              "Which districts are over labor today?",
+              "What are the top sales issues today?",
+              "Summarize the network",
+              "Show me today's anomalies",
+            ] : [
+              "What can you help me with?",
+              "What's the latest in my scope today?",
+              "Any open tickets I should know about?",
+            ];
+            const submit = (p) => {
+              const threadId = `thread_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+              const m = { id: makeMsgId(), channelId: activeChannelId, senderId: user.id, senderName: user.name, senderInitials: user.initials, text: p, timestamp: new Date().toISOString(), threadId, deleted: false };
+              setMessages(prev => [...prev, m]);
+              setReadState(prev => ({ ...prev, [`${user.id}_${activeChannelId}`]: m.timestamp }));
+              sendToOrion(p, activeChannelId, threadId);
+            };
+            return (
+              <div style={{ padding: "1.5rem 0.5rem", textAlign: "center" }}>
+                <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🔮</div>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text, marginBottom: "0.25rem" }}>Ask Orion</div>
+                <div style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "1.1rem" }}>Your AI operations analyst — try one of these:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", justifyContent: "center", maxWidth: 560, margin: "0 auto" }}>
+                  {prompts.map(p => (
+                    <button key={p} onClick={() => submit(p)} style={{
+                      background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999,
+                      padding: "0.5rem 0.9rem", fontSize: "0.8rem", color: th.text, cursor: "pointer",
+                      fontFamily: "'Source Sans 3'", transition: "all .15s", whiteSpace: "nowrap",
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = "#8b5cf6"; e.currentTarget.style.color = "#8b5cf6"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = th.cardBorder; e.currentTarget.style.color = th.text; }}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ── Analyst threaded view ── */}
           {activeChannel.type === "analyst" && threadedMessages && threadedMessages.length > 0 && (

@@ -301,6 +301,32 @@ async function buildDataContext({ district, includeStoreDetail, includeVoids } =
   return context + opsContext;
 }
 
+// ── Store roster (metadata: status, Next-Gen, Baskin, asset, manager, address) ─
+// Sourced from the pcg_stores_v1 cloud blob (the frontend's full store config) so
+// Orion can answer roster questions ("who manages Bustleton", "address for PC#…",
+// "which stores are Next-Gen / have drive-thru", "stores by manager"). Scoped to a
+// district when given, so a DM only ever sees their own district's roster.
+async function buildStoreRosterContext({ district = null, storePC = null } = {}) {
+  let stores = null;
+  try { stores = await cacheLoad('pcg_stores_v1'); } catch { stores = null; }
+  if (!Array.isArray(stores) || !stores.length) return '';
+  const ASSET = { DT: 'Drive-Thru', IL: 'In-Line', FS: 'Free Standing', GS: 'Gas Station', APOD: 'APOD' };
+  let list = stores;
+  if (district != null) list = list.filter(s => String(s.district) === String(district));
+  if (storePC != null) list = list.filter(s => String(s.pc) === String(storePC));
+  if (!list.length) return '';
+  const lines = list
+    .slice()
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    .map(s => {
+      const addr = [s.address, s.city, s.state, s.zip].filter(Boolean).join(', ');
+      const tags = [s.isNextGen && 'Next-Gen', s.isBaskin && 'Baskin-Robbins', s.isBridge && 'Bridge'].filter(Boolean).join('/');
+      return `• ${s.name || '—'} (PC ${s.pc}) — ${s.status || 'Open'}${tags ? ' · ' + tags : ''} · ${ASSET[s.baseAsset] || s.baseAsset || '—'} · Mgr: ${s.mgr || '—'}${s.mgrPhone ? ' ' + s.mgrPhone : ''} · ${addr || 'no address on file'} · District ${s.district || '—'}${s.dmName ? ` (DM ${s.dmName})` : ''}`;
+    });
+  const scopeLbl = district != null ? ` — District ${district}` : storePC != null ? '' : ' — network';
+  return `\n\nSTORE ROSTER (${list.length} store${list.length !== 1 ? 's' : ''}${scopeLbl}). Use this for store metadata — status, Next-Gen/Baskin, asset type (Drive-Thru/In-Line/Free Standing/Gas Station), manager, address:\n${lines.join('\n')}`;
+}
+
 /**
  * Get recent daily history for a store (for trend analysis).
  */
@@ -999,6 +1025,7 @@ export {
   buildKPISnapshot,
   buildDataContext,
   buildStoreContext,
+  buildStoreRosterContext,
   getStoreDailyHistory,
   getWeatherForecast,
   getWeatherCorrelations,

@@ -3,7 +3,7 @@
 
 import { askAnalyst, askAnalystWithTools, generateStructured } from './analyst-lib/analyst-claude.mjs';
 import { MAINT_TOOLS, executeMaintTool } from './analyst-lib/maint-actions.mjs';
-import { buildDataContext, buildKPISnapshot, buildStoreContext, buildMaintenanceContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
+import { buildDataContext, buildKPISnapshot, buildStoreContext, buildStoreRosterContext, buildMaintenanceContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
 import { buildBriefPrompt, buildStoreBriefPrompt, buildPrePlanPrompt, buildAskPrompt, PERSONA, MAINT_ASK_SYSTEM, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
 import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
 import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
@@ -108,7 +108,15 @@ export default async (request, context) => {
         ticketsContext = `\n\nOpen support tickets (${tickets.length}):\n${lines}`;
       }
 
-      const prompt = buildAskPrompt(question, effRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext);
+      // Store roster metadata (status/Next-Gen/Baskin/asset/manager/address) for DMs and
+      // managers, scoped to their district/store so they only ever see their own. Fail closed:
+      // a DM with no resolved district gets NO roster (never the network-wide list), so a
+      // misconfigured user can't see other districts' managers/addresses.
+      let rosterContext = '';
+      if (effRole === 'dm' && effDistrict != null) rosterContext = await buildStoreRosterContext({ district: effDistrict });
+      else if (effRole === 'manager' && effStorePC) rosterContext = await buildStoreRosterContext({ storePC: effStorePC });
+
+      const prompt = buildAskPrompt(question, effRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext, rosterContext);
 
       // Use thread-scoped history key when threadId is provided
       const historyKey = threadId
