@@ -31,6 +31,7 @@ import webpush from 'web-push';
 import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { resolveCaller, isExec } from './_shared/auth.mjs';
+import { sessionGate } from './auth-lib/require-user.js';
 import { STORE_BY_PC } from './ndcp-lib/store-map.js';
 import { CATALOG, SHIFT_WINDOWS, ITEMS_CATALOG } from './tasks-lib/catalog.js';
 import { STORE_COORDS } from './analyst-lib/store-coords.mjs';
@@ -324,6 +325,11 @@ export default async (request, context) => {
   try { body = await request.json().catch(() => ({})); } catch { return reply(400, { error: 'bad json' }); }
   const action = body.action || 'list';
   const db = sql();
+
+  // Revocation gate: a present-but-revoked session token is rejected; tokenless server/cron
+  // callers fall through unchanged.
+  const eventShim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
+  if (await sessionGate(eventShim, db) === 'revoked') return reply(401, { error: 'Session ended. Please sign in again.' });
 
   try {
     if (!_tableEnsured) { await ensureTable(db); _tableEnsured = true; }

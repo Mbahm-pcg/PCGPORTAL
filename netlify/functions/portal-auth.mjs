@@ -8,7 +8,7 @@ import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { signToken } from './deal-lib/token.js';
 import { hashPassword, verifyPassword, validatePasswordComplexity, isSharedDevice } from './auth-lib/passwords.js';
-import { requireUser } from './auth-lib/require-user.js';
+import { requireUser, requireActiveUser } from './auth-lib/require-user.js';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Content-Type': 'application/json' };
 const reply = (code, obj, extraHeaders) => new Response(JSON.stringify(obj), { status: code, headers: { ...cors, ...(extraHeaders || {}) } });
@@ -98,13 +98,32 @@ export default async (request, context) => {
     if (action === 'ping') return reply(200, { ok: true });
 
     if (action === 'me') {
-      const claims = requireUser(eventShim);
+      // Active-session check: rejects tokens revoked by sign-out-everywhere → the client
+      // polls this and force-logs-out on 401 (this is what kicks a lost device out).
+      const claims = await requireActiveUser(eventShim, db);
       return claims ? reply(200, { user: claims }) : reply(401, { error: 'unauthorized' });
     }
 
     if (action === 'logout') {
       // Clear the secure session cookie. (The Bearer token is cleared client-side.)
       return reply(200, { ok: true }, { 'Set-Cookie': clearedCookie() });
+    }
+
+    if (action === 'revoke-sessions') {
+      // Sign out everywhere. Self by default; IT admins may target any user via targetUserId.
+      const claims = await requireActiveUser(eventShim, db);
+      if (!claims) return reply(401, { error: 'unauthorized' });
+      const targetId = (claims.userType === 'it' && body.targetUserId != null) ? Number(body.targetUserId) : claims.sub;
+      if (targetId == null || Number.isNaN(targetId)) return reply(400, { error: 'no target' });
+      await db`UPDATE users SET sessions_valid_from = now(), updated_at = now() WHERE id = ${targetId}`;
+      // Drop trusted devices too, so 2FA is re-prompted on the next login (best-effort).
+      try {
+        await fetch(new URL('/.netlify/functions/trusted-devices', request.url), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'revoke', userId: String(targetId) }),
+        });
+      } catch { /* best-effort — session invalidation already done */ }
+      return reply(200, { ok: true, targetUserId: targetId });
     }
 
     if (action === 'login') {
@@ -255,7 +274,7 @@ export default async (request, context) => {
     }
 
     if (action === 'change-password') {
-      const claims = requireUser(eventShim);
+      const claims = await requireActiveUser(eventShim, db);
       if (!claims) return reply(401, { error: 'unauthorized' });
       const oldPw = String(body.oldPassword == null ? '' : body.oldPassword);
       const newPw = String(body.newPassword == null ? '' : body.newPassword);

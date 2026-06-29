@@ -3,7 +3,7 @@ import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
-import { portalLogin, portalLoginGoogle, authHeader, portalChangePassword, portalLogout } from './src/portal-auth.mjs';
+import { portalLogin, portalLoginGoogle, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 
@@ -3040,6 +3040,16 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const [emailAction, setEmailAction] = useState(null); // { userId, type, status }
   const [revokeAction, setRevokeAction] = useState(null); // { userId, status }
 
+  // IT-only: force-logout every device for a user (lost/stolen device). Invalidates all
+  // active sessions server-side and revokes trusted devices; takes effect within ~3 min
+  // on any running session (the session re-validation poll picks it up).
+  const signOutAllSessions = async (u) => {
+    if (currentUser?.userType !== "it") return;
+    if (!window.confirm(`Sign ${u.name} out of ALL devices now? They'll need to log in again (and re-verify 2FA).`)) return;
+    const r = await portalRevokeSessions(u.id);
+    if (r.ok) showAlert("success", `${u.name} signed out of all devices.`);
+    else showAlert("error", r.error || "Failed to sign out sessions");
+  };
   const revokeTrustedDevices = async (u) => {
     setRevokeAction({ userId: u.id, status: "revoking" });
     try {
@@ -3513,6 +3523,14 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                     title="Revoke trusted devices — forces 2FA re-verification on next login"
                     style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#f9731618", color:"#f97316", opacity: revokeAction?.userId === u.id && revokeAction?.status === "revoking" ? 0.5 : 1 }) }}>
                     {revokeAction?.userId === u.id ? (revokeAction.status === "revoking" ? "Revoking…" : revokeAction.status === "ok" ? "✅ Revoked" : "❌ Failed") : "🔐 Revoke 2FA"}
+                  </button>
+                )}
+                {currentUser?.userType === "it" && (
+                  <button
+                    onClick={() => signOutAllSessions(u)}
+                    title="Sign this user out of ALL devices now (lost/stolen device) — invalidates active sessions + trusted devices"
+                    style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#ef444418", color:"#ef4444" }) }}>
+                    🚪 Sign out all devices
                   </button>
                 )}
                 {isFullAdmin(currentUser) && (
@@ -20015,7 +20033,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.69";
+const APP_VERSION = "v17.72";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -21589,6 +21607,17 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
         <div style={{ display:"flex", gap:"0.625rem" }}>
           <button style={btn(th)} onClick={handleProfileSave}>Save Changes</button>
           <button style={btn(th,{background:th.card3,color:th.muted})} onClick={onClose}>Cancel</button>
+        </div>
+        {/* Security: end every signed-in session for this account (lost phone, shared computer). */}
+        <div style={{ marginTop:"1rem", paddingTop:"0.875rem", borderTop:`1px solid ${th.cardBorder}` }}>
+          <div style={{ fontSize:"0.7rem", color:th.muted, marginBottom:"0.4rem" }}>Lost a device or signed in somewhere you shouldn't have?</div>
+          <button style={btn(th,{ background:"#ef444418", color:"#ef4444" })}
+            onClick={async () => {
+              if (!window.confirm("Sign out of ALL devices, including this one? You'll need to log in again.")) return;
+              await portalRevokeSessions();
+              await portalLogout();
+              setUser(null);
+            }}>🚪 Sign out of all devices</button>
         </div>
       </div>
     </div>
@@ -37050,6 +37079,33 @@ function PCGPortal() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onPageShow);
     };
+  }, [user]);
+
+  // Sign-out-everywhere enforcement: re-validate the session with the server on load,
+  // on tab refocus, and every 3 min. If the server says the session was revoked (e.g. IT
+  // signed out a lost device, or the user hit "sign out all devices"), force a local logout.
+  // Only 'revoked' (HTTP 401) logs out — transient network/server errors are ignored.
+  useEffect(() => {
+    if (!user || user.userType?.startsWith('kiosk')) return;
+    let cancelled = false;
+    const forceOut = (reason) => {
+      logClientEvent(user?.id, user?.userType, 'session_revoked', { reason, name: user?.name });
+      portalLogout(); // clear the (now-invalid) token + cookie so it isn't reused on reload
+      try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
+      setPreferFullPortal(false);
+      setUser(null);
+      setTab("dashboard");
+      tabHistoryRef.current = ["dashboard"];
+    };
+    const check = async () => {
+      const r = await portalValidate();
+      if (!cancelled && r === 'revoked') forceOut('revoked');
+    };
+    check();
+    const onVis = () => { if (!document.hidden) check(); };
+    document.addEventListener('visibilitychange', onVis);
+    const interval = setInterval(check, 3 * 60 * 1000);
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis); clearInterval(interval); };
   }, [user]);
 
   // Inactivity session timeout — 30 min total (29min45s idle → 15s warning → logout)

@@ -300,6 +300,24 @@
   async function portalChangePassword(oldPassword, newPassword) {
     return post({ action: "change-password", oldPassword, newPassword });
   }
+  async function portalValidate() {
+    if (!_token) return "no-token";
+    try {
+      const res = await fetch(`${FN2}/portal-auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "me" })
+      });
+      if (res.status === 401) return "revoked";
+      if (!res.ok) return "error";
+      return "ok";
+    } catch {
+      return "error";
+    }
+  }
+  async function portalRevokeSessions(targetUserId) {
+    return post(targetUserId != null ? { action: "revoke-sessions", targetUserId } : { action: "revoke-sessions" });
+  }
 
   // src/deal-dates.mjs
   var DATE_TYPES = [
@@ -3714,6 +3732,13 @@
     const initials = (name) => name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
     const [emailAction, setEmailAction] = useState(null);
     const [revokeAction, setRevokeAction] = useState(null);
+    const signOutAllSessions = async (u) => {
+      if (currentUser?.userType !== "it") return;
+      if (!window.confirm(`Sign ${u.name} out of ALL devices now? They'll need to log in again (and re-verify 2FA).`)) return;
+      const r = await portalRevokeSessions(u.id);
+      if (r.ok) showAlert("success", `${u.name} signed out of all devices.`);
+      else showAlert("error", r.error || "Failed to sign out sessions");
+    };
     const revokeTrustedDevices = async (u) => {
       setRevokeAction({ userId: u.id, status: "revoking" });
       try {
@@ -4029,6 +4054,14 @@
           style: { ...btn(th, { padding: "0.35rem 0.6rem", fontSize: "0.75rem", background: "#f9731618", color: "#f97316", opacity: revokeAction?.userId === u.id && revokeAction?.status === "revoking" ? 0.5 : 1 }) }
         },
         revokeAction?.userId === u.id ? revokeAction.status === "revoking" ? "Revoking\u2026" : revokeAction.status === "ok" ? "\u2705 Revoked" : "\u274C Failed" : "\u{1F510} Revoke 2FA"
+      ), currentUser?.userType === "it" && /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => signOutAllSessions(u),
+          title: "Sign this user out of ALL devices now (lost/stolen device) \u2014 invalidates active sessions + trusted devices",
+          style: { ...btn(th, { padding: "0.35rem 0.6rem", fontSize: "0.75rem", background: "#ef444418", color: "#ef4444" }) }
+        },
+        "\u{1F6AA} Sign out all devices"
       ), isFullAdmin(currentUser) && (confirmDeleteId === u.id ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: "#ef4444", fontWeight: 600 } }, "Delete?"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
         del(u.id);
         setConfirmDeleteId(null);
@@ -15927,7 +15960,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.69";
+  var APP_VERSION = "v17.72";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -17168,7 +17201,19 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         fontWeight: 600,
         background: profileMsg.type === "error" ? "#ff444418" : "#00d08418",
         color: profileMsg.type === "error" ? "#ff6666" : "#00d084"
-      } }, profileMsg.text), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th), onClick: handleProfileSave }, "Save Changes"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted }), onClick: onClose }, "Cancel")))
+      } }, profileMsg.text), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th), onClick: handleProfileSave }, "Save Changes"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted }), onClick: onClose }, "Cancel")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "0.875rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.4rem" } }, "Lost a device or signed in somewhere you shouldn't have?"), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          style: btn(th, { background: "#ef444418", color: "#ef4444" }),
+          onClick: async () => {
+            if (!window.confirm("Sign out of ALL devices, including this one? You'll need to log in again.")) return;
+            await portalRevokeSessions();
+            await portalLogout();
+            setUser(null);
+          }
+        },
+        "\u{1F6AA} Sign out of all devices"
+      )))
     );
   }
   function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
@@ -27785,6 +27830,37 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       return () => {
         document.removeEventListener("visibilitychange", onVisibility);
         window.removeEventListener("pageshow", onPageShow);
+      };
+    }, [user]);
+    useEffect(() => {
+      if (!user || user.userType?.startsWith("kiosk")) return;
+      let cancelled = false;
+      const forceOut = (reason) => {
+        logClientEvent(user?.id, user?.userType, "session_revoked", { reason, name: user?.name });
+        portalLogout();
+        try {
+          localStorage.removeItem("pcg_prefer_full_portal");
+        } catch {
+        }
+        setPreferFullPortal(false);
+        setUser(null);
+        setTab("dashboard");
+        tabHistoryRef.current = ["dashboard"];
+      };
+      const check = async () => {
+        const r = await portalValidate();
+        if (!cancelled && r === "revoked") forceOut("revoked");
+      };
+      check();
+      const onVis = () => {
+        if (!document.hidden) check();
+      };
+      document.addEventListener("visibilitychange", onVis);
+      const interval = setInterval(check, 3 * 60 * 1e3);
+      return () => {
+        cancelled = true;
+        document.removeEventListener("visibilitychange", onVis);
+        clearInterval(interval);
       };
     }, [user]);
     useEffect(() => {

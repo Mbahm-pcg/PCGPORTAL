@@ -89,6 +89,30 @@ export async function portalChangePassword(oldPassword, newPassword) {
   return post({ action: 'change-password', oldPassword, newPassword });
 }
 
+// Lightweight session validity probe used by the periodic re-check loop. Distinguishes
+// a REVOKED/expired session (force logout) from a transient network/server error (ignore).
+//   'ok' | 'revoked' | 'error' | 'no-token'
+export async function portalValidate() {
+  if (!_token) return 'no-token';
+  try {
+    const res = await fetch(`${FN}/portal-auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'me' }),
+    });
+    if (res.status === 401) return 'revoked';
+    if (!res.ok) return 'error';
+    return 'ok';
+  } catch { return 'error'; }
+}
+
+// Sign out everywhere. No target → the current user's own sessions (incl. this device);
+// IT admins pass targetUserId to force-logout another account. Invalidates all tokens
+// issued before now AND revokes trusted devices server-side.
+export async function portalRevokeSessions(targetUserId) {
+  return post(targetUserId != null ? { action: 'revoke-sessions', targetUserId } : { action: 'revoke-sessions' });
+}
+
 // Verify the held token is still valid and return its claims, or null.
 export async function portalMe() {
   if (!_token) return null;

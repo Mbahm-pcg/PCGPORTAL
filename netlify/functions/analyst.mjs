@@ -15,6 +15,8 @@ import { holidayInfo } from './analyst-lib/holidays.mjs';
 import { loadKBContent, buildKBContext } from './analyst-lib/analyst-kb.mjs';
 import { loadReportSettings, sendExecReport, sendExecDailyReport, sendDMBriefs } from './analyst-lib/analyst-reports.mjs';
 import { resolveCaller } from './_shared/auth.mjs';
+import { sql } from './_shared/db.mjs';
+import { sessionGate } from './auth-lib/require-user.js';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -56,6 +58,11 @@ export default async (request, context) => {
   // payload can't claim a role/district/store it doesn't have. When the caller can't be
   // resolved (no userId / server-internal cron/MCP), fall back to the claimed values.
   const EXEC_ROLES = new Set(['executive', 'it']);
+  // Revocation gate: if this request carries a session token (cookie/header), it must be
+  // active — a signed-out/revoked browser session is rejected here. Tokenless server/cron/MCP
+  // callers fall through unchanged (no token → 'no-token').
+  const eventShim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
+  if (await sessionGate(eventShim, sql()) === 'revoked') return respond(401, { error: 'Session ended. Please sign in again.' });
   const caller = await resolveCaller(userId);
   const effRole = caller?.role || userRole;
   const isExecRole = EXEC_ROLES.has(effRole);

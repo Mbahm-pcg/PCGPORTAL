@@ -35,4 +35,54 @@ function requireRole(user, types) {
   return list.includes(user.userType);
 }
 
-module.exports = { requireUser, requireRole, bearer };
+// Sign-out-everywhere check: a token is valid only if it was issued at or after the
+// user's sessions_valid_from cutoff. Pure + testable. No cutoff → never revoked.
+function sessionIsValid(claims, sessionsValidFrom) {
+  if (!sessionsValidFrom) return true;
+  const cutoffSec = Math.floor(new Date(sessionsValidFrom).getTime() / 1000);
+  if (!Number.isFinite(cutoffSec)) return true;
+  // 10s leeway so function-server vs DB clock skew can't reject a token minted right
+  // after a revoke (the post-revoke re-login). Old tokens are still well below cutoff.
+  const iat = (claims && typeof claims.iat === 'number') ? claims.iat : 0;
+  return iat >= cutoffSec - 10;
+}
+
+// requireUser + a DB check that the token hasn't been revoked by sign-out-everywhere.
+// `db` is the neon sql tag. Fails OPEN on a DB error (token already expires in ≤12h)
+// so a transient DB blip can't log the whole company out.
+async function requireActiveUser(event, db, opts = {}) {
+  const claims = requireUser(event, opts);
+  if (!claims) return null;
+  try {
+    const rows = await db`SELECT sessions_valid_from, active FROM users WHERE id = ${claims.sub}`;
+    // Definitive answers from a successful query fail CLOSED: a deleted or deactivated
+    // user, or a token issued before a sign-out-everywhere cutoff, is rejected.
+    if (!rows.length) return null;
+    if (rows[0].active === false) return null;
+    if (!sessionIsValid(claims, rows[0].sessions_valid_from)) return null;
+  } catch { /* only a DB ERROR fails open (token still expires in ≤12h) — not a 0-row result */ }
+  return claims;
+}
+
+// Gate for userId-trust endpoints (analyst, tasks). If the request carries a session token
+// (Authorization header OR the pcg_session cookie, auto-sent same-origin), it MUST be active:
+// a revoked/expired/deactivated token returns 'revoked'. If NO token is present (server-internal
+// cron/MCP callers, or a not-yet-tokenized path), returns 'no-token' and the caller proceeds with
+// its existing userId-based behavior — so this adds revocation enforcement without new breakage.
+async function sessionGate(event, db) {
+  // Only a structurally-VALID portal token can be "revoked". No token, an expired token, an
+  // invalid signature, or a non-portal token (e.g. an MCP/cron secret) → 'no-token', i.e. fall
+  // through to the caller's existing userId behavior. This guarantees no regression for the
+  // server-internal callers that legitimately don't carry a portal session.
+  const claims = requireUser(event);
+  if (!claims) return 'no-token';
+  try {
+    const rows = await db`SELECT sessions_valid_from, active FROM users WHERE id = ${claims.sub}`;
+    if (!rows.length) return 'revoked';
+    if (rows[0].active === false) return 'revoked';
+    if (!sessionIsValid(claims, rows[0].sessions_valid_from)) return 'revoked';
+  } catch { return 'active'; } // DB error → don't block (fail open)
+  return 'active';
+}
+
+module.exports = { requireUser, requireRole, bearer, sessionIsValid, requireActiveUser, sessionGate };

@@ -32,6 +32,8 @@ export const users = pgTable("users", {
   // Login security — failed-attempt lockout (IT-admin unlock only)
   failedAttempts: integer("failed_attempts").notNull().default(0),
   locked: boolean("locked").notNull().default(false),
+  // Sign-out-everywhere: tokens issued before this instant are rejected (iat < this).
+  sessionsValidFrom: timestamp("sessions_valid_from"),
 });
 
 // ── Tickets ───────────────────────────────────────────────────────────────────

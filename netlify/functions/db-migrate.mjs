@@ -186,6 +186,7 @@ export default async (request) => {
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS region VARCHAR(10)`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT false`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_valid_from TIMESTAMPTZ`;
   await db`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`;
   await db`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`;
 

@@ -1,7 +1,7 @@
 // users.mjs — User management CRUD API.
 // list action is public (no auth). All mutations require a valid portal token.
 import { sql } from './_shared/db.mjs';
-import { requireUser } from './auth-lib/require-user.js';
+import { requireActiveUser } from './auth-lib/require-user.js';
 import { hashPassword, validatePasswordComplexity, isSharedDevice } from './auth-lib/passwords.js';
 
 const cors = {
@@ -58,10 +58,12 @@ export default async (request) => {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
   const eventShim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
-  const claims = requireUser(eventShim); // null = unauthenticated (list is still allowed)
 
   const db = sql();
   const url = new URL(request.url);
+  // requireActiveUser (not plain requireUser) so a revoked/deactivated session can't perform
+  // user CRUD until its token expires. null = unauthenticated (the public `list` is still allowed).
+  const claims = await requireActiveUser(eventShim, db);
 
   let body = {};
   if (request.method === 'POST') {
