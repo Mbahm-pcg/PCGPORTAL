@@ -1,5 +1,5 @@
 
-import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG } from './src/icons.jsx';
+import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG, BTN } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
@@ -3445,6 +3445,8 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
         {displayUsers.map(u => {
           const rc = roleColor(u.userType);
           const isInactive = u.active === false;
+          // Uniform action-button style (no flex stretch) so every card's action row is identical.
+          const actBtn = (extra = {}) => ({ ...btn(th, { padding:"0.4rem 0.7rem", fontSize:"0.72rem", ...extra }), display:"inline-flex", alignItems:"center", gap:"0.35rem", whiteSpace:"nowrap" });
           return (
             <div key={u.id} style={{ ...card(th), padding:0, overflow:"hidden", opacity: isInactive ? 0.6 : 1, border:`1px solid ${th.cardBorder}`, display:"flex", flexDirection:"column" }}>
               {/* Card header */}
@@ -3459,17 +3461,17 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                 <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"0.3rem", flexShrink:0 }}>
                   <span style={{ fontSize:"0.62rem", fontWeight:700, color:rc, background:`${rc}20`, border:`1px solid ${rc}44`, borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap" }}>{roleLabel(u.userType)}</span>
                   <span style={{ fontSize:"0.62rem", fontWeight:700, color: isInactive?"#f87171":"#4ade80", background: isInactive?"#f8717118":"#4ade8018", border:`1px solid ${isInactive?"#f8717144":"#4ade8044"}`, borderRadius:999, padding:"0.15rem 0.55rem" }}>{isInactive?"Inactive":"Active"}</span>
-                  {u.locked && <span title={`Locked after ${u.failedAttempts || 5} failed login attempts`} style={{ fontSize:"0.62rem", fontWeight:700, color:"#f87171", background:"#f8717118", border:"1px solid #f8717155", borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap" }}>🔒 Locked</span>}
+                  {u.locked && <span title={`Locked after ${u.failedAttempts || 5} failed login attempts`} style={{ fontSize:"0.62rem", fontWeight:700, color:"#f87171", background:"#f8717118", border:"1px solid #f8717155", borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:"0.25rem" }}><Icon d={BTN.lock} size={10} color="#f87171" />Locked</span>}
                 </div>
               </div>
 
               {/* Card body */}
               <div style={{ padding:"0.875rem 1.25rem", flex:1, display:"flex", flexDirection:"column", gap:"0.45rem" }}>
                 <div style={{ fontSize:"0.72rem", color:th.text, fontWeight:500 }}>{u.role || "—"}</div>
-                {u.email && <div style={{ fontSize:"0.7rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>✉ {u.email}</div>}
-                {u.phone && <div style={{ fontSize:"0.7rem", color:th.muted }}>📱 {u.phone}</div>}
-                <div style={{ fontSize:"0.68rem", color:th.muted, marginTop:"0.25rem", display:"flex", justifyContent:"space-between" }}>
-                  <span>{u.darkMode ? "🌙 Dark" : "☀️ Light"} · {u.region||"PA"}</span>
+                {u.email && <div style={{ fontSize:"0.7rem", color:th.muted, display:"flex", alignItems:"center", gap:"0.35rem", overflow:"hidden" }}><Icon d={BTN.mail} size={12} color={th.muted} /><span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.email}</span></div>}
+                {u.phone && <div style={{ fontSize:"0.7rem", color:th.muted, display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.phone} size={12} color={th.muted} />{u.phone}</div>}
+                <div style={{ fontSize:"0.68rem", color:th.muted, marginTop:"0.25rem", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:"0.35rem" }}><Icon d={u.darkMode ? BTN.moon : BTN.sun} size={12} color={th.muted} />{u.darkMode ? "Dark" : "Light"} · {u.region||"PA"}</span>
                   <span>{u.lastLogin ? new Date(u.lastLogin).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "Never logged in"}</span>
                 </div>
                 {isTwoFactorRequired(u) && (
@@ -3482,38 +3484,38 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                     ? (stores || []).find(s => String(s.pc) === String(u.storePC))
                     : (stores || []).find(s => isManagersStore(s, u));
                   return assigned
-                    ? <div style={{ fontSize:"0.68rem", color:"#3b82f6", fontWeight:700, marginTop:"0.15rem" }}>📍 {assigned.name} · D{assigned.district}</div>
-                    : <div style={{ fontSize:"0.68rem", color:"#f59e0b", fontWeight:600, marginTop:"0.15rem" }}>⚠️ No store assigned</div>;
+                    ? <div style={{ fontSize:"0.68rem", color:"#3b82f6", fontWeight:700, marginTop:"0.15rem", display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.pin} size={12} color="#3b82f6" />{assigned.name} · D{assigned.district}</div>
+                    : <div style={{ fontSize:"0.68rem", color:"#f59e0b", fontWeight:600, marginTop:"0.15rem", display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.alert} size={12} color="#f59e0b" />No store assigned</div>;
                 })()}
               </div>
 
-              {/* Card actions */}
-              <div style={{ padding:"0.625rem 1rem", borderTop:`1px solid ${th.cardBorder}`, display:"flex", gap:"0.4rem", flexWrap:"wrap", background:th.card2 }}>
+              {/* Card actions — routine actions left, destructive group (sign-out / delete) divided to the right */}
+              <div style={{ padding:"0.625rem 1rem", borderTop:`1px solid ${th.cardBorder}`, display:"flex", gap:"0.4rem", flexWrap:"wrap", alignItems:"center", background:th.card2 }}>
                 {canManageUser(currentUser, u) && (
-                  <button onClick={() => startEdit(u)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", flex:1 }) }}>✏️ Edit</button>
+                  <button onClick={() => startEdit(u)} style={actBtn()}><Icon d={BTN.edit} size={13} color="#fff" />Edit</button>
                 )}
                 {canManageUser(currentUser, u) && (
-                  <button onClick={() => toggleActive(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>
-                    {isInactive ? "✅ Enable" : "⏸ Disable"}
+                  <button onClick={() => toggleActive(u.id)} style={actBtn({ background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` })}>
+                    <Icon d={isInactive ? BTN.check : BTN.power} size={13} color={th.muted} />{isInactive ? "Enable" : "Disable"}
                   </button>
                 )}
                 {u.locked && currentUser?.userType === "it" && (
-                  <button onClick={() => unlockUser(u.id)} title="Clear the failed-attempt lockout (IT only)" style={{ ...btn(th, { padding:"0.35rem 0.75rem", fontSize:"0.75rem", background:"#f8717122", color:"#f87171", border:"1px solid #f8717155" }) }}>
-                    🔓 Unlock
+                  <button onClick={() => unlockUser(u.id)} title="Clear the failed-attempt lockout (IT only)" style={actBtn({ background:"#f8717122", color:"#f87171", border:"1px solid #f8717155" })}>
+                    <Icon d={BTN.unlock} size={13} color="#f87171" />Unlock
                   </button>
                 )}
                 {isFullAdmin(currentUser) && (
                   <button onClick={() => sendPasswordReset(u)} disabled={!u.email || (emailAction?.userId===u.id && emailAction?.status==="sending")}
                     title={u.email ? "Send password reset email" : "No email on file"}
-                    style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#3b82f618", color:"#3b82f6", opacity:u.email?1:0.35 }) }}>
-                    {emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"✅ Sent":"❌ Failed") : "🔑 Reset PW"}
+                    style={actBtn({ background:"#3b82f618", color:"#3b82f6", opacity:u.email?1:0.35 })}>
+                    <Icon d={BTN.key} size={13} color="#3b82f6" />{emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"Sent":"Failed") : "Reset PW"}
                   </button>
                 )}
                 {isFullAdmin(currentUser) && !u.lastLogin && (
                   <button onClick={() => resendWelcome(u)} disabled={!u.email || (emailAction?.userId===u.id && emailAction?.status==="sending")}
                     title={u.email ? "Resend welcome email" : "No email on file"}
-                    style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#10b98118", color:"#10b981", opacity:u.email?1:0.35 }) }}>
-                    {emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"✅ Sent":"❌ Failed") : "📧 Welcome"}
+                    style={actBtn({ background:"#10b98118", color:"#10b981", opacity:u.email?1:0.35 })}>
+                    <Icon d={BTN.mail} size={13} color="#10b981" />{emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"Sent":"Failed") : "Welcome"}
                   </button>
                 )}
                 {isFullAdmin(currentUser) && isTwoFactorRequired(u) && (
@@ -3521,26 +3523,32 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                     onClick={() => revokeTrustedDevices(u)}
                     disabled={revokeAction?.userId === u.id && revokeAction?.status === "revoking"}
                     title="Revoke trusted devices — forces 2FA re-verification on next login"
-                    style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#f9731618", color:"#f97316", opacity: revokeAction?.userId === u.id && revokeAction?.status === "revoking" ? 0.5 : 1 }) }}>
-                    {revokeAction?.userId === u.id ? (revokeAction.status === "revoking" ? "Revoking…" : revokeAction.status === "ok" ? "✅ Revoked" : "❌ Failed") : "🔐 Revoke 2FA"}
+                    style={actBtn({ background:"#f9731618", color:"#f97316", opacity: revokeAction?.userId === u.id && revokeAction?.status === "revoking" ? 0.5 : 1 })}>
+                    <Icon d={BTN.shield} size={13} color="#f97316" />{revokeAction?.userId === u.id ? (revokeAction.status === "revoking" ? "Revoking…" : revokeAction.status === "ok" ? "Revoked" : "Failed") : "Revoke 2FA"}
                   </button>
                 )}
-                {currentUser?.userType === "it" && (
-                  <button
-                    onClick={() => signOutAllSessions(u)}
-                    title="Sign this user out of ALL devices now (lost/stolen device) — invalidates active sessions + trusted devices"
-                    style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#ef444418", color:"#ef4444" }) }}>
-                    🚪 Sign out all devices
-                  </button>
-                )}
-                {isFullAdmin(currentUser) && (
-                  confirmDeleteId === u.id
-                    ? <div style={{ display:"flex", gap:"0.3rem", alignItems:"center" }}>
-                        <span style={{ fontSize:"0.7rem", color:"#ef4444", fontWeight:600 }}>Delete?</span>
-                        <button onClick={() => { del(u.id); setConfirmDeleteId(null); }} style={{ ...btn(th, { padding:"0.3rem 0.6rem", fontSize:"0.72rem", background:"#ef4444", color:"#fff", border:"none" }) }}>Yes</button>
-                        <button onClick={() => setConfirmDeleteId(null)} style={{ ...btn(th, { padding:"0.3rem 0.6rem", fontSize:"0.72rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>No</button>
-                      </div>
-                    : <button onClick={() => setConfirmDeleteId(u.id)} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.75rem", background:"#ef444418", color:"#ef4444" }) }}>🗑 Delete</button>
+
+                {/* Destructive group — set apart by a divider, but kept in the natural left-aligned flow */}
+                {(currentUser?.userType === "it" || isFullAdmin(currentUser)) && (
+                  <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap", alignItems:"center", paddingLeft:"0.6rem", borderLeft:`1px solid ${th.cardBorder}` }}>
+                    {currentUser?.userType === "it" && (
+                      <button
+                        onClick={() => signOutAllSessions(u)}
+                        title="Sign this user out of ALL devices now (lost/stolen device) — invalidates active sessions + trusted devices"
+                        style={actBtn({ background:"#ef444418", color:"#ef4444" })}>
+                        <Icon d={BTN.logout} size={13} color="#ef4444" />Sign out all
+                      </button>
+                    )}
+                    {isFullAdmin(currentUser) && (
+                      confirmDeleteId === u.id
+                        ? <div style={{ display:"flex", gap:"0.3rem", alignItems:"center" }}>
+                            <span style={{ fontSize:"0.7rem", color:"#ef4444", fontWeight:600 }}>Delete?</span>
+                            <button onClick={() => { del(u.id); setConfirmDeleteId(null); }} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.72rem", background:"#ef4444", color:"#fff", border:"none" }) }}>Yes</button>
+                            <button onClick={() => setConfirmDeleteId(null)} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.72rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>No</button>
+                          </div>
+                        : <button onClick={() => setConfirmDeleteId(u.id)} title="Delete user" style={actBtn({ background:"#ef444418", color:"#ef4444" })}><Icon d={BTN.trash} size={13} color="#ef4444" />Delete</button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -20033,7 +20041,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.72";
+const APP_VERSION = "v17.74";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

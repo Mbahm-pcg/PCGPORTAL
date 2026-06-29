@@ -57,6 +57,26 @@ const ICONS = {
 
 };
 
+// Button-sized icon node definitions (pass as <Icon d={BTN.edit} size={14} />). Used for
+// the inline action buttons where ICONS' default 18px is too large next to small labels.
+const BTN = {
+  edit: <>{React.createElement("path",{d:"M12 20h9"})}{React.createElement("path",{d:"M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"})}</>,
+  power: <>{React.createElement("path",{d:"M18.36 6.64a9 9 0 1 1-12.73 0"})}{React.createElement("line",{x1:"12",y1:"2",x2:"12",y2:"12"})}</>,
+  check: <>{React.createElement("polyline",{points:"20 6 9 17 4 12"})}</>,
+  key: <>{React.createElement("circle",{cx:"7.5",cy:"15.5",r:"4.5"})}{React.createElement("path",{d:"M11 12l9-9"})}{React.createElement("path",{d:"M16 3l4 4"})}{React.createElement("path",{d:"M18 5l-2 2"})}</>,
+  mail: <>{React.createElement("path",{d:"M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"})}{React.createElement("polyline",{points:"22,6 12,13 2,6"})}</>,
+  shield: <>{React.createElement("path",{d:"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"})}</>,
+  logout: <>{React.createElement("path",{d:"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"})}{React.createElement("polyline",{points:"16 17 21 12 16 7"})}{React.createElement("line",{x1:"21",y1:"12",x2:"9",y2:"12"})}</>,
+  trash: <>{React.createElement("polyline",{points:"3 6 5 6 21 6"})}{React.createElement("path",{d:"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"})}</>,
+  lock: <>{React.createElement("rect",{x:"3",y:"11",width:"18",height:"11",rx:"2"})}{React.createElement("path",{d:"M7 11V7a5 5 0 0 1 10 0v4"})}</>,
+  unlock: <>{React.createElement("rect",{x:"3",y:"11",width:"18",height:"11",rx:"2"})}{React.createElement("path",{d:"M7 11V7a5 5 0 0 1 9.9-1"})}</>,
+  phone: <>{React.createElement("path",{d:"M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"})}</>,
+  pin: <>{React.createElement("path",{d:"M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"})}{React.createElement("circle",{cx:"12",cy:"10",r:"3"})}</>,
+  alert: <>{React.createElement("path",{d:"M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"})}{React.createElement("line",{x1:"12",y1:"9",x2:"12",y2:"13"})}{React.createElement("line",{x1:"12",y1:"17",x2:"12.01",y2:"17"})}</>,
+  sun: <>{React.createElement("circle",{cx:"12",cy:"12",r:"5"})}{React.createElement("line",{x1:"12",y1:"1",x2:"12",y2:"3"})}{React.createElement("line",{x1:"12",y1:"21",x2:"12",y2:"23"})}{React.createElement("line",{x1:"4.22",y1:"4.22",x2:"5.64",y2:"5.64"})}{React.createElement("line",{x1:"18.36",y1:"18.36",x2:"19.78",y2:"19.78"})}{React.createElement("line",{x1:"1",y1:"12",x2:"3",y2:"12"})}{React.createElement("line",{x1:"21",y1:"12",x2:"23",y2:"12"})}{React.createElement("line",{x1:"4.22",y1:"19.78",x2:"5.64",y2:"18.36"})}{React.createElement("line",{x1:"18.36",y1:"5.64",x2:"19.78",y2:"4.22"})}</>,
+  moon: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z",
+};
+
 const CAT_ICONS_SVG = {
   "Dunkin'": ICONS.coffee,
   "Payroll & HR": ICONS.briefcase,
@@ -66,4 +86,4 @@ const CAT_ICONS_SVG = {
   "Other": ICONS.links,
 };
 
-export { Icon, OrionIcon, ICONS, CAT_ICONS_SVG };
+export { Icon, OrionIcon, ICONS, CAT_ICONS_SVG, BTN };
