@@ -9062,7 +9062,11 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         const tenderLines = allLines.filter(l => l.tenderMedia && !l.vdFlag);
         const discLines = allLines.filter(l => l.discount && !l.vdFlag);
         let rLines = [];
-        rLines.push(center(store2.name ? store2.name.toUpperCase() : "DUNKIN'"));
+        rLines.push(center("Dunkin' - Baskin-Robbins'"));
+        rLines.push(center('Store #: ' + pc));
+        if (store2.address) rLines.push(center(store2.address));
+        const cityZip = ([store2.city, store2.state].filter(Boolean).join(', ') + (store2.zip ? ' ' + store2.zip : '')).trim();
+        if (cityZip) rLines.push(center(cityZip));
         rLines.push('');
         if (chk.empNum) rLines.push(pad('Emp #' + chk.empNum, 'Reg ' + (allLines[0]?.wsNum || '--')));
         rLines.push(dash);
@@ -9097,7 +9101,12 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         });
         rLines.push(''); rLines.push(center('Thank You! Come Back Soon!')); rLines.push('');
         const journalTxt = (txnModal?.journalTxt || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-        const receiptText = journalTxt || rLines.join('\n');
+        // Always render our own header-ful receipt so EVERY transaction is consistent
+        // (Dunkin' header + store # + address) — even void/refund-only checks. It's rebuilt
+        // from the real POS detail lines; the raw journal is only a defensive fallback if the
+        // synthetic somehow comes out empty.
+        const synthetic = rLines.join('\n');
+        const receiptText = synthetic.trim() ? synthetic : (journalTxt || synthetic);
 
         const isMobileModal = window.innerWidth < 700;
         return (
@@ -9112,7 +9121,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                 <div style={{ padding: '4rem', textAlign: 'center', color: th.muted }}>Loading transaction detail…</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: isMobileModal ? 'column' : 'row', gap: '1.25rem', padding: isMobileModal ? '1rem' : '1.5rem' }}>
-                  <div style={{ background: '#fff', borderRadius: 8, padding: isMobileModal ? '1.25rem' : '1.5rem 1.25rem', fontFamily: "'Courier New', monospace", fontSize: isMobileModal ? '0.85rem' : '0.73rem', color: '#1a1a1a', lineHeight: 1.7, whiteSpace: 'pre-wrap', boxShadow: '0 2px 16px rgba(0,0,0,0.14)', maxHeight: isMobileModal ? 'none' : 520, overflowY: isMobileModal ? 'visible' : 'auto', wordBreak: 'break-word', flexShrink: 0, width: isMobileModal ? '100%' : '50%', boxSizing: 'border-box' }}>
+                  <div style={{ background: '#fff', borderRadius: 8, padding: isMobileModal ? '1.25rem' : '1.5rem 1.25rem', fontFamily: "'Courier New', monospace", fontSize: isMobileModal ? '0.72rem' : '0.73rem', color: '#1a1a1a', lineHeight: 1.7, whiteSpace: 'pre-wrap', boxShadow: '0 2px 16px rgba(0,0,0,0.14)', maxHeight: isMobileModal ? 'none' : 520, overflowY: isMobileModal ? 'visible' : 'auto', wordBreak: 'break-word', flexShrink: 0, width: isMobileModal ? '100%' : '50%', boxSizing: 'border-box' }}>
                     {receiptText}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, minWidth: 0 }}>
@@ -20041,7 +20050,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.74";
+const APP_VERSION = "v17.76";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
