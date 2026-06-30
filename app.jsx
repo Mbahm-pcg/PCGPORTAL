@@ -9,6 +9,19 @@ import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWe
 
 const { useState, useRef, useCallback, useEffect } = React;
 
+// Error boundary so one failing card (e.g. an Orion call erroring on low API credits)
+// can't throw during render and white-screen the WHOLE app. React requires a class for
+// componentDidCatch. Wrap risky/optional widgets in <Guard fallback={…}>…</Guard>.
+class Guard extends React.Component {
+  constructor(props) { super(props); this.state = { failed: false }; }
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(err) { try { console.error('[Guard:' + (this.props.name || '?') + ']', err && err.message); } catch {} }
+  render() {
+    if (this.state.failed) return this.props.fallback !== undefined ? this.props.fallback : null;
+    return this.props.children;
+  }
+}
+
 const GOOGLE_CLIENT_ID = "450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com";
 const GOOGLE_ALLOWED_DOMAINS = ["peoplecapitalgroup.com", "rgi.life", "Raogroupinc.com"];
 
@@ -9052,61 +9065,26 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         const complexColor = totalQty <= 3 ? '#22c55e' : totalQty <= 6 ? '#f59e0b' : '#ef4444';
         const store2 = stores.find(st => st.pc === pc) || {};
 
-        // Build synthetic receipt
-        const dash = '----------------------------------------';
-        const pad = (l, r, w = 40) => { const gap = w - l.length - r.length; return l + (gap > 0 ? ' '.repeat(gap) : ' ') + r; };
-        const center = (s, w = 40) => { const p = Math.max(0, Math.floor((w - s.length) / 2)); return ' '.repeat(p) + s; };
+        // Parse the guest check into the pieces the structured receipt renders below.
         const opnDt = chk.opnUTC ? (() => { try { const d = new Date(chk.opnUTC.endsWith('Z') ? chk.opnUTC : chk.opnUTC + 'Z'); return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' }) + ', ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' }); } catch { return ''; } })() : '';
         const allLines = chk.detailLines || [];
         const mainItems = allLines.filter(l => l.menuItem && !l.vdFlag && !l.doNotShowFlag);
         const tenderLines = allLines.filter(l => l.tenderMedia && !l.vdFlag);
         const discLines = allLines.filter(l => l.discount && !l.vdFlag);
-        let rLines = [];
-        rLines.push(center("Dunkin' - Baskin-Robbins'"));
-        rLines.push(center('Store #: ' + pc));
-        if (store2.address) rLines.push(center(store2.address));
-        const cityZip = ([store2.city, store2.state].filter(Boolean).join(', ') + (store2.zip ? ' ' + store2.zip : '')).trim();
-        if (cityZip) rLines.push(center(cityZip));
-        rLines.push('');
-        if (chk.empNum) rLines.push(pad('Emp #' + chk.empNum, 'Reg ' + (allLines[0]?.wsNum || '--')));
-        rLines.push(dash);
-        rLines.push(pad('CHK ' + chk.chkNum, opnDt));
-        rLines.push(dash);
-        rLines.push('');
-        const seen = new Set();
-        mainItems.forEach(l => {
-          if (seen.has(l.guestCheckLineItemId)) return;
-          seen.add(l.guestCheckLineItemId);
-          const nm = menuMap[l.menuItem.miNum]?.name || `Item #${l.menuItem.miNum}`;
-          const qty = Math.abs(l.dspQty || 1);
-          const price = l.dspTtl || 0;
-          const priceStr = price !== 0 ? (price < 0 ? '-$' + Math.abs(price).toFixed(2) : '$' + price.toFixed(2)) : '';
-          rLines.push(pad('  ' + ((qty > 1 ? qty + 'x ' : '') + nm).slice(0, 33), priceStr));
-        });
-        discLines.forEach(l => {
-          const nm = menuMap[l.discount?.dscNum]?.name || 'Discount';
-          const price = l.dspTtl || 0;
-          const priceStr = price !== 0 ? (price < 0 ? '-$' + Math.abs(price).toFixed(2) : '$' + price.toFixed(2)) : '';
-          rLines.push(pad('  ' + nm.slice(0, 35), priceStr));
-        });
-        rLines.push(''); rLines.push(dash);
-        if (chk.subTtl != null) rLines.push(pad('Subtotal:', '$' + (chk.subTtl || 0).toFixed(2)));
-        if (chk.taxCollTtl) rLines.push(pad('Tax:', '$' + chk.taxCollTtl.toFixed(2)));
-        rLines.push(pad('TOTAL:', '$' + (chk.chkTtl || 0).toFixed(2)));
-        rLines.push(dash);
-        tenderLines.forEach(l => {
-          const tName = menuMap[l.tenderMedia?.tmedNum]?.name || (l.tenderMedia?.tmedNum === 1 ? 'Cash' : 'Payment');
-          const amt = l.dspTtl || 0;
-          if (amt !== 0) rLines.push(pad(tName + ':', '$' + Math.abs(amt).toFixed(2)));
-        });
-        rLines.push(''); rLines.push(center('Thank You! Come Back Soon!')); rLines.push('');
-        const journalTxt = (txnModal?.journalTxt || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-        // Always render our own header-ful receipt so EVERY transaction is consistent
-        // (Dunkin' header + store # + address) — even void/refund-only checks. It's rebuilt
-        // from the real POS detail lines; the raw journal is only a defensive fallback if the
-        // synthetic somehow comes out empty.
-        const synthetic = rLines.join('\n');
-        const receiptText = synthetic.trim() ? synthetic : (journalTxt || synthetic);
+
+        // ── Structured receipt data (styled render: bold header, single/double dividers, teal TOTAL) ──
+        const TEAL = '#0d9488';
+        const fmtP = n => ((n || 0) < 0 ? '-$' + Math.abs(n).toFixed(2) : '$' + (n || 0).toFixed(2));
+        const headerName = (store2.legal || store2.name || "Dunkin'");
+        const recCityZip = ([store2.city, store2.state].filter(Boolean).join(', ') + (store2.zip ? ' ' + store2.zip : '')).trim();
+        const recItems = [];
+        { const seenR = new Set(); mainItems.forEach(l => { if (seenR.has(l.guestCheckLineItemId)) return; seenR.add(l.guestCheckLineItemId); recItems.push({ qty: Math.abs(l.dspQty || 1), name: menuMap[l.menuItem.miNum]?.name || ('Item #' + l.menuItem.miNum), price: l.dspTtl || 0 }); }); }
+        const recDisc = discLines.map(l => ({ name: menuMap[l.discount?.dscNum]?.name || 'Discount', price: l.dspTtl || 0 }));
+        const recTenders = tenderLines.map(l => ({ name: menuMap[l.tenderMedia?.tmedNum]?.name || (l.tenderMedia?.tmedNum === 1 ? 'Cash' : 'Payment'), amt: l.dspTtl || 0 })).filter(t => t.amt !== 0);
+        const termNum = allLines[0]?.wsNum;
+        const metaRow = { display: 'flex', justifyContent: 'space-between', gap: '1rem', margin: '0.14em 0', color: '#1a1a1a' };
+        const dblDiv = { borderTop: '3px double #9ca3af', width: '72%', margin: '0.85em auto' };
+        const sglDiv = { borderTop: '1px dashed #cbd5e1', margin: '0.7em 0' };
 
         const isMobileModal = window.innerWidth < 700;
         return (
@@ -9121,8 +9099,46 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                 <div style={{ padding: '4rem', textAlign: 'center', color: th.muted }}>Loading transaction detail…</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: isMobileModal ? 'column' : 'row', gap: '1.25rem', padding: isMobileModal ? '1rem' : '1.5rem' }}>
-                  <div style={{ background: '#fff', borderRadius: 8, padding: isMobileModal ? '1.25rem' : '1.5rem 1.25rem', fontFamily: "'Courier New', monospace", fontSize: isMobileModal ? '0.72rem' : '0.73rem', color: '#1a1a1a', lineHeight: 1.7, whiteSpace: 'pre-wrap', boxShadow: '0 2px 16px rgba(0,0,0,0.14)', maxHeight: isMobileModal ? 'none' : 520, overflowY: isMobileModal ? 'visible' : 'auto', wordBreak: 'break-word', flexShrink: 0, width: isMobileModal ? '100%' : '50%', boxSizing: 'border-box' }}>
-                    {receiptText}
+                  <div style={{ background: '#fff', borderRadius: 8, padding: isMobileModal ? '1.5rem 1.25rem' : '1.75rem 1.5rem', fontFamily: "'Courier New', monospace", fontSize: isMobileModal ? '0.8rem' : '0.78rem', color: '#1a1a1a', lineHeight: 1.55, boxShadow: '0 2px 16px rgba(0,0,0,0.14)', maxHeight: isMobileModal ? 'none' : 560, overflowY: isMobileModal ? 'visible' : 'auto', wordBreak: 'break-word', flexShrink: 0, width: isMobileModal ? '100%' : '50%', boxSizing: 'border-box' }}>
+                    {/* Header */}
+                    <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '1.15em', letterSpacing: '0.04em' }}>{headerName}</div>
+                    {store2.address && <div style={{ textAlign: 'center', color: '#777', fontSize: '0.9em', marginTop: '0.15em' }}>{store2.address}</div>}
+                    {recCityZip && <div style={{ textAlign: 'center', color: '#777', fontSize: '0.9em' }}>{recCityZip}</div>}
+                    <div style={dblDiv} />
+                    {/* Meta */}
+                    <div style={metaRow}><span>Check #:</span><span>{chk.chkNum ?? '--'}</span></div>
+                    <div style={metaRow}><span>Date:</span><span>{opnDt || '--'}</span></div>
+                    {chk.empNum != null && <div style={metaRow}><span>Server:</span><span>{'Emp #' + chk.empNum}</span></div>}
+                    {termNum != null && <div style={metaRow}><span>Terminal:</span><span>{termNum}</span></div>}
+                    <div style={sglDiv} />
+                    {/* Items */}
+                    {recItems.length === 0
+                      ? <div style={{ color: '#999', textAlign: 'center', margin: '0.5em 0' }}>(no line items)</div>
+                      : recItems.map((it, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', margin: '0.2em 0' }}>
+                            <span><span style={{ display: 'inline-block', minWidth: '2.4em' }}>{it.qty}x</span>{it.name}</span>
+                            <span style={{ whiteSpace: 'nowrap' }}>{fmtP(it.price)}</span>
+                          </div>
+                        ))}
+                    {recDisc.map((d, i) => (
+                      <div key={'d' + i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', margin: '0.2em 0', color: '#16a34a' }}>
+                        <span>{d.name}</span><span style={{ whiteSpace: 'nowrap' }}>{fmtP(d.price)}</span>
+                      </div>
+                    ))}
+                    <div style={sglDiv} />
+                    {chk.subTtl != null && <div style={metaRow}><span>Subtotal:</span><span>{fmtP(chk.subTtl)}</span></div>}
+                    {chk.taxCollTtl ? <div style={metaRow}><span>Tax:</span><span>{fmtP(chk.taxCollTtl)}</span></div> : null}
+                    <div style={sglDiv} />
+                    {/* TOTAL — emphasized */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '1.3em', color: TEAL, margin: '0.3em 0' }}>
+                      <span>TOTAL:</span><span>{fmtP(chk.chkTtl)}</span>
+                    </div>
+                    {recTenders.length > 0 && <div style={dblDiv} />}
+                    {recTenders.map((t, i) => (
+                      <div key={'t' + i} style={metaRow}><span>{t.name}:</span><span>{fmtP(Math.abs(t.amt))}</span></div>
+                    ))}
+                    <div style={dblDiv} />
+                    <div style={{ textAlign: 'center', fontWeight: 700, marginTop: '0.4em' }}>Thank You! Come Back Soon!</div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, minWidth: 0 }}>
                     <div style={{ ...card(th), padding: '1rem' }}>
@@ -20050,7 +20066,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.76";
+const APP_VERSION = "v17.80";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -22903,6 +22919,62 @@ function AnomaliesTab({ stores, th, user, setTab }) {
   );
 }
 
+// District store grid — the data-first centerpiece of the DM dashboard (NO Orion dependency).
+// Per-store labor %, today's sales, and open-ticket count for the DM's district, from the same
+// pcg_labor_v1 + tickets blobs the rest of the app uses. Worst-labor stores sort first. Degrades
+// gracefully (shows "—") if a blob is missing — never throws.
+function DistrictStoreGrid({ stores, district, th, setTab, isMobile }) {
+  const [labor, setLabor] = useState(null);
+  const [tickets, setTickets] = useState([]);
+  useEffect(() => {
+    cloudLoad('pcg_labor_v1').then(d => setLabor(d || {})).catch(() => setLabor({}));
+    try { const raw = localStorage.getItem('pcg_tickets_v1'); const a = raw ? JSON.parse(raw) : []; setTickets(Array.isArray(a) ? a : (a?.data || [])); } catch { setTickets([]); }
+  }, []);
+  const districtStores = (stores || []).filter(s => String(s.district) === String(district));
+  if (!districtStores.length) return null;
+  const laborStores = labor?.stores || {};
+  const laborColor = pct => pct == null ? th.muted : pct >= 26 ? '#ef4444' : pct >= 23 ? '#f59e0b' : '#22c55e';
+  const money = n => n ? '$' + Math.round(n).toLocaleString() : '—';
+  const openTicketsFor = pc => tickets.filter(t => String(t.storePC) === String(pc) && t.status !== 'Closed').length;
+  const rows = districtStores.map(s => {
+    const td = laborStores[s.pc]?.today || {};
+    const wtd = laborStores[s.pc]?.wtd || {};
+    return { s, todayPct: td.laborPct ?? null, wtdPct: wtd.laborPct ?? null, sales: td.sales || 0, openTickets: openTicketsFor(s.pc) };
+  }).sort((a, b) => (b.todayPct ?? -1) - (a.todayPct ?? -1));
+  return (
+    <div style={{ marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.7rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {ICONS.locations('#8b5cf6')}
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: th.text }}>My District</span>
+          <span style={{ fontSize: '0.65rem', color: th.muted }}>· {districtStores.length} stores</span>
+        </div>
+        <button onClick={() => setTab('locations')} style={{ background: 'none', border: 'none', color: O, fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', padding: 0 }}>View all →</button>
+      </div>
+      {labor === null ? (
+        <div style={{ ...card(th), padding: '1rem', color: th.muted, fontSize: '0.78rem' }}>Loading district…</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(250px, 1fr))', gap: '0.7rem' }}>
+          {rows.map(({ s, todayPct, wtdPct, sales, openTickets }) => (
+            <div key={s.pc} onClick={() => setTab('locations')} style={{ ...card(th), padding: '0.85rem 1rem', cursor: 'pointer', borderLeft: `3px solid ${laborColor(todayPct)}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontWeight: 700, fontSize: '0.82rem', color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                <span style={{ fontSize: '0.56rem', fontWeight: 700, color: s.status === 'Open' || !s.status ? '#22c55e' : '#f59e0b', background: (s.status === 'Open' || !s.status ? '#22c55e' : '#f59e0b') + '18', borderRadius: 999, padding: '0.1rem 0.45rem', whiteSpace: 'nowrap' }}>{s.status || 'Open'}</span>
+              </div>
+              <div style={{ display: 'flex', gap: '1.1rem', marginTop: '0.65rem' }}>
+                <div><div style={{ fontSize: '0.54rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Labor</div><div style={{ fontSize: '1.05rem', fontWeight: 800, color: laborColor(todayPct), fontFamily: "'Raleway'" }}>{todayPct != null ? todayPct.toFixed(1) + '%' : '—'}</div></div>
+                <div><div style={{ fontSize: '0.54rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.4 }}>WTD</div><div style={{ fontSize: '1.05rem', fontWeight: 800, color: laborColor(wtdPct), fontFamily: "'Raleway'" }}>{wtdPct != null ? wtdPct.toFixed(1) + '%' : '—'}</div></div>
+                <div><div style={{ fontSize: '0.54rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Sales</div><div style={{ fontSize: '1.05rem', fontWeight: 800, color: th.text, fontFamily: "'Raleway'" }}>{money(sales)}</div></div>
+              </div>
+              {openTickets > 0 && <div style={{ marginTop: '0.5rem', fontSize: '0.66rem', color: '#3b82f6', fontWeight: 700 }}>{openTickets} open ticket{openTickets !== 1 ? 's' : ''}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert, users }) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -23431,20 +23503,31 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
         const mp = getManagerStore(stores, user);
         return mp?.pc ? (
           <div style={{ marginBottom: "1.25rem", display: 'grid', gap: '0.85rem', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start', maxWidth: 1080 }}>
-            <ManagerOrionBrief pc={mp.pc} storeName={mp.name} th={th} />
-            <ForecastPrePlanCard pc={mp.pc} storeName={mp.name} th={th} />
+            <Guard name="manager-brief" fallback={null}><ManagerOrionBrief pc={mp.pc} storeName={mp.name} th={th} /></Guard>
+            <Guard name="forecast-preplan" fallback={null}><ForecastPrePlanCard pc={mp.pc} storeName={mp.name} th={th} /></Guard>
           </div>
         ) : null;
       })()}
 
-      {/* ─── Today's Brief ───────────────────────────────────────────────────── */}
+      {/* ─── District store grid — DM data-first centerpiece (no Orion dependency) ── */}
+      {user.userType === 'dm' && (
+        <Guard name="district-grid" fallback={null}>
+          <DistrictStoreGrid stores={stores} district={user.district} th={th} setTab={setTab} isMobile={isMobile} />
+        </Guard>
+      )}
+
+      {/* ─── Today's Brief (Orion — optional; guarded so a low-credit error can't blank the page) ── */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
-        <TodayBrief user={user} th={th} setAnnouncements={setAnnouncements} showAlert={showAlert} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} />
+        <Guard name="today-brief" fallback={null}>
+          <TodayBrief user={user} th={th} setAnnouncements={setAnnouncements} showAlert={showAlert} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} />
+        </Guard>
       )}
 
       {/* ─── Action Queue ────────────────────────────────────────────────────── */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
-        <ActionQueue stores={stores} th={th} user={user} setTab={setTab} users={users} showAlert={showAlert} />
+        <Guard name="action-queue" fallback={null}>
+          <ActionQueue stores={stores} th={th} user={user} setTab={setTab} users={users} showAlert={showAlert} />
+        </Guard>
       )}
 
       {/* ─── Business Cases + Tickets ────────────────────────────────────────── */}
@@ -23455,7 +23538,9 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
         return (
         <div style={{ display:"grid", gridTemplateColumns: cols, gap:"1rem", marginBottom:"1.25rem", alignItems:"stretch" }}>
           <div style={{ ...card(th), padding:"1.1rem 1.15rem" }}>
-            <BusinessCasesCard user={user} th={th} inline={true} stores={stores} setAnnouncements={setAnnouncements} showAlert={showAlert} />
+            <Guard name="business-cases" fallback={<div style={{ color:th.muted, fontSize:"0.78rem" }}>Business cases unavailable right now.</div>}>
+              <BusinessCasesCard user={user} th={th} inline={true} stores={stores} setAnnouncements={setAnnouncements} showAlert={showAlert} />
+            </Guard>
           </div>
               {showTickets && (
                 <div style={{ ...card(th), padding:"1.1rem 1.15rem", display:"flex", flexDirection:"column" }}>
@@ -33162,7 +33247,7 @@ function EmailTab({ th, user }) {
 
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
-function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, onSwitchToFull, onTickets, onTasks, todos, projects, users }) {
+function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, announcementsDismissed, setAnnouncementsDismissed, onSwitchToFull, onTickets, onTasks, todos, projects, users }) {
   const O = '#FF671F';
   const [activeTab, setActiveTab] = React.useState('brief');
   const [brief, setBrief] = React.useState(null);
@@ -39167,7 +39252,17 @@ function PCGPortal() {
   );
 
   if (user && isMobile && !preferFullPortal && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
-    return <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} onSwitchToFull={() => togglePortalMode(true)} onTickets={() => { togglePortalMode(true); setTab("tickets"); }} onTasks={() => { togglePortalMode(true); setTab("tasks"); }} todos={todos} projects={projects} users={users} />;
+    return (
+      <Guard name="mobile-shell" fallback={
+        <div style={{ minHeight: '100dvh', background: th.bg, color: th.text, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
+          <div style={{ fontSize: '0.9rem', color: th.muted }}>The mobile view hit an error.</div>
+          <button onClick={() => togglePortalMode(true)} style={{ ...btn(th), padding: '0.6rem 1.2rem' }}>Open full portal</button>
+          <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '0.8rem', cursor: 'pointer' }}>Log out</button>
+        </div>
+      }>
+        <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} onSwitchToFull={() => togglePortalMode(true)} onTickets={() => { togglePortalMode(true); setTab("tickets"); }} onTasks={() => { togglePortalMode(true); setTab("tasks"); }} todos={todos} projects={projects} users={users} />
+      </Guard>
+    );
   }
 
   return (
@@ -39610,7 +39705,7 @@ function PCGPortal() {
         )}
 
         <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : (tab === "locations" || tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : "3vw 5vw" }}>
-          {tab === "dashboard" && <Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} />}
+          {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} /></Guard>}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
