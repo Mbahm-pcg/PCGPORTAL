@@ -976,6 +976,28 @@ export default async (request, context) => {
     }
   }
 
+  // ── Cron trigger → hand off to the 15-min background function ──────────────
+  // The full 45-store aggregation (Paycor employees/punches/shifts per store) takes
+  // minutes and cannot finish inside a synchronous scheduled function's time limit —
+  // it gets killed before the pcg_labor_v1 write, leaving the UI stale ("updated Nh ago").
+  // Netlify marks the real cron invocation with body.next_run; the background function
+  // re-invokes this handler with x-pcg-invocation:scheduled but NO next_run, so it skips
+  // this branch and runs the real aggregation below (no loop).
+  if (body?.next_run) {
+    const base = process.env.URL || process.env.DEPLOY_PRIME_URL || 'https://pcg-ops.netlify.app';
+    try {
+      const r = await fetch(`${base}/.netlify/functions/labor-cron-background`, { method: 'POST' });
+      if (!r.ok) throw new Error(`background returned ${r.status}`);
+      console.log('[labor-cron] cron trigger → dispatched labor-cron-background (15-min)');
+      return new Response(JSON.stringify({ ok: true, dispatched: 'labor-cron-background' }), { status: 202, headers });
+    } catch (e) {
+      // Surface dispatch failures as a real error (not a false 202) so they're visible in
+      // Netlify observability rather than silently leaving labor data stale.
+      console.error('[labor-cron] failed to dispatch background:', e.message);
+      return new Response(JSON.stringify({ ok: false, error: 'dispatch failed: ' + e.message }), { status: 500, headers });
+    }
+  }
+
   console.log('[labor-cron] triggered at', startedAt, isManual ? '(manual)' : '(scheduled)');
 
   try {
