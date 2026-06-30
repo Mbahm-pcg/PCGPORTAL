@@ -20066,7 +20066,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.80";
+const APP_VERSION = "v17.81";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -39705,6 +39705,10 @@ function PCGPortal() {
         )}
 
         <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : (tab === "locations" || tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : "3vw 5vw" }}>
+          {/* App-wide error boundary: any tab that throws during render shows a fallback
+              instead of white-screening the whole app. key={tab} remounts it on tab change
+              so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
+          <Guard key={tab} name="tab-content" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"2rem auto", maxWidth:520, textAlign:"center", color:th.muted }}>This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.</div>}>
           {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} /></Guard>}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
@@ -39738,6 +39742,7 @@ function PCGPortal() {
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={setTab} />}
           {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} todos={todos} setTodos={setTodos} />}
           {tab === "calendar" && user?.userType !== "maintenance" && <PortalCalendar th={th} user={user} stores={stores} todos={todos} projects={projects} />}
+          </Guard>
         </div>
       </div>
 
