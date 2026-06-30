@@ -78,12 +78,19 @@ function computeStorePar(itemHistory, opts = {}) {
     targetDate,
     weatherImpactPct = 0,
     weatherCondition = null,
+    // Holiday demand swing — learned from the store's prior-year Pulse sales on the same
+    // holiday (learnHolidayFactor). holidayUnknown = it IS a holiday but we couldn't learn a
+    // factor (no usable prior-year data) → don't fake a lift, flag it for manual review.
+    holidayFactor = 1,
+    holidayName = null,
+    holidayUnknown = false,
     safety = DEFAULT_SAFETY,
     weeks = DEFAULT_WEEKS,
   } = opts;
   const dow = dowOf(targetDate);
   const weatherMult = 1 + (weatherImpactPct || 0) / 100;
-  const totalMult = weatherMult * safety;
+  const holidayMult = (holidayFactor && holidayFactor > 0) ? holidayFactor : 1;
+  const totalMult = weatherMult * holidayMult * safety;
 
   const products = {};
   for (const sub of SUBS) {
@@ -103,25 +110,35 @@ function computeStorePar(itemHistory, opts = {}) {
     };
   }
 
+  const totalSwingPct = Math.round((weatherMult * holidayMult - 1) * 100);
   return {
     date: targetDate,
     dow,
     weatherCondition,
     weatherImpactPct,
+    holidayName,
+    holidayFactor: Math.round(holidayMult * 100) / 100,
+    holidayImpactPct: Math.round((holidayMult - 1) * 100),
+    holidayUnknown,
     safety,
     weatherMultiplier: Math.round(weatherMult * 100) / 100,
+    totalSwingPct,
     products,
-    summary: buildSummary(products, weatherImpactPct, weatherCondition),
+    summary: buildSummary(products, { weatherCondition, holidayName, holidayUnknown, totalSwingPct }),
   };
 }
 
 // One-line manager-facing rationale, e.g.:
-//   "Projected +15% (rain) — set donuts to 22 dozen (264, +48 vs avg), munchkins to 430 (+50)."
-function buildSummary(products, impactPct, condition) {
+//   "Projected +35% (Thanksgiving, rain) — set donuts to 26 dozen (312, +96 vs avg), munchkins to 480 (+90)."
+function buildSummary(products, ctx = {}) {
+  const { weatherCondition, holidayName, holidayUnknown, totalSwingPct = 0 } = ctx;
   const d = products.donut, m = products.munchkin;
-  const swing = impactPct > 0 ? `+${impactPct}%` : `${impactPct}%`;
-  const wx = condition ? ` (${condition})` : '';
-  const head = impactPct ? `Projected ${swing}${wx}` : `Typical day`;
+  const drivers = [holidayName, weatherCondition].filter(Boolean).join(', ');
+  const wx = drivers ? ` (${drivers})` : '';
+  let head;
+  if (holidayUnknown && holidayName) head = `${holidayName} — no prior-year data, review par manually`;
+  else if (totalSwingPct) head = `Projected ${totalSwingPct > 0 ? '+' : ''}${totalSwingPct}%${wx}`;
+  else head = `Typical day${wx}`;
   const dPart = d ? `donuts ${d.par} (${d.parDozens} dz, ${d.deltaVsBaseline >= 0 ? '+' : ''}${d.deltaVsBaseline} vs avg)` : '';
   const mPart = m ? `munchkins ${m.par} (${m.deltaVsBaseline >= 0 ? '+' : ''}${m.deltaVsBaseline})` : '';
   return `${head} — set ${dPart}, ${mPart}.`;

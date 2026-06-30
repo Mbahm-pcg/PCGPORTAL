@@ -353,6 +353,11 @@ export default async (request, context) => {
         targetDate: target,
         weatherCondition: cond,
         weatherImpactPct: forecast ? Math.round((forecast.weatherFactor - 1) * 100) : 0,
+        // Holiday demand swing — reuse the same learned factor already feeding the forecast.
+        // hf is null for non-holidays; a known holiday with no learnable factor is flagged.
+        holidayFactor: hf ? hf.factor : 1,
+        holidayName: hf ? hf.name : (tgtHoliday ? tgtHoliday.name : null),
+        holidayUnknown: !!tgtHoliday && !hf,
       });
 
       const dataContext = await buildStoreContext({ storePC });
