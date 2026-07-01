@@ -284,7 +284,7 @@ export async function buildItemGroupMap(repPc) {
 
 // One store's daily sales grouped by category. Reuses the already-required getMenuItemDailyTotals
 // shape; returns { hot_beverages:{sales,count}, ... } or null on failure/no data. Skips modifiers.
-async function fetchItemCategories(pc, date, groupMap) {
+export async function fetchItemCategories(pc, date, groupMap) {
   if (!groupMap || groupMap.size === 0) return null;
   const cfg = APIS[apiRoute(pc)];
   try {
