@@ -3,7 +3,8 @@
 
 import { askAnalyst, askAnalystWithTools, generateStructured } from './analyst-lib/analyst-claude.mjs';
 import { MAINT_TOOLS, executeMaintTool } from './analyst-lib/maint-actions.mjs';
-import { buildDataContext, buildKPISnapshot, buildStoreContext, buildStoreRosterContext, buildPulseComparisonContext, buildSentimentContext, buildWeatherContext, buildMaintenanceContext, buildSalesMixContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
+import { buildDataContext, buildKPISnapshot, buildStoreContext, buildStoreRosterContext, buildPulseComparisonContext, buildSentimentContext, buildWeatherContext, buildMaintenanceContext, buildSalesMixContext, buildMixComparisonContext, buildNewProductsContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
+import { NEW_PRODUCTS_KEY } from './analyst-lib/new-products.mjs';
 import { buildBriefPrompt, buildStoreBriefPrompt, buildPrePlanPrompt, buildAskPrompt, PERSONA, MAINT_ASK_SYSTEM, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
 import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
 import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
@@ -168,6 +169,43 @@ export default async (request, context) => {
             extraContext += `\n\nSales-mix drops today (product category running below its day-of-week baseline, attributed to open maintenance tickets where the equipment matches):\n${lines}`;
           }
         } catch (e) { console.warn('[analyst] sales-mix failed:', e.message); }
+      }
+
+      // Cross-store item comparison — how a store's product mix compares to its district peers.
+      // Gated to comparison/"why so low vs others" questions so it only fans out over item
+      // history when relevant. Managers → own store vs district; DM → district; exec → network.
+      // Mix-specific phrasing only — deliberately narrow so common words ("more", "than",
+      // "average") don't trigger the 45-store item-history fan-out on unrelated Pulse asks.
+      const COMPARE_Q = /\b(item mix|product mix|sales mix|mix outlier|category (mix|share|comparison)|vs (the )?district|district average|other stores?|compared to (peers?|other|district)|underperform|over-?index|sells? (fewer|less|more) \w+ than)\b/i;
+      if (COMPARE_Q.test(question || '') && (isExecRole || (effRole === 'dm' && effDistrict != null) || (effRole === 'manager' && effStorePC))) {
+        try {
+          const cmpOpts = (effRole === 'manager' && effStorePC) ? { storePC: effStorePC } : { district: isExecRole ? (effDistrict || null) : effDistrict };
+          const cmp = await buildMixComparisonContext(cmpOpts);
+          if (cmp.storesWithOutliers > 0) {
+            const lines = cmp.stores.slice(0, 8).map(st =>
+              `• ${st.name} (D${st.district}): ` + st.outliers.slice(0, 4).map(o =>
+                `${o.category} ${o.gapPct}% ${o.direction} district avg (${o.storeSharePct}% of mix vs ${o.districtSharePct}%)`
+              ).join('; ')
+            ).join('\n');
+            extraContext += `\n\nCross-store item-mix outliers (each store's category share of sales vs its district-peer average; "below" = sells relatively less of that category):\n${lines}`;
+          }
+        } catch (e) { console.warn('[analyst] mix-compare failed:', e.message); }
+      }
+
+      // New product launch performance — network adoption + ramp for tracked launches. Gated to
+      // launch/new-product questions so the registry + item-history fan-out only runs when asked.
+      const LAUNCH_Q = /\b(new (product|item|menu)|launch|debut|rollout|roll[- ]out|adoption|introduc|just added|new drink|new sandwich)\b/i;
+      if (LAUNCH_Q.test(question || '') && (isExecRole || (effRole === 'dm' && effDistrict != null) || (effRole === 'manager' && effStorePC))) {
+        try {
+          const npOpts = (effRole === 'manager' && effStorePC) ? { storePC: effStorePC } : { district: isExecRole ? (effDistrict || null) : effDistrict };
+          const np = await buildNewProductsContext(npOpts);
+          if (np.products && np.products.length) {
+            const lines = np.products.slice(0, 6).map(p =>
+              `• ${p.name}${p.launchDate ? ` (launched ${p.launchDate})` : ''}: ${p.totalUnits} units, ${p.adoption.selling}/${p.adoption.of} stores selling (${p.adoption.pct}% adoption)`
+            ).join('\n');
+            extraContext += `\n\nNew product launch performance (tracked launches, units + network adoption in scope):\n${lines}`;
+          }
+        } catch (e) { console.warn('[analyst] new-products failed:', e.message); }
       }
 
       const prompt = buildAskPrompt(question, effRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext, extraContext);
@@ -485,6 +523,63 @@ export default async (request, context) => {
       const opts = effStorePC ? { storePC: effStorePC } : { district: effDistrict || null };
       const mix = await buildSalesMixContext(opts);
       return respond(200, mix);
+    }
+
+    // ── Cross-store item comparison (9.3): category share-of-mix vs district peers ──
+    // Same allowlist + scoping as sales-mix. Managers get their own store's outliers judged
+    // against their district peers (resolved server-side); DMs their district; exec/IT network.
+    if (action === 'mix-compare') {
+      if (!new Set(['executive', 'it', 'dm', 'manager', 'office_staff']).has(effRole)) {
+        return respond(403, { error: 'Not available for your role.' });
+      }
+      const isManager = effRole === 'manager';
+      const effStorePC = isManager ? (caller?.storePC || null) : null;
+      if (isManager && !effStorePC) return respond(403, { error: 'No store resolved for your account.' });
+      if (!isExecRole && !effStorePC && effDistrict == null) {
+        return respond(403, { error: 'No scope resolved for your account.' });
+      }
+      const opts = effStorePC ? { storePC: effStorePC } : { district: effDistrict || null };
+      const cmp = await buildMixComparisonContext(opts);
+      return respond(200, cmp);
+    }
+
+    // ── New product launch tracking (9.3): network adoption + ramp ──
+    // Read is available to the same ops roles; scope mirrors sales-mix. Managers see how
+    // their own store is doing on each launch; DMs their district; exec/IT the network.
+    if (action === 'new-products') {
+      if (!new Set(['executive', 'it', 'dm', 'manager', 'office_staff']).has(effRole)) {
+        return respond(403, { error: 'Not available for your role.' });
+      }
+      const isManager = effRole === 'manager';
+      const effStorePC = isManager ? (caller?.storePC || null) : null;
+      if (isManager && !effStorePC) return respond(403, { error: 'No store resolved for your account.' });
+      if (!isExecRole && !effStorePC && effDistrict == null) {
+        return respond(403, { error: 'No scope resolved for your account.' });
+      }
+      const opts = effStorePC ? { storePC: effStorePC } : { district: effDistrict || null };
+      const np = await buildNewProductsContext(opts);
+      return respond(200, np);
+    }
+
+    // ── New product REGISTRY read/write (exec/IT only for writes) ──
+    // GET-style: any allowlisted ops role can read the registry so the tracker UI can label
+    // launches. Writes (add/remove tracked products) are exec/IT-gated.
+    if (action === 'new-products-registry') {
+      const { update } = payload;
+      if (update !== undefined) {
+        if (!isExecRole) return respond(403, { error: 'Editing tracked products is limited to Exec/IT.' });
+        if (!Array.isArray(update)) return respond(400, { error: 'update must be an array of products.' });
+        // Keep only well-formed entries; normalize terms to a trimmed string array.
+        const clean = update.filter(p => p && p.id && p.name).map(p => ({
+          id: String(p.id), name: String(p.name),
+          terms: Array.isArray(p.terms) ? p.terms.map(t => String(t).trim()).filter(Boolean) : [],
+          launchDate: p.launchDate || null, category: p.category || null,
+        }));
+        await cacheSave(NEW_PRODUCTS_KEY, clean);
+        return respond(200, { registry: clean, updated: true });
+      }
+      const registry = await cacheLoad(NEW_PRODUCTS_KEY);
+      return respond(200, { registry: Array.isArray(registry) ? registry : [] });
     }
 
     // ── Report Settings (get/update) ───────────────────────────────────

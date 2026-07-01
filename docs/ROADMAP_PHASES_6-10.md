@@ -121,9 +121,9 @@
 
 ### 9.3 Sales Mix Intelligence
 ✅ - Menu item performance by store (daily totals via Pulse getMenuItemDailyTotals — full item name + sales $ + count per store drill-down)
-- Menu item performance by daypart and day of week — not yet done
-- "Store 220 sells 40% fewer espresso drinks than district average — equipment or training issue?" — cross-store item comparison not yet done
-- Track new product launch performance across the network
+✅ - Menu item performance by daypart and day of week
+✅ - "Store 220 sells 40% fewer espresso drinks than district average — equipment or training issue?" — cross-store item comparison
+✅ - Track new product launch performance across the network
 
 ### 9.4 Guest Check Analytics
 ✅ - Average check size trending, items per transaction (avgCheck computed per store; full transaction detail modal with itemized line items via getGuestChecks)

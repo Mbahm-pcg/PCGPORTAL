@@ -7550,6 +7550,137 @@ function ManagerPulse({ stores, th, user }) {
 }
 
 // ─── Store Detail Component ──────────────────────────────────────────────────
+// Daypart × day-of-week item mix (roadmap 9.3): reads the nightly-captured catDaypart field
+// on pcg_item_history_{pc} (units by category × Morning/Midday/Afternoon/Evening) and renders a
+// heatmap, optionally filtered to a single weekday. Data accrues going forward from the snapshot
+// (and the backfill can't fill it — it needs guest checks), so it stays quiet until there's data.
+const DAYPART_COLS = ['Morning', 'Midday', 'Afternoon', 'Evening'];
+const DAYPART_HINTS = { Morning: 'to 11a', Midday: '11a–2p', Afternoon: '2–5p', Evening: '5p+' };
+function DaypartMatrix({ pc, th }) {
+  const [history, setHistory] = React.useState(null);
+  const [selDow, setSelDow]   = React.useState('all');
+
+  React.useEffect(() => {
+    let alive = true;
+    setHistory(null);
+    (async () => {
+      try {
+        const res = await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: `pcg_item_history_${pc}` }) });
+        const j = res.ok ? await res.json() : null;
+        if (alive) setHistory(Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []));
+      } catch { if (alive) setHistory([]); }
+    })();
+    return () => { alive = false; };
+  }, [pc]);
+
+  // Which weekdays actually have daypart data (drives the selector).
+  const dowsWithData = React.useMemo(() => {
+    const set = new Set();
+    for (const e of (history || [])) if (e?.catDaypart) set.add(e.dow);
+    return set;
+  }, [history]);
+
+  // Aggregate units per category × daypart over the selected weekday (or all), + day count.
+  const { matrix, cats, maxCell, days } = React.useMemo(() => {
+    const m = {}; let mx = 0, d = 0;
+    for (const e of (history || [])) {
+      if (!e?.catDaypart) continue;
+      if (selDow !== 'all' && e.dow !== selDow) continue;
+      d++;
+      for (const [cat, byDp] of Object.entries(e.catDaypart)) {
+        if (!m[cat]) m[cat] = { Morning: 0, Midday: 0, Afternoon: 0, Evening: 0, total: 0 };
+        for (const dp of DAYPART_COLS) { const v = byDp[dp] || 0; m[cat][dp] += v; m[cat].total += v; }
+      }
+    }
+    for (const cat of Object.keys(m)) for (const dp of DAYPART_COLS) mx = Math.max(mx, m[cat][dp]);
+    const ordered = Object.keys(m).sort((a, b) => m[b].total - m[a].total);
+    return { matrix: m, cats: ordered, maxCell: mx, days: d };
+  }, [history, selDow]);
+
+  if (history === null) {
+    return <div style={{ ...card(th), padding:'1rem 1.25rem', color:th.muted, fontSize:'0.8rem' }}>⏳ Loading daypart mix…</div>;
+  }
+  if (cats.length === 0) {
+    return (
+      <div style={{ ...card(th), padding:'1.5rem', color:th.muted, fontSize:'0.82rem', textAlign:'center' }}>
+        🕐 No daypart mix captured yet. This builds nightly from guest-check data — check back in a day or two.
+      </div>
+    );
+  }
+
+  const cellBg = (v) => {
+    if (v <= 0) return th.card2;
+    const t = maxCell > 0 ? v / maxCell : 0;
+    return `rgba(14,165,233,${(0.10 + t * 0.62).toFixed(3)})`; // sky-blue intensity scale
+  };
+  const peakDp = (row) => DAYPART_COLS.reduce((best, dp) => row[dp] > row[best] ? dp : best, 'Morning');
+
+  return (
+    <div style={{ ...card(th), padding:'1.1rem 1.25rem' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', flexWrap:'wrap', marginBottom:'0.3rem' }}>
+        <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.05rem', color:th.text }}>🕐 Daypart mix</span>
+        <span style={{ fontSize:'0.66rem', color:th.muted }}>
+          units by category × daypart · {days} day{days!==1?'s':''}{selDow!=='all' ? ` of ${DOW_NAMES[selDow]}` : ''}
+        </span>
+      </div>
+      {/* Weekday selector */}
+      <div style={{ display:'flex', gap:'0.3rem', flexWrap:'wrap', margin:'0.6rem 0 0.9rem' }}>
+        {[{ v:'all', l:'All' }, ...[1,2,3,4,5,6,0].map(d => ({ v:d, l:DOW_NAMES[d].slice(0,3) }))].map(opt => {
+          const disabled = opt.v !== 'all' && !dowsWithData.has(opt.v);
+          const active = selDow === opt.v;
+          return (
+            <button key={String(opt.v)} onClick={() => !disabled && setSelDow(opt.v)} disabled={disabled}
+              style={{ padding:'0.25rem 0.7rem', borderRadius:'2rem', cursor: disabled ? 'default':'pointer',
+                border:`1px solid ${active ? '#0ea5e9' : th.cardBorder}`, background: active ? '#0ea5e922' : th.card2,
+                color: active ? '#0ea5e9' : (disabled ? th.cardBorder : th.muted), fontSize:'0.7rem', fontWeight: active ? 700 : 400 }}>
+              {opt.l}
+            </button>
+          );
+        })}
+      </div>
+      {/* Heatmap */}
+      <div style={{ overflowX:'auto' }}>
+        <table style={{ borderCollapse:'separate', borderSpacing:3, width:'100%', minWidth:420 }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign:'left', fontSize:'0.68rem', color:th.muted, fontWeight:700, padding:'0 0.4rem' }}>Category</th>
+              {DAYPART_COLS.map(dp => (
+                <th key={dp} style={{ fontSize:'0.68rem', color:th.muted, fontWeight:700, padding:'0 0.3rem', whiteSpace:'nowrap' }}>
+                  {dp}<div style={{ fontSize:'0.58rem', fontWeight:400 }}>{DAYPART_HINTS[dp]}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {cats.map(cat => {
+              const row = matrix[cat]; const peak = peakDp(row);
+              return (
+                <tr key={cat}>
+                  <td style={{ fontSize:'0.74rem', fontWeight:700, color:th.text, padding:'0.2rem 0.4rem', whiteSpace:'nowrap' }}>
+                    {SALES_CAT_LABELS[cat] || cat}
+                  </td>
+                  {DAYPART_COLS.map(dp => (
+                    <td key={dp} title={`${SALES_CAT_LABELS[cat]||cat} · ${dp}: ${Math.round(row[dp]).toLocaleString()} units`}
+                      style={{ textAlign:'center', fontSize:'0.74rem', fontWeight: dp===peak ? 800 : 500,
+                        color: row[dp] > maxCell*0.55 ? '#fff' : th.text, background: cellBg(row[dp]),
+                        borderRadius:'0.35rem', padding:'0.35rem 0.3rem', minWidth:56,
+                        outline: dp===peak && row[dp]>0 ? `1px solid #0ea5e9` : 'none' }}>
+                      {row[dp] > 0 ? Math.round(row[dp]).toLocaleString() : '·'}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize:'0.64rem', color:th.muted, marginTop:'0.6rem' }}>
+        Outlined cell = each category's peak daypart. Deeper blue = more units.
+      </div>
+    </div>
+  );
+}
+
 function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, standalone = false }) {
   const s = stores.find(st => st.pc === pc);
 
@@ -8078,7 +8209,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
 
       {/* ── Tab Navigation ── */}
       <div style={{ display:'flex', alignItems:'center', gap:'0.3rem', marginBottom:'1.25rem', background:th.card, borderRadius:'999px', border:`1px solid ${th.cardBorder}`, padding:'0.3rem' }}>
-        {[{id:'sales',label:'📊 Sales'},{id:'forecast',label:'🔮 Forecast'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
+        {[{id:'sales',label:'📊 Sales'},{id:'daypart',label:'🕐 Daypart'},{id:'forecast',label:'🔮 Forecast'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
           <button key={t.id} onClick={() => {
               setStoreTab(t.id);
               if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
@@ -8128,6 +8259,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       })()}
 
       </>}
+
+      {/* ════ DAYPART TAB ════ */}
+      {storeTab === 'daypart' && <DaypartMatrix pc={pc} th={th} />}
 
       {/* ════ SALES TAB ════ */}
       {storeTab === 'sales' && <>
@@ -10894,6 +11028,16 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
       {/* ── Store Detail View ── */}
       {pulseView?.level === "store" && loaded.length > 0 && (
         <StoreDetail pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} />
+      )}
+
+      {/* ── Sales Mix Intelligence (9.3): cross-store mix outliers + new product launches ──
+          Shown in network + district views (not store detail, which has its own Daypart tab).
+          Exec drill-down into a district scopes both panels to that district. */}
+      {pulseView?.level !== "store" && (
+        <>
+          <MixComparisonSection th={th} user={user} districtOverride={pulseView?.level === "district" ? pulseView.num : null} />
+          <NewProductsSection th={th} user={user} districtOverride={pulseView?.level === "district" ? pulseView.num : null} />
+        </>
       )}
 
       {/* ── Loading Overlay ── */}
@@ -20066,7 +20210,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.82";
+const APP_VERSION = "v17.85";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -22745,6 +22889,256 @@ function SalesExplainedSection({ th, user, setTab }) {
   );
 }
 
+// Cross-store item comparison (9.3): each store's category share-of-mix vs its district-peer
+// average, surfaced as "sells relatively less/more of X". Self-contained + role-scoped server-
+// side (manager → own store, DM → district, exec → network). Degrades quietly to nothing.
+function MixComparisonSection({ th, user, districtOverride = null }) {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [showAbove, setShowAbove] = React.useState(false);
+  const isAdmin = user?.userType === 'executive' || user?.userType === 'it';
+  const scopeDistrict = districtOverride != null ? districtOverride : (user?.district ?? null);
+
+  React.useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'mix-compare', userId: user?.id, userRole: user?.userType, district: scopeDistrict }),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => { if (alive) { setData(d); setLoading(false); } })
+      .catch(() => { if (alive) { setData(null); setLoading(false); } });
+    return () => { alive = false; };
+  }, [user?.id, user?.userType, scopeDistrict]);
+
+  if (loading) return null;
+  const empty = !data || !Array.isArray(data.stores) || data.stores.length === 0;
+  // Non-admins see nothing when there's nothing to show; exec/IT get a visible empty-state so the
+  // panel is discoverable (and hints that baselines are still building / backfill not yet run).
+  if (empty && !isAdmin) return null;
+  if (empty) {
+    return (
+      <div style={{ ...card(th), padding:'1.1rem 1.25rem', marginBottom:'1.25rem', borderLeft:`3px solid #6366f1` }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.2rem' }}>
+          <span style={{ fontSize:'1rem' }}>📊</span>
+          <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.05rem', color:th.text }}>Item mix outliers</span>
+        </div>
+        <div style={{ fontSize:'0.72rem', color:th.muted }}>
+          No stores currently running far from their district-peer mix. Needs ≥3 stores/district with enough item-category history — baselines build nightly (or run the category backfill to populate now).
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...card(th), padding:'1.1rem 1.25rem', marginBottom:'1.25rem', borderLeft:`3px solid #6366f1` }}>
+      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.2rem', flexWrap:'wrap' }}>
+        <span style={{ fontSize:'1rem' }}>📊</span>
+        <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.05rem', color:th.text }}>Item mix outliers</span>
+        <span style={{ fontSize:'0.62rem', fontWeight:700, color:'#6366f1', background:'#6366f118', border:'1px solid #6366f133', borderRadius:'1rem', padding:'0.1rem 0.5rem' }}>
+          {data.storesWithOutliers} store{data.storesWithOutliers!==1?'s':''}
+        </span>
+        <button onClick={() => setShowAbove(v => !v)}
+          style={{ marginLeft:'auto', fontSize:'0.64rem', fontWeight:700, padding:'0.2rem 0.55rem', borderRadius:'1rem', cursor:'pointer', border:`1px solid ${th.cardBorder}`, background:th.card2, color:th.muted }}>
+          {showAbove ? 'Hide over-index' : 'Show over-index'}
+        </button>
+      </div>
+      <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.85rem' }}>
+        How each store's product mix compares to its district-peer average — a category running well below peers can signal an equipment, training, or merchandising gap.
+      </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem' }}>
+        {data.stores.map(st => {
+          const rows = st.outliers.filter(o => showAbove || o.direction === 'below');
+          if (!rows.length) return null;
+          return (
+            <div key={st.pc} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:'0.6rem', padding:'0.7rem 0.9rem' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom:'0.5rem' }}>
+                <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.9rem', color:th.text }}>{st.name}</span>
+                <span style={{ fontSize:'0.6rem', color:th.muted }}>D{st.district}</span>
+              </div>
+              {rows.map(o => {
+                const below = o.direction === 'below';
+                const col = below ? '#ef4444' : '#10b981';
+                return (
+                  <div key={o.category} style={{ display:'flex', alignItems:'center', gap:'0.6rem', padding:'0.35rem 0', borderTop:`1px solid ${th.cardBorder}55` }}>
+                    <div style={{ minWidth:130, flexShrink:0 }}>
+                      <div style={{ fontSize:'0.8rem', fontWeight:700, color:th.text }}>{SALES_CAT_LABELS[o.category] || o.category}</div>
+                      <div style={{ fontSize:'0.66rem', color:col, fontWeight:700 }}>
+                        {below ? '↓' : '↑'} {o.gapPct}% {below ? 'below' : 'above'} district
+                      </div>
+                    </div>
+                    <div style={{ flex:1, minWidth:0, fontSize:'0.72rem', color:th.text }}>
+                      {o.storeSharePct}% of this store's mix vs <b>{o.districtSharePct}%</b> district avg
+                      {below && <span style={{ fontSize:'0.64rem', color:th.muted }}> · equipment or training issue?</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// New product launch tracker (9.3): network adoption + ramp for tracked launches, plus an
+// exec/IT-only registry editor. Self-contained; scoped server-side. Quiet when nothing tracked.
+function NewProductsSection({ th, user, districtOverride = null }) {
+  const [data, setData]       = React.useState(null);
+  const [registry, setRegistry] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [editing, setEditing] = React.useState(false);
+  const [saving, setSaving]   = React.useState(false);
+  const [form, setForm]       = React.useState({ name:'', terms:'', launchDate:'', category:'' });
+  const O = '#FF671F';
+  const isAdmin = user?.userType === 'executive' || user?.userType === 'it';
+  const scopeDistrict = districtOverride != null ? districtOverride : (user?.district ?? null);
+
+  const load = React.useCallback(() => {
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'new-products', userId: user?.id, userRole: user?.userType, district: scopeDistrict }),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => setData(d))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [user?.id, user?.userType, scopeDistrict]);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const loadRegistry = React.useCallback(() => {
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'new-products-registry', userId: user?.id, userRole: user?.userType }),
+    }).then(r => r.ok ? r.json() : Promise.reject()).then(d => setRegistry(Array.isArray(d.registry) ? d.registry : [])).catch(() => setRegistry([]));
+  }, [user?.id, user?.userType]);
+
+  const openEditor = () => { setEditing(true); if (registry == null) loadRegistry(); };
+
+  const saveRegistry = async (next) => {
+    setSaving(true);
+    try {
+      const r = await fetch('/.netlify/functions/analyst', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'new-products-registry', userId: user?.id, userRole: user?.userType, update: next }),
+      });
+      if (r.ok) { const d = await r.json(); setRegistry(d.registry || next); load(); }
+    } catch {}
+    setSaving(false);
+  };
+
+  const addProduct = () => {
+    const name = form.name.trim();
+    if (!name) return;
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `p${(registry||[]).length+1}`;
+    const terms = form.terms.split(',').map(t => t.trim()).filter(Boolean);
+    const next = [ ...(registry || []).filter(p => p.id !== id), { id, name, terms, launchDate: form.launchDate || null, category: form.category || null } ];
+    setForm({ name:'', terms:'', launchDate:'', category:'' });
+    saveRegistry(next);
+  };
+  const removeProduct = (id) => saveRegistry((registry || []).filter(p => p.id !== id));
+
+  // Show the panel if there's data OR the admin can start tracking (so it's discoverable).
+  const hasData = data && Array.isArray(data.products) && data.products.length > 0;
+  if (loading) return null;
+  if (!hasData && !isAdmin) return null;
+
+  return (
+    <div style={{ ...card(th), padding:'1.1rem 1.25rem', marginBottom:'1.25rem', borderLeft:`3px solid #0ea5e9` }}>
+      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.2rem', flexWrap:'wrap' }}>
+        <span style={{ fontSize:'1rem' }}>🚀</span>
+        <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.05rem', color:th.text }}>New product launches</span>
+        {hasData && <span style={{ fontSize:'0.62rem', fontWeight:700, color:'#0ea5e9', background:'#0ea5e918', border:'1px solid #0ea5e933', borderRadius:'1rem', padding:'0.1rem 0.5rem' }}>
+          {data.products.length} tracked
+        </span>}
+        {isAdmin && (
+          <button onClick={openEditor}
+            style={{ marginLeft:'auto', fontSize:'0.64rem', fontWeight:700, padding:'0.2rem 0.55rem', borderRadius:'1rem', cursor:'pointer', border:`1px solid ${O}44`, background:O+'15', color:O }}>
+            ⚙︎ Manage tracked products
+          </button>
+        )}
+      </div>
+      <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.85rem' }}>
+        Network rollout of tracked launches — units sold, how many stores are selling it, and the early ramp.
+      </div>
+
+      {hasData ? (
+        <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem' }}>
+          {data.products.map(p => {
+            const maxRamp = Math.max(1, ...(p.ramp || []).map(r => r.units));
+            return (
+              <div key={p.id} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:'0.6rem', padding:'0.7rem 0.9rem' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', flexWrap:'wrap', marginBottom:'0.4rem' }}>
+                  <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.92rem', color:th.text }}>{p.name}</span>
+                  {p.launchDate && <span style={{ fontSize:'0.62rem', color:th.muted }}>launched {p.launchDate}</span>}
+                  <span style={{ marginLeft:'auto', fontSize:'0.72rem', fontWeight:800, color:'#0ea5e9' }}>{p.totalUnits.toLocaleString()} units</span>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', marginBottom:'0.45rem' }}>
+                  <div style={{ flex:1, height:6, borderRadius:3, background:th.cardBorder, overflow:'hidden' }}>
+                    <div style={{ width:`${p.adoption.pct}%`, height:'100%', background:'#0ea5e9' }} />
+                  </div>
+                  <span style={{ fontSize:'0.68rem', fontWeight:700, color:th.text, whiteSpace:'nowrap' }}>
+                    {p.adoption.selling}/{p.adoption.of} stores ({p.adoption.pct}%)
+                  </span>
+                </div>
+                {p.ramp && p.ramp.length > 1 && (
+                  <div style={{ display:'flex', alignItems:'flex-end', gap:2, height:34, marginBottom:'0.3rem' }}>
+                    {p.ramp.map(r => (
+                      <div key={r.day} title={`Day ${r.day}: ${r.units} units`}
+                        style={{ flex:1, height:`${Math.max(6, (r.units/maxRamp)*100)}%`, background:'#0ea5e9aa', borderRadius:'2px 2px 0 0' }} />
+                    ))}
+                  </div>
+                )}
+                {p.topStores && p.topStores.length > 0 && (
+                  <div style={{ fontSize:'0.66rem', color:th.muted }}>
+                    Top: {p.topStores.slice(0,3).map(s => `${s.name} (${s.units})`).join(' · ')}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ fontSize:'0.72rem', color:th.muted, fontStyle:'italic' }}>
+          No launches tracked yet{isAdmin ? ' — add one to start measuring network rollout.' : '.'}
+        </div>
+      )}
+
+      {editing && isAdmin && (
+        <div style={{ marginTop:'0.9rem', paddingTop:'0.8rem', borderTop:`1px solid ${th.cardBorder}` }}>
+          <div style={{ fontSize:'0.72rem', fontWeight:800, color:th.text, marginBottom:'0.5rem' }}>Tracked products</div>
+          {(registry || []).map(p => (
+            <div key={p.id} style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.3rem 0', fontSize:'0.72rem', color:th.text }}>
+              <span style={{ fontWeight:700 }}>{p.name}</span>
+              <span style={{ fontSize:'0.62rem', color:th.muted }}>
+                {p.launchDate || 'no date'}{p.terms && p.terms.length ? ` · match: ${p.terms.join(', ')}` : ''}
+              </span>
+              <button onClick={() => removeProduct(p.id)} disabled={saving}
+                style={{ marginLeft:'auto', fontSize:'0.66rem', color:'#ef4444', background:'transparent', border:'none', cursor:'pointer' }}>Remove</button>
+            </div>
+          ))}
+          {registry != null && registry.length === 0 && <div style={{ fontSize:'0.68rem', color:th.muted, fontStyle:'italic' }}>None yet.</div>}
+          <div style={{ display:'flex', gap:'0.4rem', flexWrap:'wrap', marginTop:'0.6rem', alignItems:'center' }}>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name:e.target.value }))} placeholder="Product name" style={{ ...inp(th), fontSize:'0.72rem', padding:'0.35rem 0.5rem', flex:'2 1 140px' }} />
+            <input value={form.terms} onChange={e => setForm(f => ({ ...f, terms:e.target.value }))} placeholder="Match terms (comma-sep, optional)" style={{ ...inp(th), fontSize:'0.72rem', padding:'0.35rem 0.5rem', flex:'2 1 160px' }} />
+            <input value={form.launchDate} onChange={e => setForm(f => ({ ...f, launchDate:e.target.value }))} type="date" style={{ ...inp(th), fontSize:'0.72rem', padding:'0.35rem 0.5rem', flex:'1 1 120px' }} />
+            <button onClick={addProduct} disabled={saving || !form.name.trim()}
+              style={{ fontSize:'0.72rem', fontWeight:700, padding:'0.4rem 0.8rem', borderRadius:'0.4rem', cursor: form.name.trim() ? 'pointer':'default', border:`1px solid ${O}55`, background:O+'18', color:O, opacity: form.name.trim()?1:0.5 }}>
+              {saving ? '…' : '+ Add'}
+            </button>
+          </div>
+          <div style={{ fontSize:'0.62rem', color:th.muted, marginTop:'0.4rem' }}>
+            Match terms are matched (case-insensitive) against POS item names; leave blank to match on the product name. Backfill fills history for past dates.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AnomaliesTab({ stores, th, user, setTab }) {
   const [laborData,      setLaborData]      = React.useState(null);
   const [laborMeta,      setLaborMeta]      = React.useState(null); // full blob for lastUpdated
@@ -22955,7 +23349,8 @@ function AnomaliesTab({ stores, th, user, setTab }) {
         </div>
       </div>
 
-      {/* Sales Mix Intelligence — category drops attributed to open tickets */}
+      {/* Sales Mix Intelligence (9.3) — category drops attributed to open tickets.
+          (Cross-store mix outliers + new product launches live in the Pulse tab.) */}
       <SalesExplainedSection th={th} user={user} setTab={setTab} />
 
       {/* List */}

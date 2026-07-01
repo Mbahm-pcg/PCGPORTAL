@@ -6,7 +6,8 @@
 //
 // Trigger: POST { token: <MIGRATION_SECRET>, days?: 70, batch?: 8 }
 import { cacheLoad, cacheSave } from './analyst-lib/analyst-cache.mjs';
-import { STORES, apiRoute, buildItemGroupMap, fetchItemCategories } from './pulse-hourly-snapshot.mjs';
+import { STORES, apiRoute, buildItemGroupMap, fetchItemMix } from './pulse-hourly-snapshot.mjs';
+import { loadNewProductRegistry } from './analyst-lib/new-products.mjs';
 
 export const config = { background: true };
 
@@ -28,6 +29,12 @@ export default async (request) => {
     routeGroup[route] = await buildItemGroupMap(rep.pc);
   }
 
+  // New-product registry (matched from the same getMenuItemDailyTotals call), so a launch added
+  // to the tracker gets its historical units filled in too. `catDaypart` is NOT backfillable here
+  // (it needs guest checks, not menu-item totals) and accrues nightly going forward.
+  const registry = await loadNewProductRegistry(cacheLoad);
+  const fillProducts = body.products !== false && registry.length > 0;
+
   let storesTouched = 0, entriesFilled = 0, storesSkipped = 0;
 
   const runStore = async (store) => {
@@ -41,9 +48,16 @@ export default async (request) => {
     let changed = false;
     // Oldest-relevant window only; entries are newest-first, so the first `days` cover it.
     for (const e of hist.slice(0, days)) {
-      if (!e || !e.date || e.categories) continue; // skip already-filled (idempotent)
-      const cats = await fetchItemCategories(store.pc, e.date, groupMap);
-      if (cats) { e.categories = cats; entriesFilled++; changed = true; }
+      if (!e || !e.date) continue;
+      const needCats = !e.categories;
+      // Use key-presence, not null-check: the snapshot (and a prior backfill pass) writes a
+      // `newProducts` key of null when a day has no tracked-product sales, so `== null` would
+      // re-fetch those no-match days on every run. Only entries predating the field lack the key.
+      const needProducts = fillProducts && !('newProducts' in e);
+      if (!needCats && !needProducts) continue; // both already present (idempotent)
+      const { categories, newProducts } = await fetchItemMix(store.pc, e.date, groupMap, fillProducts ? registry : []);
+      if (needCats && categories) { e.categories = categories; entriesFilled++; changed = true; }
+      if (needProducts) { e.newProducts = newProducts || null; changed = true; }
     }
     if (changed) await cacheSave(key, hist);
     storesTouched++;

@@ -9,6 +9,8 @@ import { BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, INGREDIENT_COSTS } from '.
 import { sql } from '../_shared/db.mjs';
 import { SHIFT_WINDOWS as TASK_SHIFT_WINDOWS } from '../tasks-lib/catalog.js';
 import { analyzeStoreMix } from './sales-attribution.mjs';
+import { analyzeCrossStoreMix } from './sales-mix-compare.mjs';
+import { analyzeNewProducts, loadNewProductRegistry } from './new-products.mjs';
 
 // ── Pulse POS direct fetcher (same API as pulse-hourly-snapshot.js) ─────────
 const POS_APIS = {
@@ -942,6 +944,50 @@ async function buildSalesMixContext({ district = null, storePC = null, dropThres
   return { storesAnalyzed: stores.length, storesWithDrops: results.length, stores: results };
 }
 
+// Sales Mix Intelligence (9.3): cross-store item comparison. Loads the item-category history
+// for a PEER SET, profiles each store's share-of-mix, and flags stores whose category share is
+// far from their district-peer average ("Store 220 sells 40% fewer espresso than district avg").
+// Scope note: a single store can only be judged against its peers, so a manager/store request
+// loads the whole DISTRICT to build the average, then returns only that store's outliers.
+// opts: { district, storePC }. Returns { storesAnalyzed, storesWithOutliers, stores: [...] }.
+async function buildMixComparisonContext({ district = null, storePC = null } = {}) {
+  let peerStores = STORES;
+  let focusPC = null;
+  if (storePC) {
+    focusPC = String(storePC);
+    const self = STORES.find(s => String(s.pc) === focusPC);
+    peerStores = self ? STORES.filter(s => String(s.district) === String(self.district)) : [];
+  } else if (district != null) {
+    peerStores = STORES.filter(s => String(s.district) === String(district));
+  }
+
+  const storeHistories = await Promise.all(peerStores.map(async (store) => ({
+    store,
+    history: await cacheLoad(`pcg_item_history_${store.pc}`).catch(() => null),
+  })));
+
+  let results = analyzeCrossStoreMix(storeHistories);
+  if (focusPC) results = results.filter(r => String(r.pc) === focusPC);
+  return { storesAnalyzed: peerStores.length, storesWithOutliers: results.length, stores: results };
+}
+
+// Sales Mix Intelligence (9.3): new product launch tracking. Loads the tracked-product registry
+// (pcg_new_products_v1) + every in-scope store's item history and computes network adoption,
+// ramp curve, and top/lagging stores per launch. opts: { district, storePC }.
+async function buildNewProductsContext({ district = null, storePC = null } = {}) {
+  const registry = await loadNewProductRegistry(cacheLoad);
+  if (!Array.isArray(registry) || registry.length === 0) return { products: [], registered: 0 };
+  let stores = STORES;
+  if (storePC) stores = STORES.filter(s => String(s.pc) === String(storePC));
+  else if (district != null) stores = STORES.filter(s => String(s.district) === String(district));
+  const storeHistories = await Promise.all(stores.map(async (store) => ({
+    store,
+    history: await cacheLoad(`pcg_item_history_${store.pc}`).catch(() => null),
+  })));
+  const products = analyzeNewProducts(registry, storeHistories);
+  return { registered: registry.length, storesAnalyzed: stores.length, products };
+}
+
 async function buildCashContext({ district } = {}) {
   return summarizeCash(await cacheLoad('pcg_cash_deposits_v1'), district || null, new Date(), STORES);
 }
@@ -1319,6 +1365,8 @@ export {
   buildProjectsContext,
   buildTicketsContext,
   buildSalesMixContext,
+  buildMixComparisonContext,
+  buildNewProductsContext,
   buildMaintenanceContext,
   loadAllTickets,
   buildCashContext,

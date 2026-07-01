@@ -6,6 +6,7 @@
 import https from 'node:https';
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { classifyItem } from './food-cost.mjs';
+import { loadNewProductRegistry, matchNewProducts } from './analyst-lib/new-products.mjs';
 
 export const config = { schedule: '30 2 * * *' };
 
@@ -264,9 +265,11 @@ export async function buildBakeryClassMap(repPc) {
   return m;
 }
 
-// Build a miNum → category group map (hot_beverages / cold_beverages / frozen / sandwiches /
-// wraps / bakery / snacks_sides / bottled / other) for a Pulse route, using classifyItem.
-// Powers Sales-Mix Intelligence: per-store daily sales-by-category, stored in item history.
+// Build a miNum → { group, name } map for a Pulse route (group ∈ hot_beverages /
+// cold_beverages / frozen / sandwiches / wraps / bakery / snacks_sides / bottled / other,
+// via classifyItem). Powers Sales-Mix Intelligence: per-store daily sales-by-category +
+// daypart mix (group), and new-product launch matching (name, since getMenuItemDailyTotals
+// returns only the item number).
 export async function buildItemGroupMap(repPc) {
   const cfg = APIS[apiRoute(repPc)];
   const m = new Map();
@@ -274,7 +277,7 @@ export async function buildItemGroupMap(repPc) {
     const dims = await postJSON(cfg, 'getMenuItemDimensions', { locRef: repPc });
     for (const mi of (dims?.menuItems || [])) {
       const g = classifyItem(mi.name)?.group;
-      if (g) m.set(String(mi.num), g);
+      if (g) m.set(String(mi.num), { group: g, name: mi.name });
     }
   } catch (e) {
     console.warn(`[hourly-snapshot] item group map failed for ${repPc}: ${e.message}`);
@@ -282,10 +285,49 @@ export async function buildItemGroupMap(repPc) {
   return m;
 }
 
-// One store's daily sales grouped by category. Reuses the already-required getMenuItemDailyTotals
-// shape; returns { hot_beverages:{sales,count}, ... } or null on failure/no data. Skips modifiers.
-export async function fetchItemCategories(pc, date, groupMap) {
+// ── Dayparts (ET) for the daypart × day-of-week item matrix (roadmap 9.3) ──
+export const DAYPARTS = ['Morning', 'Midday', 'Afternoon', 'Evening'];
+export function daypartFor(hour) {
+  if (hour == null) return null;
+  if (hour < 11) return 'Morning';
+  if (hour < 14) return 'Midday';
+  if (hour < 17) return 'Afternoon';
+  return 'Evening';
+}
+
+// Category units by daypart from a day's guest checks (reuses the detailLines already in the
+// getGuestChecks payload — no extra API call). Returns { [group]: { Morning, Midday, Afternoon,
+// Evening } } of unit counts, skipping voids/modifiers, or null when the group map is empty.
+export function extractCategoryDaypart(checks, groupMap) {
   if (!groupMap || groupMap.size === 0) return null;
+  const out = {};
+  for (const c of (checks || [])) {
+    const dp = daypartFor(etHour(c.opnUTC));
+    if (!dp) continue;
+    for (const d of (c.detailLines || [])) {
+      if (!d.menuItem || d.vdFlag || (d.dspQty || 0) <= 0) continue;
+      const info = groupMap.get(String(d.menuItem.miNum));
+      const group = info?.group;
+      if (!group || group === 'modifier' || group === 'other') continue;
+      if (!out[group]) out[group] = { Morning: 0, Midday: 0, Afternoon: 0, Evening: 0 };
+      out[group][dp] += d.dspQty;
+    }
+  }
+  // Round + drop empty groups.
+  for (const g of Object.keys(out)) {
+    let any = 0;
+    for (const dp of DAYPARTS) { out[g][dp] = Math.round(out[g][dp] * 10) / 10; any += out[g][dp]; }
+    if (any <= 0) delete out[g];
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+// One store's daily menu-item totals, rolled up two ways in a SINGLE getMenuItemDailyTotals
+// call: (1) sales by category { hot_beverages:{sales,count}, ... }, and (2) units/sales for any
+// tracked new products (registry from new-products.mjs, matched by item name). groupMap is
+// miNum → { group, name }. Returns { categories, newProducts } (each null when empty).
+export async function fetchItemMix(pc, date, groupMap, registry = []) {
+  if (!groupMap || groupMap.size === 0) return { categories: null, newProducts: null };
   const cfg = APIS[apiRoute(pc)];
   try {
     const json = await postJSON(cfg, 'getMenuItemDailyTotals', {
@@ -294,20 +336,37 @@ export async function fetchItemCategories(pc, date, groupMap) {
       include: 'revenueCenters.menuItems.miNum,revenueCenters.menuItems.slsTtl,revenueCenters.menuItems.slsCnt',
     });
     const cats = {};
+    const newProducts = {};
+    const track = Array.isArray(registry) && registry.length > 0;
     for (const rc of (json?.revenueCenters || [])) {
       for (const mi of (rc.menuItems || [])) {
-        const group = groupMap.get(String(mi.miNum)) || 'other';
-        if (group === 'modifier') continue;
-        if (!cats[group]) cats[group] = { sales: 0, count: 0 };
-        cats[group].sales += mi.slsTtl || 0;
-        cats[group].count += mi.slsCnt || 0;
+        const info = groupMap.get(String(mi.miNum));
+        const group = info?.group || 'other';
+        const sales = mi.slsTtl || 0, count = mi.slsCnt || 0;
+        if (group !== 'modifier') {
+          if (!cats[group]) cats[group] = { sales: 0, count: 0 };
+          cats[group].sales += sales;
+          cats[group].count += count;
+        }
+        // New-product matching by item name (case-insensitive substring).
+        if (track && info?.name) {
+          for (const id of matchNewProducts(registry, info.name)) {
+            if (!newProducts[id]) newProducts[id] = { units: 0, sales: 0 };
+            newProducts[id].units += count;
+            newProducts[id].sales += sales;
+          }
+        }
       }
     }
     for (const g in cats) cats[g].sales = Math.round(cats[g].sales * 100) / 100;
-    return Object.keys(cats).length ? cats : null;
+    for (const id in newProducts) newProducts[id].sales = Math.round(newProducts[id].sales * 100) / 100;
+    return {
+      categories: Object.keys(cats).length ? cats : null,
+      newProducts: Object.keys(newProducts).length ? newProducts : null,
+    };
   } catch (e) {
-    console.warn(`[hourly-snapshot] item categories failed for ${pc}: ${e.message}`);
-    return null;
+    console.warn(`[hourly-snapshot] item mix failed for ${pc}: ${e.message}`);
+    return { categories: null, newProducts: null };
   }
 }
 
@@ -356,7 +415,7 @@ export function extractBakery(checks, bakeryClass) {
   return { bakery, flavors };
 }
 
-async function fetchHourlySales(pc, busDt, bakeryClass) {
+async function fetchHourlySales(pc, busDt, bakeryClass, groupMap = null) {
   const cfg = APIS[apiRoute(pc)];
   try {
     const json = await postJSON(cfg, 'getGuestChecks', {
@@ -388,10 +447,12 @@ async function fetchHourlySales(pc, busDt, bakeryClass) {
 
     const upsellRate = totalChecks > 0 ? Math.round((upsoldChecks / totalChecks) * 1000) / 10 : null;
 
-    // Donut/munchkin units (no extra API call — detailLines are already in the payload).
+    // Donut/munchkin units + category-by-daypart mix (both from the detailLines already in the
+    // payload — no extra API calls).
     const { bakery, flavors } = extractBakery(checks, bakeryClass);
+    const catDaypart = extractCategoryDaypart(checks, groupMap);
 
-    return { hours, upsoldChecks, totalChecks, upsellRate, bakery, flavors };
+    return { hours, upsoldChecks, totalChecks, upsellRate, bakery, flavors, catDaypart };
 
   } catch (e) {
     console.warn(`[hourly-snapshot] Guest checks failed for ${pc}: ${e.message}`);
@@ -425,12 +486,12 @@ export function dowFor(date) {
 // Per-store donut/munchkin history → pcg_item_history_{pc} (separate blob from the
 // hourly sales history so existing analyst consumers are untouched). Feeds the Par
 // Level Optimizer: per-DOW unit baselines + hourly series for mid-day stockout detection.
-export async function appendItemSnapshot(pc, date, weather, bakery, flavors, categories) {
+export async function appendItemSnapshot(pc, date, weather, bakery, flavors, categories, catDaypart = null, newProducts = null) {
   const key = `pcg_item_history_${pc}`;
   const existing = (await cacheLoad(key)) || [];
   const entries = Array.isArray(existing) ? existing : [];
   const filtered = entries.filter(e => e.date !== date); // idempotent on re-run
-  filtered.unshift({ date, dow: dowFor(date), weather, bakery, flavors, categories: categories || null });
+  filtered.unshift({ date, dow: dowFor(date), weather, bakery, flavors, categories: categories || null, catDaypart: catDaypart || null, newProducts: newProducts || null });
   await cacheSave(key, filtered.slice(0, MAX_HISTORY_DAYS));
 }
 
@@ -458,6 +519,10 @@ export default async () => {
   }
   console.log(`[hourly-snapshot] Bakery items mapped: ${Object.entries(routeClass).map(([r, m]) => `${r}:${m.size}`).join(' ')} · category items: ${Object.entries(routeGroup).map(([r, m]) => `${r}:${m.size}`).join(' ')}`);
 
+  // Tracked new-product registry (loaded once, matched against each store's menu-item totals).
+  const registry = await loadNewProductRegistry(cacheLoad);
+  if (registry.length) console.log(`[hourly-snapshot] Tracking ${registry.length} new product(s): ${registry.map(p => p.name).join(', ')}`);
+
   // Process all stores in batches of 8
   let saved = 0, failed = 0;
   const BATCH = 8;
@@ -466,18 +531,19 @@ export default async () => {
     const batch = STORES.slice(i, i + BATCH);
     await Promise.all(batch.map(async (store) => {
       const classMap = routeClass[apiRoute(store.pc)];
-      const result = await fetchHourlySales(store.pc, date, classMap);
+      const groupMap = routeGroup[apiRoute(store.pc)];
+      const result = await fetchHourlySales(store.pc, date, classMap, groupMap);
       if (result === null) { failed++; return; }
 
-      const { hours, bakery, flavors, ...upsell } = result;
+      const { hours, bakery, flavors, catDaypart, ...upsell } = result;
       const weather = districtWeather[String(store.district)] || null;
       await appendSnapshot(store.pc, date, hours, weather, upsell);
-      // Only record bakery history when the class map built — otherwise a transient
+      // Only record bakery/category history when the class map built — otherwise a transient
       // dimensions-fetch failure would persist false zeros that look like a real
       // zero-sales day and skew the Par Optimizer's per-DOW baselines.
       if (classMap && classMap.size > 0) {
-        const categories = await fetchItemCategories(store.pc, date, routeGroup[apiRoute(store.pc)]);
-        await appendItemSnapshot(store.pc, date, weather, bakery, flavors, categories);
+        const { categories, newProducts } = await fetchItemMix(store.pc, date, groupMap, registry);
+        await appendItemSnapshot(store.pc, date, weather, bakery, flavors, categories, catDaypart, newProducts);
       }
       saved++;
     }));
