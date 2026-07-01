@@ -65,7 +65,7 @@
 - Forward-looking cash flow projections
 
 ### 7.5 DM Scorecard
-75/100 (not fully yet) - Rank district managers on composite metrics: sales growth, labor efficiency, turnover rate, project completion
+- Rank district managers on composite metrics: sales growth, labor efficiency, turnover rate, project completion
 ✅ - Trend over time — is each DM improving?
 - Used for coaching conversations and bonus calculations
 

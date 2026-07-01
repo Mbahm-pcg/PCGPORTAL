@@ -3,7 +3,7 @@
 
 import { askAnalyst, askAnalystWithTools, generateStructured } from './analyst-lib/analyst-claude.mjs';
 import { MAINT_TOOLS, executeMaintTool } from './analyst-lib/maint-actions.mjs';
-import { buildDataContext, buildKPISnapshot, buildStoreContext, buildStoreRosterContext, buildPulseComparisonContext, buildSentimentContext, buildWeatherContext, buildMaintenanceContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
+import { buildDataContext, buildKPISnapshot, buildStoreContext, buildStoreRosterContext, buildPulseComparisonContext, buildSentimentContext, buildWeatherContext, buildMaintenanceContext, buildSalesMixContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
 import { buildBriefPrompt, buildStoreBriefPrompt, buildPrePlanPrompt, buildAskPrompt, PERSONA, MAINT_ASK_SYSTEM, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
 import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
 import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
@@ -146,6 +146,28 @@ export default async (request, context) => {
       if (effRole === 'dm' && effDistrict != null && PULSE_Q.test(question || '')) {
         try { extraContext += await buildPulseComparisonContext({ district: effDistrict }); }
         catch (e) { console.warn('[analyst] pulse comparison failed:', e.message); }
+      }
+      // Sales-mix attribution — category-level drops matched to open equipment tickets, so
+      // Orion can answer "why are <category> sales down at <store>?" with a cause, not a guess.
+      // Scoped: manager → store, DM → district, exec → drilled district or network. Gated to
+      // cause/"why-down" questions (not all Pulse asks) so an exec's network-scope query only
+      // triggers the 45-store item-history fan-out when the attribution is actually relevant.
+      const CAUSE_Q = /\b(why|cause|caused|reason|explain|down|drop|dropp|dip|decline|declin|fell|falling|lower|slow|soft|underperform|below|behind|hurt|impact|off)\b/i;
+      if (CAUSE_Q.test(question || '') && (isExecRole || (effRole === 'dm' && effDistrict != null) || (effRole === 'manager' && effStorePC))) {
+        try {
+          const mixOpts = (effRole === 'manager' && effStorePC)
+            ? { storePC: effStorePC }
+            : { district: isExecRole ? (effDistrict || null) : effDistrict };
+          const mix = await buildSalesMixContext(mixOpts);
+          if (mix.storesWithDrops > 0) {
+            const lines = mix.stores.slice(0, 8).map(st =>
+              `• ${st.name} (D${st.district}): ` + st.drops.map(d =>
+                `${d.category} down ${d.dropPct}% (-$${d.lostSales} vs baseline${d.cause ? `; likely cause: open ticket #${d.cause.ticketNumber} ${d.cause.ticketTitle}` : '; no open ticket explains it'})`
+              ).join('; ')
+            ).join('\n');
+            extraContext += `\n\nSales-mix drops today (product category running below its day-of-week baseline, attributed to open maintenance tickets where the equipment matches):\n${lines}`;
+          }
+        } catch (e) { console.warn('[analyst] sales-mix failed:', e.message); }
       }
 
       const prompt = buildAskPrompt(question, effRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext, extraContext);
@@ -439,6 +461,30 @@ export default async (request, context) => {
     if (action === 'snapshot') {
       const snapshot = await buildKPISnapshot({ district });
       return respond(200, snapshot);
+    }
+
+    // ── Sales Mix Intelligence (9.3): category drops + ticket attribution ──
+    // Scoped like 'ask': managers → their store, DMs → their district, exec/IT →
+    // any district or network. Fail closed if a non-exec has no resolved scope.
+    if (action === 'sales-mix') {
+      // Explicit role allowlist — only ops roles that own sales get category-drop data.
+      // Denies vendor/construction/maintenance/kiosk even if their user row carries a stray
+      // district, rather than relying solely on scope resolution to fail closed.
+      if (!new Set(['executive', 'it', 'dm', 'manager', 'office_staff']).has(effRole)) {
+        return respond(403, { error: 'Not available for your role.' });
+      }
+      // Managers are locked to their OWN store, resolved from the users table — never a
+      // client-supplied storePC. A manager with no resolved store is denied rather than
+      // falling through to district scope (which would leak their whole district).
+      const isManager = effRole === 'manager';
+      const effStorePC = isManager ? (caller?.storePC || null) : null;
+      if (isManager && !effStorePC) return respond(403, { error: 'No store resolved for your account.' });
+      if (!isExecRole && !effStorePC && effDistrict == null) {
+        return respond(403, { error: 'No scope resolved for your account.' });
+      }
+      const opts = effStorePC ? { storePC: effStorePC } : { district: effDistrict || null };
+      const mix = await buildSalesMixContext(opts);
+      return respond(200, mix);
     }
 
     // ── Report Settings (get/update) ───────────────────────────────────

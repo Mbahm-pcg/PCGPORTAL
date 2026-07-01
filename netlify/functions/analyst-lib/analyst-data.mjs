@@ -8,6 +8,7 @@ import { summarizeProjects, summarizeTickets, summarizeTasks, summarizeCash, sum
 import { BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, INGREDIENT_COSTS } from './cost-lookup.mjs';
 import { sql } from '../_shared/db.mjs';
 import { SHIFT_WINDOWS as TASK_SHIFT_WINDOWS } from '../tasks-lib/catalog.js';
+import { analyzeStoreMix } from './sales-attribution.mjs';
 
 // ── Pulse POS direct fetcher (same API as pulse-hourly-snapshot.js) ─────────
 const POS_APIS = {
@@ -901,6 +902,46 @@ async function buildTicketsContext({ district } = {}) {
   return summarizeTickets(await loadAllTickets(), district || null, new Date(), STORES);
 }
 
+// Sales Mix Intelligence (roadmap 9.3): for each in-scope store, detect per-category
+// sales drops vs its day-of-week baseline and attribute them to open maintenance tickets.
+// Loads pcg_item_history_{pc} (populated nightly by pulse-hourly-snapshot + the one-time
+// backfill) and the store's open tickets, then runs the pure attribution engine.
+// opts: { district, storePC, dropThreshold }. Returns stores that have at least one drop.
+async function buildSalesMixContext({ district = null, storePC = null, dropThreshold } = {}) {
+  let stores = STORES;
+  if (storePC) stores = STORES.filter(s => String(s.pc) === String(storePC));
+  else if (district) stores = STORES.filter(s => String(s.district) === String(district));
+
+  const opts = (typeof dropThreshold === 'number') ? { dropThreshold } : {};
+  // Load the tickets (one DB query) and every in-scope store's item history CONCURRENTLY —
+  // a network-scope (exec) call touches all 45 history blobs, so overlapping them with the
+  // ticket query (instead of awaiting it first) keeps the Orion ask path off the critical path.
+  const [allTickets, rawHistories] = await Promise.all([
+    loadAllTickets(),
+    Promise.all(stores.map(async (store) => ({
+      store,
+      history: await cacheLoad(`pcg_item_history_${store.pc}`).catch(() => null),
+    }))),
+  ]);
+
+  // Group open tickets by store once (avoids N lookups).
+  const openByStore = new Map();
+  for (const t of allTickets) {
+    if (!t || t.status === 'Closed') continue;
+    const pc = String(t.storePC || '');
+    if (!openByStore.has(pc)) openByStore.set(pc, []);
+    openByStore.get(pc).push(t);
+  }
+
+  const results = rawHistories.map(({ store, history }) => {
+    if (!Array.isArray(history) || !history.length) return null;
+    const drops = analyzeStoreMix(history, openByStore.get(String(store.pc)) || [], opts);
+    return drops.length ? { pc: store.pc, name: store.name, district: store.district, drops } : null;
+  }).filter(Boolean);
+  results.sort((a, b) => b.drops.reduce((s, d) => s + d.lostSales, 0) - a.drops.reduce((s, d) => s + d.lostSales, 0));
+  return { storesAnalyzed: stores.length, storesWithDrops: results.length, stores: results };
+}
+
 async function buildCashContext({ district } = {}) {
   return summarizeCash(await cacheLoad('pcg_cash_deposits_v1'), district || null, new Date(), STORES);
 }
@@ -1277,6 +1318,7 @@ export {
   buildEmailContext,
   buildProjectsContext,
   buildTicketsContext,
+  buildSalesMixContext,
   buildMaintenanceContext,
   loadAllTickets,
   buildCashContext,

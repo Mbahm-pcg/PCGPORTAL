@@ -20066,7 +20066,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.81";
+const APP_VERSION = "v17.82";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -22655,6 +22655,96 @@ function computeBaseline(daily, dayOfWeek, metric) {
   return { mean, stdDev, sampleSize: values.length };
 }
 
+// ── Sales Mix Intelligence (9.3): category drops attributed to open tickets ──
+// Self-contained: calls the scoped `sales-mix` analyst action (server re-resolves the
+// caller's district/store from their user id, so a manager/DM only ever sees their own).
+// Never throws — degrades to a quiet "nothing to explain" card.
+const SALES_CAT_LABELS = {
+  hot_beverages: 'Hot Beverages', cold_beverages: 'Cold Beverages', frozen: 'Frozen',
+  sandwiches: 'Sandwiches', wraps: 'Wraps', bakery: 'Bakery',
+  snacks_sides: 'Snacks & Sides', bottled: 'Bottled',
+};
+function SalesExplainedSection({ th, user, setTab }) {
+  const [data, setData]       = React.useState(null);   // { stores: [...] }
+  const [loading, setLoading] = React.useState(true);
+  const [err, setErr]         = React.useState(false);
+  const O = '#FF671F';
+
+  React.useEffect(() => {
+    let alive = true;
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'sales-mix', userId: user?.id, userRole: user?.userType, district: user?.district }),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => { if (alive) { setData(d); setLoading(false); } })
+      .catch(() => { if (alive) { setErr(true); setLoading(false); } });
+    return () => { alive = false; };
+  }, [user?.id, user?.userType, user?.district]);
+
+  if (loading) {
+    return (
+      <div style={{ ...card(th), padding:'1rem 1.25rem', marginBottom:'1.25rem', fontSize:'0.78rem', color:th.muted }}>
+        ⏳ Explaining today's sales dips…
+      </div>
+    );
+  }
+  if (err || !data || !Array.isArray(data.stores) || data.stores.length === 0) return null; // nothing to explain → stay quiet
+
+  const causeColor = c => !c ? th.muted : c.confidence === 'high' ? '#ef4444' : '#f59e0b';
+
+  return (
+    <div style={{ ...card(th), padding:'1.1rem 1.25rem', marginBottom:'1.25rem', borderLeft:`3px solid ${O}` }}>
+      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.2rem' }}>
+        <span style={{ fontSize:'1rem' }}>🧩</span>
+        <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.05rem', color:th.text }}>Sales, explained</span>
+        <span style={{ fontSize:'0.62rem', fontWeight:700, color:O, background:O+'18', border:`1px solid ${O}33`, borderRadius:'1rem', padding:'0.1rem 0.5rem' }}>
+          {data.storesWithDrops} store{data.storesWithDrops!==1?'s':''}
+        </span>
+      </div>
+      <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.85rem' }}>
+        Product categories running below their day-of-week baseline today — matched to open equipment tickets where we can.
+      </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem' }}>
+        {data.stores.map(st => (
+          <div key={st.pc} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:'0.6rem', padding:'0.7rem 0.9rem' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom:'0.5rem' }}>
+              <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.9rem', color:th.text }}>{st.name}</span>
+              <span style={{ fontSize:'0.6rem', color:th.muted }}>D{st.district}</span>
+            </div>
+            {st.drops.map(d => (
+              <div key={d.category} style={{ display:'flex', alignItems:'flex-start', gap:'0.6rem', padding:'0.35rem 0', borderTop:`1px solid ${th.cardBorder}55` }}>
+                <div style={{ minWidth:120, flexShrink:0 }}>
+                  <div style={{ fontSize:'0.8rem', fontWeight:700, color:th.text }}>{SALES_CAT_LABELS[d.category] || d.category}</div>
+                  <div style={{ fontSize:'0.66rem', color:'#ef4444', fontWeight:700 }}>−{d.dropPct}% · −{fmtDollars(d.lostSales)}</div>
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  {d.cause ? (
+                    <div style={{ fontSize:'0.72rem', color:th.text }}>
+                      <span style={{ fontWeight:700, color:causeColor(d.cause) }}>
+                        {d.cause.confidence === 'high' ? 'Likely cause' : 'Possible cause'}:
+                      </span>{' '}
+                      #{d.cause.ticketNumber} {d.cause.ticketTitle}
+                      <span style={{ fontSize:'0.64rem', color:th.muted }}> · open ticket</span>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize:'0.72rem', color:th.muted }}>No open ticket explains this — worth a look.</div>
+                  )}
+                  <div style={{ fontSize:'0.64rem', color:th.muted, marginTop:'0.1rem' }}>
+                    {fmtDollars(d.actual)} today vs {fmtDollars(d.expected)} expected ({d.samples} wk baseline)
+                  </div>
+                </div>
+                <button onClick={() => setTab('tickets')} title="Open Tickets"
+                  style={{ fontSize:'0.7rem', padding:'0.25rem 0.5rem', borderRadius:'0.35rem', background:O+'15', color:O, border:`1px solid ${O}33`, cursor:'pointer', flexShrink:0 }}>🔧</button>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AnomaliesTab({ stores, th, user, setTab }) {
   const [laborData,      setLaborData]      = React.useState(null);
   const [laborMeta,      setLaborMeta]      = React.useState(null); // full blob for lastUpdated
@@ -22864,6 +22954,9 @@ function AnomaliesTab({ stores, th, user, setTab }) {
           ))}
         </div>
       </div>
+
+      {/* Sales Mix Intelligence — category drops attributed to open tickets */}
+      <SalesExplainedSection th={th} user={user} setTab={setTab} />
 
       {/* List */}
       {loading || loadingStores ? (
