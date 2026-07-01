@@ -41,7 +41,7 @@ const CATEGORY_GROUPS = {
 // Bakery sub-categories that have ingredient costs
 const BAKERY_SUBS = ['donut', 'munchkin', 'muffin', 'bagel', 'english_muffin', 'croissant', 'fancy', 'fritter', 'bagel_twist', 'ic_tub', 'cake_sheet', 'cake_round_9', 'cake_roll'];
 
-function classifyItem(name) {
+export function classifyItem(name) {
   const lower = (name || '').toLowerCase();
 
   // ── MODIFIER / SKIP — POS default modifiers with no COGS value ──────────
