@@ -1413,6 +1413,14 @@
     const s = String(t || "");
     return s === "store_tablet" || s.startsWith("kiosk");
   };
+  function resolveUserEmail(u, users) {
+    if (!u) return null;
+    if (u.userType === "store_tablet") {
+      const mgr = (users || []).find((x) => x.userType === "manager" && String(x.storePC) === String(u.storePC));
+      return mgr?.email || null;
+    }
+    return u.email || null;
+  }
   function validatePasswordClient(pw) {
     const s = String(pw == null ? "" : pw);
     if (s.length < 12) return "Password must be at least 12 characters long.";
@@ -3823,15 +3831,16 @@
       setTimeout(() => setWelcomeSent(null), 4e3);
     };
     const resendWelcome = async (u) => {
-      if (!u.email) {
+      const eml = resolveUserEmail(u, users);
+      if (!eml) {
         showAlert("error", "No email on file for " + u.name);
         return;
       }
       setEmailAction({ userId: u.id, type: "welcome", status: "sending" });
       try {
-        await sendWelcomeEmail(u);
+        await sendWelcomeEmail({ ...u, email: eml });
         setEmailAction({ userId: u.id, type: "welcome", status: "ok" });
-        showAlert("success", `Welcome email sent to ${u.email}`);
+        showAlert("success", `Welcome email sent to ${eml}`);
       } catch (e) {
         setEmailAction({ userId: u.id, type: "welcome", status: "fail" });
         showAlert("error", "Failed to send welcome email");
@@ -3839,7 +3848,8 @@
       setTimeout(() => setEmailAction(null), 3e3);
     };
     const sendPasswordReset = async (u) => {
-      if (!u.email) {
+      const eml = resolveUserEmail(u, users);
+      if (!eml) {
         showAlert("error", "No email on file for " + u.name);
         return;
       }
@@ -3857,9 +3867,9 @@
       <p style="color:#999;font-size:12px;">If you did not request this change, contact IT immediately.</p>
     `;
       try {
-        await sendNotifyEmail([u.email], subject, htmlBody);
+        await sendNotifyEmail([eml], subject, htmlBody);
         setEmailAction({ userId: u.id, type: "reset", status: "ok" });
-        showAlert("success", `Password reset email sent to ${u.email}`);
+        showAlert("success", `Password reset email sent to ${eml}`);
       } catch (e) {
         setEmailAction({ userId: u.id, type: "reset", status: "fail" });
         showAlert("error", "Failed to send password reset email");
@@ -3893,7 +3903,7 @@
         }
       }
       const ini = form.initials || initials(form.name);
-      const securedForm = { ...form, initials: ini, twoFactorRequired: isTwoFactorRequired(form) };
+      const securedForm = { ...form, initials: ini, twoFactorRequired: isTwoFactorRequired(form), email: form.userType === "store_tablet" ? "" : form.email };
       if (editId) {
         const old = users.find((u) => u.id === editId) || {};
         const res = await fetch("/.netlify/functions/users", {
@@ -4027,7 +4037,18 @@
       },
       /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Unassigned \u2014"),
       (stores || []).slice().sort((a, b) => a.district - b.district || a.name.localeCompare(b.name)).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: String(s.pc) }, "D", s.district, " \xB7 ", s.name, " \xB7 ", s.address))
-    ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: form.storePC ? "#3b82f6" : th.muted, marginTop: "0.4rem", paddingLeft: "0.2rem" } }, form.storePC ? form.userType === "store_tablet" ? `Assigned \u2014 login set to PC# ${form.storePC}${form.name ? `, under ${form.name}` : ""}.` : `Assigned \u2014 this user will see this store's data on login.` : "No store selected. This user will see a blank view on login."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.63rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Contact Info")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), type: "email", placeholder: "Email address", value: form.email || "", onChange: (e) => setForm((f) => ({ ...f, email: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Phone number", value: form.phone || "", onChange: (e) => handlePhoneChange(e.target.value, setForm, "phone") })), welcomeSent && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", borderRadius: "0.375rem", marginBottom: "0.75rem", fontSize: "0.8rem", fontWeight: 600, background: welcomeSent === "success" ? "#00d08418" : "#ff444418", color: welcomeSent === "success" ? "#00d084" : "#ff6666" } }, welcomeSent === "success" ? "\u2705 Welcome email sent!" : "\u26A0\uFE0F Welcome email failed \u2014 user was still created."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end", paddingTop: "1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: "transparent", color: th.muted, padding: "0.65rem 1.4rem", border: `1px solid ${th.cardBorder}` }), onClick: closeEditPage }, "Cancel"), /* @__PURE__ */ React.createElement("button", { disabled: saveFlash, style: btn(th, { padding: "0.65rem 1.75rem", background: saveFlash ? "#22c55e" : `linear-gradient(135deg,${rc},${rc}bb)`, color: "#fff", boxShadow: saveFlash ? "0 4px 16px #22c55e55" : `0 4px 16px ${rc}55`, fontWeight: 700, transition: "background 0.2s, box-shadow 0.2s" }), onClick: save }, saveFlash ? "\u2713 Saved!" : editId ? "Save Changes" : "Create User"))))));
+    ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: form.storePC ? "#3b82f6" : th.muted, marginTop: "0.4rem", paddingLeft: "0.2rem" } }, form.storePC ? form.userType === "store_tablet" ? `Assigned \u2014 login set to PC# ${form.storePC}${form.name ? `, under ${form.name}` : ""}.` : `Assigned \u2014 this user will see this store's data on login.` : "No store selected. This user will see a blank view on login."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.63rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Contact Info")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1rem" } }, form.userType === "store_tablet" ? (() => {
+      const mgrEmail = (users || []).find((x) => x.userType === "manager" && String(x.storePC) === String(form.storePC))?.email;
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          style: { ...inp(th), display: "flex", alignItems: "center", gap: "0.5rem", color: mgrEmail ? th.text : th.muted, cursor: "default" },
+          title: "A store tablet has no email of its own \u2014 it always uses the assigned store manager's email, and updates automatically if that changes."
+        },
+        /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem" } }, "\u{1F517}"),
+        /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, mgrEmail || (form.storePC ? "No manager email on file for this store" : "Synced to store manager's email"))
+      );
+    })() : /* @__PURE__ */ React.createElement("input", { style: inp(th), type: "email", placeholder: "Email address", value: form.email || "", onChange: (e) => setForm((f) => ({ ...f, email: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Phone number", value: form.phone || "", onChange: (e) => handlePhoneChange(e.target.value, setForm, "phone") })), welcomeSent && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", borderRadius: "0.375rem", marginBottom: "0.75rem", fontSize: "0.8rem", fontWeight: 600, background: welcomeSent === "success" ? "#00d08418" : "#ff444418", color: welcomeSent === "success" ? "#00d084" : "#ff6666" } }, welcomeSent === "success" ? "\u2705 Welcome email sent!" : "\u26A0\uFE0F Welcome email failed \u2014 user was still created."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end", paddingTop: "1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: "transparent", color: th.muted, padding: "0.65rem 1.4rem", border: `1px solid ${th.cardBorder}` }), onClick: closeEditPage }, "Cancel"), /* @__PURE__ */ React.createElement("button", { disabled: saveFlash, style: btn(th, { padding: "0.65rem 1.75rem", background: saveFlash ? "#22c55e" : `linear-gradient(135deg,${rc},${rc}bb)`, color: "#fff", boxShadow: saveFlash ? "0 4px 16px #22c55e55" : `0 4px 16px ${rc}55`, fontWeight: 700, transition: "background 0.2s, box-shadow 0.2s" }), onClick: save }, saveFlash ? "\u2713 Saved!" : editId ? "Save Changes" : "Create User"))))));
     return /* @__PURE__ */ React.createElement("div", { className: "fade-in", ref: frameRef, style: { display: "flex", flexDirection: "column", height: frameH || "calc(100vh - 200px)", minHeight: 360 } }, /* @__PURE__ */ React.createElement("div", { style: { flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "1rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: "1 1 240px", maxWidth: 340 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.85rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.82rem", color: th.muted, pointerEvents: "none" } }, "\u{1F50D}"), /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), padding: "0.65rem 0.85rem 0.65rem 2.4rem", fontSize: "0.85rem", width: "100%" }, placeholder: "Search users...", value: search, onChange: (e) => setSearch(e.target.value) })), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), width: "auto", fontSize: "0.8rem", padding: "0.65rem 0.75rem" }, value: roleFilter, onChange: (e) => setRoleFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All Roles"), USERTYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.5rem 0.85rem", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, fontSize: "0.68rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#22c55e" } }), users.filter((u) => u.active !== false).length, " Active"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }), canManageUser(currentUser, { userType: "manager" }) && /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -4060,53 +4081,109 @@
     ))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, displayUsers.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center", color: th.muted, fontSize: "0.875rem" } }, "No users found."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobileUsers ? "1fr" : "repeat(2,1fr)", gap: "1rem" } }, displayUsers.map((u) => {
       const rc2 = roleColor(u.userType);
       const isInactive = u.active === false;
-      const actBtn = (extra = {}) => ({ ...btn(th, { padding: "0.4rem 0.7rem", fontSize: "0.72rem", ...extra }), display: "inline-flex", alignItems: "center", gap: "0.35rem", whiteSpace: "nowrap" });
-      return /* @__PURE__ */ React.createElement("div", { key: u.id, style: { ...card(th), padding: 0, overflow: "hidden", opacity: isInactive ? 0.6 : 1, border: `1px solid ${th.cardBorder}`, display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { background: `${rc2}14`, borderBottom: `1px solid ${rc2}22`, padding: "1rem 1.25rem", display: "flex", alignItems: "center", gap: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 46, height: 46, borderRadius: "50%", background: `${rc2}22`, border: `2px solid ${rc2}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", fontWeight: 800, color: rc2, flexShrink: 0, letterSpacing: 0.5 } }, u.initials || (u.name || "?").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, u.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "@", u.username)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.3rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: rc2, background: `${rc2}20`, border: `1px solid ${rc2}44`, borderRadius: 999, padding: "0.15rem 0.55rem", whiteSpace: "nowrap" } }, roleLabel(u.userType)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: isInactive ? "#f87171" : "#4ade80", background: isInactive ? "#f8717118" : "#4ade8018", border: `1px solid ${isInactive ? "#f8717144" : "#4ade8044"}`, borderRadius: 999, padding: "0.15rem 0.55rem" } }, isInactive ? "Inactive" : "Active"), u.locked && /* @__PURE__ */ React.createElement("span", { title: `Locked after ${u.failedAttempts || 5} failed login attempts`, style: { fontSize: "0.62rem", fontWeight: 700, color: "#f87171", background: "#f8717118", border: "1px solid #f8717155", borderRadius: 999, padding: "0.15rem 0.55rem", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement(Icon, { d: BTN.lock, size: 10, color: "#f87171" }), "Locked"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", flex: 1, display: "flex", flexDirection: "column", gap: "0.45rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.text, fontWeight: 500 } }, u.role || "\u2014"), u.email && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, display: "flex", alignItems: "center", gap: "0.35rem", overflow: "hidden" } }, /* @__PURE__ */ React.createElement(Icon, { d: BTN.mail, size: 12, color: th.muted }), /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, u.email)), u.phone && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement(Icon, { d: BTN.phone, size: 12, color: th.muted }), u.phone), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.25rem", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement(Icon, { d: u.darkMode ? BTN.moon : BTN.sun, size: 12, color: th.muted }), u.darkMode ? "Dark" : "Light", " \xB7 ", u.region || "PA"), /* @__PURE__ */ React.createElement("span", null, u.lastLogin ? new Date(u.lastLogin).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Never logged in")), isTwoFactorRequired(u) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#FF671F", fontWeight: 800, marginTop: "0.15rem" } }, "2FA required", u.twoFactorSecret ? " and set up" : " - setup pending"), u.userType === "manager" && (() => {
+      const IconAction = ({ icon, label, onClick, color, disabled, badge, size = 36 }) => /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick,
+          disabled,
+          "aria-label": label,
+          style: {
+            position: "relative",
+            width: size,
+            height: size,
+            minWidth: size,
+            borderRadius: "50%",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: `${color}18`,
+            border: `1px solid ${color}40`,
+            cursor: disabled ? "default" : "pointer",
+            opacity: disabled ? 0.4 : 1,
+            transition: "transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease",
+            flexShrink: 0
+          },
+          onMouseEnter: (e) => {
+            if (disabled) return;
+            e.currentTarget.style.transform = "translateY(-2px) scale(1.1)";
+            e.currentTarget.style.boxShadow = `0 6px 16px ${color}66`;
+            e.currentTarget.style.background = `${color}2a`;
+            const tip = e.currentTarget.querySelector(".act-tip");
+            if (tip) {
+              tip.style.opacity = "1";
+              tip.style.transform = "translateX(-50%) translateY(0)";
+            }
+          },
+          onMouseLeave: (e) => {
+            e.currentTarget.style.transform = "none";
+            e.currentTarget.style.boxShadow = "none";
+            e.currentTarget.style.background = `${color}18`;
+            const tip = e.currentTarget.querySelector(".act-tip");
+            if (tip) {
+              tip.style.opacity = "0";
+              tip.style.transform = "translateX(-50%) translateY(4px)";
+            }
+          }
+        },
+        /* @__PURE__ */ React.createElement(Icon, { d: icon, size: 14, color }),
+        badge && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -2, right: -2, width: 9, height: 9, borderRadius: "50%", background: badge, border: `1.5px solid ${th.card2}` } }),
+        /* @__PURE__ */ React.createElement("span", { className: "act-tip", style: {
+          position: "absolute",
+          bottom: "125%",
+          left: "50%",
+          transform: "translateX(-50%) translateY(4px)",
+          opacity: 0,
+          transition: "opacity 0.16s ease, transform 0.16s ease",
+          pointerEvents: "none",
+          background: "#1f2937",
+          color: "#fff",
+          fontSize: "0.62rem",
+          fontWeight: 700,
+          padding: "0.28rem 0.55rem",
+          borderRadius: "0.35rem",
+          whiteSpace: "nowrap",
+          boxShadow: "0 4px 10px rgba(0,0,0,0.3)",
+          zIndex: 30
+        } }, label)
+      );
+      return /* @__PURE__ */ React.createElement("div", { key: u.id, style: { ...card(th), padding: 0, overflow: "hidden", opacity: isInactive ? 0.6 : 1, border: `1px solid ${th.cardBorder}`, display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { background: `${rc2}14`, borderBottom: `1px solid ${rc2}22`, padding: "1rem 1.25rem", display: "flex", alignItems: "center", gap: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 46, height: 46, borderRadius: "50%", background: `${rc2}22`, border: `2px solid ${rc2}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", fontWeight: 800, color: rc2, flexShrink: 0, letterSpacing: 0.5 } }, u.initials || (u.name || "?").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, u.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "@", u.username)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.3rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: rc2, background: `${rc2}20`, border: `1px solid ${rc2}44`, borderRadius: 999, padding: "0.15rem 0.55rem", whiteSpace: "nowrap" } }, roleLabel(u.userType)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: isInactive ? "#f87171" : "#4ade80", background: isInactive ? "#f8717118" : "#4ade8018", border: `1px solid ${isInactive ? "#f8717144" : "#4ade8044"}`, borderRadius: 999, padding: "0.15rem 0.55rem" } }, isInactive ? "Inactive" : "Active"), u.locked && /* @__PURE__ */ React.createElement("span", { title: `Locked after ${u.failedAttempts || 5} failed login attempts`, style: { fontSize: "0.62rem", fontWeight: 700, color: "#f87171", background: "#f8717118", border: "1px solid #f8717155", borderRadius: 999, padding: "0.15rem 0.55rem", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement(Icon, { d: BTN.lock, size: 10, color: "#f87171" }), "Locked"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", flex: 1, display: "flex", flexDirection: "column", gap: "0.45rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.text, fontWeight: 500 } }, u.role || "\u2014"), (() => {
+        const eml = resolveUserEmail(u, users);
+        if (!eml) return null;
+        const synced = u.userType === "store_tablet";
+        return /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            title: synced ? "Synced to this store's manager email \u2014 updates automatically." : void 0,
+            style: { fontSize: "0.7rem", color: th.muted, display: "flex", alignItems: "center", gap: "0.35rem", overflow: "hidden" }
+          },
+          /* @__PURE__ */ React.createElement(Icon, { d: BTN.mail, size: 12, color: th.muted }),
+          /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, eml),
+          synced && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, color: "#3b82f6", background: "#3b82f618", border: "1px solid #3b82f644", borderRadius: 999, padding: "0.05rem 0.4rem", flexShrink: 0 } }, "synced")
+        );
+      })(), u.phone && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement(Icon, { d: BTN.phone, size: 12, color: th.muted }), u.phone), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.25rem", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement(Icon, { d: u.darkMode ? BTN.moon : BTN.sun, size: 12, color: th.muted }), u.darkMode ? "Dark" : "Light", " \xB7 ", u.region || "PA"), /* @__PURE__ */ React.createElement("span", null, u.lastLogin ? new Date(u.lastLogin).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Never logged in")), isTwoFactorRequired(u) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#FF671F", fontWeight: 800, marginTop: "0.15rem" } }, "2FA required", u.twoFactorSecret ? " and set up" : " - setup pending"), u.userType === "manager" && (() => {
         const assigned = u.storePC ? (stores || []).find((s) => String(s.pc) === String(u.storePC)) : (stores || []).find((s) => isManagersStore(s, u));
         return assigned ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#3b82f6", fontWeight: 700, marginTop: "0.15rem", display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement(Icon, { d: BTN.pin, size: 12, color: "#3b82f6" }), assigned.name, " \xB7 D", assigned.district) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#f59e0b", fontWeight: 600, marginTop: "0.15rem", display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement(Icon, { d: BTN.alert, size: 12, color: "#f59e0b" }), "No store assigned");
-      })()), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.625rem 1rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center", background: th.card2 } }, canManageUser(currentUser, u) && /* @__PURE__ */ React.createElement("button", { onClick: () => startEdit(u), style: actBtn() }, /* @__PURE__ */ React.createElement(Icon, { d: BTN.edit, size: 13, color: "#fff" }), "Edit"), canManageUser(currentUser, u) && /* @__PURE__ */ React.createElement("button", { onClick: () => toggleActive(u.id), style: actBtn({ background: th.card3, color: th.muted, border: `1px solid ${th.cardBorder}` }) }, /* @__PURE__ */ React.createElement(Icon, { d: isInactive ? BTN.check : BTN.power, size: 13, color: th.muted }), isInactive ? "Enable" : "Disable"), u.locked && currentUser?.userType === "it" && /* @__PURE__ */ React.createElement("button", { onClick: () => unlockUser(u.id), title: "Clear the failed-attempt lockout (IT only)", style: actBtn({ background: "#f8717122", color: "#f87171", border: "1px solid #f8717155" }) }, /* @__PURE__ */ React.createElement(Icon, { d: BTN.unlock, size: 13, color: "#f87171" }), "Unlock"), isFullAdmin(currentUser) && /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => sendPasswordReset(u),
-          disabled: !u.email || emailAction?.userId === u.id && emailAction?.status === "sending",
-          title: u.email ? "Send password reset email" : "No email on file",
-          style: actBtn({ background: "#3b82f618", color: "#3b82f6", opacity: u.email ? 1 : 0.35 })
-        },
-        /* @__PURE__ */ React.createElement(Icon, { d: BTN.key, size: 13, color: "#3b82f6" }),
-        emailAction?.userId === u.id && emailAction?.type === "reset" ? emailAction.status === "sending" ? "Sending\u2026" : emailAction.status === "ok" ? "Sent" : "Failed" : "Reset PW"
-      ), isFullAdmin(currentUser) && !u.lastLogin && /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => resendWelcome(u),
-          disabled: !u.email || emailAction?.userId === u.id && emailAction?.status === "sending",
-          title: u.email ? "Resend welcome email" : "No email on file",
-          style: actBtn({ background: "#10b98118", color: "#10b981", opacity: u.email ? 1 : 0.35 })
-        },
-        /* @__PURE__ */ React.createElement(Icon, { d: BTN.mail, size: 13, color: "#10b981" }),
-        emailAction?.userId === u.id && emailAction?.type === "welcome" ? emailAction.status === "sending" ? "Sending\u2026" : emailAction.status === "ok" ? "Sent" : "Failed" : "Welcome"
-      ), isFullAdmin(currentUser) && isTwoFactorRequired(u) && /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => revokeTrustedDevices(u),
-          disabled: revokeAction?.userId === u.id && revokeAction?.status === "revoking",
-          title: "Revoke trusted devices \u2014 forces 2FA re-verification on next login",
-          style: actBtn({ background: "#f9731618", color: "#f97316", opacity: revokeAction?.userId === u.id && revokeAction?.status === "revoking" ? 0.5 : 1 })
-        },
-        /* @__PURE__ */ React.createElement(Icon, { d: BTN.shield, size: 13, color: "#f97316" }),
-        revokeAction?.userId === u.id ? revokeAction.status === "revoking" ? "Revoking\u2026" : revokeAction.status === "ok" ? "Revoked" : "Failed" : "Revoke 2FA"
-      ), (currentUser?.userType === "it" || isFullAdmin(currentUser)) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center", paddingLeft: "0.6rem", borderLeft: `1px solid ${th.cardBorder}` } }, currentUser?.userType === "it" && /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => signOutAllSessions(u),
-          title: "Sign this user out of ALL devices now (lost/stolen device) \u2014 invalidates active sessions + trusted devices",
-          style: actBtn({ background: "#ef444418", color: "#ef4444" })
-        },
-        /* @__PURE__ */ React.createElement(Icon, { d: BTN.logout, size: 13, color: "#ef4444" }),
-        "Sign out all"
-      ), isFullAdmin(currentUser) && (confirmDeleteId === u.id ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: "#ef4444", fontWeight: 600 } }, "Delete?"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      })()), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.625rem 1rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", background: th.card2 } }, canManageUser(currentUser, u) && /* @__PURE__ */ React.createElement(IconAction, { icon: BTN.edit, label: "Edit", color: "#FF671F", onClick: () => startEdit(u) }), canManageUser(currentUser, u) && /* @__PURE__ */ React.createElement(IconAction, { icon: isInactive ? BTN.check : BTN.power, label: isInactive ? "Enable" : "Disable", color: th.muted, onClick: () => toggleActive(u.id) }), u.locked && currentUser?.userType === "it" && /* @__PURE__ */ React.createElement(IconAction, { icon: BTN.unlock, label: "Unlock (clear failed-attempt lockout)", color: "#f87171", onClick: () => unlockUser(u.id) }), isFullAdmin(currentUser) && (() => {
+        const eml = resolveUserEmail(u, users);
+        const busy = emailAction?.userId === u.id && emailAction?.type === "reset" && emailAction?.status === "sending";
+        const label = !eml ? u.userType === "store_tablet" ? "No manager email on file" : "No email on file" : emailAction?.userId === u.id && emailAction?.type === "reset" ? emailAction.status === "sending" ? "Sending\u2026" : emailAction.status === "ok" ? "Reset email sent" : "Failed to send" : "Reset password";
+        const badge = emailAction?.userId === u.id && emailAction?.type === "reset" ? emailAction.status === "ok" ? "#10b981" : emailAction.status === "failed" ? "#ef4444" : null : null;
+        return /* @__PURE__ */ React.createElement(IconAction, { icon: BTN.key, label, color: "#3b82f6", disabled: !eml || busy, badge, onClick: () => sendPasswordReset(u) });
+      })(), isFullAdmin(currentUser) && !u.lastLogin && (() => {
+        const eml = resolveUserEmail(u, users);
+        const busy = emailAction?.userId === u.id && emailAction?.type === "welcome" && emailAction?.status === "sending";
+        const label = !eml ? u.userType === "store_tablet" ? "No manager email on file" : "No email on file" : emailAction?.userId === u.id && emailAction?.type === "welcome" ? emailAction.status === "sending" ? "Sending\u2026" : emailAction.status === "ok" ? "Welcome email sent" : "Failed to send" : "Resend welcome email";
+        const badge = emailAction?.userId === u.id && emailAction?.type === "welcome" ? emailAction.status === "ok" ? "#10b981" : emailAction.status === "failed" ? "#ef4444" : null : null;
+        return /* @__PURE__ */ React.createElement(IconAction, { icon: BTN.mail, label, color: "#10b981", disabled: !eml || busy, badge, onClick: () => resendWelcome(u) });
+      })(), isFullAdmin(currentUser) && isTwoFactorRequired(u) && (() => {
+        const busy = revokeAction?.userId === u.id && revokeAction?.status === "revoking";
+        const label = revokeAction?.userId === u.id ? revokeAction.status === "revoking" ? "Revoking\u2026" : revokeAction.status === "ok" ? "2FA revoked" : "Failed" : "Revoke 2FA (force re-verification)";
+        const badge = revokeAction?.userId === u.id && revokeAction.status === "ok" ? "#10b981" : null;
+        return /* @__PURE__ */ React.createElement(IconAction, { icon: BTN.shield, label, color: "#f97316", disabled: busy, badge, onClick: () => revokeTrustedDevices(u) });
+      })(), (currentUser?.userType === "it" || isFullAdmin(currentUser)) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", paddingLeft: "0.7rem", borderLeft: `1px solid ${th.cardBorder}` } }, currentUser?.userType === "it" && /* @__PURE__ */ React.createElement(IconAction, { icon: BTN.logout, label: "Sign out of all devices (lost/stolen)", color: "#ef4444", onClick: () => signOutAllSessions(u) }), isFullAdmin(currentUser) && (confirmDeleteId === u.id ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: "#ef4444", fontWeight: 600 } }, "Delete?"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
         del(u.id);
         setConfirmDeleteId(null);
-      }, style: { ...btn(th, { padding: "0.35rem 0.6rem", fontSize: "0.72rem", background: "#ef4444", color: "#fff", border: "none" }) } }, "Yes"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(null), style: { ...btn(th, { padding: "0.35rem 0.6rem", fontSize: "0.72rem", background: th.card3, color: th.muted, border: `1px solid ${th.cardBorder}` }) } }, "No")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(u.id), title: "Delete user", style: actBtn({ background: "#ef444418", color: "#ef4444" }) }, /* @__PURE__ */ React.createElement(Icon, { d: BTN.trash, size: 13, color: "#ef4444" }), "Delete")))));
+      }, style: { ...btn(th, { padding: "0.35rem 0.6rem", fontSize: "0.72rem", background: "#ef4444", color: "#fff", border: "none" }) } }, "Yes"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(null), style: { ...btn(th, { padding: "0.35rem 0.6rem", fontSize: "0.72rem", background: th.card3, color: th.muted, border: `1px solid ${th.cardBorder}` }) } }, "No")) : /* @__PURE__ */ React.createElement(IconAction, { icon: BTN.trash, label: "Delete user", color: "#ef4444", onClick: () => setConfirmDeleteId(u.id) })))));
     }))), view === "edit" && editModal());
   }
   var STATUS_STYLES = {
@@ -9722,7 +9799,7 @@ ${t2.slice(0, 300)}`);
       const nonOpen = stores.filter((s) => s.status !== "Open" && (!isDMUser || Number(s.district) === dmDistrict));
       if (!nonOpen.length) return null;
       return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem", padding: "0.6rem 0.85rem", background: "#fd7e1418", borderLeft: `3px solid #fd7e14`, borderRadius: "0.375rem", fontSize: "0.78rem", color: th.muted, lineHeight: 1.5 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: "#fd7e14" } }, "Note:"), " ", nonOpen.map((s) => /* @__PURE__ */ React.createElement("span", { key: s.pc }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, s.name), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", padding: "1px 4px", borderRadius: 3, fontWeight: 600, color: "#fff", background: s.status === "Remodel" ? "#fd7e14" : s.status === "Temp Closed" ? "#dc3545" : "#6c757d" } }, s.status))).reduce((a, b) => [a, ", ", b]), " \u2014 ", "totals may be lower due to ", nonOpen.length === 1 ? "this store" : "these stores", " not operating at full capacity.");
-    })(), pulseView === "network" && hasWTD && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: (dateKey) => setBusDt(dateKey) }), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user }), pulseView?.level !== "store" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(MixComparisonSection, { th, user, districtOverride: pulseView?.level === "district" ? pulseView.num : null }), /* @__PURE__ */ React.createElement(NewProductsSection, { th, user, districtOverride: pulseView?.level === "district" ? pulseView.num : null })), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in District ${dmDistrict}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
+    })(), pulseView === "network" && hasWTD && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: (dateKey) => setBusDt(dateKey) }), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in District ${dmDistrict}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
       const dPct = (idx + 1) / arr.length;
       const isDone = progress / 100 >= dPct;
       const isActive = progress / 100 >= idx / arr.length && progress / 100 < dPct;
@@ -13418,6 +13495,8 @@ ${t2.slice(0, 300)}`);
     const [filterUser, setFilterUser] = React.useState("All");
     const [filterApproval, setFilterApproval] = React.useState("All");
     const [approvingId, setApprovingId] = React.useState(null);
+    const [confirmDeleteRowId, setConfirmDeleteRowId] = React.useState(null);
+    const [deletingId, setDeletingId] = React.useState(null);
     const [allTickets, setAllTickets] = React.useState(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]");
@@ -13510,6 +13589,28 @@ ${t2.slice(0, 300)}`);
       }
       setApprovingId(null);
     };
+    const handleDelete = async (row) => {
+      const id = `${row.ticketId}_${row.expenseId}`;
+      setDeletingId(id);
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const updatedTickets = allTickets.map((t) => {
+        if (t.id !== row.ticketId) return t;
+        return {
+          ...t,
+          expenses: (t.expenses || []).filter((ex) => ex.id !== row.expenseId),
+          comments: [...t.comments || [], { id: Date.now(), type: "system", text: `Expense "${row.description || "entry"}" ($${(row.amount || 0).toFixed(2)}) deleted by ${user?.name}`, createdAt: now }]
+        };
+      });
+      setAllTickets(updatedTickets);
+      try {
+        localStorage.setItem("pcg_tickets_v1", JSON.stringify(updatedTickets));
+      } catch {
+      }
+      await cloudSave("pcg_tickets_v1", updatedTickets);
+      logClientEvent(user?.id, user?.userType, "expense_deleted", { ticketId: row.ticketId, ticketNumber: row.ticketNumber, description: row.description, amount: row.amount });
+      setDeletingId(null);
+      setConfirmDeleteRowId(null);
+    };
     const categories = ["All", ...Array.from(new Set(rows.map((r) => r.category)))];
     const users = ["All", ...Array.from(new Set(rows.map((r) => r.addedBy).filter(Boolean)))];
     const filtered = rows.filter((r) => {
@@ -13540,7 +13641,11 @@ ${t2.slice(0, 300)}`);
         background: r.approvalStatus === "approved" ? "#16a34a22" : r.approvalStatus === "rejected" ? "#ef444422" : "#f59e0b22",
         color: r.approvalStatus === "approved" ? "#16a34a" : r.approvalStatus === "rejected" ? "#ef4444" : "#f59e0b",
         border: `1px solid ${r.approvalStatus === "approved" ? "#16a34a" : r.approvalStatus === "rejected" ? "#ef4444" : "#f59e0b"}44`
-      } }, r.approvalStatus === "approved" ? "\u2713 Approved" : r.approvalStatus === "rejected" ? "\u2717 Rejected" : "\u23F3 Pending"), r.approvedBy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, marginTop: 2 } }, r.approvedBy)) : /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.75rem" } }, "\u2014")), isVP && /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", whiteSpace: "nowrap" } }, r.approvalStatus === "pending" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleApprove(r, "approved"), disabled: isApproving, style: { background: "#16a34a", border: "none", borderRadius: 6, color: "#fff", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isApproving ? 0.5 : 1 } }, isApproving ? "..." : "\u2713 Approve"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleApprove(r, "rejected"), disabled: isApproving, style: { background: "#ef444422", border: "1px solid #ef444444", borderRadius: 6, color: "#ef4444", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isApproving ? 0.5 : 1 } }, "\u2717 Reject")) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "\u2014")));
+      } }, r.approvalStatus === "approved" ? "\u2713 Approved" : r.approvalStatus === "rejected" ? "\u2717 Rejected" : "\u23F3 Pending"), r.approvedBy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, marginTop: 2 } }, r.approvedBy)) : /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.75rem" } }, "\u2014")), isVP && (() => {
+        const isDeleting = deletingId === rowId;
+        const confirming = confirmDeleteRowId === rowId;
+        return /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center" } }, r.approvalStatus === "pending" && !confirming && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => handleApprove(r, "approved"), disabled: isApproving, style: { background: "#16a34a", border: "none", borderRadius: 6, color: "#fff", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isApproving ? 0.5 : 1 } }, isApproving ? "..." : "\u2713 Approve"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleApprove(r, "rejected"), disabled: isApproving, style: { background: "#ef444422", border: "1px solid #ef444444", borderRadius: 6, color: "#ef4444", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isApproving ? 0.5 : 1 } }, "\u2717 Reject")), confirming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#ef4444", fontWeight: 700 } }, "Delete?"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleDelete(r), disabled: isDeleting, style: { background: "#ef4444", border: "none", borderRadius: 6, color: "#fff", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isDeleting ? 0.5 : 1 } }, isDeleting ? "..." : "Yes"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteRowId(null), disabled: isDeleting, style: { background: "transparent", border: `1px solid ${th.cardBorder}`, borderRadius: 6, color: th.muted, padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer" } }, "No")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteRowId(rowId), title: "Delete this expense entry (Exec/IT only)", style: { background: "#ef444418", border: "1px solid #ef444444", borderRadius: 6, color: "#ef4444", padding: "3px 8px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer" } }, "\u{1F5D1}")));
+      })());
     }))))));
   }
   function KBManagementSection({ th, showAlert }) {
@@ -16075,7 +16180,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.85";
+  var APP_VERSION = "v17.88";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -17933,153 +18038,6 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       },
       "\u{1F527}"
     )))))));
-  }
-  function MixComparisonSection({ th, user, districtOverride = null }) {
-    const [data, setData] = React.useState(null);
-    const [loading, setLoading] = React.useState(true);
-    const [showAbove, setShowAbove] = React.useState(false);
-    const isAdmin = user?.userType === "executive" || user?.userType === "it";
-    const scopeDistrict = districtOverride != null ? districtOverride : user?.district ?? null;
-    React.useEffect(() => {
-      let alive = true;
-      setLoading(true);
-      fetch("/.netlify/functions/analyst", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "mix-compare", userId: user?.id, userRole: user?.userType, district: scopeDistrict })
-      }).then((r) => r.ok ? r.json() : Promise.reject(r.status)).then((d) => {
-        if (alive) {
-          setData(d);
-          setLoading(false);
-        }
-      }).catch(() => {
-        if (alive) {
-          setData(null);
-          setLoading(false);
-        }
-      });
-      return () => {
-        alive = false;
-      };
-    }, [user?.id, user?.userType, scopeDistrict]);
-    if (loading) return null;
-    const empty = !data || !Array.isArray(data.stores) || data.stores.length === 0;
-    if (empty && !isAdmin) return null;
-    if (empty) {
-      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1.25rem", borderLeft: `3px solid #6366f1` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1rem" } }, "\u{1F4CA}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.05rem", color: th.text } }, "Item mix outliers")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "No stores currently running far from their district-peer mix. Needs \u22653 stores/district with enough item-category history \u2014 baselines build nightly (or run the category backfill to populate now)."));
-    }
-    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1.25rem", borderLeft: `3px solid #6366f1` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.2rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1rem" } }, "\u{1F4CA}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.05rem", color: th.text } }, "Item mix outliers"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: "#6366f1", background: "#6366f118", border: "1px solid #6366f133", borderRadius: "1rem", padding: "0.1rem 0.5rem" } }, data.storesWithOutliers, " store", data.storesWithOutliers !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => setShowAbove((v) => !v),
-        style: { marginLeft: "auto", fontSize: "0.64rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "1rem", cursor: "pointer", border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.muted }
-      },
-      showAbove ? "Hide over-index" : "Show over-index"
-    )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.85rem" } }, "How each store's product mix compares to its district-peer average \u2014 a category running well below peers can signal an equipment, training, or merchandising gap."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, data.stores.map((st) => {
-      const rows = st.outliers.filter((o) => showAbove || o.direction === "below");
-      if (!rows.length) return null;
-      return /* @__PURE__ */ React.createElement("div", { key: st.pc, style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem", padding: "0.7rem 0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.9rem", color: th.text } }, st.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted } }, "D", st.district)), rows.map((o) => {
-        const below = o.direction === "below";
-        const col = below ? "#ef4444" : "#10b981";
-        return /* @__PURE__ */ React.createElement("div", { key: o.category, style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.35rem 0", borderTop: `1px solid ${th.cardBorder}55` } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 130, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 700, color: th.text } }, SALES_CAT_LABELS[o.category] || o.category), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: col, fontWeight: 700 } }, below ? "\u2193" : "\u2191", " ", o.gapPct, "% ", below ? "below" : "above", " district")), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0, fontSize: "0.72rem", color: th.text } }, o.storeSharePct, "% of this store's mix vs ", /* @__PURE__ */ React.createElement("b", null, o.districtSharePct, "%"), " district avg", below && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.64rem", color: th.muted } }, " \xB7 equipment or training issue?")));
-      }));
-    })));
-  }
-  function NewProductsSection({ th, user, districtOverride = null }) {
-    const [data, setData] = React.useState(null);
-    const [registry, setRegistry] = React.useState(null);
-    const [loading, setLoading] = React.useState(true);
-    const [editing, setEditing] = React.useState(false);
-    const [saving, setSaving] = React.useState(false);
-    const [form, setForm] = React.useState({ name: "", terms: "", launchDate: "", category: "" });
-    const O2 = "#FF671F";
-    const isAdmin = user?.userType === "executive" || user?.userType === "it";
-    const scopeDistrict = districtOverride != null ? districtOverride : user?.district ?? null;
-    const load = React.useCallback(() => {
-      fetch("/.netlify/functions/analyst", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "new-products", userId: user?.id, userRole: user?.userType, district: scopeDistrict })
-      }).then((r) => r.ok ? r.json() : Promise.reject(r.status)).then((d) => setData(d)).catch(() => setData(null)).finally(() => setLoading(false));
-    }, [user?.id, user?.userType, scopeDistrict]);
-    React.useEffect(() => {
-      load();
-    }, [load]);
-    const loadRegistry = React.useCallback(() => {
-      fetch("/.netlify/functions/analyst", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "new-products-registry", userId: user?.id, userRole: user?.userType })
-      }).then((r) => r.ok ? r.json() : Promise.reject()).then((d) => setRegistry(Array.isArray(d.registry) ? d.registry : [])).catch(() => setRegistry([]));
-    }, [user?.id, user?.userType]);
-    const openEditor = () => {
-      setEditing(true);
-      if (registry == null) loadRegistry();
-    };
-    const saveRegistry = async (next) => {
-      setSaving(true);
-      try {
-        const r = await fetch("/.netlify/functions/analyst", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "new-products-registry", userId: user?.id, userRole: user?.userType, update: next })
-        });
-        if (r.ok) {
-          const d = await r.json();
-          setRegistry(d.registry || next);
-          load();
-        }
-      } catch {
-      }
-      setSaving(false);
-    };
-    const addProduct = () => {
-      const name = form.name.trim();
-      if (!name) return;
-      const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `p${(registry || []).length + 1}`;
-      const terms = form.terms.split(",").map((t) => t.trim()).filter(Boolean);
-      const next = [...(registry || []).filter((p) => p.id !== id), { id, name, terms, launchDate: form.launchDate || null, category: form.category || null }];
-      setForm({ name: "", terms: "", launchDate: "", category: "" });
-      saveRegistry(next);
-    };
-    const removeProduct = (id) => saveRegistry((registry || []).filter((p) => p.id !== id));
-    const hasData = data && Array.isArray(data.products) && data.products.length > 0;
-    if (loading) return null;
-    if (!hasData && !isAdmin) return null;
-    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1.25rem", borderLeft: `3px solid #0ea5e9` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.2rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1rem" } }, "\u{1F680}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.05rem", color: th.text } }, "New product launches"), hasData && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: "#0ea5e9", background: "#0ea5e918", border: "1px solid #0ea5e933", borderRadius: "1rem", padding: "0.1rem 0.5rem" } }, data.products.length, " tracked"), isAdmin && /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: openEditor,
-        style: { marginLeft: "auto", fontSize: "0.64rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "1rem", cursor: "pointer", border: `1px solid ${O2}44`, background: O2 + "15", color: O2 }
-      },
-      "\u2699\uFE0E Manage tracked products"
-    )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.85rem" } }, "Network rollout of tracked launches \u2014 units sold, how many stores are selling it, and the early ramp."), hasData ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, data.products.map((p) => {
-      const maxRamp = Math.max(1, ...(p.ramp || []).map((r) => r.units));
-      return /* @__PURE__ */ React.createElement("div", { key: p.id, style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem", padding: "0.7rem 0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.92rem", color: th.text } }, p.name), p.launchDate && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: th.muted } }, "launched ", p.launchDate), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.72rem", fontWeight: 800, color: "#0ea5e9" } }, p.totalUnits.toLocaleString(), " units")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.45rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 6, borderRadius: 3, background: th.cardBorder, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { width: `${p.adoption.pct}%`, height: "100%", background: "#0ea5e9" } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap" } }, p.adoption.selling, "/", p.adoption.of, " stores (", p.adoption.pct, "%)")), p.ramp && p.ramp.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 2, height: 34, marginBottom: "0.3rem" } }, p.ramp.map((r) => /* @__PURE__ */ React.createElement(
-        "div",
-        {
-          key: r.day,
-          title: `Day ${r.day}: ${r.units} units`,
-          style: { flex: 1, height: `${Math.max(6, r.units / maxRamp * 100)}%`, background: "#0ea5e9aa", borderRadius: "2px 2px 0 0" }
-        }
-      ))), p.topStores && p.topStores.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: th.muted } }, "Top: ", p.topStores.slice(0, 3).map((s) => `${s.name} (${s.units})`).join(" \xB7 ")));
-    })) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, fontStyle: "italic" } }, "No launches tracked yet", isAdmin ? " \u2014 add one to start measuring network rollout." : "."), editing && isAdmin && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.9rem", paddingTop: "0.8rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.text, marginBottom: "0.5rem" } }, "Tracked products"), (registry || []).map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.3rem 0", fontSize: "0.72rem", color: th.text } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700 } }, p.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: th.muted } }, p.launchDate || "no date", p.terms && p.terms.length ? ` \xB7 match: ${p.terms.join(", ")}` : ""), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => removeProduct(p.id),
-        disabled: saving,
-        style: { marginLeft: "auto", fontSize: "0.66rem", color: "#ef4444", background: "transparent", border: "none", cursor: "pointer" }
-      },
-      "Remove"
-    ))), registry != null && registry.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontStyle: "italic" } }, "None yet."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.6rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("input", { value: form.name, onChange: (e) => setForm((f) => ({ ...f, name: e.target.value })), placeholder: "Product name", style: { ...inp(th), fontSize: "0.72rem", padding: "0.35rem 0.5rem", flex: "2 1 140px" } }), /* @__PURE__ */ React.createElement("input", { value: form.terms, onChange: (e) => setForm((f) => ({ ...f, terms: e.target.value })), placeholder: "Match terms (comma-sep, optional)", style: { ...inp(th), fontSize: "0.72rem", padding: "0.35rem 0.5rem", flex: "2 1 160px" } }), /* @__PURE__ */ React.createElement("input", { value: form.launchDate, onChange: (e) => setForm((f) => ({ ...f, launchDate: e.target.value })), type: "date", style: { ...inp(th), fontSize: "0.72rem", padding: "0.35rem 0.5rem", flex: "1 1 120px" } }), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: addProduct,
-        disabled: saving || !form.name.trim(),
-        style: { fontSize: "0.72rem", fontWeight: 700, padding: "0.4rem 0.8rem", borderRadius: "0.4rem", cursor: form.name.trim() ? "pointer" : "default", border: `1px solid ${O2}55`, background: O2 + "18", color: O2, opacity: form.name.trim() ? 1 : 0.5 }
-      },
-      saving ? "\u2026" : "+ Add"
-    )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, marginTop: "0.4rem" } }, "Match terms are matched (case-insensitive) against POS item names; leave blank to match on the product name. Backfill fills history for past dates.")));
   }
   function AnomaliesTab({ stores, th, user, setTab }) {
     const [laborData, setLaborData] = React.useState(null);

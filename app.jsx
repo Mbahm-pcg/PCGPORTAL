@@ -395,6 +395,18 @@ const canViewProjects = (u) => u && u.userType !== "manager";
 // (store tablets / kiosks) are exempt — server enforces the same rule.
 const PASSWORD_POLICY_TEXT = "At least 12 characters, including an uppercase letter, a lowercase letter, a number, and a special character.";
 const isSharedDeviceType = (t) => { const s = String(t || ""); return s === "store_tablet" || s.startsWith("kiosk"); };
+// A store tablet has no email of its own — it always uses its assigned store's manager
+// email, resolved live from the manager's user record (never copied/stored on the tablet),
+// so it can never drift stale: change the manager's email once and every tablet at that
+// store picks it up automatically. Falls through to the user's own email for every other role.
+function resolveUserEmail(u, users) {
+  if (!u) return null;
+  if (u.userType === "store_tablet") {
+    const mgr = (users || []).find(x => x.userType === "manager" && String(x.storePC) === String(u.storePC));
+    return mgr?.email || null;
+  }
+  return u.email || null;
+}
 function validatePasswordClient(pw) {
   const s = String(pw == null ? "" : pw);
   if (s.length < 12) return "Password must be at least 12 characters long.";
@@ -3111,12 +3123,13 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   };
 
   const resendWelcome = async (u) => {
-    if (!u.email) { showAlert("error", "No email on file for " + u.name); return; }
+    const eml = resolveUserEmail(u, users);
+    if (!eml) { showAlert("error", "No email on file for " + u.name); return; }
     setEmailAction({ userId: u.id, type: "welcome", status: "sending" });
     try {
-      await sendWelcomeEmail(u);
+      await sendWelcomeEmail({ ...u, email: eml });
       setEmailAction({ userId: u.id, type: "welcome", status: "ok" });
-      showAlert("success", `Welcome email sent to ${u.email}`);
+      showAlert("success", `Welcome email sent to ${eml}`);
     } catch(e) {
       setEmailAction({ userId: u.id, type: "welcome", status: "fail" });
       showAlert("error", "Failed to send welcome email");
@@ -3125,7 +3138,8 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   };
 
   const sendPasswordReset = async (u) => {
-    if (!u.email) { showAlert("error", "No email on file for " + u.name); return; }
+    const eml = resolveUserEmail(u, users);
+    if (!eml) { showAlert("error", "No email on file for " + u.name); return; }
     setEmailAction({ userId: u.id, type: "reset", status: "sending" });
     const subject = `${BRAND_CONFIG.portalName} — Your Password Has Been Reset`;
     const htmlBody = `
@@ -3140,9 +3154,9 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
       <p style="color:#999;font-size:12px;">If you did not request this change, contact IT immediately.</p>
     `;
     try {
-      await sendNotifyEmail([u.email], subject, htmlBody);
+      await sendNotifyEmail([eml], subject, htmlBody);
       setEmailAction({ userId: u.id, type: "reset", status: "ok" });
-      showAlert("success", `Password reset email sent to ${u.email}`);
+      showAlert("success", `Password reset email sent to ${eml}`);
     } catch(e) {
       setEmailAction({ userId: u.id, type: "reset", status: "fail" });
       showAlert("error", "Failed to send password reset email");
@@ -3175,7 +3189,9 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
       if (pwErr) { showAlert('error', pwErr); return; }
     }
     const ini = form.initials || initials(form.name);
-    const securedForm = { ...form, initials: ini, twoFactorRequired: isTwoFactorRequired(form) };
+    // Store tablets never own an email — it's always resolved live from the assigned store's
+    // manager (see resolveUserEmail), so never persist a copy here that could go stale.
+    const securedForm = { ...form, initials: ini, twoFactorRequired: isTwoFactorRequired(form), email: form.userType === "store_tablet" ? "" : form.email };
     if (editId) {
       const old = users.find(u => u.id === editId) || {};
       const res = await fetch('/.netlify/functions/users', {
@@ -3392,7 +3408,20 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                   <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Contact Info</span>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem", marginBottom:"1rem" }}>
-                  <input style={inp(th)} type="email" placeholder="Email address" value={form.email||""} onChange={e=>setForm(f=>({...f,email:e.target.value}))} />
+                  {form.userType === "store_tablet" ? (() => {
+                    const mgrEmail = (users || []).find(x => x.userType === "manager" && String(x.storePC) === String(form.storePC))?.email;
+                    return (
+                      <div style={{ ...inp(th), display:"flex", alignItems:"center", gap:"0.5rem", color: mgrEmail ? th.text : th.muted, cursor:"default" }}
+                        title="A store tablet has no email of its own — it always uses the assigned store manager's email, and updates automatically if that changes.">
+                        <span style={{ fontSize:"0.85rem" }}>🔗</span>
+                        <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                          {mgrEmail || (form.storePC ? "No manager email on file for this store" : "Synced to store manager's email")}
+                        </span>
+                      </div>
+                    );
+                  })() : (
+                    <input style={inp(th)} type="email" placeholder="Email address" value={form.email||""} onChange={e=>setForm(f=>({...f,email:e.target.value}))} />
+                  )}
                   <input style={inp(th)} placeholder="Phone number" value={form.phone||""} onChange={e=>handlePhoneChange(e.target.value, setForm, "phone")} />
                 </div>
                 {welcomeSent && (
@@ -3458,8 +3487,45 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
         {displayUsers.map(u => {
           const rc = roleColor(u.userType);
           const isInactive = u.active === false;
-          // Uniform action-button style (no flex stretch) so every card's action row is identical.
-          const actBtn = (extra = {}) => ({ ...btn(th, { padding:"0.4rem 0.7rem", fontSize:"0.72rem", ...extra }), display:"inline-flex", alignItems:"center", gap:"0.35rem", whiteSpace:"nowrap" });
+          // Icon-only action button: circular, lifts + glows on hover, reveals an animated
+          // tooltip naming the action (accessible via aria-label too). Pure DOM-mutation on
+          // hover (matches this file's existing hover convention) — no per-card React state,
+          // since these buttons live inside a .map() and can't own hooks.
+          const IconAction = ({ icon, label, onClick, color, disabled, badge, size = 36 }) => (
+            <button onClick={onClick} disabled={disabled} aria-label={label}
+              style={{
+                position:"relative", width:size, height:size, minWidth:size, borderRadius:"50%",
+                display:"inline-flex", alignItems:"center", justifyContent:"center",
+                background:`${color}18`, border:`1px solid ${color}40`,
+                cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.4 : 1,
+                transition:"transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease",
+                flexShrink:0,
+              }}
+              onMouseEnter={e => {
+                if (disabled) return;
+                e.currentTarget.style.transform = "translateY(-2px) scale(1.1)";
+                e.currentTarget.style.boxShadow = `0 6px 16px ${color}66`;
+                e.currentTarget.style.background = `${color}2a`;
+                const tip = e.currentTarget.querySelector(".act-tip");
+                if (tip) { tip.style.opacity = "1"; tip.style.transform = "translateX(-50%) translateY(0)"; }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = "none";
+                e.currentTarget.style.boxShadow = "none";
+                e.currentTarget.style.background = `${color}18`;
+                const tip = e.currentTarget.querySelector(".act-tip");
+                if (tip) { tip.style.opacity = "0"; tip.style.transform = "translateX(-50%) translateY(4px)"; }
+              }}>
+              <Icon d={icon} size={14} color={color} />
+              {badge && <span style={{ position:"absolute", top:-2, right:-2, width:9, height:9, borderRadius:"50%", background:badge, border:`1.5px solid ${th.card2}` }} />}
+              <span className="act-tip" style={{
+                position:"absolute", bottom:"125%", left:"50%", transform:"translateX(-50%) translateY(4px)",
+                opacity:0, transition:"opacity 0.16s ease, transform 0.16s ease", pointerEvents:"none",
+                background:"#1f2937", color:"#fff", fontSize:"0.62rem", fontWeight:700, padding:"0.28rem 0.55rem",
+                borderRadius:"0.35rem", whiteSpace:"nowrap", boxShadow:"0 4px 10px rgba(0,0,0,0.3)", zIndex:30,
+              }}>{label}</span>
+            </button>
+          );
           return (
             <div key={u.id} style={{ ...card(th), padding:0, overflow:"hidden", opacity: isInactive ? 0.6 : 1, border:`1px solid ${th.cardBorder}`, display:"flex", flexDirection:"column" }}>
               {/* Card header */}
@@ -3481,7 +3547,19 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
               {/* Card body */}
               <div style={{ padding:"0.875rem 1.25rem", flex:1, display:"flex", flexDirection:"column", gap:"0.45rem" }}>
                 <div style={{ fontSize:"0.72rem", color:th.text, fontWeight:500 }}>{u.role || "—"}</div>
-                {u.email && <div style={{ fontSize:"0.7rem", color:th.muted, display:"flex", alignItems:"center", gap:"0.35rem", overflow:"hidden" }}><Icon d={BTN.mail} size={12} color={th.muted} /><span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.email}</span></div>}
+                {(() => {
+                  const eml = resolveUserEmail(u, users);
+                  if (!eml) return null;
+                  const synced = u.userType === "store_tablet";
+                  return (
+                    <div title={synced ? "Synced to this store's manager email — updates automatically." : undefined}
+                      style={{ fontSize:"0.7rem", color:th.muted, display:"flex", alignItems:"center", gap:"0.35rem", overflow:"hidden" }}>
+                      <Icon d={BTN.mail} size={12} color={th.muted} />
+                      <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{eml}</span>
+                      {synced && <span style={{ fontSize:"0.6rem", fontWeight:700, color:"#3b82f6", background:"#3b82f618", border:"1px solid #3b82f644", borderRadius:999, padding:"0.05rem 0.4rem", flexShrink:0 }}>synced</span>}
+                    </div>
+                  );
+                })()}
                 {u.phone && <div style={{ fontSize:"0.7rem", color:th.muted, display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.phone} size={12} color={th.muted} />{u.phone}</div>}
                 <div style={{ fontSize:"0.68rem", color:th.muted, marginTop:"0.25rem", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <span style={{ display:"inline-flex", alignItems:"center", gap:"0.35rem" }}><Icon d={u.darkMode ? BTN.moon : BTN.sun} size={12} color={th.muted} />{u.darkMode ? "Dark" : "Light"} · {u.region||"PA"}</span>
@@ -3502,55 +3580,46 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                 })()}
               </div>
 
-              {/* Card actions — routine actions left, destructive group (sign-out / delete) divided to the right */}
-              <div style={{ padding:"0.625rem 1rem", borderTop:`1px solid ${th.cardBorder}`, display:"flex", gap:"0.4rem", flexWrap:"wrap", alignItems:"center", background:th.card2 }}>
+              {/* Card actions — icon-only, animated tooltip on hover. Routine actions left,
+                  destructive group (sign-out / delete) divided to the right. */}
+              <div style={{ padding:"0.625rem 1rem", borderTop:`1px solid ${th.cardBorder}`, display:"flex", gap:"0.5rem", flexWrap:"wrap", alignItems:"center", background:th.card2 }}>
                 {canManageUser(currentUser, u) && (
-                  <button onClick={() => startEdit(u)} style={actBtn()}><Icon d={BTN.edit} size={13} color="#fff" />Edit</button>
+                  <IconAction icon={BTN.edit} label="Edit" color="#FF671F" onClick={() => startEdit(u)} />
                 )}
                 {canManageUser(currentUser, u) && (
-                  <button onClick={() => toggleActive(u.id)} style={actBtn({ background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` })}>
-                    <Icon d={isInactive ? BTN.check : BTN.power} size={13} color={th.muted} />{isInactive ? "Enable" : "Disable"}
-                  </button>
+                  <IconAction icon={isInactive ? BTN.check : BTN.power} label={isInactive ? "Enable" : "Disable"} color={th.muted} onClick={() => toggleActive(u.id)} />
                 )}
                 {u.locked && currentUser?.userType === "it" && (
-                  <button onClick={() => unlockUser(u.id)} title="Clear the failed-attempt lockout (IT only)" style={actBtn({ background:"#f8717122", color:"#f87171", border:"1px solid #f8717155" })}>
-                    <Icon d={BTN.unlock} size={13} color="#f87171" />Unlock
-                  </button>
+                  <IconAction icon={BTN.unlock} label="Unlock (clear failed-attempt lockout)" color="#f87171" onClick={() => unlockUser(u.id)} />
                 )}
-                {isFullAdmin(currentUser) && (
-                  <button onClick={() => sendPasswordReset(u)} disabled={!u.email || (emailAction?.userId===u.id && emailAction?.status==="sending")}
-                    title={u.email ? "Send password reset email" : "No email on file"}
-                    style={actBtn({ background:"#3b82f618", color:"#3b82f6", opacity:u.email?1:0.35 })}>
-                    <Icon d={BTN.key} size={13} color="#3b82f6" />{emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"Sent":"Failed") : "Reset PW"}
-                  </button>
-                )}
-                {isFullAdmin(currentUser) && !u.lastLogin && (
-                  <button onClick={() => resendWelcome(u)} disabled={!u.email || (emailAction?.userId===u.id && emailAction?.status==="sending")}
-                    title={u.email ? "Resend welcome email" : "No email on file"}
-                    style={actBtn({ background:"#10b98118", color:"#10b981", opacity:u.email?1:0.35 })}>
-                    <Icon d={BTN.mail} size={13} color="#10b981" />{emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"Sent":"Failed") : "Welcome"}
-                  </button>
-                )}
-                {isFullAdmin(currentUser) && isTwoFactorRequired(u) && (
-                  <button
-                    onClick={() => revokeTrustedDevices(u)}
-                    disabled={revokeAction?.userId === u.id && revokeAction?.status === "revoking"}
-                    title="Revoke trusted devices — forces 2FA re-verification on next login"
-                    style={actBtn({ background:"#f9731618", color:"#f97316", opacity: revokeAction?.userId === u.id && revokeAction?.status === "revoking" ? 0.5 : 1 })}>
-                    <Icon d={BTN.shield} size={13} color="#f97316" />{revokeAction?.userId === u.id ? (revokeAction.status === "revoking" ? "Revoking…" : revokeAction.status === "ok" ? "Revoked" : "Failed") : "Revoke 2FA"}
-                  </button>
-                )}
+                {isFullAdmin(currentUser) && (() => {
+                  const eml = resolveUserEmail(u, users);
+                  const busy = emailAction?.userId===u.id && emailAction?.type==="reset" && emailAction?.status==="sending";
+                  const label = !eml ? (u.userType === "store_tablet" ? "No manager email on file" : "No email on file")
+                    : emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"Reset email sent":"Failed to send") : "Reset password";
+                  const badge = emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="ok"?"#10b981":emailAction.status==="failed"?"#ef4444":null) : null;
+                  return <IconAction icon={BTN.key} label={label} color="#3b82f6" disabled={!eml || busy} badge={badge} onClick={() => sendPasswordReset(u)} />;
+                })()}
+                {isFullAdmin(currentUser) && !u.lastLogin && (() => {
+                  const eml = resolveUserEmail(u, users);
+                  const busy = emailAction?.userId===u.id && emailAction?.type==="welcome" && emailAction?.status==="sending";
+                  const label = !eml ? (u.userType === "store_tablet" ? "No manager email on file" : "No email on file")
+                    : emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"Welcome email sent":"Failed to send") : "Resend welcome email";
+                  const badge = emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="ok"?"#10b981":emailAction.status==="failed"?"#ef4444":null) : null;
+                  return <IconAction icon={BTN.mail} label={label} color="#10b981" disabled={!eml || busy} badge={badge} onClick={() => resendWelcome(u)} />;
+                })()}
+                {isFullAdmin(currentUser) && isTwoFactorRequired(u) && (() => {
+                  const busy = revokeAction?.userId === u.id && revokeAction?.status === "revoking";
+                  const label = revokeAction?.userId === u.id ? (revokeAction.status === "revoking" ? "Revoking…" : revokeAction.status === "ok" ? "2FA revoked" : "Failed") : "Revoke 2FA (force re-verification)";
+                  const badge = revokeAction?.userId === u.id && revokeAction.status === "ok" ? "#10b981" : null;
+                  return <IconAction icon={BTN.shield} label={label} color="#f97316" disabled={busy} badge={badge} onClick={() => revokeTrustedDevices(u)} />;
+                })()}
 
                 {/* Destructive group — set apart by a divider, but kept in the natural left-aligned flow */}
                 {(currentUser?.userType === "it" || isFullAdmin(currentUser)) && (
-                  <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap", alignItems:"center", paddingLeft:"0.6rem", borderLeft:`1px solid ${th.cardBorder}` }}>
+                  <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap", alignItems:"center", paddingLeft:"0.7rem", borderLeft:`1px solid ${th.cardBorder}` }}>
                     {currentUser?.userType === "it" && (
-                      <button
-                        onClick={() => signOutAllSessions(u)}
-                        title="Sign this user out of ALL devices now (lost/stolen device) — invalidates active sessions + trusted devices"
-                        style={actBtn({ background:"#ef444418", color:"#ef4444" })}>
-                        <Icon d={BTN.logout} size={13} color="#ef4444" />Sign out all
-                      </button>
+                      <IconAction icon={BTN.logout} label="Sign out of all devices (lost/stolen)" color="#ef4444" onClick={() => signOutAllSessions(u)} />
                     )}
                     {isFullAdmin(currentUser) && (
                       confirmDeleteId === u.id
@@ -3559,7 +3628,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                             <button onClick={() => { del(u.id); setConfirmDeleteId(null); }} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.72rem", background:"#ef4444", color:"#fff", border:"none" }) }}>Yes</button>
                             <button onClick={() => setConfirmDeleteId(null)} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.72rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>No</button>
                           </div>
-                        : <button onClick={() => setConfirmDeleteId(u.id)} title="Delete user" style={actBtn({ background:"#ef444418", color:"#ef4444" })}><Icon d={BTN.trash} size={13} color="#ef4444" />Delete</button>
+                        : <IconAction icon={BTN.trash} label="Delete user" color="#ef4444" onClick={() => setConfirmDeleteId(u.id)} />
                     )}
                   </div>
                 )}
@@ -11030,15 +11099,6 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
         <StoreDetail pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} />
       )}
 
-      {/* ── Sales Mix Intelligence (9.3): cross-store mix outliers + new product launches ──
-          Shown in network + district views (not store detail, which has its own Daypart tab).
-          Exec drill-down into a district scopes both panels to that district. */}
-      {pulseView?.level !== "store" && (
-        <>
-          <MixComparisonSection th={th} user={user} districtOverride={pulseView?.level === "district" ? pulseView.num : null} />
-          <NewProductsSection th={th} user={user} districtOverride={pulseView?.level === "district" ? pulseView.num : null} />
-        </>
-      )}
 
       {/* ── Loading Overlay ── */}
       {loading && Object.keys(storeData).length === 0 && (
@@ -16168,6 +16228,8 @@ function ExpenseLogSection({ th, user, standalone }) {
   const [filterUser, setFilterUser] = React.useState('All');
   const [filterApproval, setFilterApproval] = React.useState('All');
   const [approvingId, setApprovingId] = React.useState(null);
+  const [confirmDeleteRowId, setConfirmDeleteRowId] = React.useState(null);
+  const [deletingId, setDeletingId] = React.useState(null);
 
   // Pull all expenses from all tickets via cloudLoad (authoritative) with localStorage fallback
   const [allTickets, setAllTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); } catch { return []; } });
@@ -16246,6 +16308,28 @@ function ExpenseLogSection({ th, user, standalone }) {
       } catch(e) { console.warn('[push] expense notification failed', e.message); }
     }
     setApprovingId(null);
+  };
+
+  // Exec/IT only (gated by isVP at the call site) — permanently removes an expense entry from
+  // its ticket. Needed so test/demo expense data never leaks into real financial totals/exports.
+  const handleDelete = async (row) => {
+    const id = `${row.ticketId}_${row.expenseId}`;
+    setDeletingId(id);
+    const now = new Date().toISOString();
+    const updatedTickets = allTickets.map(t => {
+      if (t.id !== row.ticketId) return t;
+      return {
+        ...t,
+        expenses: (t.expenses || []).filter(ex => ex.id !== row.expenseId),
+        comments: [...(t.comments || []), { id: Date.now(), type: 'system', text: `Expense "${row.description || 'entry'}" ($${(row.amount || 0).toFixed(2)}) deleted by ${user?.name}`, createdAt: now }],
+      };
+    });
+    setAllTickets(updatedTickets);
+    try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(updatedTickets)); } catch {}
+    await cloudSave('pcg_tickets_v1', updatedTickets);
+    logClientEvent(user?.id, user?.userType, 'expense_deleted', { ticketId: row.ticketId, ticketNumber: row.ticketNumber, description: row.description, amount: row.amount });
+    setDeletingId(null);
+    setConfirmDeleteRowId(null);
   };
 
   const categories = ['All', ...Array.from(new Set(rows.map(r => r.category)))];
@@ -16361,22 +16445,41 @@ function ExpenseLogSection({ th, user, standalone }) {
                             </div>
                           ) : <span style={{ color:th.muted, fontSize:'0.75rem' }}>—</span>}
                         </td>
-                        {isVP && (
-                          <td style={{ padding: '0.5rem 0.75rem', whiteSpace: 'nowrap' }}>
-                            {r.approvalStatus === 'pending' ? (
-                              <div style={{ display:'flex', gap:'0.35rem' }}>
-                                <button onClick={() => handleApprove(r, 'approved')} disabled={isApproving} style={{ background:'#16a34a', border:'none', borderRadius:6, color:'#fff', padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', opacity:isApproving?0.5:1 }}>
-                                  {isApproving ? '...' : '✓ Approve'}
-                                </button>
-                                <button onClick={() => handleApprove(r, 'rejected')} disabled={isApproving} style={{ background:'#ef444422', border:'1px solid #ef444444', borderRadius:6, color:'#ef4444', padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', opacity:isApproving?0.5:1 }}>
-                                  ✗ Reject
-                                </button>
+                        {isVP && (() => {
+                          const isDeleting = deletingId === rowId;
+                          const confirming = confirmDeleteRowId === rowId;
+                          return (
+                            <td style={{ padding: '0.5rem 0.75rem', whiteSpace: 'nowrap' }}>
+                              <div style={{ display:'flex', gap:'0.35rem', alignItems:'center' }}>
+                                {r.approvalStatus === 'pending' && !confirming && (
+                                  <>
+                                    <button onClick={() => handleApprove(r, 'approved')} disabled={isApproving} style={{ background:'#16a34a', border:'none', borderRadius:6, color:'#fff', padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', opacity:isApproving?0.5:1 }}>
+                                      {isApproving ? '...' : '✓ Approve'}
+                                    </button>
+                                    <button onClick={() => handleApprove(r, 'rejected')} disabled={isApproving} style={{ background:'#ef444422', border:'1px solid #ef444444', borderRadius:6, color:'#ef4444', padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', opacity:isApproving?0.5:1 }}>
+                                      ✗ Reject
+                                    </button>
+                                  </>
+                                )}
+                                {confirming ? (
+                                  <>
+                                    <span style={{ fontSize:'0.68rem', color:'#ef4444', fontWeight:700 }}>Delete?</span>
+                                    <button onClick={() => handleDelete(r)} disabled={isDeleting} style={{ background:'#ef4444', border:'none', borderRadius:6, color:'#fff', padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', opacity:isDeleting?0.5:1 }}>
+                                      {isDeleting ? '...' : 'Yes'}
+                                    </button>
+                                    <button onClick={() => setConfirmDeleteRowId(null)} disabled={isDeleting} style={{ background:'transparent', border:`1px solid ${th.cardBorder}`, borderRadius:6, color:th.muted, padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer' }}>
+                                      No
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button onClick={() => setConfirmDeleteRowId(rowId)} title="Delete this expense entry (Exec/IT only)" style={{ background:'#ef444418', border:'1px solid #ef444444', borderRadius:6, color:'#ef4444', padding:'3px 8px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer' }}>
+                                    🗑
+                                  </button>
+                                )}
                               </div>
-                            ) : (
-                              <span style={{ fontSize:'0.72rem', color:th.muted }}>—</span>
-                            )}
-                          </td>
-                        )}
+                            </td>
+                          );
+                        })()}
                       </tr>
                     );
                   })}
@@ -20210,7 +20313,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.85";
+const APP_VERSION = "v17.88";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -22885,256 +22988,6 @@ function SalesExplainedSection({ th, user, setTab }) {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-// Cross-store item comparison (9.3): each store's category share-of-mix vs its district-peer
-// average, surfaced as "sells relatively less/more of X". Self-contained + role-scoped server-
-// side (manager → own store, DM → district, exec → network). Degrades quietly to nothing.
-function MixComparisonSection({ th, user, districtOverride = null }) {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  const [showAbove, setShowAbove] = React.useState(false);
-  const isAdmin = user?.userType === 'executive' || user?.userType === 'it';
-  const scopeDistrict = districtOverride != null ? districtOverride : (user?.district ?? null);
-
-  React.useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    fetch('/.netlify/functions/analyst', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'mix-compare', userId: user?.id, userRole: user?.userType, district: scopeDistrict }),
-    })
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(d => { if (alive) { setData(d); setLoading(false); } })
-      .catch(() => { if (alive) { setData(null); setLoading(false); } });
-    return () => { alive = false; };
-  }, [user?.id, user?.userType, scopeDistrict]);
-
-  if (loading) return null;
-  const empty = !data || !Array.isArray(data.stores) || data.stores.length === 0;
-  // Non-admins see nothing when there's nothing to show; exec/IT get a visible empty-state so the
-  // panel is discoverable (and hints that baselines are still building / backfill not yet run).
-  if (empty && !isAdmin) return null;
-  if (empty) {
-    return (
-      <div style={{ ...card(th), padding:'1.1rem 1.25rem', marginBottom:'1.25rem', borderLeft:`3px solid #6366f1` }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.2rem' }}>
-          <span style={{ fontSize:'1rem' }}>📊</span>
-          <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.05rem', color:th.text }}>Item mix outliers</span>
-        </div>
-        <div style={{ fontSize:'0.72rem', color:th.muted }}>
-          No stores currently running far from their district-peer mix. Needs ≥3 stores/district with enough item-category history — baselines build nightly (or run the category backfill to populate now).
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ ...card(th), padding:'1.1rem 1.25rem', marginBottom:'1.25rem', borderLeft:`3px solid #6366f1` }}>
-      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.2rem', flexWrap:'wrap' }}>
-        <span style={{ fontSize:'1rem' }}>📊</span>
-        <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.05rem', color:th.text }}>Item mix outliers</span>
-        <span style={{ fontSize:'0.62rem', fontWeight:700, color:'#6366f1', background:'#6366f118', border:'1px solid #6366f133', borderRadius:'1rem', padding:'0.1rem 0.5rem' }}>
-          {data.storesWithOutliers} store{data.storesWithOutliers!==1?'s':''}
-        </span>
-        <button onClick={() => setShowAbove(v => !v)}
-          style={{ marginLeft:'auto', fontSize:'0.64rem', fontWeight:700, padding:'0.2rem 0.55rem', borderRadius:'1rem', cursor:'pointer', border:`1px solid ${th.cardBorder}`, background:th.card2, color:th.muted }}>
-          {showAbove ? 'Hide over-index' : 'Show over-index'}
-        </button>
-      </div>
-      <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.85rem' }}>
-        How each store's product mix compares to its district-peer average — a category running well below peers can signal an equipment, training, or merchandising gap.
-      </div>
-      <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem' }}>
-        {data.stores.map(st => {
-          const rows = st.outliers.filter(o => showAbove || o.direction === 'below');
-          if (!rows.length) return null;
-          return (
-            <div key={st.pc} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:'0.6rem', padding:'0.7rem 0.9rem' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom:'0.5rem' }}>
-                <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.9rem', color:th.text }}>{st.name}</span>
-                <span style={{ fontSize:'0.6rem', color:th.muted }}>D{st.district}</span>
-              </div>
-              {rows.map(o => {
-                const below = o.direction === 'below';
-                const col = below ? '#ef4444' : '#10b981';
-                return (
-                  <div key={o.category} style={{ display:'flex', alignItems:'center', gap:'0.6rem', padding:'0.35rem 0', borderTop:`1px solid ${th.cardBorder}55` }}>
-                    <div style={{ minWidth:130, flexShrink:0 }}>
-                      <div style={{ fontSize:'0.8rem', fontWeight:700, color:th.text }}>{SALES_CAT_LABELS[o.category] || o.category}</div>
-                      <div style={{ fontSize:'0.66rem', color:col, fontWeight:700 }}>
-                        {below ? '↓' : '↑'} {o.gapPct}% {below ? 'below' : 'above'} district
-                      </div>
-                    </div>
-                    <div style={{ flex:1, minWidth:0, fontSize:'0.72rem', color:th.text }}>
-                      {o.storeSharePct}% of this store's mix vs <b>{o.districtSharePct}%</b> district avg
-                      {below && <span style={{ fontSize:'0.64rem', color:th.muted }}> · equipment or training issue?</span>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// New product launch tracker (9.3): network adoption + ramp for tracked launches, plus an
-// exec/IT-only registry editor. Self-contained; scoped server-side. Quiet when nothing tracked.
-function NewProductsSection({ th, user, districtOverride = null }) {
-  const [data, setData]       = React.useState(null);
-  const [registry, setRegistry] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  const [editing, setEditing] = React.useState(false);
-  const [saving, setSaving]   = React.useState(false);
-  const [form, setForm]       = React.useState({ name:'', terms:'', launchDate:'', category:'' });
-  const O = '#FF671F';
-  const isAdmin = user?.userType === 'executive' || user?.userType === 'it';
-  const scopeDistrict = districtOverride != null ? districtOverride : (user?.district ?? null);
-
-  const load = React.useCallback(() => {
-    fetch('/.netlify/functions/analyst', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'new-products', userId: user?.id, userRole: user?.userType, district: scopeDistrict }),
-    })
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(d => setData(d))
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
-  }, [user?.id, user?.userType, scopeDistrict]);
-
-  React.useEffect(() => { load(); }, [load]);
-
-  const loadRegistry = React.useCallback(() => {
-    fetch('/.netlify/functions/analyst', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'new-products-registry', userId: user?.id, userRole: user?.userType }),
-    }).then(r => r.ok ? r.json() : Promise.reject()).then(d => setRegistry(Array.isArray(d.registry) ? d.registry : [])).catch(() => setRegistry([]));
-  }, [user?.id, user?.userType]);
-
-  const openEditor = () => { setEditing(true); if (registry == null) loadRegistry(); };
-
-  const saveRegistry = async (next) => {
-    setSaving(true);
-    try {
-      const r = await fetch('/.netlify/functions/analyst', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'new-products-registry', userId: user?.id, userRole: user?.userType, update: next }),
-      });
-      if (r.ok) { const d = await r.json(); setRegistry(d.registry || next); load(); }
-    } catch {}
-    setSaving(false);
-  };
-
-  const addProduct = () => {
-    const name = form.name.trim();
-    if (!name) return;
-    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `p${(registry||[]).length+1}`;
-    const terms = form.terms.split(',').map(t => t.trim()).filter(Boolean);
-    const next = [ ...(registry || []).filter(p => p.id !== id), { id, name, terms, launchDate: form.launchDate || null, category: form.category || null } ];
-    setForm({ name:'', terms:'', launchDate:'', category:'' });
-    saveRegistry(next);
-  };
-  const removeProduct = (id) => saveRegistry((registry || []).filter(p => p.id !== id));
-
-  // Show the panel if there's data OR the admin can start tracking (so it's discoverable).
-  const hasData = data && Array.isArray(data.products) && data.products.length > 0;
-  if (loading) return null;
-  if (!hasData && !isAdmin) return null;
-
-  return (
-    <div style={{ ...card(th), padding:'1.1rem 1.25rem', marginBottom:'1.25rem', borderLeft:`3px solid #0ea5e9` }}>
-      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.2rem', flexWrap:'wrap' }}>
-        <span style={{ fontSize:'1rem' }}>🚀</span>
-        <span style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.05rem', color:th.text }}>New product launches</span>
-        {hasData && <span style={{ fontSize:'0.62rem', fontWeight:700, color:'#0ea5e9', background:'#0ea5e918', border:'1px solid #0ea5e933', borderRadius:'1rem', padding:'0.1rem 0.5rem' }}>
-          {data.products.length} tracked
-        </span>}
-        {isAdmin && (
-          <button onClick={openEditor}
-            style={{ marginLeft:'auto', fontSize:'0.64rem', fontWeight:700, padding:'0.2rem 0.55rem', borderRadius:'1rem', cursor:'pointer', border:`1px solid ${O}44`, background:O+'15', color:O }}>
-            ⚙︎ Manage tracked products
-          </button>
-        )}
-      </div>
-      <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.85rem' }}>
-        Network rollout of tracked launches — units sold, how many stores are selling it, and the early ramp.
-      </div>
-
-      {hasData ? (
-        <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem' }}>
-          {data.products.map(p => {
-            const maxRamp = Math.max(1, ...(p.ramp || []).map(r => r.units));
-            return (
-              <div key={p.id} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:'0.6rem', padding:'0.7rem 0.9rem' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', flexWrap:'wrap', marginBottom:'0.4rem' }}>
-                  <span style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'0.92rem', color:th.text }}>{p.name}</span>
-                  {p.launchDate && <span style={{ fontSize:'0.62rem', color:th.muted }}>launched {p.launchDate}</span>}
-                  <span style={{ marginLeft:'auto', fontSize:'0.72rem', fontWeight:800, color:'#0ea5e9' }}>{p.totalUnits.toLocaleString()} units</span>
-                </div>
-                <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', marginBottom:'0.45rem' }}>
-                  <div style={{ flex:1, height:6, borderRadius:3, background:th.cardBorder, overflow:'hidden' }}>
-                    <div style={{ width:`${p.adoption.pct}%`, height:'100%', background:'#0ea5e9' }} />
-                  </div>
-                  <span style={{ fontSize:'0.68rem', fontWeight:700, color:th.text, whiteSpace:'nowrap' }}>
-                    {p.adoption.selling}/{p.adoption.of} stores ({p.adoption.pct}%)
-                  </span>
-                </div>
-                {p.ramp && p.ramp.length > 1 && (
-                  <div style={{ display:'flex', alignItems:'flex-end', gap:2, height:34, marginBottom:'0.3rem' }}>
-                    {p.ramp.map(r => (
-                      <div key={r.day} title={`Day ${r.day}: ${r.units} units`}
-                        style={{ flex:1, height:`${Math.max(6, (r.units/maxRamp)*100)}%`, background:'#0ea5e9aa', borderRadius:'2px 2px 0 0' }} />
-                    ))}
-                  </div>
-                )}
-                {p.topStores && p.topStores.length > 0 && (
-                  <div style={{ fontSize:'0.66rem', color:th.muted }}>
-                    Top: {p.topStores.slice(0,3).map(s => `${s.name} (${s.units})`).join(' · ')}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div style={{ fontSize:'0.72rem', color:th.muted, fontStyle:'italic' }}>
-          No launches tracked yet{isAdmin ? ' — add one to start measuring network rollout.' : '.'}
-        </div>
-      )}
-
-      {editing && isAdmin && (
-        <div style={{ marginTop:'0.9rem', paddingTop:'0.8rem', borderTop:`1px solid ${th.cardBorder}` }}>
-          <div style={{ fontSize:'0.72rem', fontWeight:800, color:th.text, marginBottom:'0.5rem' }}>Tracked products</div>
-          {(registry || []).map(p => (
-            <div key={p.id} style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.3rem 0', fontSize:'0.72rem', color:th.text }}>
-              <span style={{ fontWeight:700 }}>{p.name}</span>
-              <span style={{ fontSize:'0.62rem', color:th.muted }}>
-                {p.launchDate || 'no date'}{p.terms && p.terms.length ? ` · match: ${p.terms.join(', ')}` : ''}
-              </span>
-              <button onClick={() => removeProduct(p.id)} disabled={saving}
-                style={{ marginLeft:'auto', fontSize:'0.66rem', color:'#ef4444', background:'transparent', border:'none', cursor:'pointer' }}>Remove</button>
-            </div>
-          ))}
-          {registry != null && registry.length === 0 && <div style={{ fontSize:'0.68rem', color:th.muted, fontStyle:'italic' }}>None yet.</div>}
-          <div style={{ display:'flex', gap:'0.4rem', flexWrap:'wrap', marginTop:'0.6rem', alignItems:'center' }}>
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name:e.target.value }))} placeholder="Product name" style={{ ...inp(th), fontSize:'0.72rem', padding:'0.35rem 0.5rem', flex:'2 1 140px' }} />
-            <input value={form.terms} onChange={e => setForm(f => ({ ...f, terms:e.target.value }))} placeholder="Match terms (comma-sep, optional)" style={{ ...inp(th), fontSize:'0.72rem', padding:'0.35rem 0.5rem', flex:'2 1 160px' }} />
-            <input value={form.launchDate} onChange={e => setForm(f => ({ ...f, launchDate:e.target.value }))} type="date" style={{ ...inp(th), fontSize:'0.72rem', padding:'0.35rem 0.5rem', flex:'1 1 120px' }} />
-            <button onClick={addProduct} disabled={saving || !form.name.trim()}
-              style={{ fontSize:'0.72rem', fontWeight:700, padding:'0.4rem 0.8rem', borderRadius:'0.4rem', cursor: form.name.trim() ? 'pointer':'default', border:`1px solid ${O}55`, background:O+'18', color:O, opacity: form.name.trim()?1:0.5 }}>
-              {saving ? '…' : '+ Add'}
-            </button>
-          </div>
-          <div style={{ fontSize:'0.62rem', color:th.muted, marginTop:'0.4rem' }}>
-            Match terms are matched (case-insensitive) against POS item names; leave blank to match on the product name. Backfill fills history for past dates.
-          </div>
-        </div>
-      )}
     </div>
   );
 }
