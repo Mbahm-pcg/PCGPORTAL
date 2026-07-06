@@ -6593,6 +6593,16 @@
     } catch {
     }
   }
+  async function ticketsDbDeleteExpense(ticketId, expenseId) {
+    try {
+      await fetch("/.netlify/functions/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "deleteExpense", ticketId, expenseId })
+      });
+    } catch {
+    }
+  }
   async function cloudSave(key, data) {
     if (key === TICKETS_KEY) {
       emitSync("saving", key);
@@ -7329,6 +7339,22 @@
     const fmtUSD = (v) => "$" + Math.round(v).toLocaleString();
     const fmtNum = (v) => Math.round(v).toLocaleString();
     const fmtAvg = (v) => v > 0 ? "$" + v.toFixed(2) : "\u2014";
+    const frameRef = React.useRef(null);
+    const [frameH, setFrameH] = React.useState(null);
+    React.useEffect(() => {
+      const measure = () => {
+        const el = frameRef.current;
+        if (!el) return;
+        setFrameH(Math.max(360, Math.round(window.innerHeight - el.getBoundingClientRect().top - 20)));
+      };
+      measure();
+      window.addEventListener("resize", measure);
+      window.addEventListener("scroll", measure, true);
+      return () => {
+        window.removeEventListener("resize", measure);
+        window.removeEventListener("scroll", measure, true);
+      };
+    }, []);
     const [localDate, setLocalDate] = React.useState(busDt);
     const [viewMode, setViewMode] = React.useState("day");
     const [overrideLive, setOverrideLive] = React.useState(null);
@@ -7750,7 +7776,7 @@
       }
       setTxnModalLoading(false);
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", overflow: "hidden", borderRadius: "1rem", marginBottom: "1.25rem", padding: "1.25rem 1.5rem", background: "linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)", border: `1px solid ${G}33`, boxShadow: `0 4px 24px ${G}11` } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: -60, right: -60, width: 200, height: 200, borderRadius: "50%", background: `${G}15`, pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", bottom: -40, left: "20%", width: 150, height: 150, borderRadius: "50%", background: `${G}05`, pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: 38, height: 38, borderRadius: "50%", background: `${G}22`, border: `2px solid ${G}`, boxShadow: `0 0 14px ${G}66`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem", filter: `drop-shadow(0 0 6px ${G})` } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: "50%", border: `2px solid ${G}`, animation: "pulseRing 2s ease-out infinite" } })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", color: G, textShadow: `0 0 16px ${G}99`, letterSpacing: 1 } }, "PULSE"), /* @__PURE__ */ React.createElement("span", { style: { color: `${G}44` } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.3rem", color: "#fff" } }, s?.name || pc, s?.status !== "Open" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 8, fontSize: "0.6rem", padding: "2px 7px", borderRadius: 4, fontWeight: 700, color: "#fff", verticalAlign: "middle", background: s?.status === "Remodel" ? "#fd7e14" : "#dc3545" } }, s?.status))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: `${G}77`, fontWeight: 600, letterSpacing: 1 } }, "PC# " + pc + " \xB7 " + (s?.city || "") + ", " + (s?.state || "") + " \xB7 District " + (s?.district || "") + (s?.baseAsset ? " \xB7 " + s.baseAsset : "")))), /* @__PURE__ */ React.createElement(HeartbeatLine, null)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: "#001a0d", border: `1px solid ${G}44`, borderRadius: "0.5rem", padding: "0.15rem" } }, ["day", "week"].map((m) => /* @__PURE__ */ React.createElement("button", { key: m, onClick: () => setViewMode(m), style: { background: viewMode === m ? G : "transparent", color: viewMode === m ? "#0a2e0a" : `${G}88`, border: "none", borderRadius: "0.35rem", padding: "0.3rem 0.85rem", fontSize: "0.7rem", fontWeight: 800, cursor: "pointer", textTransform: "uppercase", letterSpacing: 1, fontFamily: "'Source Sans 3'", transition: "all .15s" } }, m))), viewMode === "week" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in", ref: frameRef, style: { display: "flex", flexDirection: "column", height: frameH || "calc(100vh - 200px)", minHeight: 360 } }, /* @__PURE__ */ React.createElement("div", { style: { flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", overflow: "hidden", borderRadius: "1rem", marginBottom: "1.25rem", padding: "1.25rem 1.5rem", background: "linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)", border: `1px solid ${G}33`, boxShadow: `0 4px 24px ${G}11` } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: -60, right: -60, width: 200, height: 200, borderRadius: "50%", background: `${G}15`, pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", bottom: -40, left: "20%", width: 150, height: 150, borderRadius: "50%", background: `${G}05`, pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: 38, height: 38, borderRadius: "50%", background: `${G}22`, border: `2px solid ${G}`, boxShadow: `0 0 14px ${G}66`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem", filter: `drop-shadow(0 0 6px ${G})` } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: "50%", border: `2px solid ${G}`, animation: "pulseRing 2s ease-out infinite" } })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", color: G, textShadow: `0 0 16px ${G}99`, letterSpacing: 1 } }, "PULSE"), /* @__PURE__ */ React.createElement("span", { style: { color: `${G}44` } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.3rem", color: "#fff" } }, s?.name || pc, s?.status !== "Open" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 8, fontSize: "0.6rem", padding: "2px 7px", borderRadius: 4, fontWeight: 700, color: "#fff", verticalAlign: "middle", background: s?.status === "Remodel" ? "#fd7e14" : "#dc3545" } }, s?.status))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: `${G}77`, fontWeight: 600, letterSpacing: 1 } }, "PC# " + pc + " \xB7 " + (s?.city || "") + ", " + (s?.state || "") + " \xB7 District " + (s?.district || "") + (s?.baseAsset ? " \xB7 " + s.baseAsset : "")))), /* @__PURE__ */ React.createElement(HeartbeatLine, null)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: "#001a0d", border: `1px solid ${G}44`, borderRadius: "0.5rem", padding: "0.15rem" } }, ["day", "week"].map((m) => /* @__PURE__ */ React.createElement("button", { key: m, onClick: () => setViewMode(m), style: { background: viewMode === m ? G : "transparent", color: viewMode === m ? "#0a2e0a" : `${G}88`, border: "none", borderRadius: "0.35rem", padding: "0.3rem 0.85rem", fontSize: "0.7rem", fontWeight: 800, cursor: "pointer", textTransform: "uppercase", letterSpacing: 1, fontFamily: "'Source Sans 3'", transition: "all .15s" } }, m))), viewMode === "week" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       const dt = /* @__PURE__ */ new Date(localDate + "T12:00:00");
       dt.setDate(dt.getDate() - 7);
       setLocalDate(dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0"));
@@ -7770,7 +7796,7 @@
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
       { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null },
       ...upsellEntry ? [{ label: "Upsell Rate", value: upsellEntry.upsellRate.toFixed(1) + "%", color: "#22d3ee", sub: upsellEntry.date }] : []
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : ""))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "1.25rem", background: th.card, borderRadius: "999px", border: `1px solid ${th.cardBorder}`, padding: "0.3rem" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0 } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -7794,10 +7820,10 @@
             }).finally(() => setFoodCostLoading(false));
           }
         },
-        style: { flex: 1, padding: "0.6rem 0.5rem", border: "none", borderRadius: "999px", background: storeTab === t.id ? O : "transparent", color: storeTab === t.id ? "#fff" : th.muted, fontWeight: storeTab === t.id ? 800 : 500, fontSize: "0.78rem", cursor: "pointer", transition: "all .15s", boxShadow: storeTab === t.id ? `0 2px 10px ${O}55` : "none", fontFamily: "'Raleway',sans-serif" }
+        style: { display: "flex", alignItems: "center", textAlign: "left", padding: "0.6rem 0.75rem", border: `1px solid ${storeTab === t.id ? O : th.cardBorder}`, borderRadius: "0.6rem", background: storeTab === t.id ? O : th.card, color: storeTab === t.id ? "#fff" : th.muted, fontWeight: 600, fontSize: "0.78rem", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: "pointer", transition: "background .15s, color .15s, border-color .15s", boxSizing: "border-box", fontFamily: "'Raleway',sans-serif" }
       },
       t.label
-    ))), storeTab === "forecast" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
+    ))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, storeTab === "forecast" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
       const isWeek = viewMode === "week";
       const forecast = isWeek ? weekTotals.weekForecast : weekTotals.dayForecast;
       const atPct = d.netSales / forecast * 100;
@@ -8430,7 +8456,7 @@
           ["\u2705", clsdTime, "Transaction Closed", `Total: $${(chk.chkTtl || 0).toFixed(2)}`]
         ].filter(Boolean).map(([icon, time, title, sub], i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: "0.75rem", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 32, height: 32, borderRadius: "50%", background: `${O}20`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "0.7rem" } }, icon), /* @__PURE__ */ React.createElement("div", null, time && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text } }, time), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: time ? 400 : 700, color: th.text } }, title), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, sub)))))))))
       );
-    })()));
+    })())))));
   }
   function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView }) {
     const distStores = stores.filter((s) => s.district === distNum);
@@ -13612,6 +13638,7 @@ ${t2.slice(0, 300)}`);
         localStorage.setItem("pcg_tickets_v1", JSON.stringify(updatedTickets));
       } catch {
       }
+      await ticketsDbDeleteExpense(row.ticketId, row.expenseId);
       await cloudSave("pcg_tickets_v1", updatedTickets);
       logClientEvent(user?.id, user?.userType, "expense_deleted", { ticketId: row.ticketId, ticketNumber: row.ticketNumber, description: row.description, amount: row.amount });
       setDeletingId(null);
@@ -16186,7 +16213,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.89";
+  var APP_VERSION = "v17.98";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -30017,7 +30044,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       },
       "Out"
-    ))), /* @__PURE__ */ React.createElement("div", { ref: navRef2, onScroll: onNavScroll, style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, (() => {
+    ))), /* @__PURE__ */ React.createElement("div", { ref: navRef2, onScroll: onNavScroll, className: "sidebar-nav-scroll", style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, (() => {
       const dashTab = TABS.find((t) => t.id === "dashboard");
       const pinnedTabs = pinnedNavIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);
       const quickTabs = [dashTab, ...pinnedTabs.filter((t) => t.id !== "dashboard")].filter(Boolean);

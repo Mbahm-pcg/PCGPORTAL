@@ -37,8 +37,10 @@ function callUpstream(cfg, endpoint, body) {
       let raw = '';
       res.on('data', d => raw += d);
       res.on('end', () => resolve({ status: res.statusCode, body: raw }));
+      res.on('error', reject);
     });
     req.on('error', reject);
+    req.setTimeout(25000, () => req.destroy(new Error('upstream request timed out')));
     req.write(data);
     req.end();
   });

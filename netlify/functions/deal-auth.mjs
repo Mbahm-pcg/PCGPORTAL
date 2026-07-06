@@ -5,7 +5,8 @@
 // the Neon migration (the old flow re-checked the legacy pcg_users_v1 blob, which no
 // longer carries current credentials and doesn't match the portal's own login anymore).
 import { sql } from './_shared/db.mjs';
-import { signToken, verifyToken } from './deal-lib/token.js';
+import { signToken } from './deal-lib/token.js';
+import { requireUser, sessionIsValid } from './auth-lib/require-user.js';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Content-Type': 'application/json' };
 const lc = (s) => (s == null ? '' : String(s).trim().toLowerCase());
@@ -26,15 +27,21 @@ export default async (request, context) => {
   try {
     if (body.portalToken) {
       // Password-login path: the caller already holds a verified portal session token
-      // (kind:'portal', signed with the same DEAL_SESSION_SECRET). Re-derive identity
+      // (kind:'portal', signed with the same DEAL_SESSION_SECRET). requireUser checks
+      // signature/expiry; sessionIsValid (checked below against the single row fetch)
+      // checks sessions_valid_from, so a "sign out everywhere" revocation actually
+      // cuts off Deal Pipeline access, not just the portal itself. Re-derive identity
       // from the Neon users table by id — never trust claims fields as authoritative.
-      const secret = process.env.DEAL_SESSION_SECRET;
-      const claims = secret ? verifyToken(String(body.portalToken), secret) : null;
-      if (!claims || claims.kind !== 'portal' || claims.sub == null) {
+      const eventShim = { headers: { authorization: `Bearer ${String(body.portalToken)}` } };
+      const claims = requireUser(eventShim);
+      if (!claims || claims.sub == null) {
         return new Response(JSON.stringify({ error: 'invalid or expired session' }), { status: 401, headers: cors });
       }
-      const [u] = await db`SELECT id, username, email, user_type, active FROM users WHERE id = ${claims.sub}`;
+      const [u] = await db`SELECT id, username, email, user_type, active, sessions_valid_from FROM users WHERE id = ${claims.sub}`;
       if (!u || u.active === false) return new Response(JSON.stringify({ error: 'account not found' }), { status: 401, headers: cors });
+      if (!sessionIsValid(claims, u.sessions_valid_from)) {
+        return new Response(JSON.stringify({ error: 'invalid or expired session' }), { status: 401, headers: cors });
+      }
       identityKeys = [lc(u.username), lc(u.email)].filter(Boolean);
       userId = u.id; userType = u.user_type;
     } else if (body.googleAccessToken) {

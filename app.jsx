@@ -6979,6 +6979,18 @@ async function ticketsDbDelete(id) {
     });
   } catch {}
 }
+// Explicit single-expense delete — same reasoning as ticketsDbDelete: `sync` is
+// upsert-only, so trimming an expense out of the local array and syncing isn't
+// enough (a stale/partial sync from another tab would just re-add it). This hits
+// a targeted server delete instead.
+async function ticketsDbDeleteExpense(ticketId, expenseId) {
+  try {
+    await fetch('/.netlify/functions/tickets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'deleteExpense', ticketId, expenseId }),
+    });
+  } catch {}
+}
 
 async function cloudSave(key, data) {
   if (key === TICKETS_KEY) {
@@ -7760,6 +7772,29 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const fmtNum = v => Math.round(v).toLocaleString();
   const fmtAvg = v => v > 0 ? '$' + v.toFixed(2) : '\u2014';
 
+  // Measure the real space below the frame so Section 1 (header/KPIs) stays fixed and only
+  // Section 2 (tab rail + content) scrolls \u2014 same pattern as AdminUsers' user-card list.
+  const frameRef = React.useRef(null);
+  const [frameH, setFrameH] = React.useState(null);
+  React.useEffect(() => {
+    const measure = () => {
+      const el = frameRef.current; if (!el) return;
+      setFrameH(Math.max(360, Math.round(window.innerHeight - el.getBoundingClientRect().top - 20)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    // Capture-phase scroll listener: StoreDetail can also render embedded further down
+    // an already-scrollable page (e.g. AdminPulse, non-standalone), where the frame's
+    // top offset depends on that ancestor's scroll position, not just the viewport size.
+    // Scroll events don't bubble, but a capture-phase listener on window still sees them
+    // fire on any scrollable descendant.
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, []);
+
   // Local date — defaults to parent busDt but can be overridden
   const [localDate, setLocalDate] = React.useState(busDt);
   // Day vs Week view mode
@@ -8209,7 +8244,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   }
 
   return (
-    <div className="fade-in">
+    <div className="fade-in" ref={frameRef} style={{ display:'flex', flexDirection:'column', height: frameH || 'calc(100vh - 200px)', minHeight:360 }}>
+      {/* ─── Section 1 — header + KPIs (fixed, non-scrolling) ─────────── */}
+      <div style={{ flexShrink:0 }}>
       {/* ── Unified PULSE + Store Header ── */}
       <div style={{ position:'relative', overflow:'hidden', borderRadius:'1rem', marginBottom:'1.25rem', padding:'1.25rem 1.5rem', background:'linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)', border:`1px solid ${G}33`, boxShadow:`0 4px 24px ${G}11` }}>
         <div style={{ position:'absolute', top:-60, right:-60, width:200, height:200, borderRadius:'50%', background:`${G}15`, pointerEvents:'none' }} />
@@ -8276,22 +8313,24 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
           ))}
         </div>
       </div>
+      </div>{/* ── /Section 1 ── */}
 
-
-
-      {/* ── Tab Navigation ── */}
-      <div style={{ display:'flex', alignItems:'center', gap:'0.3rem', marginBottom:'1.25rem', background:th.card, borderRadius:'999px', border:`1px solid ${th.cardBorder}`, padding:'0.3rem' }}>
-        {[{id:'sales',label:'📊 Sales'},{id:'daypart',label:'🕐 Daypart'},{id:'forecast',label:'🔮 Forecast'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
-          <button key={t.id} onClick={() => {
-              setStoreTab(t.id);
-              if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
-              if(t.id==='driveThru' && !txnList && !txnListLoading){ loadTxnList(); }
-              if(t.id==='driveThru' && !dtSchedule){ cloudLoad(`pcg_schedule_${pc}`).then(d => setDtSchedule(d?.shifts || [])).catch(() => setDtSchedule([])); }
-              if(t.id==='foodcost' && !foodCostT && !foodCostLoading){ setFoodCostLoading(true); fetch('/.netlify/functions/food-cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'store',pc,date:localDate})}).then(r=>r.ok?r.json():null).then(j=>{if(j)setFoodCostT(j);}).catch(()=>{}).finally(()=>setFoodCostLoading(false)); }
-            }}
-            style={{ flex:1, padding:'0.6rem 0.5rem', border:'none', borderRadius:'999px', background:storeTab===t.id?O:'transparent', color:storeTab===t.id?'#fff':th.muted, fontWeight:storeTab===t.id?800:500, fontSize:'0.78rem', cursor:'pointer', transition:'all .15s', boxShadow:storeTab===t.id?`0 2px 10px ${O}55`:'none', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
-        ))}
-      </div>
+      {/* ─── Section 2 — tab rail + content (scrollable) ─────────── */}
+      <div style={{ flex:1, minHeight:0, overflowY:'auto', paddingRight:4 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', gap:'1rem' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0 }}>
+          {[{id:'sales',label:'📊 Sales'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
+            <button key={t.id} onClick={() => {
+                setStoreTab(t.id);
+                if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
+                if(t.id==='driveThru' && !txnList && !txnListLoading){ loadTxnList(); }
+                if(t.id==='driveThru' && !dtSchedule){ cloudLoad(`pcg_schedule_${pc}`).then(d => setDtSchedule(d?.shifts || [])).catch(() => setDtSchedule([])); }
+                if(t.id==='foodcost' && !foodCostT && !foodCostLoading){ setFoodCostLoading(true); fetch('/.netlify/functions/food-cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'store',pc,date:localDate})}).then(r=>r.ok?r.json():null).then(j=>{if(j)setFoodCostT(j);}).catch(()=>{}).finally(()=>setFoodCostLoading(false)); }
+              }}
+              style={{ display:'flex', alignItems:'center', textAlign:'left', padding:'0.6rem 0.75rem', border:`1px solid ${storeTab===t.id?O:th.cardBorder}`, borderRadius:'0.6rem', background:storeTab===t.id?O:th.card, color:storeTab===t.id?'#fff':th.muted, fontWeight:600, fontSize:'0.78rem', lineHeight:1.2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', cursor:'pointer', transition:'background .15s, color .15s, border-color .15s', boxSizing:'border-box', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
+          ))}
+        </div>
+        <div style={{ flex:1, minWidth:0 }}>
 
       {/* ════ FORECAST TAB ════ */}
       {storeTab === 'forecast' && <>
@@ -9413,6 +9452,10 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
 
       {/* ════ END TRANSACTIONS TAB ════ */}
       </>}
+
+        </div>
+      </div>
+      </div>{/* ── /Section 2 ── */}
 
     </div>
   );
@@ -16329,6 +16372,9 @@ function ExpenseLogSection({ th, user, standalone }) {
     });
     setAllTickets(updatedTickets);
     try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(updatedTickets)); } catch {}
+    // Targeted server-side delete for the expense itself (sync is upsert-only and
+    // won't remove it — see ticketsDbDeleteExpense), then sync the new system comment.
+    await ticketsDbDeleteExpense(row.ticketId, row.expenseId);
     await cloudSave('pcg_tickets_v1', updatedTickets);
     logClientEvent(user?.id, user?.userType, 'expense_deleted', { ticketId: row.ticketId, ticketNumber: row.ticketNumber, description: row.description, amount: row.amount });
     setDeletingId(null);
@@ -20316,7 +20362,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.89";
+const APP_VERSION = "v17.98";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -39343,7 +39389,7 @@ function PCGPortal() {
       </div>
 
       {/* ─── Nav body ─────────────────────────────────────────────────── */}
-      <div ref={navRef} onScroll={onNavScroll} style={{ padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
+      <div ref={navRef} onScroll={onNavScroll} className="sidebar-nav-scroll" style={{ padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
         {/* ── Pinned favorites — surfaced at the very top, user-customizable.
              Dashboard is always pinned first (it can't be unpinned) so every role
              lands on it; store tablets use a separate view and never reach here. ── */}

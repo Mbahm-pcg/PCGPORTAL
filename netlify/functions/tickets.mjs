@@ -239,7 +239,9 @@ function ticketStatements(t) {
   }
 
   // Expenses → child table. Added once then updated on approve/reject, so upsert
-  // by id (no delete-missing — the UI never removes individual expenses).
+  // by id (no delete-missing — a sync can come from a stale/partial client copy,
+  // same reasoning as the ticket-level sync above; individual expense deletion
+  // goes through the explicit `deleteExpense` action instead).
   const expenses = Array.isArray(t.expenses) ? t.expenses : [];
   for (const e of expenses) {
     const eid = e?.id != null ? String(e.id) : null;
@@ -348,6 +350,19 @@ export default async (request) => {
         sql`DELETE FROM maint_ticket_comments WHERE ticket_id = ${id}`,
         sql`DELETE FROM maint_tickets WHERE id = ${id}`,
       ]);
+      return json(200, { ok: true });
+    }
+
+    // Explicit single-expense delete (exec/IT only, gated client-side). Mirrors the
+    // ticket-level `delete` action's reasoning: sync is upsert-only precisely so a
+    // stale/partial writer can never wipe data it hasn't loaded, so an intentional
+    // expense removal must be a targeted delete, not inferred from array-diffing.
+    if (action === 'deleteExpense') {
+      const ticketId = toBigInt(payload.ticketId);
+      const expenseId = payload.expenseId != null ? String(payload.expenseId) : null;
+      if (ticketId == null || !expenseId) return json(400, { error: 'ticketId and expenseId required' });
+      const sql = db();
+      await sql`DELETE FROM maint_ticket_expenses WHERE id = ${expenseId} AND ticket_id = ${ticketId}`;
       return json(200, { ok: true });
     }
 
