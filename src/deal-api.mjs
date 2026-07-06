@@ -1,24 +1,29 @@
 // PCG Deal Pipeline — client API helpers (ESM, bundled into app.jsx by esbuild).
-// Acquires a server-signed deal token from deal-auth using the logged-in user's
-// credentials, then calls the authenticated deals endpoints. The token is verified
-// server-side on every request — the browser only relays it; it does not grant access.
+// Acquires a server-signed deal token from deal-auth using the logged-in user's EXISTING
+// credential proof — the portal session token (password login) or a live Google access
+// token (Google login) — never a raw password. The deal token is verified server-side on
+// every request; the browser only relays it and does not grant access on its own.
+import { getSessionToken } from './portal-auth.mjs';
+
 const FN = '/.netlify/functions';
 
 /**
- * Exchange the logged-in user's credentials for a deal session token.
+ * Exchange the logged-in user's session for a deal token. Access is restricted
+ * server-side to IT/Exec users who are also listed in deal_access.
  * @returns {Promise<{token:string|null, role:'view'|'edit'|'admin'|null, status?:number}>}
  */
 export async function dealLogin(user) {
-  // Password-based deal auth needs a real password. Users with no client-side
-  // password (e.g. Google sign-in) would send an empty one, which deal-auth
-  // rejects with a 400 — skip the doomed call (they get no deal token either way)
-  // so it doesn't spam the console on every login.
-  if (!user || !user.username || !user.password) return { token: null, role: null };
+  if (!user) return { token: null, role: null };
+  const portalToken = getSessionToken();
+  // Google-logged-in users carry no portal session token; the login screen attaches the
+  // live Google access token onto the user object instead (see app.jsx Google callback).
+  const body = portalToken ? { portalToken } : (user.googleAccessToken ? { googleAccessToken: user.googleAccessToken } : null);
+  if (!body) return { token: null, role: null };
   try {
     const res = await fetch(`${FN}/deal-auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username, password: user.password || '' }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) return { token: null, role: null, status: res.status };
     const j = await res.json();

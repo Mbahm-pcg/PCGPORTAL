@@ -182,15 +182,97 @@
     return pnlIds(user).some((id) => list.includes(id));
   };
 
-  // src/deal-api.mjs
+  // src/portal-auth.mjs
   var FN = "/.netlify/functions";
-  async function dealLogin(user) {
-    if (!user || !user.username || !user.password) return { token: null, role: null };
+  var TOKEN_KEY = "pcg_portal_token";
+  var _token = null;
+  try {
+    if (typeof sessionStorage !== "undefined") _token = sessionStorage.getItem(TOKEN_KEY) || null;
+  } catch {
+  }
+  function getSessionToken() {
+    return _token;
+  }
+  function setSessionToken(token) {
+    _token = token || null;
     try {
-      const res = await fetch(`${FN}/deal-auth`, {
+      if (typeof sessionStorage === "undefined") return;
+      if (_token) sessionStorage.setItem(TOKEN_KEY, _token);
+      else sessionStorage.removeItem(TOKEN_KEY);
+    } catch {
+    }
+  }
+  function clearSessionToken() {
+    setSessionToken(null);
+  }
+  async function portalLogout() {
+    clearSessionToken();
+    try {
+      await fetch(`${FN}/portal-auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "logout" }) });
+    } catch {
+    }
+  }
+  function authHeader() {
+    return _token ? { Authorization: `Bearer ${_token}` } : {};
+  }
+  async function post(body) {
+    let res;
+    try {
+      res = await fetch(`${FN}/portal-auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify(body)
+      });
+    } catch {
+      return { ok: false, unreachable: true };
+    }
+    if (res.status >= 500) return { ok: false, unreachable: true, status: res.status };
+    let j = {};
+    try {
+      j = await res.json();
+    } catch {
+    }
+    if (!res.ok) return { ok: false, unreachable: false, status: res.status, error: j.error || `login ${res.status}`, locked: !!j.locked, attemptsRemaining: j.attemptsRemaining };
+    setSessionToken(j.token || null);
+    return { ok: true, token: j.token || null, user: j.user || null, mustChange: !!j.mustChange, expiresIn: j.expiresIn };
+  }
+  async function portalLogin(username, password) {
+    return post({ action: "login", username, password });
+  }
+  async function portalChangePassword(oldPassword, newPassword) {
+    return post({ action: "change-password", oldPassword, newPassword });
+  }
+  async function portalValidate() {
+    if (!_token) return "no-token";
+    try {
+      const res = await fetch(`${FN}/portal-auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "me" })
+      });
+      if (res.status === 401) return "revoked";
+      if (!res.ok) return "error";
+      return "ok";
+    } catch {
+      return "error";
+    }
+  }
+  async function portalRevokeSessions(targetUserId) {
+    return post(targetUserId != null ? { action: "revoke-sessions", targetUserId } : { action: "revoke-sessions" });
+  }
+
+  // src/deal-api.mjs
+  var FN2 = "/.netlify/functions";
+  async function dealLogin(user) {
+    if (!user) return { token: null, role: null };
+    const portalToken = getSessionToken();
+    const body = portalToken ? { portalToken } : user.googleAccessToken ? { googleAccessToken: user.googleAccessToken } : null;
+    if (!body) return { token: null, role: null };
+    try {
+      const res = await fetch(`${FN2}/deal-auth`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: user.username, password: user.password || "" })
+        body: JSON.stringify(body)
       });
       if (!res.ok) return { token: null, role: null, status: res.status };
       const j = await res.json();
@@ -200,7 +282,7 @@
     }
   }
   async function dealApi(token, body) {
-    const res = await fetch(`${FN}/deals`, {
+    const res = await fetch(`${FN2}/deals`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(body)
@@ -209,7 +291,7 @@
     return res.json();
   }
   async function dealDocsApi(token, body) {
-    const res = await fetch(`${FN}/deal-docs`, {
+    const res = await fetch(`${FN2}/deal-docs`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(body)
@@ -258,82 +340,6 @@
     a.click();
     a.remove();
     return r;
-  }
-
-  // src/portal-auth.mjs
-  var FN2 = "/.netlify/functions";
-  var TOKEN_KEY = "pcg_portal_token";
-  var _token = null;
-  try {
-    if (typeof sessionStorage !== "undefined") _token = sessionStorage.getItem(TOKEN_KEY) || null;
-  } catch {
-  }
-  function setSessionToken(token) {
-    _token = token || null;
-    try {
-      if (typeof sessionStorage === "undefined") return;
-      if (_token) sessionStorage.setItem(TOKEN_KEY, _token);
-      else sessionStorage.removeItem(TOKEN_KEY);
-    } catch {
-    }
-  }
-  function clearSessionToken() {
-    setSessionToken(null);
-  }
-  async function portalLogout() {
-    clearSessionToken();
-    try {
-      await fetch(`${FN2}/portal-auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "logout" }) });
-    } catch {
-    }
-  }
-  function authHeader() {
-    return _token ? { Authorization: `Bearer ${_token}` } : {};
-  }
-  async function post(body) {
-    let res;
-    try {
-      res = await fetch(`${FN2}/portal-auth`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify(body)
-      });
-    } catch {
-      return { ok: false, unreachable: true };
-    }
-    if (res.status >= 500) return { ok: false, unreachable: true, status: res.status };
-    let j = {};
-    try {
-      j = await res.json();
-    } catch {
-    }
-    if (!res.ok) return { ok: false, unreachable: false, status: res.status, error: j.error || `login ${res.status}`, locked: !!j.locked, attemptsRemaining: j.attemptsRemaining };
-    setSessionToken(j.token || null);
-    return { ok: true, token: j.token || null, user: j.user || null, mustChange: !!j.mustChange, expiresIn: j.expiresIn };
-  }
-  async function portalLogin(username, password) {
-    return post({ action: "login", username, password });
-  }
-  async function portalChangePassword(oldPassword, newPassword) {
-    return post({ action: "change-password", oldPassword, newPassword });
-  }
-  async function portalValidate() {
-    if (!_token) return "no-token";
-    try {
-      const res = await fetch(`${FN2}/portal-auth`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify({ action: "me" })
-      });
-      if (res.status === 401) return "revoked";
-      if (!res.ok) return "error";
-      return "ok";
-    } catch {
-      return "error";
-    }
-  }
-  async function portalRevokeSessions(targetUserId) {
-    return post(targetUserId != null ? { action: "revoke-sessions", targetUserId } : { action: "revoke-sessions" });
   }
 
   // src/deal-dates.mjs
@@ -1867,7 +1873,7 @@
                 setErr("Google login worked, but this email is not active in the portal users list.");
                 return;
               }
-              let enrichedFound = found;
+              let enrichedFound = { ...found, googleAccessToken: tokenResponse.access_token };
               if (isTwoFactorRequired(found) && found.twoFactorEnabled && !found.twoFactorSecret) {
                 try {
                   const s2fa = await fetch("/.netlify/functions/portal-auth", {
@@ -1876,7 +1882,7 @@
                     body: JSON.stringify({ action: "get-2fa-secret", accessToken: tokenResponse.access_token })
                   });
                   const s2faJson = await s2fa.json();
-                  if (s2faJson.twoFactorSecret) enrichedFound = { ...found, twoFactorSecret: s2faJson.twoFactorSecret };
+                  if (s2faJson.twoFactorSecret) enrichedFound = { ...enrichedFound, twoFactorSecret: s2faJson.twoFactorSecret };
                 } catch {
                 }
               }
@@ -16180,7 +16186,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.88";
+  var APP_VERSION = "v17.89";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

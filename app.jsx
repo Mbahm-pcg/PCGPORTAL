@@ -865,9 +865,12 @@ function Login({ onLogin, dark, toggleDark, users }) {
               return u.active !== false && (userEmail === email || username === email);
             });
             if (!found) { setErr("Google login worked, but this email is not active in the portal users list."); return; }
+            // Carry the live Google access token onto the user object — it's the caller's
+            // only proof of identity for deal-auth (Google logins hold no portal session
+            // token). Only needed by IT/Exec (Deal Pipeline), harmless for everyone else.
+            let enrichedFound = { ...found, googleAccessToken: tokenResponse.access_token };
             // If 2FA is required and already set up but we don't have the secret locally
             // (API list excludes it for security), fetch it now using the Google access token.
-            let enrichedFound = found;
             if (isTwoFactorRequired(found) && found.twoFactorEnabled && !found.twoFactorSecret) {
               try {
                 const s2fa = await fetch('/.netlify/functions/portal-auth', {
@@ -876,7 +879,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
                   body: JSON.stringify({ action: 'get-2fa-secret', accessToken: tokenResponse.access_token }),
                 });
                 const s2faJson = await s2fa.json();
-                if (s2faJson.twoFactorSecret) enrichedFound = { ...found, twoFactorSecret: s2faJson.twoFactorSecret };
+                if (s2faJson.twoFactorSecret) enrichedFound = { ...enrichedFound, twoFactorSecret: s2faJson.twoFactorSecret };
               } catch { /* proceed — setup flow will show if secret still missing */ }
             }
             if (await shouldPromptTwoFactor(enrichedFound)) beginTwoFactor(enrichedFound);
@@ -20313,7 +20316,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.88";
+const APP_VERSION = "v17.89";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
