@@ -4,7 +4,7 @@
 
 import https from 'node:https';
 import { cacheLoad, cacheSave } from './analyst-cache.mjs';
-import { summarizeProjects, summarizeTickets, summarizeTasks, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, renderOpsContext } from './ops-summaries.mjs';
+import { summarizeProjects, summarizeTickets, summarizeTasks, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, roundAvg, renderOpsContext } from './ops-summaries.mjs';
 import { BEVERAGE_COSTS, FOOD_COSTS, ICE_CREAM_COSTS, INGREDIENT_COSTS } from './cost-lookup.mjs';
 import { sql } from '../_shared/db.mjs';
 import { SHIFT_WINDOWS as TASK_SHIFT_WINDOWS } from '../tasks-lib/catalog.js';
@@ -630,7 +630,7 @@ async function buildStoreContext({ storePC }) {
       const parts = [`$${Math.round(sales).toLocaleString()} sales`];
       if (r.checks) parts.push(`${r.checks} checks`);
       if (r.avgCheck) parts.push(`$${r.avgCheck.toFixed(2)} avg check`);
-      if (r.upsellRate != null) parts.push(`${r.upsellRate}% upsell`);
+      if (r.upsellRate != null) parts.push(`${r.upsellRate}% multi-item`);
       if (r.laborCost != null) parts.push(`labor $${Math.round(r.laborCost).toLocaleString()}`);
       if (r.laborPct != null) parts.push(`${r.laborPct.toFixed(1)}% labor`);
       if (r.laborCost > 0 && sales > 0) parts.push(`$${(sales / r.laborCost).toFixed(2)} sales per labor $`);
@@ -1090,11 +1090,15 @@ async function buildUpsellContext({ district } = {}) {
       .filter(e => typeof e.upsellRate === 'number')
       .slice(0, 7);
     if (recent.length === 0) return null;
-    const avg = Math.round((recent.reduce((sum, e) => sum + e.upsellRate, 0) / recent.length) * 10) / 10;
+    const avgOf = (k) => roundAvg(recent.map(e => e[k]));
     let sales = 0, checks = 0;
     for (const e of recent) for (const h of (e.hours || [])) { sales += h.sales || 0; checks += h.checks || 0; }
     const avgCheck = checks > 0 ? Math.round((sales / checks) * 100) / 100 : null;
-    return { pc: s.pc, name: s.name, district: s.district, upsellRate: avg, avgCheck, days: recent.length };
+    return {
+      pc: s.pc, name: s.name, district: s.district, upsellRate: avgOf('upsellRate'),
+      foodAttachRate: avgOf('foodAttachRate'), drinkAttachRate: avgOf('drinkAttachRate'),
+      avgCheck, days: recent.length,
+    };
   }))).filter(Boolean);
 
   const summary = summarizeUpsell(entries);
@@ -1122,18 +1126,33 @@ async function buildUpsellContext({ district } = {}) {
  */
 async function buildUpsellItemDiff(top, bottom) {
   if (!top?.length || !bottom?.length) return null;
-  const cacheKey = `analyst/upsell-item-diff_${todayET()}`;
+  const cacheKey = `analyst/upsell-item-diff-v2_${todayET()}`; // v2: modifiers excluded
   const cached = await cacheLoad(cacheKey);
   if (cached) return cached;
+
+  // Items that ring as modifier CHILD lines (cream & sugar, flavor swirls, extra shots) —
+  // getMenuItemDailyTotals counts them like sold items, so without this exclusion they
+  // dominate the gap list and read as fake "upsell" items. The set is learned nightly by
+  // pulse-hourly-snapshot from guest-check parent/child (parDtlId) structure.
+  const modifierItems = (await cacheLoad('pcg_modifier_items_v1')) || {};
 
   const group = [
     ...top.map(s => ({ ...s, grp: 'top' })),
     ...bottom.map(s => ({ ...s, grp: 'bottom' })),
   ];
 
+  const routes = [...new Set(group.map(s => pulseRoute(s.pc)))];
+
+  // Fail closed: until the nightly snapshot has learned a modifier set for every route in
+  // play, skip the diff entirely — computing (and day-caching) it with an empty exclusion
+  // set would re-serve the modifier-polluted list under a "modifiers excluded" label.
+  if (routes.some(r => !(Array.isArray(modifierItems[r]) && modifierItems[r].length))) {
+    console.warn('[analyst-data] upsell item diff skipped: modifier set not yet learned for all routes');
+    return null;
+  }
+
   // Menu item num → name map (dimensions fetched once per Pulse route)
   const nameMap = {};
-  const routes = [...new Set(group.map(s => pulseRoute(s.pc)))];
   await Promise.all(routes.map(async (r) => {
     const rep = group.find(s => pulseRoute(s.pc) === r);
     try {
@@ -1152,9 +1171,11 @@ async function buildUpsellItemDiff(top, bottom) {
         searchCriteria: 'where greaterThan(revenueCenters.menuItems.slsCnt, 0)',
         include: 'revenueCenters.menuItems.miNum,revenueCenters.menuItems.slsCnt',
       });
+      const mods = new Set(modifierItems[pulseRoute(s.pc)] || []);
       const counts = {};
       for (const rc of (menu?.revenueCenters || [])) {
         for (const mi of (rc.menuItems || [])) {
+          if (mods.has(String(mi.miNum))) continue; // modifier, not a sellable attach item
           const nm = nameMap[mi.miNum] || `Item ${mi.miNum}`;
           counts[nm] = (counts[nm] || 0) + (mi.slsCnt || 0);
         }

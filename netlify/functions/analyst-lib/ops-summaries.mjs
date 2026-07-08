@@ -5,6 +5,14 @@
 const DAY_MS = 86400000;
 const LIST_CAPS = { projects: 20, tickets: 15, deposits: 25, missingDeposits: 20, foodItems: 15, critical: 10, upsellStores: 5, tasks: 15, taskStores: 15, taskCategories: 10, correctiveActions: 12 };
 
+/** Null-safe average of the numeric values in `values`, rounded to `decimals` places (null when empty). */
+function roundAvg(values, decimals = 1) {
+  const nums = (values || []).filter(v => typeof v === 'number');
+  if (!nums.length) return null;
+  const f = 10 ** decimals;
+  return Math.round((nums.reduce((s, v) => s + v, 0) / nums.length) * f) / f;
+}
+
 function storesByPc(stores) {
   const m = new Map();
   for (const s of stores || []) m.set(String(s.pc), s);
@@ -292,20 +300,22 @@ function summarizeFoodCost(tables, computed) {
   return out;
 }
 
-// entries: [{ pc, name, district, upsellRate, avgCheck, days }] — 7-day avg upsell rate + avg check per store
+// entries: [{ pc, name, district, upsellRate, foodAttachRate, drinkAttachRate, avgCheck, days }]
+// — 7-day averages per store. upsellRate = % of checks with 2+ top-level items (multi-item
+// rate); foodAttachRate = % with a drink + ≥1 food/bakery item; drinkAttachRate = % with 2+ drinks.
 function summarizeUpsell(entries) {
   const valid = (entries || []).filter(e => typeof e.upsellRate === 'number');
   if (valid.length === 0) return { available: false };
-  const networkAvg = Math.round((valid.reduce((s, e) => s + e.upsellRate, 0) / valid.length) * 10) / 10;
-  const withCheck = valid.filter(e => typeof e.avgCheck === 'number');
-  const networkAvgCheck = withCheck.length
-    ? Math.round((withCheck.reduce((s, e) => s + e.avgCheck, 0) / withCheck.length) * 100) / 100
-    : null;
+  const avgKey = (k, decimals = 1) => roundAvg(valid.map(e => e[k]), decimals);
+  const networkAvg = avgKey('upsellRate');
+  const networkAvgCheck = avgKey('avgCheck', 2);
   const sorted = [...valid].sort((a, b) => b.upsellRate - a.upsellRate);
   return {
     available: true,
     networkAvg,
     networkAvgCheck,
+    networkFoodAttach: avgKey('foodAttachRate'),
+    networkDrinkAttach: avgKey('drinkAttachRate'),
     top: sorted.slice(0, LIST_CAPS.upsellStores),
     bottom: sorted.slice(-LIST_CAPS.upsellStores).reverse(),
   };
@@ -414,21 +424,27 @@ function renderOpsContext({ projects, tickets, tasks, cash, foodCost, upsell } =
     if (foodCost.computed) L.push(`  computed overlay: ${JSON.stringify(foodCost.computed)}`);
   }
 
-  L.push('\nUPSELL & AVG CHECK (7-day avg; upsell = % of checks with 2+ items, proxy metric):');
-  if (!upsell || !upsell.available) L.push('  No upsell data yet.');
+  L.push('\nATTACH RATE & AVG CHECK (7-day avg). Definitions — apply them EXACTLY:');
+  L.push('  • multi-item rate = % of checks with 2+ top-level sellable items (the legacy "upsell rate").');
+  L.push('  • food attach = % of checks with a drink PLUS at least one food/bakery item. drink attach = % of checks with 2+ drinks.');
+  L.push('  • In-drink modifiers — cream, sugar, flavor swirls, extra espresso shots, toppings, milk substitutions — are build components of ONE drink. They are NEVER upsells or attach items: never count, list, or coach them as such.');
+  L.push('  • A single-item check is never an upsell, regardless of size or modifications.');
+  L.push('  • POS data cannot show whether the crew suggested an item or the guest asked for it. Frame these as ATTACH rates (probable upsell), never as proven upselling. If uncertain whether something qualifies, do not call it an upsell.');
+  if (!upsell || !upsell.available) L.push('  No attach data yet.');
   else {
-    const fmtS = s => `${s.name} ${s.upsellRate}%${typeof s.avgCheck === 'number' ? ` ($${s.avgCheck.toFixed(2)})` : ''}`;
-    L.push(`  Network avg: ${upsell.networkAvg}% upsell${upsell.networkAvgCheck != null ? `, $${upsell.networkAvgCheck.toFixed(2)} avg check` : ''}`);
-    L.push(`  Network top 5 upsell: ${upsell.top.map(fmtS).join(', ')}`);
-    L.push(`  Network bottom 5 upsell: ${upsell.bottom.map(fmtS).join(', ')}`);
+    const att = s => `${typeof s.foodAttachRate === 'number' ? `, ${s.foodAttachRate}% food attach` : ''}${typeof s.drinkAttachRate === 'number' ? `, ${s.drinkAttachRate}% drink attach` : ''}`;
+    const fmtS = s => `${s.name} ${s.upsellRate}%${att(s)}${typeof s.avgCheck === 'number' ? ` ($${s.avgCheck.toFixed(2)})` : ''}`;
+    L.push(`  Network avg: ${upsell.networkAvg}% multi-item${upsell.networkFoodAttach != null ? `, ${upsell.networkFoodAttach}% food attach` : ''}${upsell.networkDrinkAttach != null ? `, ${upsell.networkDrinkAttach}% drink attach` : ''}${upsell.networkAvgCheck != null ? `, $${upsell.networkAvgCheck.toFixed(2)} avg check` : ''}`);
+    L.push(`  Network top 5 multi-item rate: ${upsell.top.map(fmtS).join(', ')}`);
+    L.push(`  Network bottom 5 multi-item rate: ${upsell.bottom.map(fmtS).join(', ')}`);
     if (upsell.district?.stores?.length) {
       L.push(`  District ${upsell.district.num} stores vs network (frame as "Store X averages $Y/check vs network $${upsell.networkAvgCheck != null ? upsell.networkAvgCheck.toFixed(2) : '?'} — what are they doing differently?"):`);
       for (const s of upsell.district.stores) {
-        L.push(`    ${s.name}: ${s.upsellRate}% upsell, ${typeof s.avgCheck === 'number' ? `$${s.avgCheck.toFixed(2)} avg check` : 'avg check n/a'}`);
+        L.push(`    ${s.name}: ${s.upsellRate}% multi-item${att(s)}, ${typeof s.avgCheck === 'number' ? `$${s.avgCheck.toFixed(2)} avg check` : 'avg check n/a'}`);
       }
     }
     if (upsell.itemDiff?.items?.length) {
-      L.push(`  ITEM MIX — what the top-5 upsell stores sell more/less of than the bottom-5 (avg units per 100 checks, ${upsell.itemDiff.asOf}):`);
+      L.push(`  ITEM MIX — real sellable items the top-5 attach stores sell more/less of than the bottom-5 (avg units per 100 checks; modifier lines excluded; ${upsell.itemDiff.asOf}):`);
       L.push(`    Top stores: ${upsell.itemDiff.topStores.join(', ')} | Bottom stores: ${upsell.itemDiff.bottomStores.join(', ')}`);
       for (const r of upsell.itemDiff.items) {
         L.push(`    ${r.item}: ${r.topPer100}/100 checks at top stores vs ${r.bottomPer100}/100 at bottom stores`);
@@ -439,4 +455,4 @@ function renderOpsContext({ projects, tickets, tasks, cash, foodCost, upsell } =
   return L.join('\n');
 }
 
-export { summarizeProjects, summarizeTickets, summarizeTasks, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, LIST_CAPS, renderOpsContext };
+export { summarizeProjects, summarizeTickets, summarizeTasks, summarizeCash, summarizeFoodCost, compactComputed, summarizeUpsell, roundAvg, LIST_CAPS, renderOpsContext };

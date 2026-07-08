@@ -1,6 +1,12 @@
-// One-off backfill: recompute upsellRate for ALL stored days of pcg_hourly_history_{pc}
-// for every store, using the corrected real-item count (top-level items only — matches
-// itemCountForCheck in pulse-hourly-snapshot.js). Overwrites prior inflated values.
+// One-off backfill (COMPLETED): recompute upsellRate for ALL stored days of
+// pcg_hourly_history_{pc} for every store, using the corrected real-item count
+// (top-level items only). Overwrites prior inflated values.
+//
+// ⚠️ STALE as of v18.03/v18.04 — do NOT re-run without updating it first: the nightly
+// counter is now analyzeCheck() in pulse-hourly-snapshot.mjs (itemCountForCheck was
+// removed), and snapshots also persist foodAttachRate/drinkAttachRate, which this script
+// does not recompute — a re-run would leave attach rates stale/inconsistent in the same
+// history entry it rewrites.
 // Run via: npx netlify dev:exec -- node scripts/backfill-upsell.js
 const https = require('https');
 const { getStore } = require('@netlify/blobs');
@@ -46,8 +52,9 @@ function postJSON(cfg, endpoint, body) {
 }
 
 // Real sellable menu items = top-level item lines only. Modifiers / build components are
-// POS child lines (parDtlId set); tenders/tax/discounts have no menuItem. Must match
-// itemCountForCheck() in pulse-hourly-snapshot.js so history and nightly values agree.
+// POS child lines (parDtlId set); tenders/tax/discounts have no menuItem. Must match the
+// top-level line count in analyzeCheck() in pulse-hourly-snapshot.mjs (`items`, line-based
+// on purpose) so history and nightly values agree.
 function itemCountForCheck(c) {
   return (c.detailLines || []).filter(d =>
     d.menuItem && !d.vdFlag && !d.errCorFlag && d.parDtlId == null && (d.dspQty || 0) > 0

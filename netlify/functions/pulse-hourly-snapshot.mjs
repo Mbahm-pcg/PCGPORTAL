@@ -193,22 +193,43 @@ async function fetchDistrictWeather(date) {
 
 // ── Hourly sales aggregation ──────────────────────────────────────────────────
 
-// Count REAL sellable menu items on a check (drives the upsell metric: 2+ items = upsell).
+// Analyze one guest check's REAL sellable menu items (drives the attach/upsell metrics).
 // Only TOP-LEVEL item lines count. In the Pulse/POS hierarchy, modifiers and build
 // components (cream, sugar, swirls, paid extra shots, a sandwich's egg/cheese) are CHILD
 // lines that carry a `parDtlId` pointing at their parent item — they must not count, or an
 // add-on-heavy order (e.g. coffee + cream + sugar) looks like a 3-item "upsell". Tenders,
 // tax, discounts, and rewards have no `menuItem` at all, so they're excluded too.
 // (Counting child lines previously inflated the rate to ~95%; top-level-only ≈ 56%.)
-function itemCountForCheck(check) {
-  const lines = check.detailLines || [];
-  return lines.filter(d =>
-    d.menuItem &&
-    !d.vdFlag &&
-    !d.errCorFlag &&
-    d.parDtlId == null &&        // top-level only — exclude modifier / build-component child lines
-    (d.dspQty || 0) > 0
-  ).length;
+//
+// Attach rules (deterministic; POS can't show whether the crew SUGGESTED an item, so these
+// are attach rates — probable upsells — and downstream prompts must frame them that way):
+//   food attach  = check has ≥1 drink AND ≥1 food/bakery item
+//   drink attach = check has ≥2 top-level drinks
+// `lineStats`, when provided, accumulates how often each menu item rings as a top-level vs
+// child line — items seen mostly as children are modifiers, and the analyst's item-mix diff
+// uses that set to keep cream & sugar / swirls / shots out of "upsell item" lists.
+const DRINK_GROUPS = new Set(['hot_beverages', 'cold_beverages', 'frozen', 'bottled']);
+const FOOD_GROUPS = new Set(['sandwiches', 'wraps', 'bakery', 'snacks_sides']);
+function analyzeCheck(check, groupMap, lineStats) {
+  let items = 0, drinks = 0, foods = 0;
+  for (const d of (check.detailLines || [])) {
+    if (!d.menuItem || d.vdFlag || d.errCorFlag || (d.dspQty || 0) <= 0) continue;
+    const mi = String(d.menuItem.miNum);
+    if (d.parDtlId != null) { // modifier / build-component child line
+      if (lineStats) lineStats.child[mi] = (lineStats.child[mi] || 0) + 1;
+      continue;
+    }
+    if (lineStats) lineStats.top[mi] = (lineStats.top[mi] || 0) + 1;
+    // `items` counts LINES (not qty) on purpose: upsellRate has always been line-based and
+    // must stay comparable with the backfilled history. The attach counters use dspQty so a
+    // single "2 Lattes" line correctly registers 2 drinks (drives drinkAttach).
+    items += 1;
+    const qty = d.dspQty || 1;
+    const g = groupMap?.get(mi)?.group;
+    if (DRINK_GROUPS.has(g)) drinks += qty;
+    else if (FOOD_GROUPS.has(g)) foods += qty;
+  }
+  return { items, foodAttach: drinks >= 1 && foods >= 1, drinkAttach: drinks >= 2 };
 }
 
 // ── Bakery par foundation (Par Level Optimizer 9.2) ─────────────────────────────
@@ -415,7 +436,7 @@ export function extractBakery(checks, bakeryClass) {
   return { bakery, flavors };
 }
 
-async function fetchHourlySales(pc, busDt, bakeryClass, groupMap = null) {
+async function fetchHourlySales(pc, busDt, bakeryClass, groupMap = null, lineStats = null) {
   const cfg = APIS[apiRoute(pc)];
   try {
     const json = await postJSON(cfg, 'getGuestChecks', {
@@ -427,6 +448,7 @@ async function fetchHourlySales(pc, busDt, bakeryClass, groupMap = null) {
     const checks = json.guestChecks || [];
     const byHour = {};
     let upsoldChecks = 0;
+    let foodAttachChecks = 0, drinkAttachChecks = 0;
     let totalChecks = 0;
 
     for (const c of checks) {
@@ -438,21 +460,30 @@ async function fetchHourlySales(pc, busDt, bakeryClass, groupMap = null) {
       byHour[h].checks += 1;
 
       totalChecks += 1;
-      if (itemCountForCheck(c) >= 2) upsoldChecks += 1;
+      const a = analyzeCheck(c, groupMap, lineStats);
+      if (a.items >= 2) upsoldChecks += 1;
+      if (a.foodAttach) foodAttachChecks += 1;
+      if (a.drinkAttach) drinkAttachChecks += 1;
     }
 
     const hours = Object.values(byHour)
       .map(e => ({ ...e, sales: Math.round(e.sales * 100) / 100 }))
       .sort((a, b) => a.h - b.h);
 
-    const upsellRate = totalChecks > 0 ? Math.round((upsoldChecks / totalChecks) * 1000) / 10 : null;
+    const rate = n => totalChecks > 0 ? Math.round((n / totalChecks) * 1000) / 10 : null;
+    const upsellRate = rate(upsoldChecks);
+    // Attach rates need the category map — record null (not 0) when it didn't build,
+    // so a transient dimensions failure never looks like a real zero-attach day.
+    const hasGroups = groupMap && groupMap.size > 0;
+    const foodAttachRate = hasGroups ? rate(foodAttachChecks) : null;
+    const drinkAttachRate = hasGroups ? rate(drinkAttachChecks) : null;
 
     // Donut/munchkin units + category-by-daypart mix (both from the detailLines already in the
     // payload — no extra API calls).
     const { bakery, flavors } = extractBakery(checks, bakeryClass);
     const catDaypart = extractCategoryDaypart(checks, groupMap);
 
-    return { hours, upsoldChecks, totalChecks, upsellRate, bakery, flavors, catDaypart };
+    return { hours, upsoldChecks, totalChecks, upsellRate, foodAttachRate, drinkAttachRate, bakery, flavors, catDaypart };
 
   } catch (e) {
     console.warn(`[hourly-snapshot] Guest checks failed for ${pc}: ${e.message}`);
@@ -519,6 +550,10 @@ export default async () => {
   }
   console.log(`[hourly-snapshot] Bakery items mapped: ${Object.entries(routeClass).map(([r, m]) => `${r}:${m.size}`).join(' ')} · category items: ${Object.entries(routeGroup).map(([r, m]) => `${r}:${m.size}`).join(' ')}`);
 
+  // Per-route top-level vs child line counts per menu item (feeds pcg_modifier_items_v1).
+  const routeLineStats = {};
+  for (const route of Object.keys(routeClass)) routeLineStats[route] = { top: {}, child: {} };
+
   // Tracked new-product registry (loaded once, matched against each store's menu-item totals).
   const registry = await loadNewProductRegistry(cacheLoad);
   if (registry.length) console.log(`[hourly-snapshot] Tracking ${registry.length} new product(s): ${registry.map(p => p.name).join(', ')}`);
@@ -532,7 +567,7 @@ export default async () => {
     await Promise.all(batch.map(async (store) => {
       const classMap = routeClass[apiRoute(store.pc)];
       const groupMap = routeGroup[apiRoute(store.pc)];
-      const result = await fetchHourlySales(store.pc, date, classMap, groupMap);
+      const result = await fetchHourlySales(store.pc, date, classMap, groupMap, routeLineStats[apiRoute(store.pc)]);
       if (result === null) { failed++; return; }
 
       const { hours, bakery, flavors, catDaypart, ...upsell } = result;
@@ -547,6 +582,27 @@ export default async () => {
       }
       saved++;
     }));
+  }
+
+  // Persist the modifier item set: items that ring as CHILD lines (parDtlId) more often
+  // than as top-level lines are modifiers/build components (cream & sugar, swirls, extra
+  // shots). getMenuItemDailyTotals is flat and can't tell a sold item from a modifier, so
+  // the analyst's upsell item-mix diff excludes this set. Union'd with the existing blob
+  // so a light day never un-learns a modifier.
+  try {
+    const prior = (await cacheLoad('pcg_modifier_items_v1')) || {};
+    const modifierItems = {};
+    for (const [route, stats] of Object.entries(routeLineStats)) {
+      const set = new Set(Array.isArray(prior[route]) ? prior[route] : []);
+      for (const [mi, child] of Object.entries(stats.child)) {
+        if (child > (stats.top[mi] || 0)) set.add(mi);
+      }
+      modifierItems[route] = [...set];
+    }
+    await cacheSave('pcg_modifier_items_v1', modifierItems);
+    console.log(`[hourly-snapshot] Modifier items: ${Object.entries(modifierItems).map(([r, a]) => `${r}:${a.length}`).join(' ')}`);
+  } catch (e) {
+    console.warn(`[hourly-snapshot] modifier item save failed: ${e.message}`);
   }
 
   console.log(`[hourly-snapshot] Complete: ${saved} saved, ${failed} failed`);
