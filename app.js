@@ -7092,6 +7092,65 @@
     }
     return res.json();
   }
+  async function fetchOpsTotalsBatch(pcs, busDt) {
+    const res = await fetch(PULSE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: "getOperationsDailyTotals",
+        busDt,
+        include: "locRef,busDt,revenueCenters",
+        batch: pcs.map((pc) => ({ api: apiRoute(pc), locRef: pc }))
+      })
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const json = await res.json();
+    if (!json || typeof json.results !== "object" || json.results === null) throw new Error("Malformed batch response");
+    return json.results;
+  }
+  var PULSE_DAY_CACHE_PREFIX = "pcg_pulse_day_v1_";
+  function pulseDayCacheable(date, todayStr) {
+    const y = /* @__PURE__ */ new Date(todayStr + "T12:00:00");
+    y.setDate(y.getDate() - 1);
+    const yesterday = y.getFullYear() + "-" + String(y.getMonth() + 1).padStart(2, "0") + "-" + String(y.getDate()).padStart(2, "0");
+    return date < yesterday;
+  }
+  function listPulseDayCacheKeys() {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(PULSE_DAY_CACHE_PREFIX)) keys.push(k);
+    }
+    return keys.sort();
+  }
+  function readPulseDayCache(date, todayStr, pcs) {
+    if (!pulseDayCacheable(date, todayStr)) return null;
+    try {
+      const saved = JSON.parse(localStorage.getItem(PULSE_DAY_CACHE_PREFIX + date) || "null");
+      if (!saved) return null;
+      const out = {};
+      for (const pc of pcs) if (saved[pc]) out[pc] = saved[pc];
+      return out;
+    } catch {
+      return null;
+    }
+  }
+  function writePulseDayCache(date, todayStr, results) {
+    if (!pulseDayCacheable(date, todayStr)) return;
+    const key = PULSE_DAY_CACHE_PREFIX + date;
+    try {
+      const prev = JSON.parse(localStorage.getItem(key) || "{}");
+      for (const pc in results) if (results[pc] && results[pc].status === "ok") prev[pc] = results[pc];
+      const keys = listPulseDayCacheKeys().filter((k) => k !== key);
+      while (keys.length > 29) localStorage.removeItem(keys.shift());
+      localStorage.setItem(key, JSON.stringify(prev));
+    } catch {
+      try {
+        listPulseDayCacheKeys().forEach((k) => localStorage.removeItem(k));
+      } catch {
+      }
+    }
+  }
   function sumRVC(revenueCenters = []) {
     const s = revenueCenters.reduce((acc, r) => ({
       netSales: acc.netSales + (r.netSlsTtl || 0),
@@ -7796,7 +7855,7 @@
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
       { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null },
       ...upsellEntry ? [{ label: "Upsell Rate", value: upsellEntry.upsellRate.toFixed(1) + "%", color: "#22d3ee", sub: upsellEntry.date }] : []
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0 } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0, position: "sticky", top: 0, alignSelf: "flex-start" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -9360,26 +9419,55 @@
         discounts: a.discounts + d.data.discounts
       }), { netSales: 0, guests: 0, voids: 0, discounts: 0 });
     }
-    async function fetchDate(date, batchSize = 6, onProg) {
-      const results = {};
-      for (let i = 0; i < activePCs.length; i += batchSize) {
-        await Promise.all(activePCs.slice(i, i + batchSize).map(async (pc) => {
-          try {
-            const json = await fetchOpsTotals(pc, date);
-            results[pc] = { status: "ok", data: sumRVC(json.revenueCenters), rcs: json.revenueCenters || [] };
-          } catch (e) {
-            results[pc] = { status: "error", error: e.message };
-          }
-        }));
-        onProg && onProg(Math.round((i + batchSize) / activePCs.length * 100));
+    async function fetchDate(date, onProg, onPartial) {
+      const results = { ...readPulseDayCache(date, todayStr, activePCs) || {} };
+      const toFetch = activePCs.filter((pc) => !results[pc]);
+      if (toFetch.length === 0) {
+        onProg && onProg(100);
+        onPartial && onPartial({ ...results });
+        return results;
       }
+      const okResult = (j) => ({ status: "ok", data: sumRVC(j.revenueCenters), rcs: j.revenueCenters || [] });
+      const chunkSize = 15;
+      const chunks = [];
+      for (let i = 0; i < toFetch.length; i += chunkSize) chunks.push(toFetch.slice(i, i + chunkSize));
+      let done = activePCs.length - toFetch.length;
+      await Promise.all(chunks.map(async (pcs) => {
+        try {
+          const batchRes = await fetchOpsTotalsBatch(pcs, date);
+          for (const pc of pcs) {
+            const r = batchRes[pc];
+            if (r && r.status >= 200 && r.status < 300 && r.data && (r.data.revenueCenters || !r.data.error)) {
+              results[pc] = okResult(r.data);
+            } else {
+              const detail = r ? [r.data && r.data.error, r.data && r.data.raw].filter(Boolean).join(" \u2014 ") : "";
+              results[pc] = { status: "error", error: r ? `HTTP ${r.status}: ${detail}` : "No result in batch response" };
+            }
+          }
+        } catch (err) {
+          console.warn("[pulse] batch fetch failed, falling back to per-store:", err.message);
+          await Promise.all(pcs.map(async (pc) => {
+            try {
+              results[pc] = okResult(await fetchOpsTotals(pc, date));
+            } catch (e) {
+              results[pc] = { status: "error", error: e.message };
+            }
+          }));
+        }
+        done += pcs.length;
+        onProg && onProg(Math.round(done / activePCs.length * 100));
+        onPartial && onPartial({ ...results });
+      }));
+      writePulseDayCache(date, todayStr, results);
       return results;
     }
     async function loadAll() {
       setLoading(true);
       setProgress(0);
-      const results = await fetchDate(busDt, 6, (p) => {
+      const results = await fetchDate(busDt, (p) => {
         setProgress(p);
+      }, (partial) => {
+        setStoreData((prev) => ({ ...prev, ...partial }));
       });
       setStoreData(results);
       setDateCache((prev) => ({ ...prev, [busDt]: aggResults(results) }));
@@ -9391,22 +9479,20 @@
       setWtdLoading(true);
       const dates = getWeekDates(busDt);
       const newCache = { ...dateCache };
-      for (const date of dates) {
-        if (!newCache[date]) {
-          const results = await fetchDate(date, 8);
-          newCache[date] = aggResults(results);
-          setDateCache({ ...newCache });
-        }
-      }
+      const missing = dates.filter((d) => !newCache[d]);
+      const fetched = await Promise.all(missing.map(async (d) => [d, aggResults(await fetchDate(d))]));
+      for (const [d, agg] of fetched) newCache[d] = agg;
+      if (missing.length) setDateCache(newCache);
       setWtdLoading(false);
     }
     async function loadWeekGrid() {
       setWeekLoading(true);
       const dates = getWeekDates(busDt);
-      const cache = { ...dayStoreCache, [busDt]: storeData };
-      for (const date of dates) {
-        if (!cache[date]) cache[date] = await fetchDate(date, 8);
-      }
+      const cache = { ...dayStoreCache };
+      if (!loading && Object.keys(storeData).length > 0) cache[busDt] = storeData;
+      const missing = dates.filter((d) => !cache[d]);
+      const fetched = await Promise.all(missing.map(async (d) => [d, await fetchDate(d)]));
+      for (const [d, r] of fetched) cache[d] = r;
       setDayStoreCache(cache);
       const sums = {};
       for (const pc of activePCs) {
@@ -9438,15 +9524,10 @@
         lyDates.push(localDateStr2(dd));
       }
       const newCache = { ...lyCache };
-      let changed = false;
-      for (const date of lyDates) {
-        if (!newCache[date]) {
-          const results = await fetchDate(date, 8);
-          newCache[date] = aggResults(results);
-          setLyCache({ ...newCache });
-          changed = true;
-        }
-      }
+      const missing = lyDates.filter((d2) => !newCache[d2]);
+      const fetched = await Promise.all(missing.map(async (d2) => [d2, aggResults(await fetchDate(d2))]));
+      for (const [d2, agg] of fetched) newCache[d2] = agg;
+      if (missing.length) setLyCache(newCache);
       return lyDates;
     }
     async function runDiagTest() {
@@ -16213,7 +16294,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v17.98";
+  var APP_VERSION = "v18.02";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -18262,32 +18343,6 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       fontWeight: filterType === f.id ? 700 : 400
     } }, f.label)))), /* @__PURE__ */ React.createElement(SalesExplainedSection, { th, user, setTab }), loading || loadingStores ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center", color: th.muted } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", marginBottom: "0.5rem" } }, "\u23F3"), "Loading per-store baselines\u2026") : filtered.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem", marginBottom: "0.5rem" } }, "\u2705"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, color: th.text, marginBottom: "0.25rem" } }, "All stores within normal range"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "No ", filterType !== "all" ? filterType + " " : "", "anomalies detected for today")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1.25rem" } }, filtered.map((item) => /* @__PURE__ */ React.createElement("div", { key: item.key, style: { ...card(th), padding: "0.875rem 1.25rem", borderLeft: `3px solid ${item.color}`, display: "flex", alignItems: "center", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", minWidth: 52, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.3rem", color: item.color, lineHeight: 1 } }, Math.abs(item.z).toFixed(1), "\u03C3"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.55rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 } }, "z-score")), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, item.store.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: th.muted } }, "D", item.store.district), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, color: item.color, background: item.color + "18", border: `1px solid ${item.color}33`, borderRadius: "0.3rem", padding: "0.05rem 0.4rem" } }, item.severity === 0 ? "Critical" : "Watch"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 600, color: item.subtype === "sales" ? "#74c0fc" : "#f59e0b", background: item.subtype === "sales" ? "#74c0fc18" : "#f59e0b18", borderRadius: "0.3rem", padding: "0.05rem 0.4rem" } }, item.subtype === "sales" ? "\u{1F4C9} Sales" : "\u26A0\uFE0F Labor")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, fontWeight: 500 } }, item.msg), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.15rem" } }, item.detail)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0 } }, item.subtype === "labor" && /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("labor"), style: { fontSize: "0.72rem", padding: "0.28rem 0.55rem", borderRadius: "0.35rem", background: "#3b82f618", color: "#3b82f6", border: "1px solid #3b82f633", cursor: "pointer" } }, "\u{1F4CA}"), item.subtype === "sales" && /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("pulse"), style: { fontSize: "0.72rem", padding: "0.28rem 0.55rem", borderRadius: "0.35rem", background: "#22c55e18", color: "#22c55e", border: "1px solid #22c55e33", cursor: "pointer" } }, "\u26A1"), item.subtype === "shifts" && /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("labor"), style: { fontSize: "0.72rem", padding: "0.28rem 0.55rem", borderRadius: "0.35rem", background: "#8b5cf618", color: "#8b5cf6", border: "1px solid #8b5cf633", cursor: "pointer" } }, "\u{1F465}"), item.store.mgrPhone && /* @__PURE__ */ React.createElement("a", { href: `tel:${item.store.mgrPhone.replace(/\D/g, "")}`, style: { fontSize: "0.72rem", padding: "0.28rem 0.55rem", borderRadius: "0.35rem", background: th.card2, color: th.muted, border: `1px solid ${th.cardBorder}`, textDecoration: "none", display: "flex", alignItems: "center" } }, "\u{1F4DE}"))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.875rem 1.25rem", display: "flex", gap: "0.75rem", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1rem", flexShrink: 0 } }, "\u2139\uFE0F"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "How baselines work:"), " Each store's normal range is computed from the last 4\u20138 occurrences of the same day of week (e.g., last 8 Tuesdays). A z-score of 2.0 means today is 2 standard deviations from that store's own baseline \u2014 not a network-wide threshold. Cash void and employee pattern anomalies coming in a future update.")));
   }
-  function DistrictStoreGrid({ stores, district, th, setTab, isMobile }) {
-    const [labor, setLabor] = useState(null);
-    const [tickets, setTickets] = useState([]);
-    useEffect(() => {
-      cloudLoad("pcg_labor_v1").then((d) => setLabor(d || {})).catch(() => setLabor({}));
-      try {
-        const raw = localStorage.getItem("pcg_tickets_v1");
-        const a = raw ? JSON.parse(raw) : [];
-        setTickets(Array.isArray(a) ? a : a?.data || []);
-      } catch {
-        setTickets([]);
-      }
-    }, []);
-    const districtStores = (stores || []).filter((s) => String(s.district) === String(district));
-    if (!districtStores.length) return null;
-    const laborStores = labor?.stores || {};
-    const laborColor2 = (pct) => pct == null ? th.muted : pct >= 26 ? "#ef4444" : pct >= 23 ? "#f59e0b" : "#22c55e";
-    const money = (n) => n ? "$" + Math.round(n).toLocaleString() : "\u2014";
-    const openTicketsFor = (pc) => tickets.filter((t) => String(t.storePC) === String(pc) && t.status !== "Closed").length;
-    const rows = districtStores.map((s) => {
-      const td = laborStores[s.pc]?.today || {};
-      const wtd = laborStores[s.pc]?.wtd || {};
-      return { s, todayPct: td.laborPct ?? null, wtdPct: wtd.laborPct ?? null, sales: td.sales || 0, openTickets: openTicketsFor(s.pc) };
-    }).sort((a, b) => (b.todayPct ?? -1) - (a.todayPct ?? -1));
-    return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, ICONS.locations("#8b5cf6"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, "My District"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "\xB7 ", districtStores.length, " stores")), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("locations"), style: { background: "none", border: "none", color: O, fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", padding: 0 } }, "View all \u2192")), labor === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", color: th.muted, fontSize: "0.78rem" } }, "Loading district\u2026") : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(250px, 1fr))", gap: "0.7rem" } }, rows.map(({ s, todayPct, wtdPct, sales, openTickets }) => /* @__PURE__ */ React.createElement("div", { key: s.pc, onClick: () => setTab("locations"), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer", borderLeft: `3px solid ${laborColor2(todayPct)}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.82rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.56rem", fontWeight: 700, color: s.status === "Open" || !s.status ? "#22c55e" : "#f59e0b", background: (s.status === "Open" || !s.status ? "#22c55e" : "#f59e0b") + "18", borderRadius: 999, padding: "0.1rem 0.45rem", whiteSpace: "nowrap" } }, s.status || "Open")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.1rem", marginTop: "0.65rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.54rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.4 } }, "Labor"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.05rem", fontWeight: 800, color: laborColor2(todayPct), fontFamily: "'Raleway'" } }, todayPct != null ? todayPct.toFixed(1) + "%" : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.54rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.4 } }, "WTD"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.05rem", fontWeight: 800, color: laborColor2(wtdPct), fontFamily: "'Raleway'" } }, wtdPct != null ? wtdPct.toFixed(1) + "%" : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.54rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.4 } }, "Sales"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.05rem", fontWeight: 800, color: th.text, fontFamily: "'Raleway'" } }, money(sales)))), openTickets > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", fontSize: "0.66rem", color: "#3b82f6", fontWeight: 700 } }, openTickets, " open ticket", openTickets !== 1 ? "s" : "")))));
-  }
   function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert, users }) {
     const hour = (/* @__PURE__ */ new Date()).getHours();
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -18709,7 +18764,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     })), user.userType === "manager" && (() => {
       const mp = getManagerStore(stores, user);
       return mp?.pc ? /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", display: "grid", gap: "0.85rem", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", alignItems: "start", maxWidth: 1080 } }, /* @__PURE__ */ React.createElement(Guard, { name: "manager-brief", fallback: null }, /* @__PURE__ */ React.createElement(ManagerOrionBrief, { pc: mp.pc, storeName: mp.name, th })), /* @__PURE__ */ React.createElement(Guard, { name: "forecast-preplan", fallback: null }, /* @__PURE__ */ React.createElement(ForecastPrePlanCard, { pc: mp.pc, storeName: mp.name, th }))) : null;
-    })(), user.userType === "dm" && /* @__PURE__ */ React.createElement(Guard, { name: "district-grid", fallback: null }, /* @__PURE__ */ React.createElement(DistrictStoreGrid, { stores, district: user.district, th, setTab, isMobile })), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(Guard, { name: "today-brief", fallback: null }, /* @__PURE__ */ React.createElement(TodayBrief, { user, th, setAnnouncements, showAlert, announcementsDismissed, setAnnouncementsDismissed })), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(Guard, { name: "action-queue", fallback: null }, /* @__PURE__ */ React.createElement(ActionQueue, { stores, th, user, setTab, users, showAlert })), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && (() => {
+    })(), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(Guard, { name: "today-brief", fallback: null }, /* @__PURE__ */ React.createElement(TodayBrief, { user, th, setAnnouncements, showAlert, announcementsDismissed, setAnnouncementsDismissed })), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(Guard, { name: "action-queue", fallback: null }, /* @__PURE__ */ React.createElement(ActionQueue, { stores, th, user, setTab, users, showAlert })), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && (() => {
       const showTickets = ticketStats.open > 0 || ticketStats.inProg > 0;
       const cols = isMobile ? "1fr" : showTickets ? "1fr 1fr" : "1fr";
       if (!showTickets && user.userType === "manager") return null;

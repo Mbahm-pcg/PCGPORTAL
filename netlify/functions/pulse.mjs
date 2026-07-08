@@ -18,6 +18,10 @@ const APIS = {
   },
 };
 
+// Reuse TLS connections across the parallel batch fan-out and across calls on
+// a warm container — a fresh handshake per store would dominate latency.
+const keepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 20 });
+
 function callUpstream(cfg, endpoint, body) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
@@ -26,6 +30,7 @@ function callUpstream(cfg, endpoint, body) {
       port:     443,
       path:     `${cfg.path}/${endpoint}`,
       method:   'POST',
+      agent:    keepAliveAgent,
       headers:  {
         'Content-Type':   'application/json',
         'x-api-key':      cfg.xkey,
@@ -66,6 +71,32 @@ export default async (request, context) => {
     payload = await request.json().catch(() => ({}));
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers });
+  }
+
+  // Batch mode: { endpoint, batch: [{ api, locRef }, ...], ...shared }
+  // Fans out to the POS in parallel server-side so the browser makes one
+  // round-trip for many stores. Returns { results: { [locRef]: { status, data } } }.
+  if (Array.isArray(payload.batch)) {
+    const { batch, endpoint: batchEndpoint, api: defaultApi, ...shared } = payload;
+    if (!batchEndpoint) {
+      return new Response(JSON.stringify({ error: 'Missing endpoint' }), { status: 400, headers });
+    }
+    if (batch.length === 0 || batch.length > 60) {
+      return new Response(JSON.stringify({ error: 'batch must contain 1-60 entries' }), { status: 400, headers });
+    }
+    const entries = await Promise.all(batch.map(async ({ api: entryApi, locRef }) => {
+      const entryCfg = APIS[entryApi || defaultApi];
+      if (!entryCfg) return [locRef, { status: 400, data: { error: `Unknown api: ${entryApi || defaultApi}` } }];
+      try {
+        const r = await callUpstream(entryCfg, batchEndpoint, { ...shared, locRef });
+        let data;
+        try { data = JSON.parse(r.body); } catch { data = { error: 'Invalid upstream JSON', raw: String(r.body).slice(0, 200) }; }
+        return [locRef, { status: r.status, data }];
+      } catch (err) {
+        return [locRef, { status: 502, data: { error: err.message } }];
+      }
+    }));
+    return new Response(JSON.stringify({ results: Object.fromEntries(entries) }), { status: 200, headers });
   }
 
   // Expect: { api: 'p227'|'p228', endpoint: 'getOperationsDailyTotals', ...rest }

@@ -7499,6 +7499,73 @@ async function fetchOpsTotals(pc, busDt) {
   return res.json();
 }
 
+// Batched ops totals — one proxy round-trip for many stores; the function
+// fans out to the POS in parallel. Returns { [pc]: { status, data } }.
+async function fetchOpsTotalsBatch(pcs, busDt) {
+  const res = await fetch(PULSE_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      endpoint: 'getOperationsDailyTotals',
+      busDt,
+      include: 'locRef,busDt,revenueCenters',
+      batch: pcs.map(pc => ({ api: apiRoute(pc), locRef: pc })),
+    }),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  if (!json || typeof json.results !== 'object' || json.results === null) throw new Error('Malformed batch response');
+  return json.results;
+}
+
+// localStorage cache for closed POS days — totals for finalized dates never change,
+// so WTD / prior-week / last-year comparisons load instantly after first fetch.
+const PULSE_DAY_CACHE_PREFIX = 'pcg_pulse_day_v1_';
+function pulseDayCacheable(date, todayStr) {
+  // Only days ≥2 calendar days old are treated as final — late transactions and
+  // corrections can still post to yesterday's business date.
+  const y = new Date(todayStr + 'T12:00:00'); y.setDate(y.getDate() - 1);
+  const yesterday = y.getFullYear() + '-' + String(y.getMonth()+1).padStart(2,'0') + '-' + String(y.getDate()).padStart(2,'0');
+  return date < yesterday;
+}
+function listPulseDayCacheKeys() {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(PULSE_DAY_CACHE_PREFIX)) keys.push(k);
+  }
+  return keys.sort();
+}
+// Returns whatever per-store results are cached for the date (possibly a subset,
+// possibly {}) — the caller fetches only the stores that are missing.
+function readPulseDayCache(date, todayStr, pcs) {
+  if (!pulseDayCacheable(date, todayStr)) return null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(PULSE_DAY_CACHE_PREFIX + date) || 'null');
+    if (!saved) return null;
+    const out = {};
+    for (const pc of pcs) if (saved[pc]) out[pc] = saved[pc];
+    return out;
+  } catch { return null; }
+}
+function writePulseDayCache(date, todayStr, results) {
+  if (!pulseDayCacheable(date, todayStr)) return;
+  const key = PULSE_DAY_CACHE_PREFIX + date;
+  try {
+    const prev = JSON.parse(localStorage.getItem(key) || '{}');
+    for (const pc in results) if (results[pc] && results[pc].status === 'ok') prev[pc] = results[pc];
+    // Prune BEFORE writing so eviction still runs even if the write itself fails.
+    // Cap cached days at 30 — ISO dates sort lexicographically, evict oldest.
+    const keys = listPulseDayCacheKeys().filter(k => k !== key);
+    while (keys.length > 29) localStorage.removeItem(keys.shift());
+    localStorage.setItem(key, JSON.stringify(prev));
+  } catch {
+    // Quota exceeded — drop the whole pulse day cache so it can rebuild small
+    // rather than wedging in a state where nothing new can ever be written.
+    try { listPulseDayCacheKeys().forEach(k => localStorage.removeItem(k)); } catch {}
+  }
+}
+
 function sumRVC(revenueCenters = []) {
   const s = revenueCenters.reduce((acc, r) => ({
     netSales:  acc.netSales  + (r.netSlsTtl  || 0),
@@ -8318,7 +8385,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       {/* ─── Section 2 — tab rail + content (scrollable) ─────────── */}
       <div style={{ flex:1, minHeight:0, overflowY:'auto', paddingRight:4 }}>
       <div style={{ display:'flex', alignItems:'flex-start', gap:'1rem' }}>
-        <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, position:'sticky', top:0, alignSelf:'flex-start' }}>
           {[{id:'sales',label:'📊 Sales'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
             <button key={t.id} onClick={() => {
                 setStoreTab(t.id);
@@ -10653,25 +10720,56 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
     }), { netSales:0, guests:0, voids:0, discounts:0 });
   }
 
-  async function fetchDate(date, batchSize = 6, onProg) {
-    const results = {};
-    for (let i = 0; i < activePCs.length; i += batchSize) {
-      await Promise.all(activePCs.slice(i, i + batchSize).map(async pc => {
-        try {
-          const json = await fetchOpsTotals(pc, date);
-          results[pc] = { status:'ok', data: sumRVC(json.revenueCenters), rcs: json.revenueCenters || [] };
-        } catch(e) {
-          results[pc] = { status:'error', error: e.message };
+  async function fetchDate(date, onProg, onPartial) {
+    // Finalized days never change — reuse any per-store results cached from
+    // earlier loads (even a different role's store subset) and fetch only
+    // what's missing. Stores that errored last time are simply re-fetched.
+    const results = { ...(readPulseDayCache(date, todayStr, activePCs) || {}) };
+    const toFetch = activePCs.filter(pc => !results[pc]);
+    if (toFetch.length === 0) { onProg && onProg(100); onPartial && onPartial({ ...results }); return results; }
+    const okResult = j => ({ status:'ok', data: sumRVC(j.revenueCenters), rcs: j.revenueCenters || [] });
+    const chunkSize = 15;
+    const chunks = [];
+    for (let i = 0; i < toFetch.length; i += chunkSize) chunks.push(toFetch.slice(i, i + chunkSize));
+    let done = activePCs.length - toFetch.length;
+    await Promise.all(chunks.map(async pcs => {
+      try {
+        const batchRes = await fetchOpsTotalsBatch(pcs, date);
+        for (const pc of pcs) {
+          const r = batchRes[pc];
+          // ok when 2xx and the payload has data (a soft `error` field alongside
+          // real revenueCenters must not drop the store from the totals)
+          if (r && r.status >= 200 && r.status < 300 && r.data && (r.data.revenueCenters || !r.data.error)) {
+            results[pc] = okResult(r.data);
+          } else {
+            const detail = r ? [r.data && r.data.error, r.data && r.data.raw].filter(Boolean).join(' — ') : '';
+            results[pc] = { status:'error', error: r ? `HTTP ${r.status}: ${detail}` : 'No result in batch response' };
+          }
         }
-      }));
-      onProg && onProg(Math.round(((i + batchSize) / activePCs.length) * 100));
-    }
+      } catch (err) {
+        // Batch proxy unavailable — fall back to per-store fetches for this chunk
+        console.warn('[pulse] batch fetch failed, falling back to per-store:', err.message);
+        await Promise.all(pcs.map(async pc => {
+          try {
+            results[pc] = okResult(await fetchOpsTotals(pc, date));
+          } catch(e) {
+            results[pc] = { status:'error', error: e.message };
+          }
+        }));
+      }
+      done += pcs.length;
+      onProg && onProg(Math.round((done / activePCs.length) * 100));
+      onPartial && onPartial({ ...results });
+    }));
+    writePulseDayCache(date, todayStr, results);
     return results;
   }
 
   async function loadAll() {
     setLoading(true); setProgress(0);
-    const results = await fetchDate(busDt, 6, p => { setProgress(p); });
+    // Merge partial chunks into the existing grid: first paint fills in
+    // progressively, and an auto-refresh never collapses the grid to one chunk.
+    const results = await fetchDate(busDt, p => { setProgress(p); }, partial => { setStoreData(prev => ({ ...prev, ...partial })); });
     setStoreData(results);
     setDateCache(prev => ({ ...prev, [busDt]: aggResults(results) }));
     setLoading(false); setLastRefresh(new Date()); setCountdown(300);
@@ -10681,13 +10779,11 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
     setWtdLoading(true);
     const dates = getWeekDates(busDt);
     const newCache = { ...dateCache };
-    for (const date of dates) {
-      if (!newCache[date]) {
-        const results = await fetchDate(date, 8);
-        newCache[date] = aggResults(results);
-        setDateCache({ ...newCache });
-      }
-    }
+    // Dates are independent — fetch the missing ones in parallel
+    const missing = dates.filter(d => !newCache[d]);
+    const fetched = await Promise.all(missing.map(async d => [d, aggResults(await fetchDate(d))]));
+    for (const [d, agg] of fetched) newCache[d] = agg;
+    if (missing.length) setDateCache(newCache);
     setWtdLoading(false);
   }
 
@@ -10695,10 +10791,13 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
   async function loadWeekGrid() {
     setWeekLoading(true);
     const dates = getWeekDates(busDt);
-    const cache = { ...dayStoreCache, [busDt]: storeData }; // today's slice already loaded
-    for (const date of dates) {
-      if (!cache[date]) cache[date] = await fetchDate(date, 8);
-    }
+    const cache = { ...dayStoreCache };
+    // Seed today's slice only when it's fully loaded — a mid-load partial
+    // would be memoized and permanently undercount WTD for the missing stores.
+    if (!loading && Object.keys(storeData).length > 0) cache[busDt] = storeData;
+    const missing = dates.filter(d => !cache[d]);
+    const fetched = await Promise.all(missing.map(async d => [d, await fetchDate(d)]));
+    for (const [d, r] of fetched) cache[d] = r;
     setDayStoreCache(cache);
     const sums = {};
     for (const pc of activePCs) {
@@ -10727,15 +10826,10 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
       lyDates.push(localDateStr(dd));
     }
     const newCache = { ...lyCache };
-    let changed = false;
-    for (const date of lyDates) {
-      if (!newCache[date]) {
-        const results = await fetchDate(date, 8);
-        newCache[date] = aggResults(results);
-        setLyCache({ ...newCache });
-        changed = true;
-      }
-    }
+    const missing = lyDates.filter(d => !newCache[d]);
+    const fetched = await Promise.all(missing.map(async d => [d, aggResults(await fetchDate(d))]));
+    for (const [d, agg] of fetched) newCache[d] = agg;
+    if (missing.length) setLyCache(newCache);
     return lyDates;
   }
 
@@ -20362,7 +20456,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v17.98";
+const APP_VERSION = "v18.02";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -23898,13 +23992,6 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
           </div>
         ) : null;
       })()}
-
-      {/* ─── District store grid — DM data-first centerpiece (no Orion dependency) ── */}
-      {user.userType === 'dm' && (
-        <Guard name="district-grid" fallback={null}>
-          <DistrictStoreGrid stores={stores} district={user.district} th={th} setTab={setTab} isMobile={isMobile} />
-        </Guard>
-      )}
 
       {/* ─── Today's Brief (Orion — optional; guarded so a low-credit error can't blank the page) ── */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
