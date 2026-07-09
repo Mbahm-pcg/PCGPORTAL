@@ -561,6 +561,21 @@
     }, []);
     return isMobile;
   }
+  function useFrameHeight(frameRef, min = 360, gutter = 20) {
+    const [frameH, setFrameH] = useState(null);
+    useEffect(() => {
+      const measure = () => {
+        const el = frameRef.current;
+        if (!el) return;
+        const top = el.getBoundingClientRect().top + window.scrollY;
+        setFrameH(Math.max(min, Math.round(window.innerHeight - top - gutter)));
+      };
+      measure();
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }, []);
+    return frameH;
+  }
   function EmptyState({ icon, title, description, actionLabel, onAction, th }) {
     return /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "4rem 2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem", opacity: 0.3 } }, icon), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1.1rem", color: th.text, marginBottom: "0.4rem" } }, title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", marginBottom: "1.25rem", maxWidth: 320, margin: "0 auto 1.25rem" } }, description), actionLabel && onAction && /* @__PURE__ */ React.createElement("button", { style: { padding: "0.5rem 1.25rem", borderRadius: "0.5rem", border: "none", background: "#FF671F", color: "#fff", fontFamily: "'Source Sans 3'", fontWeight: 600, fontSize: "0.875rem", cursor: "pointer" }, onClick: onAction }, actionLabel));
   }
@@ -3767,17 +3782,7 @@
     const [saveFlash, setSaveFlash] = useState(false);
     const [confirmDeleteId, setConfirmDeleteId] = useState(null);
     const frameRef = React.useRef(null);
-    const [frameH, setFrameH] = useState(null);
-    React.useEffect(() => {
-      const measure = () => {
-        const el = frameRef.current;
-        if (!el) return;
-        setFrameH(Math.max(360, Math.round(window.innerHeight - el.getBoundingClientRect().top - 20)));
-      };
-      measure();
-      window.addEventListener("resize", measure);
-      return () => window.removeEventListener("resize", measure);
-    }, []);
+    const frameH = useFrameHeight(frameRef);
     const nextId = () => Math.max(0, ...users.map((u) => u.id)) + 1;
     const initials = (name) => name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
     const [emailAction, setEmailAction] = useState(null);
@@ -4936,14 +4941,9 @@
     const [activeTool, setActiveTool] = useState(null);
     const [isNarrow, setIsNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < 760);
     const frameRef = useRef(null);
-    const [frameH, setFrameH] = useState(null);
+    const frameH = useFrameHeight(frameRef, 340, 16);
     useEffect(() => {
-      const fn = () => {
-        setIsNarrow(window.innerWidth < 760);
-        const el = frameRef.current;
-        if (el) setFrameH(Math.max(340, Math.round(window.innerHeight - el.getBoundingClientRect().top - 16)));
-      };
-      fn();
+      const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
     }, []);
@@ -7399,21 +7399,8 @@
     const fmtNum = (v) => Math.round(v).toLocaleString();
     const fmtAvg = (v) => v > 0 ? "$" + v.toFixed(2) : "\u2014";
     const frameRef = React.useRef(null);
-    const [frameH, setFrameH] = React.useState(null);
-    React.useEffect(() => {
-      const measure = () => {
-        const el = frameRef.current;
-        if (!el) return;
-        setFrameH(Math.max(360, Math.round(window.innerHeight - el.getBoundingClientRect().top - 20)));
-      };
-      measure();
-      window.addEventListener("resize", measure);
-      window.addEventListener("scroll", measure, true);
-      return () => {
-        window.removeEventListener("resize", measure);
-        window.removeEventListener("scroll", measure, true);
-      };
-    }, []);
+    const frameH = useFrameHeight(frameRef);
+    const contentRef = React.useRef(null);
     const [localDate, setLocalDate] = React.useState(busDt);
     const [viewMode, setViewMode] = React.useState("day");
     const [overrideLive, setOverrideLive] = React.useState(null);
@@ -7453,6 +7440,9 @@
     const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
     const [expandedReview, setExpandedReview] = React.useState(null);
     const [storeTab, setStoreTab] = React.useState("sales");
+    React.useEffect(() => {
+      contentRef.current?.scrollTo(0, 0);
+    }, [storeTab]);
     const [txnExpanded, setTxnExpanded] = React.useState(false);
     const [txnList, setTxnList] = React.useState(null);
     const [txnListLoading, setTxnListLoading] = React.useState(false);
@@ -7855,7 +7845,7 @@
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
       { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null },
       ...upsellEntry ? [{ label: "Upsell Rate", value: upsellEntry.upsellRate.toFixed(1) + "%", color: "#22d3ee", sub: upsellEntry.date }] : []
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0, position: "sticky", top: 0, alignSelf: "flex-start" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0, overflowY: "auto" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -7882,7 +7872,7 @@
         style: { display: "flex", alignItems: "center", textAlign: "left", padding: "0.6rem 0.75rem", border: `1px solid ${storeTab === t.id ? O : th.cardBorder}`, borderRadius: "0.6rem", background: storeTab === t.id ? O : th.card, color: storeTab === t.id ? "#fff" : th.muted, fontWeight: 600, fontSize: "0.78rem", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: "pointer", transition: "background .15s, color .15s, border-color .15s", boxSizing: "border-box", fontFamily: "'Raleway',sans-serif" }
       },
       t.label
-    ))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, storeTab === "forecast" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
+    ))), /* @__PURE__ */ React.createElement("div", { ref: contentRef, style: { flex: 1, minWidth: 0, overflowY: "auto", paddingRight: 4 } }, storeTab === "forecast" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
       const isWeek = viewMode === "week";
       const forecast = isWeek ? weekTotals.weekForecast : weekTotals.dayForecast;
       const atPct = d.netSales / forecast * 100;
@@ -8515,7 +8505,7 @@
           ["\u2705", clsdTime, "Transaction Closed", `Total: $${(chk.chkTtl || 0).toFixed(2)}`]
         ].filter(Boolean).map(([icon, time, title, sub], i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: "0.75rem", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 32, height: 32, borderRadius: "50%", background: `${O}20`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "0.7rem" } }, icon), /* @__PURE__ */ React.createElement("div", null, time && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text } }, time), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: time ? 400 : 700, color: th.text } }, title), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, sub)))))))))
       );
-    })())))));
+    })()))));
   }
   function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView }) {
     const distStores = stores.filter((s) => s.district === distNum);
@@ -9397,6 +9387,9 @@
         if (onClearDrillIn) onClearDrillIn();
       }
     }, [drillInStore]);
+    useEffect(() => {
+      if (pulseView !== "network") window.scrollTo(0, 0);
+    }, [pulseView]);
     const localDateStr2 = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
     function getWeekDates(dateStr) {
       const d = /* @__PURE__ */ new Date(dateStr + "T12:00:00");
@@ -9909,10 +9902,12 @@ ${t2.slice(0, 300)}`);
       const onPace = hasLYWeek && lyDaysLoaded === 7 && weeklyForecastLY > 0;
       return /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "0.85rem", borderTop: `1px solid ${G}33`, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: lblS2 }), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Net Sales"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Guests"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Avg Check"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Discounts"), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Void Rate"), /* @__PURE__ */ React.createElement("th", { style: { ...lblS2, ...divL } }, "Weekly Forecast ", /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.7, textTransform: "none" } }, "(LY + 2%)")), /* @__PURE__ */ React.createElement("th", { style: lblS2 }, "Pace"))), /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { style: { ...lblS2, fontSize: "0.7rem", color: "#e9fff4" } }, "Today"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: G, textShadow: `0 0 12px ${G}66` } }, fmtUSD(totals.netSales)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#74c0fc" } }, fmtNum(totals.guests)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#ffd43b" } }, fmtAvg(totals.avgCheck)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#f06595" } }, fmtUSD(totals.discounts)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: vColor(totals) } }, vCell(totals)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, ...divL, color: `${G}66`, fontSize: "0.8rem", fontWeight: 600 } }, "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: `${G}66`, fontSize: "0.8rem", fontWeight: 600 } }, "\u2014")), hasWTD && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { style: { ...lblS2, fontSize: "0.7rem", color: "#e9fff4" } }, "WTD (", wtdLoaded, "d)"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: G } }, fmtUSD(wtdTotals.netSales)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#74c0fc" } }, fmtNum(wtdTotals.guests)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#ffd43b" } }, wtdTotals.guests > 0 ? fmtAvg(wtdTotals.netSales / wtdTotals.guests) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: "#f06595" } }, fmtUSD(wtdTotals.discounts)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: vColor(wtdTotals) } }, vCell(wtdTotals)), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, ...divL, color: "#cc5de8" } }, hasLYWeek && lyDaysLoaded === 7 ? fmtUSD(weeklyForecastLY) : hasLYWeek ? `${lyDaysLoaded}/7\u2026` : "Loading\u2026"), /* @__PURE__ */ React.createElement("td", { style: { ...valS2, color: wtdTotals.netSales >= weeklyForecastLY * wtdLoaded / 7 ? "#69db7c" : "#ff6b6b" } }, onPace ? (wtdTotals.netSales / (weeklyForecastLY * wtdLoaded / 7) * 100).toFixed(0) + "%" : "\u2014")))));
     })()), (() => {
+      const onDMDistrict = isDMUser && pulseView?.level === "district" && pulseView.num === dmDistrict;
+      if (pulseView !== "network" && !onDMDistrict) return null;
       const nonOpen = stores.filter((s) => s.status !== "Open" && (!isDMUser || Number(s.district) === dmDistrict));
       if (!nonOpen.length) return null;
       return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem", padding: "0.6rem 0.85rem", background: "#fd7e1418", borderLeft: `3px solid #fd7e14`, borderRadius: "0.375rem", fontSize: "0.78rem", color: th.muted, lineHeight: 1.5 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: "#fd7e14" } }, "Note:"), " ", nonOpen.map((s) => /* @__PURE__ */ React.createElement("span", { key: s.pc }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, s.name), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", padding: "1px 4px", borderRadius: 3, fontWeight: 600, color: "#fff", background: s.status === "Remodel" ? "#fd7e14" : s.status === "Temp Closed" ? "#dc3545" : "#6c757d" } }, s.status))).reduce((a, b) => [a, ", ", b]), " \u2014 ", "totals may be lower due to ", nonOpen.length === 1 ? "this store" : "these stores", " not operating at full capacity.");
-    })(), pulseView === "network" && hasWTD && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: (dateKey) => setBusDt(dateKey) }), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in District ${dmDistrict}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
+    })(), pulseView === "network" && hasWTD && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: (dateKey) => setBusDt(dateKey) }), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { key: pulseView.pc, pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in District ${dmDistrict}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
       const dPct = (idx + 1) / arr.length;
       const isDone = progress / 100 >= dPct;
       const isActive = progress / 100 >= idx / arr.length && progress / 100 < dPct;
@@ -13977,17 +13972,7 @@ ${t2.slice(0, 300)}`);
       load();
     }, [load]);
     const frameRef = useRef(null);
-    const [frameH, setFrameH] = useState(null);
-    useEffect(() => {
-      const measure = () => {
-        const el = frameRef.current;
-        if (!el) return;
-        setFrameH(Math.max(360, Math.round(window.innerHeight - el.getBoundingClientRect().top - 20)));
-      };
-      measure();
-      window.addEventListener("resize", measure);
-      return () => window.removeEventListener("resize", measure);
-    }, []);
+    const frameH = useFrameHeight(frameRef);
     const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
     const filtered = (templates || []).filter((t) => {
       if (activeFilter === "active" && !t.active) return false;
@@ -16294,7 +16279,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.04";
+  var APP_VERSION = "v18.10";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -20777,6 +20762,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selectedStore, setSelectedStore] = useState(null);
+    useEffect(() => {
+      if (selectedStore) window.scrollTo(0, 0);
+    }, [selectedStore]);
     const [timeFilter, setTimeFilter] = useState("today");
     const [districtFilter, setDistrictFilter] = useState("all");
     const [refreshing, setRefreshing] = useState(false);
@@ -23655,6 +23643,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selectedStore, setSelectedStore] = useState(null);
+    useEffect(() => {
+      if (selectedStore) window.scrollTo(0, 0);
+    }, [selectedStore]);
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     useEffect(() => {
@@ -27836,6 +27827,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setUser(null);
     };
     const [tab, setTab] = useState("dashboard");
+    useEffect(() => {
+      window.scrollTo(0, 0);
+    }, [tab]);
     const [pendingOrionQuestion, setPendingOrionQuestion] = useState(null);
     const [orionIntent, setOrionIntent] = useState(false);
     useEffect(() => {
@@ -30665,7 +30659,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         /* @__PURE__ */ React.createElement(OrionIcon, { size: 40 })
       ),
       document.body
-    ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : tab === "locations" || tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
+    ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : tab === "locations" || tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "1.25rem 5vw 1rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
     }, showAlert, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {

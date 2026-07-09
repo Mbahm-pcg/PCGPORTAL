@@ -44,6 +44,25 @@ function useIsMobile() {
   return isMobile;
 }
 
+// Fixed-frame height for "Section 1 stays put, Section 2 scrolls" layouts (Users list,
+// Pulse store detail, task manager, locations): the space from the frame's DOCUMENT top
+// (rect.top + scrollY — scroll-invariant, so window scrolling can't feed back into a
+// taller frame) down to the bottom of the viewport, minus a small gutter.
+function useFrameHeight(frameRef, min = 360, gutter = 20) {
+  const [frameH, setFrameH] = useState(null);
+  useEffect(() => {
+    const measure = () => {
+      const el = frameRef.current; if (!el) return;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      setFrameH(Math.max(min, Math.round(window.innerHeight - top - gutter)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  return frameH;
+}
+
 // ── SVG Icon System ─────────────────────────────────────────────────────────
 // Icon, OrionIcon, ICONS, CAT_ICONS_SVG → src/icons.jsx
 
@@ -3051,16 +3070,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   // Measure the real space below the list frame so Section 1 stays fixed without a hardcoded
   // viewport offset (the chrome above differs: standalone Users tab vs inside the admin console).
   const frameRef = React.useRef(null);
-  const [frameH, setFrameH] = useState(null);
-  React.useEffect(() => {
-    const measure = () => {
-      const el = frameRef.current; if (!el) return;
-      setFrameH(Math.max(360, Math.round(window.innerHeight - el.getBoundingClientRect().top - 20)));
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, []);
+  const frameH = useFrameHeight(frameRef);
 
   const nextId = () => Math.max(0, ...users.map(u => u.id)) + 1;
   const initials = (name) => name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0,2);
@@ -4557,14 +4567,9 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
   // Measure the real space below the frame so Section 1 (KPIs + filters) stays fixed and only
   // the store list scrolls — on mobile too, not just desktop.
   const frameRef = useRef(null);
-  const [frameH, setFrameH] = useState(null);
+  const frameH = useFrameHeight(frameRef, 340, 16);
   useEffect(() => {
-    const fn = () => {
-      setIsNarrow(window.innerWidth < 760);
-      const el = frameRef.current;
-      if (el) setFrameH(Math.max(340, Math.round(window.innerHeight - el.getBoundingClientRect().top - 16)));
-    };
-    fn();
+    const fn = () => setIsNarrow(window.innerWidth < 760);
     window.addEventListener("resize", fn);
     return () => window.removeEventListener("resize", fn);
   }, []);
@@ -7842,25 +7847,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   // Measure the real space below the frame so Section 1 (header/KPIs) stays fixed and only
   // Section 2 (tab rail + content) scrolls \u2014 same pattern as AdminUsers' user-card list.
   const frameRef = React.useRef(null);
-  const [frameH, setFrameH] = React.useState(null);
-  React.useEffect(() => {
-    const measure = () => {
-      const el = frameRef.current; if (!el) return;
-      setFrameH(Math.max(360, Math.round(window.innerHeight - el.getBoundingClientRect().top - 20)));
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    // Capture-phase scroll listener: StoreDetail can also render embedded further down
-    // an already-scrollable page (e.g. AdminPulse, non-standalone), where the frame's
-    // top offset depends on that ancestor's scroll position, not just the viewport size.
-    // Scroll events don't bubble, but a capture-phase listener on window still sees them
-    // fire on any scrollable descendant.
-    window.addEventListener('scroll', measure, true);
-    return () => {
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure, true);
-    };
-  }, []);
+  const frameH = useFrameHeight(frameRef);
+  // The scrollable content column (right of the tab rail).
+  const contentRef = React.useRef(null);
 
   // Local date — defaults to parent busDt but can be overridden
   const [localDate, setLocalDate] = React.useState(busDt);
@@ -7903,6 +7892,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
   const [expandedReview, setExpandedReview] = React.useState(null);
   const [storeTab, setStoreTab] = React.useState('sales');
+  // Each store tab renders into the same persistent scroll column — reset its scroll
+  // when switching tabs so Forecast doesn't open at Transactions' old offset.
+  React.useEffect(() => { contentRef.current?.scrollTo(0, 0); }, [storeTab]);
   const [txnExpanded, setTxnExpanded] = React.useState(false);
   const [txnList, setTxnList] = React.useState(null);
   const [txnListLoading, setTxnListLoading] = React.useState(false);
@@ -8382,10 +8374,11 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       </div>
       </div>{/* ── /Section 1 ── */}
 
-      {/* ─── Section 2 — tab rail + content (scrollable) ─────────── */}
-      <div style={{ flex:1, minHeight:0, overflowY:'auto', paddingRight:4 }}>
-      <div style={{ display:'flex', alignItems:'flex-start', gap:'1rem' }}>
-        <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, position:'sticky', top:0, alignSelf:'flex-start' }}>
+      {/* ─── Section 2 — fixed tab rail + scrollable content ─────────── */}
+      {/* Rail sits OUTSIDE the scroll pane so it stays put with Section 1; only the
+          right content column scrolls. */}
+      <div style={{ flex:1, minHeight:0, display:'flex', gap:'1rem' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, overflowY:'auto' }}>
           {[{id:'sales',label:'📊 Sales'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
             <button key={t.id} onClick={() => {
                 setStoreTab(t.id);
@@ -8397,7 +8390,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
               style={{ display:'flex', alignItems:'center', textAlign:'left', padding:'0.6rem 0.75rem', border:`1px solid ${storeTab===t.id?O:th.cardBorder}`, borderRadius:'0.6rem', background:storeTab===t.id?O:th.card, color:storeTab===t.id?'#fff':th.muted, fontWeight:600, fontSize:'0.78rem', lineHeight:1.2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', cursor:'pointer', transition:'background .15s, color .15s, border-color .15s', boxSizing:'border-box', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
           ))}
         </div>
-        <div style={{ flex:1, minWidth:0 }}>
+        <div ref={contentRef} style={{ flex:1, minWidth:0, overflowY:'auto', paddingRight:4 }}>
 
       {/* ════ FORECAST TAB ════ */}
       {storeTab === 'forecast' && <>
@@ -9521,7 +9514,6 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       </>}
 
         </div>
-      </div>
       </div>{/* ── /Section 2 ── */}
 
     </div>
@@ -10695,6 +10687,12 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
     }
   }, [drillInStore]);
 
+  // Reset window scroll when drilling INTO a district/store (the grids are long, so a
+  // store click would otherwise land mid/bottom of the new view). Deliberately not on
+  // the way back to network — keep the user's place in the grid, and never yank the
+  // unattended kiosk TV (which lives on the network view) to the top.
+  useEffect(() => { if (pulseView !== "network") window.scrollTo(0, 0); }, [pulseView]);
+
   // Get Sun–Sat week dates up to and including today (not busDt, so clicking
   // a past day doesn't shrink the week). dateStr picks which week.
   const localDateStr = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
@@ -11211,8 +11209,11 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
         })()}
       </div>}
 
-      {/* ── Non-Open Stores Banner ── */}
+      {/* ── Non-Open Stores Banner — network view, plus a DM's own district view (their
+             landing page; without it a closed store's depressed totals lack context) ── */}
       {(() => {
+        const onDMDistrict = isDMUser && pulseView?.level === "district" && pulseView.num === dmDistrict;
+        if (pulseView !== "network" && !onDMDistrict) return null;
         const nonOpen = stores.filter(s => s.status !== 'Open' && (!isDMUser || Number(s.district) === dmDistrict));
         if (!nonOpen.length) return null;
         return (
@@ -11236,7 +11237,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
 
       {/* ── Store Detail View ── */}
       {pulseView?.level === "store" && loaded.length > 0 && (
-        <StoreDetail pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} />
+        <StoreDetail key={pulseView.pc} pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} />
       )}
 
 
@@ -17030,16 +17031,7 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
   // Measure the real space below the frame instead of a hardcoded viewport offset (the admin
   // sub-tab bar above this component makes a fixed calc() mis-estimate on some screen sizes).
   const frameRef = useRef(null);
-  const [frameH, setFrameH] = useState(null);
-  useEffect(() => {
-    const measure = () => {
-      const el = frameRef.current; if (!el) return;
-      setFrameH(Math.max(360, Math.round(window.innerHeight - el.getBoundingClientRect().top - 20)));
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, []);
+  const frameH = useFrameHeight(frameRef);
 
   const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
   const filtered = (templates || []).filter((t) => {
@@ -20456,7 +20448,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.04";
+const APP_VERSION = "v18.10";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -27221,6 +27213,9 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedStore, setSelectedStore] = useState(null);
+  // Drilling in from a long store grid — land the drill-down at the top, not wherever
+  // the grid was scrolled (same fix as Pulse). Back keeps the user's place.
+  useEffect(() => { if (selectedStore) window.scrollTo(0, 0); }, [selectedStore]);
   const [timeFilter, setTimeFilter] = useState('today');
   const [districtFilter, setDistrictFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
@@ -31348,6 +31343,8 @@ function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedStore, setSelectedStore] = useState(null);
+  // Same drill-in scroll reset as Pulse/Labor — open the store view at the top.
+  useEffect(() => { if (selectedStore) window.scrollTo(0, 0); }, [selectedStore]);
 
   const isDM = user?.userType === 'dm';
   const isManager = user?.userType === 'manager';
@@ -37336,6 +37333,9 @@ function PCGPortal() {
     setUser(null);
   };
   const [tab, setTab]           = useState("dashboard");
+  // Tab content remounts on switch (Guard key={tab}), so the old scroll offset is never
+  // meaningful — open every tab at the top instead of wherever the last one was scrolled.
+  useEffect(() => { window.scrollTo(0, 0); }, [tab]);
   const [pendingOrionQuestion, setPendingOrionQuestion] = useState(null); // KPI click → ask Orion
   const [orionIntent, setOrionIntent] = useState(false); // FAB click → open Orion analyst channel (no auto-send)
   useEffect(() => { if (tab !== 'chat' && orionIntent) setOrionIntent(false); }, [tab, orionIntent]);
@@ -40181,7 +40181,7 @@ function PCGPortal() {
           document.body
         )}
 
-        <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : (tab === "locations" || tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : "3vw 5vw" }}>
+        <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : (tab === "locations" || tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "1.25rem 5vw 1rem" : "3vw 5vw" }}>
           {/* App-wide error boundary: any tab that throws during render shows a fallback
               instead of white-screening the whole app. key={tab} remounts it on tab change
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
