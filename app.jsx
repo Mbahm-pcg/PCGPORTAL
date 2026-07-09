@@ -48,7 +48,7 @@ function useIsMobile() {
 // Pulse store detail, task manager, locations): the space from the frame's DOCUMENT top
 // (rect.top + scrollY — scroll-invariant, so window scrolling can't feed back into a
 // taller frame) down to the bottom of the viewport, minus a small gutter.
-function useFrameHeight(frameRef, min = 360, gutter = 20) {
+function useFrameHeight(frameRef, min = 360, gutter = 20, dep) {
   const [frameH, setFrameH] = useState(null);
   useEffect(() => {
     const measure = () => {
@@ -59,7 +59,9 @@ function useFrameHeight(frameRef, min = 360, gutter = 20) {
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, []);
+    // `dep` lets callers whose frame mounts later (e.g. a view toggle) re-measure
+    // when that view becomes active — the ref is null until then.
+  }, [dep]);
   return frameH;
 }
 
@@ -13309,6 +13311,14 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
 function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
   const dailyReports = _dr || [];
   const [view, setView] = useState("table"); // "table" | "board" | "detail"
+  // Fixed-frame table: toolbar + phase chips stay put ("Section 1"), the table
+  // scrolls inside a viewport-fitted frame ("Section 2") — same pattern as
+  // AdminUsers / Pulse store detail. Re-measures when the view toggles back.
+  const tableFrameRef = useRef(null);
+  const isMobile = useIsMobile(); // phones get stacked cards instead of the wide table
+  // dep includes isMobile: rotating a tablet from cards to table mounts the frame
+  // without a view change, and it must measure then, not stay unframed.
+  const tableFrameH = useFrameHeight(tableFrameRef, 320, 16, view + (isMobile ? "|m" : "|d"));
   const [selectedProject, setSelectedProject] = useState(null);
   const [detailTab, setDetailTab] = useState("checklist"); // "checklist" | "reports"
   const [addMode, setAddMode] = useState(false);
@@ -13423,41 +13433,72 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
     };
   }), [projects, stores]);
 
-  // Filter & sort
+  // ── Row model: ONE derivation pass per data change (phase, done, overdue,
+  // completion), shared by the filter, sort, both table renderers, and the PDF
+  // exports. A single definition of "done" (current phase === complete — covers the
+  // completed flag, a phase override, AND a 100% checklist) drives both the
+  // completed-last ranking and the OVERDUE badge so they can never contradict.
+  // Also collapses hundreds of per-render getCurrentPhase calls to one per project.
+  const rowModel = React.useMemo(() => {
+    const m = new Map();
+    const now = new Date();
+    enrichedProjects.forEach(p => {
+      const phase = getCurrentPhase(p);
+      const done = phase.id === "complete";
+      m.set(p.id, {
+        phase,
+        done,
+        overall: getOverallCompletion(p),
+        isOverdue: !!(p.dueDate && !done && new Date(p.dueDate) < now),
+      });
+    });
+    return m;
+  }, [enrichedProjects]);
+
+  // Filter & sort (memoized — these used to recompute on every keystroke/dragover)
   const isDM = user?.userType === "dm";
-  const filtered = enrichedProjects.filter(p => {
+  const filtered = React.useMemo(() => enrichedProjects.filter(p => {
     if (isDM && String(p.district) !== String(user.district)) return false;
     if (filterType !== "All" && p.type !== filterType) return false;
-    if (filterPhase !== "All" && getCurrentPhase(p).id !== filterPhase) return false;
+    if (filterPhase !== "All" && rowModel.get(p.id)?.phase.id !== filterPhase) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
       return (p.pc || "").toLowerCase().includes(q) || (p.nickname || "").toLowerCase().includes(q) || (p.address || "").toLowerCase().includes(q);
     }
     return true;
-  });
+  }), [enrichedProjects, rowModel, isDM, user, filterType, filterPhase, search]);
 
-  // Sort for table view (filtered already uses enrichedProjects)
-  const sorted = [...filtered].sort((a, b) => {
+  const sorted = React.useMemo(() => [...filtered].sort((a, b) => {
+    // Completed projects always sink to the bottom regardless of sort column; the
+    // displayed # is positional, so when a project completes, the next active one
+    // takes over its rank automatically.
+    const ra = rowModel.get(a.id), rb = rowModel.get(b.id);
+    const aDone = ra?.done ? 1 : 0;
+    const bDone = rb?.done ? 1 : 0;
+    if (aDone !== bDone) return aDone - bDone;
     let av, bv;
     if (sortCol === "priority") { av = a.priority || 99; bv = b.priority || 99; }
     else if (sortCol === "nickname") { av = (a.nickname || a.pc || "").toLowerCase(); bv = (b.nickname || b.pc || "").toLowerCase(); }
     else if (sortCol === "type") { av = a.type; bv = b.type; }
-    else if (sortCol === "phase") { av = getCurrentPhase(a).label; bv = getCurrentPhase(b).label; }
-    else if (sortCol === "progress") { av = getOverallCompletion(a); bv = getOverallCompletion(b); }
+    else if (sortCol === "phase") { av = ra?.phase.label || ""; bv = rb?.phase.label || ""; }
+    else if (sortCol === "progress") { av = ra?.overall || 0; bv = rb?.overall || 0; }
     else if (sortCol === "dueDate") { av = a.dueDate || "9999"; bv = b.dueDate || "9999"; }
     else { av = a[sortCol] || ""; bv = b[sortCol] || ""; }
     const cmp = av < bv ? -1 : av > bv ? 1 : 0;
     return sortDir === "asc" ? cmp : -cmp;
-  });
+  }), [filtered, rowModel, sortCol, sortDir]);
 
   const toggleSort = (col) => { if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortCol(col); setSortDir("asc"); } };
   const SortIcon = ({ col }) => sortCol === col ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
   // Group by current phase for board view
-  const phaseGroups = {};
   const ALL_PHASES = [...PROJECT_PHASES, { id: "complete", label: "Complete", icon: "✅", color: "#22c55e", items: [] }];
-  ALL_PHASES.forEach(ph => { phaseGroups[ph.id] = []; });
-  filtered.forEach(p => { const ph = getCurrentPhase(p); if (phaseGroups[ph.id]) phaseGroups[ph.id].push(p); });
+  const phaseGroups = React.useMemo(() => {
+    const g = {};
+    [...PROJECT_PHASES, { id: "complete" }].forEach(ph => { g[ph.id] = []; });
+    filtered.forEach(p => { const ph = rowModel.get(p.id)?.phase; if (ph && g[ph.id]) g[ph.id].push(p); });
+    return g;
+  }, [filtered, rowModel]);
 
   const TYPE_COLORS = { Remodel: "#3b82f6", Relocation: "#f59e0b", "New Location": "#22c55e" };
   const PHASE_COLORS = { zoning: "#6366f1", land_development: "#14b8a6", permitting: "#f97316", pre_construction: "#3b82f6", equipment_ordering: "#f59e0b", construction: "#8b5cf6", completion: "#10b981", complete: "#22c55e" };
@@ -14513,24 +14554,25 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   return (
     <div className="fade-in">
       {/* ─── Toolbar ────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1.25rem", alignItems: "center", flexWrap: "wrap" }}>
-        {/* Search */}
-        <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 300 }}>
-          <span style={{ position: "absolute", left: "0.85rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.82rem", color: th.muted, pointerEvents: "none" }}>🔍</span>
+      <div style={{ display: "flex", gap: "0.6rem", marginBottom: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+        {/* Search — fixed basis (not greedy) so the whole toolbar, At-A-Glance
+            included, fits on ONE line on desktop */}
+        <div style={{ position: "relative", flex: "0 1 185px" }}>
+          <span style={{ position: "absolute", left: "0.75rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.82rem", color: th.muted, pointerEvents: "none" }}>🔍</span>
           <input
-            style={{ ...inp(th), padding: "0.65rem 0.85rem 0.65rem 2.4rem", fontSize: "0.82rem", borderRadius: "0.625rem", width: "100%" }}
-            placeholder="Search PC#, name, address..."
+            style={{ ...inp(th), padding: "0.6rem 0.6rem 0.6rem 2.2rem", fontSize: "0.8rem", borderRadius: "0.625rem", width: "100%" }}
+            placeholder="Search projects…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
         </div>
         {/* Type filter */}
-        <select style={{ ...inp(th, { width: "auto", maxWidth: 160 }), padding: "0.65rem 0.85rem", fontSize: "0.8rem", borderRadius: "0.625rem" }} value={filterType} onChange={e => setFilterType(e.target.value)}>
+        <select style={{ ...inp(th, { width: "auto", maxWidth: 130 }), padding: "0.6rem 0.6rem", fontSize: "0.78rem", borderRadius: "0.625rem" }} value={filterType} onChange={e => setFilterType(e.target.value)}>
           <option value="All">All Types</option>
           <option>Remodel</option><option>Relocation</option><option>New Location</option>
         </select>
         {/* Phase filter */}
-        <select style={{ ...inp(th, { width: "auto", maxWidth: 180 }), padding: "0.65rem 0.85rem", fontSize: "0.8rem", borderRadius: "0.625rem" }} value={filterPhase} onChange={e => setFilterPhase(e.target.value)}>
+        <select style={{ ...inp(th, { width: "auto", maxWidth: 150 }), padding: "0.6rem 0.6rem", fontSize: "0.78rem", borderRadius: "0.625rem" }} value={filterPhase} onChange={e => setFilterPhase(e.target.value)}>
           <option value="All">All Phases</option>
           {ALL_PHASES.map(ph => <option key={ph.id} value={ph.id}>{ph.label}</option>)}
         </select>
@@ -14547,7 +14589,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             const active = view === v.id;
             return (
               <button key={v.id} onClick={() => setView(v.id)} style={{
-                padding: "0.5rem 0.9rem",
+                padding: "0.5rem 0.7rem",
                 fontSize: "0.7rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6,
                 fontFamily: "'Source Sans 3'",
                 background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : "transparent",
@@ -14580,8 +14622,9 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
           </button>
         )}
         {editable && (
-          <button onClick={() => { setAddMode(a => !a); setEditId(null); setForm({ ...EMPTY_PROJECT }); setManualAddr(false); }} style={{
-            padding: "0.65rem 1.1rem",
+          <button onClick={() => { setAddMode(a => !a); setEditId(null); setForm({ ...EMPTY_PROJECT }); setManualAddr(false); }}
+            title="Add Project" aria-label="Add Project" style={{
+            padding: "0.6rem 0.9rem",
             fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7,
             background: (addMode && !editId) ? th.card3 : `linear-gradient(135deg, ${O} 0%, #ff8040 100%)`,
             color: (addMode && !editId) ? th.muted : "#fff",
@@ -14594,7 +14637,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
           }}
           onMouseEnter={e => { if (!(addMode && !editId)) { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = `0 10px 24px ${O}77`; } }}
           onMouseLeave={e => { if (!(addMode && !editId)) { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = `0 6px 18px ${O}55`; } }}>
-            {addMode && !editId ? "✕ Cancel" : "+ Add Project"}
+            {addMode && !editId ? "✕ Cancel" : "+ Add"}
           </button>
         )}
         {editable && (
@@ -14606,7 +14649,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
               const phase = getCurrentPhase(p);
               const pct = getOverallCompletion(p);
               return `<tr>
-                <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:600;color:#6b7280;">${p.priority || i + 1}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:600;color:#6b7280;">${i + 1}</td>
                 <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;"><strong>${p.nickname || p.pc}</strong><br/><span style="font-size:11px;color:#9ca3af;">${p.address || ""}${p.city ? ", " + p.city : ""}</span></td>
                 <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;"><span style="background:${(TYPE_COLORS[p.type]||"#666")}15;color:${TYPE_COLORS[p.type]||"#666"};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">${p.type}</span></td>
                 <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;"><span style="color:${PHASE_COLORS[phase.id]||"#666"};font-weight:600;font-size:12px;">${phase.icon} ${phase.label}</span></td>
@@ -14648,7 +14691,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             printWin.focus();
             setTimeout(() => printWin.print(), 400);
           }} style={{
-            padding: "0.65rem 1.1rem",
+            padding: "0.6rem 0.8rem",
             fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7,
             color: th.muted, background: th.card3,
             border: `1px solid ${th.cardBorder}`, borderRadius: "0.625rem",
@@ -14663,9 +14706,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             const dateStr = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
             const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
             const projectCards = sorted.map(p => {
-              const phase = getCurrentPhase(p);
-              const pct = getOverallCompletion(p);
-              const isOverdue = p.dueDate && !p.completed && new Date(p.dueDate) < new Date();
+              const { phase = {}, overall: pct = 0, isOverdue = false } = rowModel.get(p.id) || {};
               const missingItems = [];
               PROJECT_PHASES.forEach(ph => {
                 if (isPhaseSkipped(p, ph)) return;
@@ -14715,9 +14756,9 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             const phaseCount = {};
             PROJECT_PHASES.forEach(ph => { phaseCount[ph.label] = 0; });
             phaseCount["Complete"] = 0;
-            sorted.forEach(p => { const ph = getCurrentPhase(p); phaseCount[ph.label] = (phaseCount[ph.label] || 0) + 1; });
+            sorted.forEach(p => { const ph = rowModel.get(p.id)?.phase; if (ph) phaseCount[ph.label] = (phaseCount[ph.label] || 0) + 1; });
             const summaryPills = Object.entries(phaseCount).filter(([,v]) => v > 0).map(([k,v]) => `<span style="background:#f0f0f0;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;">${k}: ${v}</span>`).join("");
-            const overdueCount = sorted.filter(p => p.dueDate && !p.completed && new Date(p.dueDate) < new Date()).length;
+            const overdueCount = sorted.filter(p => rowModel.get(p.id)?.isOverdue).length;
             const html = `<!DOCTYPE html><html><head><style>@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@600;700;800;900&family=Source+Sans+3:wght@400;600;700&display=swap');body{font-family:'Source Sans 3',sans-serif;margin:0;padding:36px;color:#1f2937;}@media print{body{padding:20px;}}</style></head><body>
               <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #FF671F;">
                 <div>
@@ -14739,9 +14780,10 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             printWin.document.close();
             printWin.focus();
             setTimeout(() => printWin.print(), 400);
-          }} style={{
-            padding: "0.65rem 1.1rem",
-            fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7,
+          }} title="At-A-Glance" aria-label="At-A-Glance" style={{
+            padding: "0.6rem 0.8rem",
+            minWidth: 44, minHeight: 44, // touch-target floor for the icon-only button
+            fontSize: "0.85rem",
             color: "#fff", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
             border: "none", borderRadius: "0.625rem",
             cursor: "pointer", fontFamily: "'Source Sans 3'", transition: "all .2s",
@@ -14749,13 +14791,13 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
           }}
           onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(99,102,241,0.5)"; }}
           onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(99,102,241,0.35)"; }}>
-            🔎 At-A-Glance
+            🔎
           </button>
         )}
       </div>
 
       {/* ─── KPI summary — click-to-filter phase cards ───────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(9, 1fr)", gap: "0.5rem", marginBottom: "1.5rem" }} className="projects-kpi-grid">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(9, 1fr)", gap: "0.5rem", marginBottom: "1rem" }} className="projects-kpi-grid">
         {[
           { label: "Total", value: filtered.length, color: O, phase: "All" },
           { label: "Zoning", value: (phaseGroups.zoning || []).length, color: "#6366f1", phase: "zoning" },
@@ -14885,23 +14927,77 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
         </div>
       )}
 
-      {/* ── TABLE VIEW ── */}
-      {view === "table" && (
-        <div style={{ ...card(th), overflow: "hidden" }}>
-          <div className="projects-table-wrap" style={{ overflowX: "auto" }}>
+      {/* ── TABLE VIEW · mobile — stacked cards mirroring the Locations mobile
+           pattern (PC# top-left, phase pill top-right, name, type, address,
+           district/due meta, progress). Whole card = touch target → detail. ── */}
+      {view === "table" && isMobile && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          {sorted.length === 0 && (
+            <div style={{ ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted }}>No projects found.</div>
+          )}
+          {sorted.map((p, i) => {
+            const { overall = 0, phase = {}, isOverdue = false } = rowModel.get(p.id) || {};
+            const phaseColor = PHASE_COLORS[phase.id] || "#666";
+            return (
+              <div key={p.id} onClick={() => { setSelectedProject(p); setView("detail"); }}
+                style={{ ...card(th), padding: "1rem 1.1rem", cursor: "pointer" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>
+                  <span style={{ display: "flex", alignItems: "baseline", gap: "0.45rem" }}>
+                    <span style={{ color: O, fontWeight: 900, fontFamily: "'Raleway'", fontSize: "0.95rem" }}>#{i + 1}</span>
+                    <span style={{ color: th.muted, fontWeight: 700, fontSize: "0.68rem", fontFamily: "monospace" }}>{p.pc}</span>
+                  </span>
+                  <span style={{ padding: "0.15rem 0.55rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 700, background: phaseColor + "22", color: phaseColor, whiteSpace: "nowrap" }}>{phase.icon} {phase.label}</span>
+                </div>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text }}>{p.nickname || p.pc}</div>
+                <div style={{ marginTop: "0.35rem" }}>
+                  <span style={{ padding: "0.125rem 0.5rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 600, background: (TYPE_COLORS[p.type] || "#666") + "22", color: TYPE_COLORS[p.type] || "#666" }}>{p.type}</span>
+                </div>
+                {(p.address || p.city) && (
+                  <div style={{ fontSize: "0.78rem", color: th.muted, marginTop: "0.45rem" }}>📍 {p.address ? p.address.split("\n")[0] : ""}{p.city ? `, ${p.city}` : ""}</div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginTop: "0.65rem", paddingTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}` }}>
+                  <div>
+                    <div style={{ fontSize: "0.55rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>District</div>
+                    <div style={{ fontSize: "0.78rem", color: th.text, fontWeight: 600, marginTop: 2 }}>{p.district ? `D${p.district}` : "—"}{p.dmName ? ` · ${p.dmName}` : ""}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "0.55rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Due Date</div>
+                    <div style={{ fontSize: "0.78rem", fontWeight: 700, marginTop: 2, color: isOverdue ? "#ff4444" : th.text }}>
+                      {isOverdue ? "OVERDUE" : p.dueDate ? new Date(p.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.6rem" }}>
+                  <div style={{ flex: 1, height: 6, borderRadius: 3, background: th.card3 }}>
+                    <div style={{ height: "100%", borderRadius: 3, width: overall + "%", background: overall === 100 ? "#22c55e" : O }} />
+                  </div>
+                  <span style={{ fontSize: "0.7rem", fontWeight: 700, color: overall === 100 ? "#22c55e" : th.text, minWidth: 32, textAlign: "right" }}>{overall}%</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── TABLE VIEW · desktop ── */}
+      {view === "table" && !isMobile && (
+        <div ref={tableFrameRef} style={{ ...card(th), overflow: "hidden", display: "flex", flexDirection: "column", height: tableFrameH || undefined }}>
+          <div className="projects-table-wrap" style={{ overflowX: "auto", overflowY: "auto", flex: 1, minHeight: 0 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Source Sans 3'", fontSize: "0.8125rem" }}>
               <thead>
                 <tr style={{ background: th.card2, borderBottom: `1px solid ${th.cardBorder}` }}>
                   {[
                     { col: "priority", label: "#", w: 40 },
-                    { col: "nickname", label: "Project", w: null },
+                    // Fixed width: as the lone auto column it soaked up ALL the
+                    // table's spare width, opening a huge gap before Type.
+                    { col: "nickname", label: "Project", w: 300 },
                     { col: "type", label: "Type", w: 100 },
                     { col: "pc", label: "PC#", w: 70 },
                     { col: "phase", label: "Current Phase", w: 160 },
                     { col: "progress", label: "Progress", w: 150 },
                     { col: "dueDate", label: "Due Date", w: 100 },
                   ].map(h => (
-                    <th key={h.col} onClick={() => toggleSort(h.col)} style={{ padding: "0.625rem 0.75rem", textAlign: "left", fontWeight: 600, fontSize: "0.6875rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", whiteSpace: "nowrap", width: h.w || "auto", userSelect: "none" }}>
+                    <th key={h.col} onClick={() => toggleSort(h.col)} style={{ padding: "0.625rem 0.75rem", textAlign: "left", fontWeight: 600, fontSize: "0.6875rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", whiteSpace: "nowrap", width: h.w || "auto", userSelect: "none", position: "sticky", top: 0, background: th.card2, zIndex: 1 }}>
                       {h.label}<SortIcon col={h.col} />
                     </th>
                   ))}
@@ -14912,17 +15008,15 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                   <tr><td colSpan={7} style={{ padding: "2rem", textAlign: "center", color: th.muted }}>No projects found.</td></tr>
                 )}
                 {sorted.map((p, i) => {
-                  const overall = getOverallCompletion(p);
-                  const phase = getCurrentPhase(p);
+                  const { overall = 0, phase = {}, isOverdue = false } = rowModel.get(p.id) || {};
                   const phaseColor = PHASE_COLORS[phase.id] || "#666";
-                  const isOverdue = p.dueDate && !p.completed && new Date(p.dueDate) < new Date();
                   const isDragTarget = !reorderLocked && dragOverIdx === i && dragIdx !== i;
                   return (
                     <tr key={p.id} onClick={() => { if (!reorderLocked) return; setSelectedProject(p); setView("detail"); }}
                       draggable={!reorderLocked}
                       onDragStart={e => { if (reorderLocked) return; setDragIdx(i); e.dataTransfer.effectAllowed = "move"; e.currentTarget.style.opacity = "0.4"; }}
                       onDragEnd={e => { e.currentTarget.style.opacity = "1"; setDragIdx(null); setDragOverIdx(null); }}
-                      onDragOver={e => { if (reorderLocked) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverIdx(i); }}
+                      onDragOver={e => { if (reorderLocked) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverIdx !== i) setDragOverIdx(i); }}
                       onDragLeave={() => { if (dragOverIdx === i) setDragOverIdx(null); }}
                       onDrop={e => {
                         e.preventDefault();
@@ -14930,10 +15024,14 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                         const reordered = [...sorted];
                         const [moved] = reordered.splice(dragIdx, 1);
                         reordered.splice(i, 0, moved);
-                        // Update priority for all reordered projects
+                        // Renumber ACTIVE projects only — completed ones are pinned to the
+                        // bottom by the sort, so rewriting their priorities (and stamping
+                        // lastEditedBy on them) would be silent churn. Skip projects whose
+                        // priority didn't actually change for the same reason.
                         const updates = new Map();
-                        reordered.forEach((proj, idx) => { updates.set(proj.id, idx + 1); });
-                        setProjects(ps => ps.map(proj => updates.has(proj.id) ? { ...proj, priority: updates.get(proj.id), updatedAt: new Date().toISOString(), lastEditedBy: user?.name || "Unknown", lastEditedAt: new Date().toISOString() } : proj));
+                        let rank = 1;
+                        reordered.forEach(proj => { if (!rowModel.get(proj.id)?.done) updates.set(proj.id, rank++); });
+                        setProjects(ps => ps.map(proj => updates.has(proj.id) && proj.priority !== updates.get(proj.id) ? { ...proj, priority: updates.get(proj.id), updatedAt: new Date().toISOString(), lastEditedBy: user?.name || "Unknown", lastEditedAt: new Date().toISOString() } : proj));
                         setDragIdx(null);
                         setDragOverIdx(null);
                       }}
@@ -14942,7 +15040,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                       <td style={{ padding: "0.625rem 0.75rem", color: th.muted, fontWeight: 600 }}>
                         {!reorderLocked && <span style={{ cursor: "grab", marginRight: "0.3rem", opacity: 0.5 }}>⠿</span>}
-                        {p.priority || "—"}
+                        {i + 1}
                       </td>
                       <td style={{ padding: "0.625rem 0.75rem" }}>
                         <div style={{ fontWeight: 600, color: th.text }}>{p.nickname || p.pc}</div>
@@ -20548,7 +20646,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.24";
+const APP_VERSION = "v18.32";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

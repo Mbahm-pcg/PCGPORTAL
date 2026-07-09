@@ -561,7 +561,7 @@
     }, []);
     return isMobile;
   }
-  function useFrameHeight(frameRef, min = 360, gutter = 20) {
+  function useFrameHeight(frameRef, min = 360, gutter = 20, dep) {
     const [frameH, setFrameH] = useState(null);
     useEffect(() => {
       const measure = () => {
@@ -573,7 +573,7 @@
       measure();
       window.addEventListener("resize", measure);
       return () => window.removeEventListener("resize", measure);
-    }, []);
+    }, [dep]);
     return frameH;
   }
   function StackCardsSection({ th, disabled, children }) {
@@ -11641,6 +11641,9 @@ ${t2.slice(0, 300)}`);
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
     const [view, setView] = useState("table");
+    const tableFrameRef = useRef(null);
+    const isMobile = useIsMobile();
+    const tableFrameH = useFrameHeight(tableFrameRef, 320, 16, view + (isMobile ? "|m" : "|d"));
     const [selectedProject, setSelectedProject] = useState(null);
     const [detailTab, setDetailTab] = useState("checklist");
     const [addMode, setAddMode] = useState(false);
@@ -11759,18 +11762,37 @@ ${t2.slice(0, 300)}`);
         storeName: p.storeName || store.name || ""
       };
     }), [projects, stores]);
+    const rowModel = React.useMemo(() => {
+      const m = /* @__PURE__ */ new Map();
+      const now = /* @__PURE__ */ new Date();
+      enrichedProjects.forEach((p) => {
+        const phase = getCurrentPhase(p);
+        const done = phase.id === "complete";
+        m.set(p.id, {
+          phase,
+          done,
+          overall: getOverallCompletion(p),
+          isOverdue: !!(p.dueDate && !done && new Date(p.dueDate) < now)
+        });
+      });
+      return m;
+    }, [enrichedProjects]);
     const isDM = user?.userType === "dm";
-    const filtered = enrichedProjects.filter((p) => {
+    const filtered = React.useMemo(() => enrichedProjects.filter((p) => {
       if (isDM && String(p.district) !== String(user.district)) return false;
       if (filterType !== "All" && p.type !== filterType) return false;
-      if (filterPhase !== "All" && getCurrentPhase(p).id !== filterPhase) return false;
+      if (filterPhase !== "All" && rowModel.get(p.id)?.phase.id !== filterPhase) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
         return (p.pc || "").toLowerCase().includes(q) || (p.nickname || "").toLowerCase().includes(q) || (p.address || "").toLowerCase().includes(q);
       }
       return true;
-    });
-    const sorted = [...filtered].sort((a, b) => {
+    }), [enrichedProjects, rowModel, isDM, user, filterType, filterPhase, search]);
+    const sorted = React.useMemo(() => [...filtered].sort((a, b) => {
+      const ra = rowModel.get(a.id), rb = rowModel.get(b.id);
+      const aDone = ra?.done ? 1 : 0;
+      const bDone = rb?.done ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
       let av, bv;
       if (sortCol === "priority") {
         av = a.priority || 99;
@@ -11782,11 +11804,11 @@ ${t2.slice(0, 300)}`);
         av = a.type;
         bv = b.type;
       } else if (sortCol === "phase") {
-        av = getCurrentPhase(a).label;
-        bv = getCurrentPhase(b).label;
+        av = ra?.phase.label || "";
+        bv = rb?.phase.label || "";
       } else if (sortCol === "progress") {
-        av = getOverallCompletion(a);
-        bv = getOverallCompletion(b);
+        av = ra?.overall || 0;
+        bv = rb?.overall || 0;
       } else if (sortCol === "dueDate") {
         av = a.dueDate || "9999";
         bv = b.dueDate || "9999";
@@ -11796,7 +11818,7 @@ ${t2.slice(0, 300)}`);
       }
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return sortDir === "asc" ? cmp : -cmp;
-    });
+    }), [filtered, rowModel, sortCol, sortDir]);
     const toggleSort = (col) => {
       if (sortCol === col) setSortDir((d) => d === "asc" ? "desc" : "asc");
       else {
@@ -11805,15 +11827,18 @@ ${t2.slice(0, 300)}`);
       }
     };
     const SortIcon = ({ col }) => sortCol === col ? sortDir === "asc" ? " \u25B2" : " \u25BC" : "";
-    const phaseGroups = {};
     const ALL_PHASES = [...PROJECT_PHASES, { id: "complete", label: "Complete", icon: "\u2705", color: "#22c55e", items: [] }];
-    ALL_PHASES.forEach((ph) => {
-      phaseGroups[ph.id] = [];
-    });
-    filtered.forEach((p) => {
-      const ph = getCurrentPhase(p);
-      if (phaseGroups[ph.id]) phaseGroups[ph.id].push(p);
-    });
+    const phaseGroups = React.useMemo(() => {
+      const g = {};
+      [...PROJECT_PHASES, { id: "complete" }].forEach((ph) => {
+        g[ph.id] = [];
+      });
+      filtered.forEach((p) => {
+        const ph = rowModel.get(p.id)?.phase;
+        if (ph && g[ph.id]) g[ph.id].push(p);
+      });
+      return g;
+    }, [filtered, rowModel]);
     const TYPE_COLORS = { Remodel: "#3b82f6", Relocation: "#f59e0b", "New Location": "#22c55e" };
     const PHASE_COLORS = { zoning: "#6366f1", land_development: "#14b8a6", permitting: "#f97316", pre_construction: "#3b82f6", equipment_ordering: "#f59e0b", construction: "#8b5cf6", completion: "#10b981", complete: "#22c55e" };
     if (view === "detail" && selectedProject) {
@@ -12450,15 +12475,15 @@ ${t2.slice(0, 300)}`);
         document.body
       ));
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "1.25rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: "1 1 240px", maxWidth: 300 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.85rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.82rem", color: th.muted, pointerEvents: "none" } }, "\u{1F50D}"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "0.75rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: "0 1 185px" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.75rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.82rem", color: th.muted, pointerEvents: "none" } }, "\u{1F50D}"), /* @__PURE__ */ React.createElement(
       "input",
       {
-        style: { ...inp(th), padding: "0.65rem 0.85rem 0.65rem 2.4rem", fontSize: "0.82rem", borderRadius: "0.625rem", width: "100%" },
-        placeholder: "Search PC#, name, address...",
+        style: { ...inp(th), padding: "0.6rem 0.6rem 0.6rem 2.2rem", fontSize: "0.8rem", borderRadius: "0.625rem", width: "100%" },
+        placeholder: "Search projects\u2026",
         value: search,
         onChange: (e) => setSearch(e.target.value)
       }
-    )), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th, { width: "auto", maxWidth: 160 }), padding: "0.65rem 0.85rem", fontSize: "0.8rem", borderRadius: "0.625rem" }, value: filterType, onChange: (e) => setFilterType(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "All" }, "All Types"), /* @__PURE__ */ React.createElement("option", null, "Remodel"), /* @__PURE__ */ React.createElement("option", null, "Relocation"), /* @__PURE__ */ React.createElement("option", null, "New Location")), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th, { width: "auto", maxWidth: 180 }), padding: "0.65rem 0.85rem", fontSize: "0.8rem", borderRadius: "0.625rem" }, value: filterPhase, onChange: (e) => setFilterPhase(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "All" }, "All Phases"), ALL_PHASES.map((ph) => /* @__PURE__ */ React.createElement("option", { key: ph.id, value: ph.id }, ph.label))), /* @__PURE__ */ React.createElement("div", { style: {
+    )), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th, { width: "auto", maxWidth: 130 }), padding: "0.6rem 0.6rem", fontSize: "0.78rem", borderRadius: "0.625rem" }, value: filterType, onChange: (e) => setFilterType(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "All" }, "All Types"), /* @__PURE__ */ React.createElement("option", null, "Remodel"), /* @__PURE__ */ React.createElement("option", null, "Relocation"), /* @__PURE__ */ React.createElement("option", null, "New Location")), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th, { width: "auto", maxWidth: 150 }), padding: "0.6rem 0.6rem", fontSize: "0.78rem", borderRadius: "0.625rem" }, value: filterPhase, onChange: (e) => setFilterPhase(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "All" }, "All Phases"), ALL_PHASES.map((ph) => /* @__PURE__ */ React.createElement("option", { key: ph.id, value: ph.id }, ph.label))), /* @__PURE__ */ React.createElement("div", { style: {
       display: "inline-flex",
       gap: "0.2rem",
       background: th.card2,
@@ -12471,7 +12496,7 @@ ${t2.slice(0, 300)}`);
     ].map((v) => {
       const active = view === v.id;
       return /* @__PURE__ */ React.createElement("button", { key: v.id, onClick: () => setView(v.id), style: {
-        padding: "0.5rem 0.9rem",
+        padding: "0.5rem 0.7rem",
         fontSize: "0.7rem",
         fontWeight: 800,
         textTransform: "uppercase",
@@ -12528,8 +12553,10 @@ ${t2.slice(0, 300)}`);
           setForm({ ...EMPTY_PROJECT });
           setManualAddr(false);
         },
+        title: "Add Project",
+        "aria-label": "Add Project",
         style: {
-          padding: "0.65rem 1.1rem",
+          padding: "0.6rem 0.9rem",
           fontSize: "0.72rem",
           fontWeight: 800,
           textTransform: "uppercase",
@@ -12556,7 +12583,7 @@ ${t2.slice(0, 300)}`);
           }
         }
       },
-      addMode && !editId ? "\u2715 Cancel" : "+ Add Project"
+      addMode && !editId ? "\u2715 Cancel" : "+ Add"
     ), editable && /* @__PURE__ */ React.createElement("button", { onClick: () => {
       const now = /* @__PURE__ */ new Date();
       const dateStr = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -12565,7 +12592,7 @@ ${t2.slice(0, 300)}`);
         const phase = getCurrentPhase(p);
         const pct = getOverallCompletion(p);
         return `<tr>
-                <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:600;color:#6b7280;">${p.priority || i + 1}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:600;color:#6b7280;">${i + 1}</td>
                 <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;"><strong>${p.nickname || p.pc}</strong><br/><span style="font-size:11px;color:#9ca3af;">${p.address || ""}${p.city ? ", " + p.city : ""}</span></td>
                 <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;"><span style="background:${TYPE_COLORS[p.type] || "#666"}15;color:${TYPE_COLORS[p.type] || "#666"};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">${p.type}</span></td>
                 <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;"><span style="color:${PHASE_COLORS[phase.id] || "#666"};font-weight:600;font-size:12px;">${phase.icon} ${phase.label}</span></td>
@@ -12607,7 +12634,7 @@ ${t2.slice(0, 300)}`);
       printWin.focus();
       setTimeout(() => printWin.print(), 400);
     }, style: {
-      padding: "0.65rem 1.1rem",
+      padding: "0.6rem 0.8rem",
       fontSize: "0.72rem",
       fontWeight: 800,
       textTransform: "uppercase",
@@ -12627,9 +12654,7 @@ ${t2.slice(0, 300)}`);
           const dateStr = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
           const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
           const projectCards = sorted.map((p) => {
-            const phase = getCurrentPhase(p);
-            const pct = getOverallCompletion(p);
-            const isOverdue = p.dueDate && !p.completed && new Date(p.dueDate) < /* @__PURE__ */ new Date();
+            const { phase = {}, overall: pct = 0, isOverdue = false } = rowModel.get(p.id) || {};
             const missingItems = [];
             PROJECT_PHASES.forEach((ph) => {
               if (isPhaseSkipped(p, ph)) return;
@@ -12682,11 +12707,11 @@ ${t2.slice(0, 300)}`);
           });
           phaseCount["Complete"] = 0;
           sorted.forEach((p) => {
-            const ph = getCurrentPhase(p);
-            phaseCount[ph.label] = (phaseCount[ph.label] || 0) + 1;
+            const ph = rowModel.get(p.id)?.phase;
+            if (ph) phaseCount[ph.label] = (phaseCount[ph.label] || 0) + 1;
           });
           const summaryPills = Object.entries(phaseCount).filter(([, v]) => v > 0).map(([k, v]) => `<span style="background:#f0f0f0;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;">${k}: ${v}</span>`).join("");
-          const overdueCount = sorted.filter((p) => p.dueDate && !p.completed && new Date(p.dueDate) < /* @__PURE__ */ new Date()).length;
+          const overdueCount = sorted.filter((p) => rowModel.get(p.id)?.isOverdue).length;
           const html = `<!DOCTYPE html><html><head><style>@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@600;700;800;900&family=Source+Sans+3:wght@400;600;700&display=swap');body{font-family:'Source Sans 3',sans-serif;margin:0;padding:36px;color:#1f2937;}@media print{body{padding:20px;}}</style></head><body>
               <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #FF671F;">
                 <div>
@@ -12709,12 +12734,14 @@ ${t2.slice(0, 300)}`);
           printWin.focus();
           setTimeout(() => printWin.print(), 400);
         },
+        title: "At-A-Glance",
+        "aria-label": "At-A-Glance",
         style: {
-          padding: "0.65rem 1.1rem",
-          fontSize: "0.72rem",
-          fontWeight: 800,
-          textTransform: "uppercase",
-          letterSpacing: 0.7,
+          padding: "0.6rem 0.8rem",
+          minWidth: 44,
+          minHeight: 44,
+          // touch-target floor for the icon-only button
+          fontSize: "0.85rem",
           color: "#fff",
           background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
           border: "none",
@@ -12733,8 +12760,8 @@ ${t2.slice(0, 300)}`);
           e.currentTarget.style.boxShadow = "0 4px 12px rgba(99,102,241,0.35)";
         }
       },
-      "\u{1F50E} At-A-Glance"
-    )), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(9, 1fr)", gap: "0.5rem", marginBottom: "1.5rem" }, className: "projects-kpi-grid" }, [
+      "\u{1F50E}"
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(9, 1fr)", gap: "0.5rem", marginBottom: "1rem" }, className: "projects-kpi-grid" }, [
       { label: "Total", value: filtered.length, color: O, phase: "All" },
       { label: "Zoning", value: (phaseGroups.zoning || []).length, color: "#6366f1", phase: "zoning" },
       { label: "Land Dev", value: (phaseGroups.land_development || []).length, color: "#14b8a6", phase: "land_development" },
@@ -12802,19 +12829,39 @@ ${t2.slice(0, 300)}`);
     ), form.phaseOverride && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: "#ffa94d", marginTop: "0.3rem", fontWeight: 600 } }, "\u26A0 Phase is manually overridden \u2014 checklist progress is ignored for phase display."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th), onClick: save }, editId ? "Save Changes" : "Create Project"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted }), onClick: () => {
       setAddMode(false);
       setEditId(null);
-    } }, "Cancel"))), view === "table" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { className: "projects-table-wrap", style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontFamily: "'Source Sans 3'", fontSize: "0.8125rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2, borderBottom: `1px solid ${th.cardBorder}` } }, [
+    } }, "Cancel"))), view === "table" && isMobile && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem" } }, sorted.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted } }, "No projects found."), sorted.map((p, i) => {
+      const { overall = 0, phase = {}, isOverdue = false } = rowModel.get(p.id) || {};
+      const phaseColor = PHASE_COLORS[phase.id] || "#666";
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: p.id,
+          onClick: () => {
+            setSelectedProject(p);
+            setView("detail");
+          },
+          style: { ...card(th), padding: "1rem 1.1rem", cursor: "pointer" }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "baseline", gap: "0.45rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 900, fontFamily: "'Raleway'", fontSize: "0.95rem" } }, "#", i + 1), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 700, fontSize: "0.68rem", fontFamily: "monospace" } }, p.pc)), /* @__PURE__ */ React.createElement("span", { style: { padding: "0.15rem 0.55rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 700, background: phaseColor + "22", color: phaseColor, whiteSpace: "nowrap" } }, phase.icon, " ", phase.label)),
+        /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, p.nickname || p.pc),
+        /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { padding: "0.125rem 0.5rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 600, background: (TYPE_COLORS[p.type] || "#666") + "22", color: TYPE_COLORS[p.type] || "#666" } }, p.type)),
+        (p.address || p.city) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.45rem" } }, "\u{1F4CD} ", p.address ? p.address.split("\n")[0] : "", p.city ? `, ${p.city}` : ""),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginTop: "0.65rem", paddingTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.55rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8 } }, "District"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.text, fontWeight: 600, marginTop: 2 } }, p.district ? `D${p.district}` : "\u2014", p.dmName ? ` \xB7 ${p.dmName}` : "")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.55rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8 } }, "Due Date"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, marginTop: 2, color: isOverdue ? "#ff4444" : th.text } }, isOverdue ? "OVERDUE" : p.dueDate ? new Date(p.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014"))),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 6, borderRadius: 3, background: th.card3 } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", borderRadius: 3, width: overall + "%", background: overall === 100 ? "#22c55e" : O } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, color: overall === 100 ? "#22c55e" : th.text, minWidth: 32, textAlign: "right" } }, overall, "%"))
+      );
+    })), view === "table" && !isMobile && /* @__PURE__ */ React.createElement("div", { ref: tableFrameRef, style: { ...card(th), overflow: "hidden", display: "flex", flexDirection: "column", height: tableFrameH || void 0 } }, /* @__PURE__ */ React.createElement("div", { className: "projects-table-wrap", style: { overflowX: "auto", overflowY: "auto", flex: 1, minHeight: 0 } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontFamily: "'Source Sans 3'", fontSize: "0.8125rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2, borderBottom: `1px solid ${th.cardBorder}` } }, [
       { col: "priority", label: "#", w: 40 },
-      { col: "nickname", label: "Project", w: null },
+      // Fixed width: as the lone auto column it soaked up ALL the
+      // table's spare width, opening a huge gap before Type.
+      { col: "nickname", label: "Project", w: 300 },
       { col: "type", label: "Type", w: 100 },
       { col: "pc", label: "PC#", w: 70 },
       { col: "phase", label: "Current Phase", w: 160 },
       { col: "progress", label: "Progress", w: 150 },
       { col: "dueDate", label: "Due Date", w: 100 }
-    ].map((h) => /* @__PURE__ */ React.createElement("th", { key: h.col, onClick: () => toggleSort(h.col), style: { padding: "0.625rem 0.75rem", textAlign: "left", fontWeight: 600, fontSize: "0.6875rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", whiteSpace: "nowrap", width: h.w || "auto", userSelect: "none" } }, h.label, /* @__PURE__ */ React.createElement(SortIcon, { col: h.col }))))), /* @__PURE__ */ React.createElement("tbody", null, sorted.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 7, style: { padding: "2rem", textAlign: "center", color: th.muted } }, "No projects found.")), sorted.map((p, i) => {
-      const overall = getOverallCompletion(p);
-      const phase = getCurrentPhase(p);
+    ].map((h) => /* @__PURE__ */ React.createElement("th", { key: h.col, onClick: () => toggleSort(h.col), style: { padding: "0.625rem 0.75rem", textAlign: "left", fontWeight: 600, fontSize: "0.6875rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", whiteSpace: "nowrap", width: h.w || "auto", userSelect: "none", position: "sticky", top: 0, background: th.card2, zIndex: 1 } }, h.label, /* @__PURE__ */ React.createElement(SortIcon, { col: h.col }))))), /* @__PURE__ */ React.createElement("tbody", null, sorted.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 7, style: { padding: "2rem", textAlign: "center", color: th.muted } }, "No projects found.")), sorted.map((p, i) => {
+      const { overall = 0, phase = {}, isOverdue = false } = rowModel.get(p.id) || {};
       const phaseColor = PHASE_COLORS[phase.id] || "#666";
-      const isOverdue = p.dueDate && !p.completed && new Date(p.dueDate) < /* @__PURE__ */ new Date();
       const isDragTarget = !reorderLocked && dragOverIdx === i && dragIdx !== i;
       return /* @__PURE__ */ React.createElement(
         "tr",
@@ -12841,7 +12888,7 @@ ${t2.slice(0, 300)}`);
             if (reorderLocked) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
-            setDragOverIdx(i);
+            if (dragOverIdx !== i) setDragOverIdx(i);
           },
           onDragLeave: () => {
             if (dragOverIdx === i) setDragOverIdx(null);
@@ -12853,10 +12900,11 @@ ${t2.slice(0, 300)}`);
             const [moved] = reordered.splice(dragIdx, 1);
             reordered.splice(i, 0, moved);
             const updates = /* @__PURE__ */ new Map();
-            reordered.forEach((proj, idx) => {
-              updates.set(proj.id, idx + 1);
+            let rank = 1;
+            reordered.forEach((proj) => {
+              if (!rowModel.get(proj.id)?.done) updates.set(proj.id, rank++);
             });
-            setProjects((ps) => ps.map((proj) => updates.has(proj.id) ? { ...proj, priority: updates.get(proj.id), updatedAt: (/* @__PURE__ */ new Date()).toISOString(), lastEditedBy: user?.name || "Unknown", lastEditedAt: (/* @__PURE__ */ new Date()).toISOString() } : proj));
+            setProjects((ps) => ps.map((proj) => updates.has(proj.id) && proj.priority !== updates.get(proj.id) ? { ...proj, priority: updates.get(proj.id), updatedAt: (/* @__PURE__ */ new Date()).toISOString(), lastEditedBy: user?.name || "Unknown", lastEditedAt: (/* @__PURE__ */ new Date()).toISOString() } : proj));
             setDragIdx(null);
             setDragOverIdx(null);
           },
@@ -12866,7 +12914,7 @@ ${t2.slice(0, 300)}`);
           },
           onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
         },
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.625rem 0.75rem", color: th.muted, fontWeight: 600 } }, !reorderLocked && /* @__PURE__ */ React.createElement("span", { style: { cursor: "grab", marginRight: "0.3rem", opacity: 0.5 } }, "\u283F"), p.priority || "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.625rem 0.75rem", color: th.muted, fontWeight: 600 } }, !reorderLocked && /* @__PURE__ */ React.createElement("span", { style: { cursor: "grab", marginRight: "0.3rem", opacity: 0.5 } }, "\u283F"), i + 1),
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.625rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, color: th.text } }, p.nickname || p.pc), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted } }, p.address ? p.address.split("\n")[0] : "", p.city ? `, ${p.city}` : ""), (p.dmName || p.district) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", marginTop: 2, display: "flex", gap: "0.35rem" } }, p.district && /* @__PURE__ */ React.createElement("span", { style: { background: "#FF671F18", color: "#FF671F", borderRadius: "0.3rem", padding: "0.05rem 0.35rem", fontWeight: 700 } }, "D", p.district), p.dmName && /* @__PURE__ */ React.createElement("span", { style: { color: "#FF671F", fontWeight: 600 } }, p.dmName))),
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.625rem 0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { padding: "0.125rem 0.5rem", borderRadius: "1rem", fontSize: "0.6875rem", fontWeight: 600, background: (TYPE_COLORS[p.type] || "#666") + "22", color: TYPE_COLORS[p.type] || "#666", whiteSpace: "nowrap" } }, p.type)),
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.625rem 0.75rem", color: th.muted, fontFamily: "monospace", fontSize: "0.75rem" } }, p.pc),
@@ -16356,7 +16404,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.24";
+  var APP_VERSION = "v18.32";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
