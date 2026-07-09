@@ -576,6 +576,82 @@
     }, []);
     return frameH;
   }
+  function StackCardsSection({ th, disabled, children }) {
+    const kids = React.Children.toArray(children);
+    const stageRefs = useRef([]);
+    const containerRef = useRef(null);
+    const isMobileView = useIsMobile();
+    const off = disabled || isMobileView;
+    const OVERLAP_MB = "calc(-1 * min(14vh, 130px))";
+    useEffect(() => {
+      if (off) return;
+      let raf = 0;
+      const lastClip = [];
+      const align = () => {
+        raf = 0;
+        const els = stageRefs.current.filter(Boolean);
+        if (els.length < 2) return;
+        const bottoms = els.map((el) => el.getBoundingClientRect().bottom);
+        const cuts = new Array(els.length).fill(0);
+        let clipBottom = bottoms[els.length - 1];
+        for (let i = els.length - 2; i >= 0; i--) {
+          cuts[i] = Math.max(0, bottoms[i] - clipBottom);
+          clipBottom = Math.min(bottoms[i], clipBottom);
+        }
+        els.forEach((el, i) => {
+          const want = cuts[i] > 0.5 ? `inset(-48px -32px ${Math.round(cuts[i])}px -32px)` : "none";
+          if (lastClip[i] !== want) {
+            lastClip[i] = want;
+            el.style.clipPath = want;
+          }
+          const empty = el.scrollHeight < 8;
+          const isLast = i === els.length - 1;
+          el.style.boxShadow = empty ? "none" : "0 -10px 28px rgba(0,0,0,0.14)";
+          if (el.parentElement) el.parentElement.style.marginBottom = empty ? "0px" : isLast ? "1rem" : OVERLAP_MB;
+        });
+      };
+      const schedule = () => {
+        if (!raf) raf = requestAnimationFrame(align);
+      };
+      align();
+      const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
+      if (ro && containerRef.current) ro.observe(containerRef.current);
+      window.addEventListener("scroll", schedule, { passive: true });
+      window.addEventListener("resize", schedule);
+      return () => {
+        if (raf) cancelAnimationFrame(raf);
+        if (ro) ro.disconnect();
+        window.removeEventListener("scroll", schedule);
+        window.removeEventListener("resize", schedule);
+      };
+    }, [off]);
+    if (off) return /* @__PURE__ */ React.createElement(React.Fragment, null, children);
+    return /* @__PURE__ */ React.createElement("div", { ref: containerRef }, kids.map((child, i) => {
+      const top = 16 + i * 14;
+      const last = i === kids.length - 1;
+      return (
+        // Negative gap between cards: the next card starts its climb early
+        // (the covered card's tail is hidden under it anyway), so the deck plays
+        // through faster than the cards' combined natural heights.
+        /* @__PURE__ */ React.createElement("div", { key: i, style: { position: "sticky", top, zIndex: i + 1, marginBottom: last ? "1rem" : OVERLAP_MB } }, /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            ref: (el) => {
+              stageRefs.current[i] = el;
+            },
+            style: {
+              maxHeight: `calc(100vh - ${top + 16}px)`,
+              overflowY: "auto",
+              background: th.bg,
+              borderRadius: "1rem",
+              boxShadow: "0 -10px 28px rgba(0,0,0,0.14)"
+            }
+          },
+          child
+        ))
+      );
+    }));
+  }
   function EmptyState({ icon, title, description, actionLabel, onAction, th }) {
     return /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "4rem 2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem", opacity: 0.3 } }, icon), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1.1rem", color: th.text, marginBottom: "0.4rem" } }, title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", marginBottom: "1.25rem", maxWidth: 320, margin: "0 auto 1.25rem" } }, description), actionLabel && onAction && /* @__PURE__ */ React.createElement("button", { style: { padding: "0.5rem 1.25rem", borderRadius: "0.5rem", border: "none", background: "#FF671F", color: "#fff", fontFamily: "'Source Sans 3'", fontWeight: 600, fontSize: "0.875rem", cursor: "pointer" }, onClick: onAction }, actionLabel));
   }
@@ -16280,7 +16356,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.15";
+  var APP_VERSION = "v18.24";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -18336,6 +18412,32 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     const [weather, setWeather] = useState(null);
     const [showWeekWeather, setShowWeekWeather] = useState(false);
+    const weatherRectRef = useRef(null);
+    const weatherCloseTimer = useRef(null);
+    const openWeekWeather = (e) => {
+      if (weatherCloseTimer.current) {
+        clearTimeout(weatherCloseTimer.current);
+        weatherCloseTimer.current = null;
+      }
+      weatherRectRef.current = e.currentTarget.getBoundingClientRect();
+      setShowWeekWeather(true);
+    };
+    const holdWeekWeather = () => {
+      if (weatherCloseTimer.current) {
+        clearTimeout(weatherCloseTimer.current);
+        weatherCloseTimer.current = null;
+      }
+    };
+    const closeWeekWeather = () => {
+      if (weatherCloseTimer.current) clearTimeout(weatherCloseTimer.current);
+      weatherCloseTimer.current = setTimeout(() => setShowWeekWeather(false), 150);
+    };
+    useEffect(() => {
+      if (!showWeekWeather) return;
+      const close = () => setShowWeekWeather(false);
+      window.addEventListener("scroll", close, { passive: true });
+      return () => window.removeEventListener("scroll", close);
+    }, [showWeekWeather]);
     const [dailyFeed, setDailyFeed] = useState(null);
     const [newsTab, setNewsTab] = useState("general");
     const [hoveredKpi, setHoveredKpi] = useState(null);
@@ -18535,8 +18637,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text, fontStyle: "italic", lineHeight: 1.5 } }, "\u201C", dailyFeed.quote.text, "\u201D"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: O, fontWeight: 700, marginTop: "0.4rem", letterSpacing: 0.5, textTransform: "uppercase" } }, "\u2014 ", dailyFeed.quote.author || "Unknown"))), weather && /* @__PURE__ */ React.createElement(
       "div",
       {
-        onMouseEnter: () => setShowWeekWeather(true),
-        onMouseLeave: () => setShowWeekWeather(false),
+        onMouseEnter: openWeekWeather,
+        onMouseLeave: closeWeekWeather,
         style: {
           position: "relative",
           background: `linear-gradient(135deg, ${th.card2} 0%, ${th.card} 100%)`,
@@ -18557,28 +18659,41 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       },
       /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2.25rem", lineHeight: 1 } }, weather.today?.icon || weather.current?.icon),
       /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: th.text, lineHeight: 1, letterSpacing: -0.5 } }, weather.current?.temp, "\xB0", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.95rem", fontWeight: 700, color: th.muted, marginLeft: 1 } }, "F")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, marginTop: "0.3rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 } }, weather.today ? `H ${weather.today.high}\xB0 \xB7 L ${weather.today.low}\xB0` : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, opacity: 0.75, marginTop: "0.15rem" } }, weather.today?.label, " \xB7 Philadelphia")),
-      showWeekWeather && weather.week && /* @__PURE__ */ React.createElement("div", { style: {
-        position: "absolute",
-        top: "calc(100% + 0.5rem)",
-        right: 0,
-        minWidth: 300,
-        background: th.card,
-        border: `1px solid ${th.cardBorder}`,
-        borderRadius: "0.875rem",
-        padding: "0.875rem",
-        boxShadow: "0 16px 40px rgba(0,0,0,0.28)",
-        zIndex: 50,
-        animation: "fadeIn .15s ease"
-      } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: "0.6rem" } }, "7-Day Forecast"), weather.week.map((d, i) => {
-        const dayName = i === 0 ? "Today" : (/* @__PURE__ */ new Date(d.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short" });
-        return /* @__PURE__ */ React.createElement("div", { key: d.date, style: {
-          display: "flex",
-          alignItems: "center",
-          gap: "0.75rem",
-          padding: "0.4rem 0.25rem",
-          borderBottom: i < weather.week.length - 1 ? `1px solid ${th.cardBorder}` : "none"
-        } }, /* @__PURE__ */ React.createElement("div", { style: { width: 42, fontSize: "0.72rem", fontWeight: 700, color: i === 0 ? O : th.text } }, dayName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.2rem", width: 26, textAlign: "center" } }, d.icon), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, fontSize: "0.68rem", color: th.muted } }, d.label), d.precip > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: "#74c0fc" } }, "\u{1F4A7} ", d.precip, "%"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text, minWidth: 60, textAlign: "right" } }, d.high, "\xB0 ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 500 } }, "/ ", d.low, "\xB0")));
-      }))
+      showWeekWeather && weather.week && weatherRectRef.current && ReactDOM.createPortal(
+        /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            onMouseEnter: holdWeekWeather,
+            onMouseLeave: closeWeekWeather,
+            style: {
+              position: "fixed",
+              top: weatherRectRef.current.bottom + 8,
+              left: Math.max(8, weatherRectRef.current.right - 300),
+              minWidth: 300,
+              background: th.card,
+              border: `1px solid ${th.cardBorder}`,
+              borderRadius: "0.875rem",
+              padding: "0.875rem",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.28)",
+              zIndex: 9992,
+              // above the Orion FAB (9990); toasts/backdrops (9998+) stay on top
+              animation: "fadeIn .15s ease"
+            }
+          },
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: "0.6rem" } }, "7-Day Forecast"),
+          weather.week.map((d, i) => {
+            const dayName = i === 0 ? "Today" : (/* @__PURE__ */ new Date(d.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short" });
+            return /* @__PURE__ */ React.createElement("div", { key: d.date, style: {
+              display: "flex",
+              alignItems: "center",
+              gap: "0.75rem",
+              padding: "0.4rem 0.25rem",
+              borderBottom: i < weather.week.length - 1 ? `1px solid ${th.cardBorder}` : "none"
+            } }, /* @__PURE__ */ React.createElement("div", { style: { width: 42, fontSize: "0.72rem", fontWeight: 700, color: i === 0 ? O : th.text } }, dayName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.2rem", width: 26, textAlign: "center" } }, d.icon), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, fontSize: "0.68rem", color: th.muted } }, d.label), d.precip > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: "#74c0fc" } }, "\u{1F4A7} ", d.precip, "%"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text, minWidth: 60, textAlign: "right" } }, d.high, "\xB0 ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 500 } }, "/ ", d.low, "\xB0")));
+          })
+        ),
+        document.body
+      )
     ))), unreadAnnouncements.length > 0 && /* @__PURE__ */ React.createElement(
       "div",
       {
@@ -18750,10 +18865,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     })), user.userType === "manager" && (() => {
       const mp = getManagerStore(stores, user);
       return mp?.pc ? /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", display: "grid", gap: "0.85rem", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", alignItems: "start", maxWidth: 1080 } }, /* @__PURE__ */ React.createElement(Guard, { name: "manager-brief", fallback: null }, /* @__PURE__ */ React.createElement(ManagerOrionBrief, { pc: mp.pc, storeName: mp.name, th })), /* @__PURE__ */ React.createElement(Guard, { name: "forecast-preplan", fallback: null }, /* @__PURE__ */ React.createElement(ForecastPrePlanCard, { pc: mp.pc, storeName: mp.name, th }))) : null;
-    })(), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(Guard, { name: "today-brief", fallback: null }, /* @__PURE__ */ React.createElement(TodayBrief, { user, th, setAnnouncements, showAlert, announcementsDismissed, setAnnouncementsDismissed })), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(Guard, { name: "action-queue", fallback: null }, /* @__PURE__ */ React.createElement(ActionQueue, { stores, th, user, setTab, users, showAlert })), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && (() => {
+    })(), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(StackCardsSection, { th, disabled: isMobile }, /* @__PURE__ */ React.createElement(Guard, { name: "today-brief", fallback: null }, /* @__PURE__ */ React.createElement(TodayBrief, { user, th, setAnnouncements, showAlert, announcementsDismissed, setAnnouncementsDismissed })), /* @__PURE__ */ React.createElement(Guard, { name: "action-queue", fallback: null }, /* @__PURE__ */ React.createElement(ActionQueue, { stores, th, user, setTab, users, showAlert })), (() => {
       const showTickets = ticketStats.open > 0 || ticketStats.inProg > 0;
       const cols = isMobile ? "1fr" : showTickets ? "1fr 1fr" : "1fr";
-      if (!showTickets && user.userType === "manager") return null;
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: cols, gap: "1rem", marginBottom: "1.25rem", alignItems: "stretch" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.15rem" } }, /* @__PURE__ */ React.createElement(Guard, { name: "business-cases", fallback: /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.78rem" } }, "Business cases unavailable right now.") }, /* @__PURE__ */ React.createElement(BusinessCasesCard, { user, th, inline: true, stores, setAnnouncements, showAlert }))), showTickets && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.15rem", display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1rem" } }, "\u{1F3AB}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.85rem", color: th.text } }, "Service Tickets")), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("tickets"), style: { background: "none", border: "none", color: O, fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", padding: 0 } }, "View All \u2192")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "0.875rem" } }, [
         { label: "Open", value: ticketStats.open, color: "#3b82f6" },
         { label: "In Progress", value: ticketStats.inProg, color: O },
@@ -18764,7 +18878,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         const sClr = t.status === "Open" ? "#3b82f6" : O;
         return /* @__PURE__ */ React.createElement("div", { key: t.id, onClick: () => setTab("tickets"), style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.5rem", borderRadius: "0.4rem", cursor: "pointer", borderLeft: `3px solid ${pClr}`, background: th.bg } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.number, " \u2014 ", t.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, t.storeName)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: sClr, background: sClr + "18", padding: "0.12rem 0.4rem", borderRadius: "0.4rem", flexShrink: 0 } }, t.status));
       })) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textAlign: "center", padding: "0.75rem 0" } }, "No open tickets")));
-    })(), visibleQuickActions.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.28rem 0.7rem", background: `${O}15`, border: `1px solid ${O}33`, borderRadius: "999px" } }, /* @__PURE__ */ React.createElement("svg", { width: "11", height: "11", viewBox: "0 0 16 16", fill: "none" }, /* @__PURE__ */ React.createElement("path", { d: "M8 1v6H2v2h6v6h2v-6h6V7h-6V1H8z", fill: O })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 800, color: O, textTransform: "uppercase", letterSpacing: 1.3 } }, "Quick Actions")), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.cardBorder}, transparent)` } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, visibleQuickActions.map((a) => /* @__PURE__ */ React.createElement(
+    })()), visibleQuickActions.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.28rem 0.7rem", background: `${O}15`, border: `1px solid ${O}33`, borderRadius: "999px" } }, /* @__PURE__ */ React.createElement("svg", { width: "11", height: "11", viewBox: "0 0 16 16", fill: "none" }, /* @__PURE__ */ React.createElement("path", { d: "M8 1v6H2v2h6v6h2v-6h6V7h-6V1H8z", fill: O })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 800, color: O, textTransform: "uppercase", letterSpacing: 1.3 } }, "Quick Actions")), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.cardBorder}, transparent)` } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, visibleQuickActions.map((a) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: a.label,
@@ -30479,7 +30593,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       alignItems: "center",
       justifyContent: "center",
       borderRadius: "0.5rem"
-    } }, "\xD7"), /* @__PURE__ */ React.createElement(SidebarContent, { onNav: () => setDrawerOpen(false) })), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflow: "auto", transition: "background .3s", paddingBottom: isMobile ? 72 : 0 } }, /* @__PURE__ */ React.createElement("div", { className: "mobile-topbar-padding", style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "0.6rem 1rem" : "1.4vw 5vw", minHeight: isMobile ? 52 : "unset", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "sticky", top: 0, zIndex: 10, transition: "background .3s, border .3s" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && /* @__PURE__ */ React.createElement("button", { onClick: () => setDrawerOpen((o) => !o), style: {
+    } }, "\xD7"), /* @__PURE__ */ React.createElement(SidebarContent, { onNav: () => setDrawerOpen(false) })), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0, overflowX: "clip", transition: "background .3s", paddingBottom: isMobile ? 72 : 0 } }, /* @__PURE__ */ React.createElement("div", { className: "mobile-topbar-padding", style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "0.6rem 1rem" : "1.4vw 5vw", minHeight: isMobile ? 52 : "unset", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "relative", zIndex: 10, transition: "background .3s, border .3s" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && /* @__PURE__ */ React.createElement("button", { onClick: () => setDrawerOpen((o) => !o), style: {
       background: "none",
       border: "none",
       cursor: "pointer",

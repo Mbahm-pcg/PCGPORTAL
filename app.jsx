@@ -63,64 +63,101 @@ function useFrameHeight(frameRef, min = 360, gutter = 20) {
   return frameH;
 }
 
-// ── Scroll-capture section ───────────────────────────────────────────────────
-// Pins its content while the page scrolls "through" it: the wrapper is as tall as
-// the panel plus the content's hidden overflow, the panel is sticky, and page
-// scroll position is mapped onto the panel's inner scrollTop. One continuous page
-// scroll therefore dives into the section, scrolls it to the end, then resumes
-// with the rest of the page. Because it rides the native page scroll (no wheel
-// hijacking), mouse, touch, keyboard, and scrollbar dragging all behave. Renders
-// children plainly when disabled (mobile) or when the content fits the panel.
-function ScrollCaptureSection({ th, disabled, children }) {
-  const wrapRef = useRef(null);
-  const innerRef = useRef(null);
-  const contentRef = useRef(null);
-  const fadeRef = useRef(null);
-  // Only ONE piece of layout state: the wrapper's height = the content's natural
-  // height (kept fresh by ResizeObserver as the async cards settle). The panel caps
-  // itself with pure CSS maxHeight, and the scroll handler reads the live scroll
-  // range every tick — nothing else is cached, so nothing can go stale.
-  const [wrapH, setWrapH] = useState(null);
+// ── Stacked-cards section ────────────────────────────────────────────────────
+// Deck-of-cards treatment for a run of sibling cards: each child pins near the
+// viewport top as it arrives, and the next child slides up OVER it; the stack
+// releases together once the section ends. Pure position:sticky — pin offsets
+// step down per card so the covered cards' top edges stay peeking. A card taller
+// than the viewport caps its height and scrolls internally (native wheel chaining
+// scrolls the card first, then the page).
+function StackCardsSection({ th, disabled, children }) {
+  const kids = React.Children.toArray(children);
+  const stageRefs = useRef([]);
+  const containerRef = useRef(null);
+  // Self-contained mobile opt-out (plain flow on phones) — callers can still force
+  // `disabled`, but forgetting the prop must not ship the deck to touch devices.
+  const isMobileView = useIsMobile();
+  const off = disabled || isMobileView;
+  // Deck overlap: how early the next card starts covering the previous one. Clamped
+  // in px so it can never exceed a short card's own height on tall monitors (a
+  // 1-item Action Queue is ~160px; unclamped 14vh is 200px+ at 1440p).
+  const OVERLAP_MB = 'calc(-1 * min(14vh, 130px))';
 
+  // Cards hug their content (no blank filler pushing the next section down), so a
+  // taller card BEHIND a shorter one would poke out underneath the deck. Instead of
+  // padding stages to a uniform height, clip each covered card live so its bottom
+  // never shows below the visible bottom of the deck in front of it. clip-path
+  // doesn't affect layout, so occlusion and tight page flow don't fight.
   useEffect(() => {
-    if (disabled) return;
-    const c = contentRef.current; if (!c) return;
-    const measure = () => setWrapH(c.offsetHeight);
-    measure();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-    if (ro) ro.observe(c);
-    window.addEventListener('resize', measure);
-    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', measure); };
-  }, [disabled]);
-
-  useEffect(() => {
-    if (disabled) return;
-    const onScroll = () => {
-      const wrap = wrapRef.current, inner = innerRef.current; if (!wrap || !inner) return;
-      const max = inner.scrollHeight - inner.clientHeight; // live hidden overflow
-      if (max <= 0) { if (fadeRef.current) fadeRef.current.style.opacity = 0; return; }
-      // How far the page has scrolled past the panel's pin point (sticky top: 16).
-      const p = Math.max(0, Math.min(max, 16 - wrap.getBoundingClientRect().top));
-      inner.scrollTop = p;
-      // Fade hint driven directly on the DOM — no per-scroll React state.
-      if (fadeRef.current) fadeRef.current.style.opacity = p < max - 2 ? 1 : 0;
+    if (off) return;
+    let raf = 0;
+    const lastClip = [];
+    const align = () => {
+      raf = 0;
+      const els = stageRefs.current.filter(Boolean);
+      if (els.length < 2) return;
+      // Read pass first, then write pass — never interleave layout reads with
+      // style writes inside a scroll handler.
+      const bottoms = els.map(el => el.getBoundingClientRect().bottom);
+      const cuts = new Array(els.length).fill(0);
+      let clipBottom = bottoms[els.length - 1];
+      for (let i = els.length - 2; i >= 0; i--) {
+        cuts[i] = Math.max(0, bottoms[i] - clipBottom);
+        clipBottom = Math.min(bottoms[i], clipBottom);
+      }
+      els.forEach((el, i) => {
+        // Negative top/side insets keep the card's elevation shadow unclipped.
+        const want = cuts[i] > 0.5 ? `inset(-48px -32px ${Math.round(cuts[i])}px -32px)` : 'none';
+        if (lastClip[i] !== want) { lastClip[i] = want; el.style.clipPath = want; }
+        // A Guard child that errored (or hasn't rendered yet) leaves a 0-height stage:
+        // without this it still shows the deck shadow (a floating line) and its -14vh
+        // overlap margin drags the next card over the previous one. Neutralize both
+        // while empty; RO restores them the moment content appears.
+        const empty = el.scrollHeight < 8;
+        const isLast = i === els.length - 1;
+        el.style.boxShadow = empty ? 'none' : '0 -10px 28px rgba(0,0,0,0.14)';
+        if (el.parentElement) el.parentElement.style.marginBottom = empty ? '0px' : (isLast ? '1rem' : OVERLAP_MB);
+      });
     };
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, [disabled]);
+    // rAF-coalesced: high-rate scroll devices fire several events per frame; one
+    // forced-layout batch per frame is all the clipping needs.
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(align); };
+    align();
+    // Observe the ONE container instead of each stage: children are in normal flow,
+    // so any card's height change resizes the container — and a container-level
+    // observer can't go stale if a stage node is ever remounted.
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
+    if (ro && containerRef.current) ro.observe(containerRef.current);
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      if (ro) ro.disconnect();
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+    };
+  }, [off]);
 
-  if (disabled) return <>{children}</>;
+  if (off) return <>{children}</>;
   return (
-    <div ref={wrapRef} style={{ height: wrapH || undefined }}>
-      <div style={{ position: 'sticky', top: 16 }}>
-        <div ref={innerRef} style={{ maxHeight: 'calc(100vh - 32px)', overflowY: 'hidden' }}>
-          <div ref={contentRef}>{children}</div>
-        </div>
-        <div ref={fadeRef} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56,
-          pointerEvents: 'none', opacity: 0, transition: 'opacity .2s',
-          background: `linear-gradient(transparent, ${th.bg})` }} />
-      </div>
+    <div ref={containerRef}>
+      {kids.map((child, i) => {
+        const top = 16 + i * 14;
+        const last = i === kids.length - 1;
+        return (
+          // Negative gap between cards: the next card starts its climb early
+          // (the covered card's tail is hidden under it anyway), so the deck plays
+          // through faster than the cards' combined natural heights.
+          <div key={i} style={{ position: 'sticky', top, zIndex: i + 1, marginBottom: last ? '1rem' : OVERLAP_MB }}>
+            <div ref={el => { stageRefs.current[i] = el; }}
+              style={{ maxHeight: `calc(100vh - ${top + 16}px)`, overflowY: 'auto',
+                background: th.bg, borderRadius: '1rem',
+                boxShadow: '0 -10px 28px rgba(0,0,0,0.14)' }}>
+              {child}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -20511,7 +20548,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.15";
+const APP_VERSION = "v18.24";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -23523,6 +23560,35 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
   // Weather state (today + 7-day forecast for 19115 Philadelphia)
   const [weather, setWeather] = useState(null); // { today: {...}, week: [{...}] }
   const [showWeekWeather, setShowWeekWeather] = useState(false);
+  // Viewport rect of the weather widget, captured when the forecast popover opens —
+  // the popover renders through a portal (fixed position) so no ancestor stacking
+  // context (greeting card, hover transform) can paint other content over it.
+  const weatherRectRef = useRef(null);
+  const weatherCloseTimer = useRef(null);
+  const openWeekWeather = (e) => {
+    if (weatherCloseTimer.current) { clearTimeout(weatherCloseTimer.current); weatherCloseTimer.current = null; }
+    weatherRectRef.current = e.currentTarget.getBoundingClientRect();
+    setShowWeekWeather(true);
+  };
+  // Keep-open handler for the portaled panel itself: cancels the pending close but
+  // must NOT re-capture the anchor rect — currentTarget there is the panel, and
+  // anchoring the panel to itself would reposition it on any mid-hover re-render.
+  const holdWeekWeather = () => {
+    if (weatherCloseTimer.current) { clearTimeout(weatherCloseTimer.current); weatherCloseTimer.current = null; }
+  };
+  const closeWeekWeather = () => {
+    if (weatherCloseTimer.current) clearTimeout(weatherCloseTimer.current);
+    // Small grace period so the pointer can travel from the widget onto the panel.
+    weatherCloseTimer.current = setTimeout(() => setShowWeekWeather(false), 150);
+  };
+  // The panel is position:fixed off a rect snapshot — scrolling while it's open would
+  // leave it floating detached from the widget. Scrolling reads as intent-to-leave.
+  useEffect(() => {
+    if (!showWeekWeather) return;
+    const close = () => setShowWeekWeather(false);
+    window.addEventListener('scroll', close, { passive: true });
+    return () => window.removeEventListener('scroll', close);
+  }, [showWeekWeather]);
   // Daily feed state (quote + news)
   const [dailyFeed, setDailyFeed] = useState(null);
   const [newsTab, setNewsTab] = useState("general"); // "general" | "restaurant" | "inspire" | "papajohns"
@@ -23766,8 +23832,8 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
           {/* Right: Enhanced weather widget */}
           {weather && (
             <div
-              onMouseEnter={() => setShowWeekWeather(true)}
-              onMouseLeave={() => setShowWeekWeather(false)}
+              onMouseEnter={openWeekWeather}
+              onMouseLeave={closeWeekWeather}
               style={{
                 position: "relative",
                 background: `linear-gradient(135deg, ${th.card2} 0%, ${th.card} 100%)`,
@@ -23801,19 +23867,23 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
                 </div>
               </div>
 
-              {/* 7-day dropdown on hover */}
-              {showWeekWeather && weather.week && (
-                <div style={{
-                  position: "absolute",
-                  top: "calc(100% + 0.5rem)",
-                  right: 0,
+              {/* 7-day dropdown on hover — portaled to <body> so no ancestor stacking
+                  context (greeting card, KPI badges, deck cards) can paint over it */}
+              {showWeekWeather && weather.week && weatherRectRef.current && ReactDOM.createPortal(
+                <div
+                  onMouseEnter={holdWeekWeather}
+                  onMouseLeave={closeWeekWeather}
+                  style={{
+                  position: "fixed",
+                  top: weatherRectRef.current.bottom + 8,
+                  left: Math.max(8, weatherRectRef.current.right - 300),
                   minWidth: 300,
                   background: th.card,
                   border: `1px solid ${th.cardBorder}`,
                   borderRadius: "0.875rem",
                   padding: "0.875rem",
                   boxShadow: "0 16px 40px rgba(0,0,0,0.28)",
-                  zIndex: 50,
+                  zIndex: 9992, // above the Orion FAB (9990); toasts/backdrops (9998+) stay on top
                   animation: "fadeIn .15s ease",
                 }}>
                   <div style={{ fontSize: "0.65rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: "0.6rem" }}>7-Day Forecast</div>
@@ -23835,7 +23905,8 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
                       </div>
                     );
                   })}
-                </div>
+                </div>,
+                document.body
               )}
             </div>
           )}
@@ -24048,25 +24119,24 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
         ) : null;
       })()}
 
-      {/* ─── Today's Brief (Orion — optional; guarded so a low-credit error can't blank the page) ── */}
+      {/* ─── Orion zone: Brief + Action Queue + Business Cases — stacked-cards
+           "Section 2": each card pins and the next slides up over it, then the
+           rest of the dashboard resumes below. Plain flow on mobile. ── */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
+      <StackCardsSection th={th} disabled={isMobile}>
         <Guard name="today-brief" fallback={null}>
           <TodayBrief user={user} th={th} setAnnouncements={setAnnouncements} showAlert={showAlert} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} />
         </Guard>
-      )}
 
-      {/* ─── Action Queue ────────────────────────────────────────────────────── */}
-      {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
+        {/* Action Queue */}
         <Guard name="action-queue" fallback={null}>
           <ActionQueue stores={stores} th={th} user={user} setTab={setTab} users={users} showAlert={showAlert} />
         </Guard>
-      )}
 
-      {/* ─── Business Cases + Tickets ────────────────────────────────────────── */}
-      {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (() => {
+        {/* Business Cases + Tickets */}
+        {(() => {
         const showTickets = ticketStats.open > 0 || ticketStats.inProg > 0;
         const cols = isMobile ? "1fr" : (showTickets ? "1fr 1fr" : "1fr");
-        if (!showTickets && user.userType === 'manager') return null;
         return (
         <div style={{ display:"grid", gridTemplateColumns: cols, gap:"1rem", marginBottom:"1.25rem", alignItems:"stretch" }}>
           <div style={{ ...card(th), padding:"1.1rem 1.15rem" }}>
@@ -24121,6 +24191,8 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
         </div>
         );
       })()}
+      </StackCardsSection>
+      )}
 
 
       {/* ─── Quick Actions ─────────────────────────────────────────────── */}
@@ -39919,11 +39991,17 @@ function PCGPortal() {
         </div>
       )}
 
-      {/* Main content */}
-      <div style={{ flex: 1, overflow: "auto", transition: "background .3s", paddingBottom: isMobile ? 72 : 0 }}>
+      {/* Main content. overflowX:'clip' (NOT 'auto'/'hidden') — any other overflow value
+          makes this div the scroll container for every position:sticky descendant, and
+          since it never scrolls itself (the window does), sticky elements inside the app
+          silently never pinned. clip still contains horizontal blowouts. */}
+      <div style={{ flex: 1, minWidth: 0, overflowX: "clip", transition: "background .3s", paddingBottom: isMobile ? 72 : 0 }}>
 
-        {/* Top bar */}
-        <div className="mobile-topbar-padding" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "0.6rem 1rem" : "1.4vw 5vw", minHeight: isMobile ? 52 : "unset", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "sticky", top: 0, zIndex: 10, transition: "background .3s, border .3s" }}>
+        {/* Top bar. position:'relative' on purpose — it was sticky, but the old
+            overflow:'auto' on the main wrapper meant it never actually pinned; now that
+            sticky works in here, 'relative' preserves the scroll-away behavior users know.
+            Flip to sticky deliberately if a persistent header is ever wanted. */}
+        <div className="mobile-topbar-padding" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "0.6rem 1rem" : "1.4vw 5vw", minHeight: isMobile ? 52 : "unset", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "relative", zIndex: 10, transition: "background .3s, border .3s" }}>
           <div style={{ display: "flex", alignItems: "center", gap:"0.75rem" }}>
             {/* Hamburger — mobile only */}
             {isMobile && (
