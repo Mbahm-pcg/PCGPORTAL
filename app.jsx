@@ -63,6 +63,68 @@ function useFrameHeight(frameRef, min = 360, gutter = 20) {
   return frameH;
 }
 
+// ── Scroll-capture section ───────────────────────────────────────────────────
+// Pins its content while the page scrolls "through" it: the wrapper is as tall as
+// the panel plus the content's hidden overflow, the panel is sticky, and page
+// scroll position is mapped onto the panel's inner scrollTop. One continuous page
+// scroll therefore dives into the section, scrolls it to the end, then resumes
+// with the rest of the page. Because it rides the native page scroll (no wheel
+// hijacking), mouse, touch, keyboard, and scrollbar dragging all behave. Renders
+// children plainly when disabled (mobile) or when the content fits the panel.
+function ScrollCaptureSection({ th, disabled, children }) {
+  const wrapRef = useRef(null);
+  const innerRef = useRef(null);
+  const contentRef = useRef(null);
+  const fadeRef = useRef(null);
+  // Only ONE piece of layout state: the wrapper's height = the content's natural
+  // height (kept fresh by ResizeObserver as the async cards settle). The panel caps
+  // itself with pure CSS maxHeight, and the scroll handler reads the live scroll
+  // range every tick — nothing else is cached, so nothing can go stale.
+  const [wrapH, setWrapH] = useState(null);
+
+  useEffect(() => {
+    if (disabled) return;
+    const c = contentRef.current; if (!c) return;
+    const measure = () => setWrapH(c.offsetHeight);
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (ro) ro.observe(c);
+    window.addEventListener('resize', measure);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, [disabled]);
+
+  useEffect(() => {
+    if (disabled) return;
+    const onScroll = () => {
+      const wrap = wrapRef.current, inner = innerRef.current; if (!wrap || !inner) return;
+      const max = inner.scrollHeight - inner.clientHeight; // live hidden overflow
+      if (max <= 0) { if (fadeRef.current) fadeRef.current.style.opacity = 0; return; }
+      // How far the page has scrolled past the panel's pin point (sticky top: 16).
+      const p = Math.max(0, Math.min(max, 16 - wrap.getBoundingClientRect().top));
+      inner.scrollTop = p;
+      // Fade hint driven directly on the DOM — no per-scroll React state.
+      if (fadeRef.current) fadeRef.current.style.opacity = p < max - 2 ? 1 : 0;
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [disabled]);
+
+  if (disabled) return <>{children}</>;
+  return (
+    <div ref={wrapRef} style={{ height: wrapH || undefined }}>
+      <div style={{ position: 'sticky', top: 16 }}>
+        <div ref={innerRef} style={{ maxHeight: 'calc(100vh - 32px)', overflowY: 'hidden' }}>
+          <div ref={contentRef}>{children}</div>
+        </div>
+        <div ref={fadeRef} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56,
+          pointerEvents: 'none', opacity: 0, transition: 'opacity .2s',
+          background: `linear-gradient(transparent, ${th.bg})` }} />
+      </div>
+    </div>
+  );
+}
+
 // ── SVG Icon System ─────────────────────────────────────────────────────────
 // Icon, OrionIcon, ICONS, CAT_ICONS_SVG → src/icons.jsx
 
@@ -19220,6 +19282,7 @@ const getTabs = (user) => {
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
+    { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
     { id: "email",     label: "Email",     icon: '📧' },
   ];
@@ -20448,7 +20511,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.10";
+const APP_VERSION = "v18.15";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -37349,6 +37412,10 @@ function PCGPortal() {
   const sidebarNavRef  = useRef(null);           // ref to sidebar nav scroll container
   const sidebarScrollPos = useRef(0);            // persisted scroll position across re-renders
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem('pcg_sidebar_collapsed') === 'true'; } catch { return false; } });
+  // Collapsed-sidebar group flyout: { key, top, left } of the clicked group icon.
+  // Without this, group tabs are unreachable while collapsed (icon click had no effect).
+  const [navFlyout, setNavFlyout] = useState(null);
+  useEffect(() => { if (!sidebarCollapsed) setNavFlyout(null); }, [sidebarCollapsed]);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
   const [showPinEditor, setShowPinEditor] = useState(false);
   const [mobileNavPins, setMobileNavPins] = useState(null); // null = use role default
@@ -39186,14 +39253,17 @@ function PCGPortal() {
   ];
 
   // ─── Collapsible admin group — Doclines-style accordion ──────────────────
-  const AdminGroup = ({ icon: grpIcon, label, color, tabs: grpTabs, collapsed, groupKey, onNav: nav }) => {
+  const AdminGroup = ({ icon: grpIcon, label, color, tabs: grpTabs, flyoutTabs, collapsed, groupKey, onNav: nav }) => {
     const isOpen = sidebarGroupsOpen[groupKey];
-    const hasActiveChild = grpTabs.some(t => t.id === tab);
+    // Collapsed flyout shows the FULL group (flyoutTabs, pinned included) — it's the only
+    // labeled menu in that mode. Expanded lists keep excluding pinned (they're in Quick Access).
+    const menuTabs = (collapsed && flyoutTabs) ? flyoutTabs : grpTabs;
+    const hasActiveChild = menuTabs.some(t => t.id === tab);
     const showChildren = isOpen || hasActiveChild;
 
     // Any child with a badge → show red dot on the group header (covers chat, reports,
     // cash, announcements via navBadge — important now that base tabs live in a group).
-    const hasBadge = grpTabs.some(t => navBadge(t) != null);
+    const hasBadge = menuTabs.some(t => navBadge(t) != null);
 
     const toggle = () => {
       const next = { ...sidebarGroupsOpen, [groupKey]: !isOpen };
@@ -39209,21 +39279,29 @@ function PCGPortal() {
 
     const iconColor = hasActiveChild ? color : th.muted;
 
-    // Collapsed: icon only + red dot
+    // Collapsed: icon only + red dot. Clicking opens a flyout menu beside the sidebar
+    // with the group's tabs (the sidebar itself is overflow:hidden, so the flyout
+    // portals to document.body and positions off the icon's viewport rect).
     if (collapsed) {
+      const flyOpen = navFlyout?.key === groupKey;
       return (
+        <>
         <button
           title={label}
-          onClick={toggle}
+          onClick={(e) => {
+            if (flyOpen) { setNavFlyout(null); return; }
+            const r = e.currentTarget.getBoundingClientRect();
+            setNavFlyout({ key: groupKey, top: r.top, left: r.right });
+          }}
           style={{
             width: "100%", padding: "0.65rem 0", marginBottom: "0.15rem",
             display: "flex", justifyContent: "center", alignItems: "center",
-            background: hasActiveChild ? `${color}18` : "transparent",
+            background: flyOpen ? `${color}22` : hasActiveChild ? `${color}18` : "transparent",
             border: "none", borderRadius: "0.625rem", cursor: "pointer",
             transition: "all .2s", position: "relative",
           }}
-          onMouseEnter={e => { if (!hasActiveChild) e.currentTarget.style.background = th.card3; }}
-          onMouseLeave={e => { e.currentTarget.style.background = hasActiveChild ? `${color}18` : "transparent"; }}
+          onMouseEnter={e => { if (!hasActiveChild && !flyOpen) e.currentTarget.style.background = th.card3; }}
+          onMouseLeave={e => { e.currentTarget.style.background = flyOpen ? `${color}22` : hasActiveChild ? `${color}18` : "transparent"; }}
         >
           {grpIcon(iconColor)}
           {hasBadge && (
@@ -39233,6 +39311,39 @@ function PCGPortal() {
             <span style={{ position: "absolute", bottom: 3, left: "50%", transform: "translateX(-50%)", width: 16, height: 2, borderRadius: 999, background: color, boxShadow: `0 0 6px ${color}` }} />
           )}
         </button>
+        {flyOpen && ReactDOM.createPortal(
+          <>
+            {/* click-away backdrop */}
+            <div onClick={() => setNavFlyout(null)} style={{ position: "fixed", inset: 0, zIndex: 9998, background: "transparent" }} />
+            <div style={{
+              position: "fixed",
+              left: navFlyout.left + 10,
+              top: Math.max(8, Math.min(navFlyout.top - 6, window.innerHeight - (menuTabs.length * 42 + 52))),
+              zIndex: 9999, minWidth: 200,
+              background: th.sidebar,
+              border: `1px solid ${th.sidebarBorder}`,
+              borderRadius: "0.75rem",
+              boxShadow: "0 14px 36px rgba(0,0,0,0.3)",
+              padding: "0.4rem",
+              animation: "fadeIn .12s ease-out",
+            }}>
+              <div style={{ fontSize: "0.6rem", fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color, padding: "0.4rem 0.65rem 0.3rem" }}>{label}</div>
+              {menuTabs.map(t => {
+                const isCash = t.cash;
+                const cashColor = isCash && cashMissingCount > 0 ? "#ef4444" : "#00d084";
+                const C = isCash ? cashColor : (t.green ? "#00d084" : color);
+                return (
+                  <NavButton key={t.id} tabDef={t} accent={C} isActive={tab === t.id} collapsed={false}
+                    badge={navBadge(t)} glow={t.green || isCash} dotColor={C}
+                    pinned={pinnedNavIds.includes(t.id)} onTogglePin={togglePinNav}
+                    onClick={() => { setTab(t.id); setNavFlyout(null); nav && nav(); }} />
+                );
+              })}
+            </div>
+          </>,
+          document.body
+        )}
+        </>
       );
     }
 
@@ -39560,8 +39671,9 @@ function PCGPortal() {
               <SectionHeader label="My District" accent="#74c0fc" collapsed={collapsed}
                 open={sectionOpen} onToggle={() => toggleSidebarSection('sec_dm')} />
               {sectionOpen && DM_GROUPS.map(grp => {
-                const grpTabs = grp.ids.map(id => dmTabs.find(t => t.id === id)).filter(t => t && !pinnedNavIds.includes(t.id));
-                if (grpTabs.length === 0) return null;
+                const allTabs = grp.ids.map(id => dmTabs.find(t => t.id === id)).filter(Boolean);
+                const grpTabs = allTabs.filter(t => !pinnedNavIds.includes(t.id));
+                if ((collapsed ? allTabs : grpTabs).length === 0) return null;
                 return (
                   <AdminGroup
                     key={grp.key}
@@ -39570,6 +39682,7 @@ function PCGPortal() {
                     label={grp.label}
                     color={grp.color}
                     tabs={grpTabs}
+                    flyoutTabs={allTabs}
                     collapsed={collapsed}
                     onNav={onNav}
                   />
@@ -39663,8 +39776,9 @@ function PCGPortal() {
               open={sectionOpen} onToggle={() => toggleSidebarSection('sec_admin')} />
             {sectionOpen && (() => {
               return ADMIN_GROUPS.map(grp => {
-                const grpTabs = grp.ids.map(id => adminTabs.find(t => t.id === id)).filter(t => t && !pinnedNavIds.includes(t.id));
-                if (grpTabs.length === 0) return null;
+                const allTabs = grp.ids.map(id => adminTabs.find(t => t.id === id)).filter(Boolean);
+                const grpTabs = allTabs.filter(t => !pinnedNavIds.includes(t.id));
+                if ((collapsed ? allTabs : grpTabs).length === 0) return null;
                 return (
                   <AdminGroup
                     key={grp.key}
@@ -39673,6 +39787,7 @@ function PCGPortal() {
                     label={grp.label}
                     color={grp.color}
                     tabs={grpTabs}
+                    flyoutTabs={allTabs}
                     collapsed={collapsed}
                     onNav={onNav}
                   />

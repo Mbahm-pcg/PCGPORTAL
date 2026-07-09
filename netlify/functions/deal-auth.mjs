@@ -1,6 +1,6 @@
 // PCG Deal Pipeline — server-side auth. Verifies a caller via EITHER their existing
 // portal session token (password login) OR a live Google access token (Google login),
-// confirms they're IT/Exec AND listed in deal_access, and issues a short-lived signed
+// confirms they're an allowed role AND listed in deal_access, and issues a short-lived signed
 // deal token used by all deal endpoints. Never handles a raw password — that ended with
 // the Neon migration (the old flow re-checked the legacy pcg_users_v1 blob, which no
 // longer carries current credentials and doesn't match the portal's own login anymore).
@@ -11,8 +11,9 @@ import { requireUser, sessionIsValid } from './auth-lib/require-user.js';
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Content-Type': 'application/json' };
 const lc = (s) => (s == null ? '' : String(s).trim().toLowerCase());
 
-// Deal Pipeline is limited to IT/Exec regardless of who else might be in deal_access.
-const ALLOWED_ROLES = new Set(['it', 'executive']);
+// Deal Pipeline is limited to IT/Exec/Office Staff regardless of who else might be
+// in deal_access — a deal_access row alone is not enough for other user types.
+const ALLOWED_ROLES = new Set(['it', 'executive', 'office_staff']);
 
 export default async (request, context) => {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
@@ -66,7 +67,7 @@ export default async (request, context) => {
   }
 
   if (!ALLOWED_ROLES.has(userType)) {
-    return new Response(JSON.stringify({ error: 'Deal Pipeline access is limited to IT/Exec.' }), { status: 403, headers: cors });
+    return new Response(JSON.stringify({ error: 'Deal Pipeline access is limited to IT/Exec/Office Staff.' }), { status: 403, headers: cors });
   }
 
   let role = null;

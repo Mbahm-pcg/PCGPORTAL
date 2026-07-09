@@ -15510,6 +15510,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       { id: "cash", label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
+      { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
       { id: "users", label: "Users", icon: (c) => ICONS.users(c) },
       { id: "email", label: "Email", icon: "\u{1F4E7}" }
     ];
@@ -16279,7 +16280,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.10";
+  var APP_VERSION = "v18.15";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -27851,6 +27852,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return false;
       }
     });
+    const [navFlyout, setNavFlyout] = useState(null);
+    useEffect(() => {
+      if (!sidebarCollapsed) setNavFlyout(null);
+    }, [sidebarCollapsed]);
     const [showMoreSheet, setShowMoreSheet] = useState(false);
     const [showPinEditor, setShowPinEditor] = useState(false);
     const [mobileNavPins, setMobileNavPins] = useState(null);
@@ -29734,11 +29739,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       { key: "team", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 2 7 12 12 22 7 12 2" }), /* @__PURE__ */ React.createElement("polyline", { points: "2 17 12 22 22 17" }), /* @__PURE__ */ React.createElement("polyline", { points: "2 12 12 17 22 12" })) }), label: "Team & Sites", color: "#a78bfa", ids: ["map", "locations", "impact", "projects", "deals", "users"] },
       { key: "system", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "21", x2: "4", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "10", x2: "4", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "21", x2: "12", y2: "12" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "8", x2: "12", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "21", x2: "20", y2: "16" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "12", x2: "20", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "1", y1: "14", x2: "7", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "9", y1: "8", x2: "15", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "17", y1: "16", x2: "23", y2: "16" })) }), label: "System", color: "#94a3b8", ids: ["reports", "email", "admin"] }
     ];
-    const AdminGroup = ({ icon: grpIcon, label, color, tabs: grpTabs, collapsed, groupKey, onNav: nav }) => {
+    const AdminGroup = ({ icon: grpIcon, label, color, tabs: grpTabs, flyoutTabs, collapsed, groupKey, onNav: nav }) => {
       const isOpen = sidebarGroupsOpen[groupKey];
-      const hasActiveChild = grpTabs.some((t) => t.id === tab);
+      const menuTabs = collapsed && flyoutTabs ? flyoutTabs : grpTabs;
+      const hasActiveChild = menuTabs.some((t) => t.id === tab);
       const showChildren = isOpen || hasActiveChild;
-      const hasBadge = grpTabs.some((t) => navBadge(t) != null);
+      const hasBadge = menuTabs.some((t) => navBadge(t) != null);
       const toggle = () => {
         const next = { ...sidebarGroupsOpen, [groupKey]: !isOpen };
         setSidebarGroupsOpen(next);
@@ -29754,11 +29760,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       };
       const iconColor = hasActiveChild ? color : th.muted;
       if (collapsed) {
-        return /* @__PURE__ */ React.createElement(
+        const flyOpen = navFlyout?.key === groupKey;
+        return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
           "button",
           {
             title: label,
-            onClick: toggle,
+            onClick: (e) => {
+              if (flyOpen) {
+                setNavFlyout(null);
+                return;
+              }
+              const r = e.currentTarget.getBoundingClientRect();
+              setNavFlyout({ key: groupKey, top: r.top, left: r.right });
+            },
             style: {
               width: "100%",
               padding: "0.65rem 0",
@@ -29766,7 +29780,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
               display: "flex",
               justifyContent: "center",
               alignItems: "center",
-              background: hasActiveChild ? `${color}18` : "transparent",
+              background: flyOpen ? `${color}22` : hasActiveChild ? `${color}18` : "transparent",
               border: "none",
               borderRadius: "0.625rem",
               cursor: "pointer",
@@ -29774,16 +29788,55 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
               position: "relative"
             },
             onMouseEnter: (e) => {
-              if (!hasActiveChild) e.currentTarget.style.background = th.card3;
+              if (!hasActiveChild && !flyOpen) e.currentTarget.style.background = th.card3;
             },
             onMouseLeave: (e) => {
-              e.currentTarget.style.background = hasActiveChild ? `${color}18` : "transparent";
+              e.currentTarget.style.background = flyOpen ? `${color}22` : hasActiveChild ? `${color}18` : "transparent";
             }
           },
           grpIcon(iconColor),
           hasBadge && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 6, right: 8, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" } }),
           hasActiveChild && !hasBadge && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", bottom: 3, left: "50%", transform: "translateX(-50%)", width: 16, height: 2, borderRadius: 999, background: color, boxShadow: `0 0 6px ${color}` } })
-        );
+        ), flyOpen && ReactDOM.createPortal(
+          /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { onClick: () => setNavFlyout(null), style: { position: "fixed", inset: 0, zIndex: 9998, background: "transparent" } }), /* @__PURE__ */ React.createElement("div", { style: {
+            position: "fixed",
+            left: navFlyout.left + 10,
+            top: Math.max(8, Math.min(navFlyout.top - 6, window.innerHeight - (menuTabs.length * 42 + 52))),
+            zIndex: 9999,
+            minWidth: 200,
+            background: th.sidebar,
+            border: `1px solid ${th.sidebarBorder}`,
+            borderRadius: "0.75rem",
+            boxShadow: "0 14px 36px rgba(0,0,0,0.3)",
+            padding: "0.4rem",
+            animation: "fadeIn .12s ease-out"
+          } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color, padding: "0.4rem 0.65rem 0.3rem" } }, label), menuTabs.map((t) => {
+            const isCash = t.cash;
+            const cashColor = isCash && cashMissingCount > 0 ? "#ef4444" : "#00d084";
+            const C = isCash ? cashColor : t.green ? "#00d084" : color;
+            return /* @__PURE__ */ React.createElement(
+              NavButton,
+              {
+                key: t.id,
+                tabDef: t,
+                accent: C,
+                isActive: tab === t.id,
+                collapsed: false,
+                badge: navBadge(t),
+                glow: t.green || isCash,
+                dotColor: C,
+                pinned: pinnedNavIds.includes(t.id),
+                onTogglePin: togglePinNav,
+                onClick: () => {
+                  setTab(t.id);
+                  setNavFlyout(null);
+                  nav && nav();
+                }
+              }
+            );
+          }))),
+          document.body
+        ));
       }
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         "button",
@@ -30171,8 +30224,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           onToggle: () => toggleSidebarSection("sec_dm")
         }
       ), sectionOpen && DM_GROUPS.map((grp) => {
-        const grpTabs = grp.ids.map((id) => dmTabs.find((t) => t.id === id)).filter((t) => t && !pinnedNavIds.includes(t.id));
-        if (grpTabs.length === 0) return null;
+        const allTabs = grp.ids.map((id) => dmTabs.find((t) => t.id === id)).filter(Boolean);
+        const grpTabs = allTabs.filter((t) => !pinnedNavIds.includes(t.id));
+        if ((collapsed ? allTabs : grpTabs).length === 0) return null;
         return /* @__PURE__ */ React.createElement(
           AdminGroup,
           {
@@ -30182,6 +30236,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             label: grp.label,
             color: grp.color,
             tabs: grpTabs,
+            flyoutTabs: allTabs,
             collapsed,
             onNav
           }
@@ -30287,8 +30342,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       ), sectionOpen && (() => {
         return ADMIN_GROUPS.map((grp) => {
-          const grpTabs = grp.ids.map((id) => adminTabs.find((t) => t.id === id)).filter((t) => t && !pinnedNavIds.includes(t.id));
-          if (grpTabs.length === 0) return null;
+          const allTabs = grp.ids.map((id) => adminTabs.find((t) => t.id === id)).filter(Boolean);
+          const grpTabs = allTabs.filter((t) => !pinnedNavIds.includes(t.id));
+          if ((collapsed ? allTabs : grpTabs).length === 0) return null;
           return /* @__PURE__ */ React.createElement(
             AdminGroup,
             {
@@ -30298,6 +30354,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
               label: grp.label,
               color: grp.color,
               tabs: grpTabs,
+              flyoutTabs: allTabs,
               collapsed,
               onNav
             }
