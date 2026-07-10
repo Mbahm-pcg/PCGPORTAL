@@ -49,6 +49,7 @@
     tickets: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M2 9a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V9z" }), React.createElement("line", { x1: "9", y1: "4", x2: "9", y2: "20", strokeDasharray: "2 3" })) }),
     calendar: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2", ry: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" })) }),
     reports: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }), /* @__PURE__ */ React.createElement("polyline", { points: "14 2 14 8 20 8" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "13", x2: "8", y2: "13" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "17", x2: "8", y2: "17" }), /* @__PURE__ */ React.createElement("polyline", { points: "10 9 9 9 8 9" })),
+    audits: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" }), /* @__PURE__ */ React.createElement("path", { d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" }), /* @__PURE__ */ React.createElement("path", { d: "m9 14 2 2 4-4" })),
     schedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("polyline", { points: "8 14 10 17 14 13" })) })
   };
   var BTN = {
@@ -4084,8 +4085,8 @@
       }
     };
     const filtered = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
-    const ROLE_OPTIONS = isFullAdmin(currentUser) ? ["Vice President", "Chief Executive Officer", "Chief Operating Officer", "Chief Financial Officer", "Chief of Staff", "IT Administrator", "HR / IT Staff", "Office Staff", "District Manager", "Store Manager", "Construction & Development"] : ["District Manager", "Store Manager", "Construction & Development"];
-    const USERTYPE_OPTIONS = isFullAdmin(currentUser) ? [["executive", "Executive Team"], ["it", "IT Team"], ["office_staff", "Office Staff"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]] : [["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]];
+    const ROLE_OPTIONS = isFullAdmin(currentUser) ? ["Vice President", "Chief Executive Officer", "Chief Operating Officer", "Chief Financial Officer", "Chief of Staff", "IT Administrator", "HR / IT Staff", "Office Staff", "District Manager", "Store Manager", "Construction & Development", "Field Operations Auditor"] : ["District Manager", "Store Manager", "Construction & Development"];
+    const USERTYPE_OPTIONS = isFullAdmin(currentUser) ? [["executive", "Executive Team"], ["it", "IT Team"], ["office_staff", "Office Staff"], ["auditor", "Field Operations Auditor"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]] : [["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]];
     const [roleFilter, setRoleFilter] = useState("all");
     const [isMobileUsers, setIsMobileUsers] = useState(() => window.innerWidth < 700);
     React.useEffect(() => {
@@ -4093,8 +4094,8 @@
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
     }, []);
-    const ROLE_COLOR = { executive: "#10b981", it: "#3b82f6", office_staff: "#8b5cf6", dm: "#f59e0b", manager: "#9ca3af", store_tablet: "#14b8a6", vendor: "#06b6d4", construction: "#fb923c", maintenance: "#0891b2" };
-    const ROLE_LABEL = { executive: "Executive", it: "IT Team", office_staff: "Office", dm: "District Mgr", manager: "Manager", store_tablet: "Store Tablet", vendor: "Vendor", construction: "Construction", maintenance: "Maintenance" };
+    const ROLE_COLOR = { executive: "#10b981", it: "#3b82f6", office_staff: "#8b5cf6", auditor: "#e11d48", dm: "#f59e0b", manager: "#9ca3af", store_tablet: "#14b8a6", vendor: "#06b6d4", construction: "#fb923c", maintenance: "#0891b2" };
+    const ROLE_LABEL = { executive: "Executive", it: "IT Team", office_staff: "Office", auditor: "Auditor", dm: "District Mgr", manager: "Manager", store_tablet: "Store Tablet", vendor: "Vendor", construction: "Construction", maintenance: "Maintenance" };
     const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
     const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
     const displayUsers = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || (u.username || "").toLowerCase().includes(search.toLowerCase())).filter((u) => roleFilter === "all" || u.userType === roleFilter).sort((a, b) => (b.active === false ? 1 : 0) - (a.active === false ? 1 : 0));
@@ -13398,9 +13399,9 @@ ${t2.slice(0, 300)}`);
         }
       }
     ), /* @__PURE__ */ React.createElement("button", { onClick: addTicketEmail, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add")))), /* @__PURE__ */ React.createElement("div", { style: { ...accentCard(th, "#3b82f6", { padding: "1.5rem", marginBottom: "1.25rem" }) } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setUserNotifsOpen((o) => !o), style: { display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: userNotifsOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F514}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "User Notification Settings"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (users || []).filter((u) => u.active !== false && !u.userType?.startsWith("kiosk")).length, " users)")), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem" } }, userNotifsOpen ? "\u25B2 Hide" : "\u25BC Show")), userNotifsOpen && (() => {
-      const ROLE_COLORS = { executive: "#10b981", it: "#3b82f6", office_staff: "#8b5cf6", dm: "#f59e0b", manager: "#9ca3af", construction: "#fb923c", maintenance: "#0891b2", vendor: "#06b6d4" };
-      const ROLE_LABELS = { executive: "Executive", it: "IT Team", office_staff: "Office", dm: "District Mgr", manager: "Manager", construction: "Construction", maintenance: "Maintenance", vendor: "Vendor" };
-      const ROLE_ORDER = ["executive", "it", "office_staff", "dm", "manager", "construction", "maintenance", "vendor"];
+      const ROLE_COLORS = { executive: "#10b981", it: "#3b82f6", office_staff: "#8b5cf6", auditor: "#e11d48", dm: "#f59e0b", manager: "#9ca3af", construction: "#fb923c", maintenance: "#0891b2", vendor: "#06b6d4" };
+      const ROLE_LABELS = { executive: "Executive", it: "IT Team", office_staff: "Office", auditor: "Auditor", dm: "District Mgr", manager: "Manager", construction: "Construction", maintenance: "Maintenance", vendor: "Vendor" };
+      const ROLE_ORDER = ["executive", "it", "office_staff", "auditor", "dm", "manager", "construction", "maintenance", "vendor"];
       const activeUsers = (users || []).filter((u) => u.active !== false && !u.userType?.startsWith("kiosk")).sort((a, b) => {
         const ai = ROLE_ORDER.indexOf(a.userType);
         const bi = ROLE_ORDER.indexOf(b.userType);
@@ -13997,6 +13998,7 @@ ${t2.slice(0, 300)}`);
     executive: { label: "VP / Executive", admin: true, scope: "Full access to every section, network-wide." },
     it: { label: "IT / HR Admin", admin: true, scope: "Full access + user management & this Admin console." },
     office_staff: { label: "Office Staff", admin: false, scope: "All operational tabs, network-wide. No destructive admin powers." },
+    auditor: { label: "Field Operations Auditor", admin: false, scope: "Field audits (conduct + review), plus Pulse, Map, and Tickets \u2014 network-wide read." },
     dm: { label: "District Manager", admin: false, scope: "Tabs filtered to their own district only." },
     manager: { label: "Store Manager", admin: false, scope: "Their assigned store(s) only; My Store mobile mode." },
     store_tablet: { label: "Store Tablet", admin: false, scope: "Assigned store only \u2014 Tickets + Tasks tablet view (Hexnode kiosk)." },
@@ -14553,6 +14555,7 @@ ${t2.slice(0, 300)}`);
       { value: "executive", label: "Executive", color: "#10b981" },
       { value: "it", label: "IT Team", color: "#3b82f6" },
       { value: "office_staff", label: "Office Staff", color: "#8b5cf6" },
+      { value: "auditor", label: "Auditors", color: "#e11d48" },
       { value: "construction", label: "Construction", color: "#fb923c" },
       { value: "maintenance", label: "Maintenance", color: "#0891b2" },
       { value: "vendor", label: "Vendors", color: "#06b6d4" }
@@ -15580,6 +15583,411 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       setIssuePickerOpen(false);
     }, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }) } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: createTicket, disabled: creating, style: { ...btn(th), opacity: creating ? 0.6 : 1, cursor: creating ? "default" : "pointer" } }, creating ? "Saving photos\u2026" : "Create Ticket"))))));
   }
+  var AUDIT_BANDS = {
+    excellent: { label: "Excellent", color: "#10b981" },
+    pass: { label: "Pass", color: "#10b981" },
+    needs_improvement: { label: "Needs Improvement", color: "#f59e0b" },
+    fail: { label: "Fail", color: "#ef4444" }
+  };
+  var auditBandColor = (band) => (AUDIT_BANDS[band] || AUDIT_BANDS.fail).color;
+  var auditBandLabel = (band) => (AUDIT_BANDS[band] || AUDIT_BANDS.fail).label;
+  var auditBandForScore = (s) => s >= 90 ? "excellent" : s >= 80 ? "pass" : s >= 70 ? "needs_improvement" : "fail";
+  var AUDIT_SEVERITIES = ["low", "medium", "high", "critical"];
+  var SEVERITY_COLOR = { low: "#6b7280", medium: "#f59e0b", high: "#f97316", critical: "#ef4444" };
+  async function auditsApi(action, body = {}) {
+    const res = await fetch("/.netlify/functions/audits", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...body })
+    });
+    let json = null;
+    try {
+      json = await res.json();
+    } catch {
+    }
+    if (!res.ok || json && json.ok === false) {
+      throw new Error(json && json.error || `audits ${action} failed (${res.status})`);
+    }
+    return json || {};
+  }
+  function AuditsTab({ user, th, stores, showAlert, setTab }) {
+    const [view, setView] = useState("list");
+    const [conduct, setConduct] = useState(null);
+    const canConduct = ["auditor", "executive", "it"].includes(user?.userType);
+    const openConduct = (auditId, storePC) => {
+      setConduct({ auditId, storePC });
+      setView("conduct");
+    };
+    const openReport = (auditId, storePC) => {
+      setConduct({ auditId, storePC });
+      setView("report");
+    };
+    const backToList = () => {
+      setConduct(null);
+      setView("list");
+    };
+    if (view === "conduct" && conduct) {
+      return /* @__PURE__ */ React.createElement(
+        AuditConduct,
+        {
+          user,
+          th,
+          stores,
+          showAlert,
+          auditId: conduct.auditId,
+          storePC: conduct.storePC,
+          onExit: backToList,
+          onViewReport: () => setView("report")
+        }
+      );
+    }
+    if (view === "report") {
+      return /* @__PURE__ */ React.createElement(AuditReportStub, { th, onBack: backToList });
+    }
+    return /* @__PURE__ */ React.createElement(
+      AuditList,
+      {
+        user,
+        th,
+        stores,
+        showAlert,
+        canConduct,
+        onConduct: openConduct,
+        onViewReport: openReport
+      }
+    );
+  }
+  function AuditList({ user, th, stores, showAlert, canConduct, onConduct, onViewReport }) {
+    const isMobile = useIsMobile();
+    const [audits, setAudits] = useState(null);
+    const [err, setErr] = useState(false);
+    const [picking, setPicking] = useState(false);
+    const [pickStore, setPickStore] = useState("");
+    const [starting, setStarting] = useState(false);
+    const load = useCallback(() => {
+      setErr(false);
+      auditsApi("list").then((j) => setAudits(Array.isArray(j.audits) ? j.audits : [])).catch(() => {
+        setAudits([]);
+        setErr(true);
+      });
+    }, []);
+    useEffect(() => {
+      load();
+    }, [load]);
+    const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
+    const startAudit = async () => {
+      if (!pickStore) {
+        showAlert?.("Pick a store first.", "warning");
+        return;
+      }
+      setStarting(true);
+      const id = Date.now();
+      try {
+        const r = await auditsApi("saveDraft", { id, storePC: pickStore, results: {}, notes: "" });
+        const realId = r.id || id;
+        setPicking(false);
+        setPickStore("");
+        onConduct(realId, pickStore);
+      } catch (e) {
+        showAlert?.("Could not start audit: " + e.message, "error");
+      } finally {
+        setStarting(false);
+      }
+    };
+    const openRow = (a) => {
+      if (a.status === "submitted") onViewReport(a.id, a.storePC);
+      else if (canConduct) onConduct(a.id, a.storePC);
+    };
+    const ScoreChip = ({ a }) => {
+      if (a.status !== "submitted" || a.score == null) {
+        return /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted } }, "\u2014");
+      }
+      const color = auditBandColor(a.band);
+      return /* @__PURE__ */ React.createElement("span", { style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: "0.72rem",
+        fontWeight: 800,
+        padding: "0.15rem 0.5rem",
+        borderRadius: 999,
+        background: color + "22",
+        color,
+        border: `1px solid ${color}55`,
+        whiteSpace: "nowrap"
+      } }, Math.round(a.score), a.cappedByCritical && /* @__PURE__ */ React.createElement("span", { title: "Capped by a critical failure", style: { fontSize: "0.62rem" } }, "\u26A0\uFE0E CAP"));
+    };
+    const StatusPill = ({ status }) => {
+      const map = { submitted: ["#10b981", "Submitted"], draft: [th.muted, "Draft"] };
+      const [color, label] = map[status] || [th.muted, status || "Draft"];
+      return /* @__PURE__ */ React.createElement("span", { style: {
+        fontSize: "0.66rem",
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        textTransform: "uppercase",
+        padding: "0.1rem 0.45rem",
+        borderRadius: 999,
+        background: color + "22",
+        color,
+        border: `1px solid ${color}44`
+      } }, label);
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit")), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
+  }
+  function AuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, onViewReport }) {
+    const [template, setTemplate] = useState(null);
+    const [results, setResults] = useState({});
+    const [secIdx, setSecIdx] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [loadErr, setLoadErr] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [submitted, setSubmitted] = useState(null);
+    const [gpsStatus, setGpsStatus] = useState("");
+    const didHydrate = useRef(false);
+    const localKey = "pcg_audit_draft_" + auditId;
+    const storeName = stores?.find((s) => String(s.pc) === String(storePC))?.name || storePC;
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        setLoading(true);
+        setLoadErr(false);
+        try {
+          const tpl = await auditsApi("template");
+          if (cancelled) return;
+          setTemplate(tpl.template);
+          let hydrated = null;
+          try {
+            const existing = await auditsApi("get", { id: auditId });
+            if (existing?.audit?.results) hydrated = existing.audit.results;
+          } catch {
+          }
+          if (!hydrated) {
+            try {
+              const l = JSON.parse(localStorage.getItem(localKey) || "null");
+              if (l?.results) hydrated = l.results;
+            } catch {
+            }
+          }
+          if (!cancelled && hydrated) setResults(hydrated);
+        } catch (e) {
+          if (!cancelled) setLoadErr(true);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [auditId]);
+    useEffect(() => {
+      if (loading || submitted) return;
+      if (!didHydrate.current) {
+        didHydrate.current = true;
+        return;
+      }
+      const t = setTimeout(() => {
+        try {
+          localStorage.setItem(localKey, JSON.stringify({ storePC, results, savedAt: Date.now() }));
+        } catch {
+        }
+        auditsApi("saveDraft", { id: auditId, storePC, results, notes: "" }).catch(() => {
+        });
+      }, 1500);
+      return () => clearTimeout(t);
+    }, [results, loading, submitted]);
+    const sections = template?.sections || [];
+    const allItems = sections.flatMap((s) => s.items || []);
+    const answeredCount = allItems.filter((it) => results[it.id]?.result).length;
+    const totalCount = allItems.length;
+    const setItem = (itemId, patch, item) => setResults((prev) => {
+      const cur = prev[itemId] || { result: null, severity: item?.critical ? "critical" : "medium", note: "", photoKeys: [] };
+      return { ...prev, [itemId]: { ...cur, ...patch } };
+    });
+    const answer = (item, result) => {
+      if (result === "fail") {
+        const cur = results[item.id];
+        setItem(item.id, { result: "fail", severity: cur?.severity || (item.critical ? "critical" : "medium") }, item);
+      } else {
+        setItem(item.id, { result }, item);
+      }
+    };
+    const addPhotos = async (item, fileList) => {
+      const files = Array.from(fileList || []);
+      if (!files.length) return;
+      const existing = results[item.id]?.photoKeys || [];
+      const keys = [...existing];
+      for (const f of files) {
+        const key = `audit_${auditId}_${item.id}_${keys.length}`;
+        try {
+          await cloudSaveFile(key, f, user?.name || "");
+          keys.push(key);
+        } catch {
+          showAlert?.("A photo failed to upload \u2014 try again.", "error");
+        }
+      }
+      setItem(item.id, { photoKeys: keys }, item);
+    };
+    const removePhoto = (item, key) => setItem(item.id, { photoKeys: (results[item.id]?.photoKeys || []).filter((k) => k !== key) }, item);
+    const sectionScore = (sec2) => {
+      let earned = 0, possible = 0;
+      (sec2.items || []).forEach((it) => {
+        const r = results[it.id]?.result;
+        if (r === "pass") {
+          earned += it.points || 0;
+          possible += it.points || 0;
+        } else if (r === "fail") {
+          possible += it.points || 0;
+        }
+      });
+      return possible > 0 ? Math.round(earned / possible * 100) : null;
+    };
+    const getPosition = () => new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve({ lat: null, lng: null });
+        return;
+      }
+      let done = false;
+      const finish = (v) => {
+        if (!done) {
+          done = true;
+          resolve(v);
+        }
+      };
+      const timer = setTimeout(() => finish({ lat: null, lng: null }), 1e4);
+      navigator.geolocation.getCurrentPosition(
+        (p) => {
+          clearTimeout(timer);
+          finish({ lat: p.coords.latitude, lng: p.coords.longitude });
+        },
+        () => {
+          clearTimeout(timer);
+          finish({ lat: null, lng: null });
+        },
+        { enableHighAccuracy: true, timeout: 1e4, maximumAge: 0 }
+      );
+    });
+    const doSubmit = async () => {
+      const unanswered = totalCount - answeredCount;
+      const ok = window.confirm(
+        `Submit this audit for ${storeName}?
+
+` + (unanswered > 0 ? `${unanswered} unanswered item${unanswered === 1 ? "" : "s"} will be scored as FAIL.
+
+` : "") + `Submitting locks the audit \u2014 it can't be edited afterward.`
+      );
+      if (!ok) return;
+      setSubmitting(true);
+      setGpsStatus("Getting GPS location\u2026");
+      try {
+        const { lat, lng } = await getPosition();
+        setGpsStatus(lat == null ? "No GPS \u2014 submitting without location." : "");
+        await auditsApi("saveDraft", { id: auditId, storePC, results, notes: "" }).catch(() => {
+        });
+        const resp = await auditsApi("submit", { id: auditId, lat, lng });
+        try {
+          localStorage.removeItem(localKey);
+        } catch {
+        }
+        setSubmitted(resp);
+      } catch (e) {
+        showAlert?.("Submit failed: " + e.message, "error");
+      } finally {
+        setSubmitting(false);
+        setGpsStatus("");
+      }
+    };
+    if (submitted) {
+      const a = submitted.audit || {};
+      const band = a.band || auditBandForScore(a.score || 0);
+      const color = auditBandColor(band);
+      const caps = submitted.capsCreated ?? (a.cappedByCritical ? 1 : 0);
+      return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560, margin: "2rem auto", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem 1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" } }, storeName, " \u2014 audit complete"), /* @__PURE__ */ React.createElement("div", { style: { width: 140, height: 140, borderRadius: "50%", margin: "0.5rem auto 1rem", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: color + "18", border: `4px solid ${color}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2.6rem", fontWeight: 900, color, lineHeight: 1 } }, Math.round(a.score || 0)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, "/ 100")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.15rem", fontWeight: 800, color, marginBottom: "0.25rem" } }, auditBandLabel(band)), a.cappedByCritical && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: "#ef4444", marginBottom: "0.5rem" } }, "\u26A0\uFE0E Score capped by a critical failure"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, margin: "0.75rem 0 1.5rem" } }, caps > 0 ? `${caps} Corrective Action Plan${caps === 1 ? "" : "s"} created.` : "No corrective action plans required."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", justifyContent: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { onClick: onViewReport, style: { ...btn(th), minHeight: 44 } }, "View report"), /* @__PURE__ */ React.createElement("button", { onClick: onExit, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Back to audits"))));
+    }
+    if (loading) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" } }, "Loading audit\u2026");
+    if (loadErr || !template) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" } }, "Couldn't load the audit template.", /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onExit, style: { ...btn(th), minHeight: 44 } }, "Back to audits")));
+    const sec = sections[secIdx] || { items: [] };
+    const secScore = sectionScore(sec);
+    const pct = totalCount ? Math.round(answeredCount / totalCount * 100) : 0;
+    const isLast = secIdx >= sections.length - 1;
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 720, margin: "0 auto", paddingBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "sticky", top: 0, zIndex: 20, background: th.bg, paddingTop: "0.5rem", paddingBottom: "0.6rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onExit, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) } }, "\u2190 Exit"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 700 } }, storeName)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginTop: "0.35rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.05rem", fontWeight: 800, color: th.text } }, sec.name, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 600, color: th.muted, marginLeft: "0.5rem" } }, "Section ", secIdx + 1, " of ", sections.length)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", fontWeight: 800, color: secScore == null ? th.muted : auditBandColor(auditBandForScore(secScore)) } }, secScore == null ? "\u2014" : secScore + "%")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", height: 8, borderRadius: 999, background: th.card2, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { width: pct + "%", height: "100%", background: O, transition: "width 0.25s" } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.3rem" } }, answeredCount, " of ", totalCount, " answered")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem", marginTop: "1rem" } }, (sec.items || []).map((item) => {
+      const r = results[item.id] || {};
+      const CHOICES = [["pass", "Pass", "#10b981"], ["fail", "Fail", "#ef4444"], ["na", "N/A", "#6b7280"]];
+      return /* @__PURE__ */ React.createElement("div", { key: item.id, style: { ...card(th), padding: "0.9rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.92rem" } }, item.text, item.critical && /* @__PURE__ */ React.createElement("span", { title: "Critical item", style: { marginLeft: "0.4rem", fontSize: "0.62rem", fontWeight: 800, color: "#ef4444", border: "1px solid #ef444455", background: "#ef444418", borderRadius: 999, padding: "0.05rem 0.4rem" } }, "CRITICAL")), item.guidance && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: th.muted, marginTop: "0.25rem" } }, item.guidance)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 700, whiteSpace: "nowrap" } }, item.points, " pt")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.75rem" } }, CHOICES.map(([val, label, color]) => {
+        const selected = r.result === val;
+        return /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            key: val,
+            onClick: () => answer(item, val),
+            style: {
+              ...btn(th, selected ? { background: color, color: "#fff", border: `1px solid ${color}` } : { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }),
+              flex: 1,
+              minHeight: 44,
+              fontWeight: 800
+            }
+          },
+          label
+        );
+      })), r.result === "fail" && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", padding: "0.75rem", borderRadius: "0.5rem", background: th.card2, border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Severity"), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: r.severity || (item.critical ? "critical" : "medium"),
+          onChange: (e) => setItem(item.id, { severity: e.target.value }, item),
+          style: { ...inp(th), width: "100%", minHeight: 44, borderColor: SEVERITY_COLOR[r.severity] || th.cardBorder }
+        },
+        AUDIT_SEVERITIES.map((s) => /* @__PURE__ */ React.createElement("option", { key: s, value: s }, s.charAt(0).toUpperCase() + s.slice(1)))
+      ), /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", margin: "0.75rem 0 0.3rem" } }, "Note"), /* @__PURE__ */ React.createElement(
+        "textarea",
+        {
+          value: r.note || "",
+          onChange: (e) => setItem(item.id, { note: e.target.value }, item),
+          placeholder: "What did you observe? Where?",
+          rows: 2,
+          style: { ...inp(th), width: "100%", resize: "vertical" }
+        }
+      ), /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", margin: "0.75rem 0 0.3rem" } }, "Photos"), (r.photoKeys || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.4rem" } }, (r.photoKeys || []).map((k) => /* @__PURE__ */ React.createElement("span", { key: k, style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.7rem", color: th.text, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: "0.2rem 0.5rem" } }, "\u{1F4F7} photo", /* @__PURE__ */ React.createElement("button", { onClick: () => removePhoto(item, k), style: { background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.85rem", lineHeight: 1 } }, "\u2715")))), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "file",
+          accept: "image/*",
+          capture: "environment",
+          multiple: true,
+          onChange: (e) => {
+            addPhotos(item, e.target.files);
+            e.target.value = "";
+          },
+          style: { fontSize: "0.78rem", color: th.muted }
+        }
+      )));
+    })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setSecIdx((i) => Math.max(0, i - 1)),
+        disabled: secIdx === 0,
+        style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44, opacity: secIdx === 0 ? 0.5 : 1 }
+      },
+      "\u2190 Previous"
+    ), isLast ? /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: doSubmit,
+        disabled: submitting,
+        style: { ...btn(th, { background: "#10b981", color: "#fff", border: "1px solid #10b981" }), minHeight: 44, fontWeight: 800, opacity: submitting ? 0.6 : 1 }
+      },
+      submitting ? gpsStatus || "Submitting\u2026" : "Submit Audit"
+    ) : /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setSecIdx((i) => Math.min(sections.length - 1, i + 1)),
+        style: { ...btn(th), minHeight: 44 }
+      },
+      "Next \u2192"
+    )), gpsStatus && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontSize: "0.72rem", color: th.muted, marginTop: "0.5rem" } }, gpsStatus));
+  }
+  function AuditReportStub({ th, onBack }) {
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560, margin: "2rem auto", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem 1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, ICONS.audits(O)), /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem" } }, "Audit report"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.9rem", marginBottom: "1.5rem" } }, "The detailed audit report and dashboard arrive in the next release."), /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th), minHeight: 44 } }, "Back to audits")));
+  }
   var BASE_TABS = [
     { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c), noPinToggle: true },
     { id: "links", label: "Links Hub", icon: (c) => ICONS.links(c) },
@@ -15613,6 +16021,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       { id: "recon", label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
       { id: "expenses", label: "Expense Log", icon: (c) => ICONS.dollar(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
+      { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
       { id: "email", label: "Email", icon: "\u{1F4E7}" },
@@ -15633,10 +16042,17 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       { id: "impact", label: "Impact Radar", icon: (c) => ICONS.map(c) },
       { id: "cash", label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
+      { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
       { id: "users", label: "Users", icon: (c) => ICONS.users(c) },
       { id: "email", label: "Email", icon: "\u{1F4E7}" }
+    ];
+    if (ut === "auditor") return [
+      ...BASE_TABS,
+      { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
+      { id: "pulse", label: "Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
+      { id: "map", label: "Map", icon: (c) => ICONS.map(c) }
     ];
     if (ut === "dm") return [
       ...BASE_TABS,
@@ -15650,6 +16066,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       { id: "pnl", label: "District P&L", icon: (c) => ICONS.dollar(c) },
       { id: "cash", label: "Cash", icon: (c) => ICONS.dollar(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
+      { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.projects(c) }
     ];
@@ -16404,7 +16821,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.32";
+  var APP_VERSION = "v18.33";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29747,6 +30164,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const isConstruction = user?.userType === "construction";
+    const isAuditor = user?.userType === "auditor";
     const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin }) => {
       const C = accent;
       const inactiveColor = th.muted;
@@ -30657,7 +31075,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     } }, ICONS.menu(th.text)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: isMobile ? 17 : 20, color: th.text, letterSpacing: -0.5 } }, (() => {
       const ct = TABS.find((t) => t.id === tab);
       return ct ? /* @__PURE__ */ React.createElement(React.Fragment, null, typeof ct.icon === "function" ? ct.icon(th.text) : ct.icon, " ", ct.label) : null;
-    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.75rem", marginTop: "0.125rem" } }, tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "cash" && "Deposit tracking and missing-deposit alerts.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "expenses" && "All maintenance expenses across tickets \u2014 review, filter, and approve.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { ref: notifRef, style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.75rem", marginTop: "0.125rem" } }, tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "cash" && "Deposit tracking and missing-deposit alerts.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "audits" && "Field operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "expenses" && "All maintenance expenses across tickets \u2014 review, filter, and approve.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { ref: notifRef, style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setShowNotifs((s) => !s);
       setShowChatPanel(false);
     }, style: { background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4, display: "flex", alignItems: "center" } }, ICONS.bell(th.text), filterNotifsByRole(notifications, user).filter((n) => !n.read).length > 0 && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -2, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, background: "#ff4444", color: "#fff", fontSize: "0.5625rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 2px " + (th.headerBg || th.bg) } }, filterNotifsByRole(notifications, user).filter((n) => !n.read).length)), showNotifs && (() => {
@@ -30881,9 +31299,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : tab === "locations" || tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "1.25rem 5vw 1rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {
+    }, showAlert, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {
       const ut = user?.userType;
-      const roleDefaults = ut === "executive" || ut === "it" ? ["pulse", "labor", "chat"] : ut === "office_staff" ? ["pulse", "tickets", "chat"] : ut === "dm" ? ["tasks", "labor", "chat"] : ut === "manager" ? ["tasks", "chat", "tickets"] : ut === "maintenance" ? ["tickets", "calendar", "chat"] : ut === "construction" ? ["projects", "chat", "tickets"] : ["chat", "announcements", "tickets"];
+      const roleDefaults = ut === "executive" || ut === "it" ? ["pulse", "labor", "chat"] : ut === "office_staff" ? ["pulse", "tickets", "chat"] : ut === "dm" ? ["tasks", "labor", "chat"] : ut === "manager" ? ["tasks", "chat", "tickets"] : ut === "maintenance" ? ["tickets", "calendar", "chat"] : ut === "construction" ? ["projects", "chat", "tickets"] : ut === "auditor" ? ["audits", "tickets", "chat"] : ["chat", "announcements", "tickets"];
       const savePins = (pins) => {
         setMobileNavPins(pins);
         try {

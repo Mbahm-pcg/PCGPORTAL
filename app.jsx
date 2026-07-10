@@ -3391,17 +3391,17 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const filtered = users.filter(u => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
 
   const ROLE_OPTIONS = isFullAdmin(currentUser)
-    ? ["Vice President","Chief Executive Officer","Chief Operating Officer","Chief Financial Officer","Chief of Staff","IT Administrator","HR / IT Staff","Office Staff","District Manager","Store Manager","Construction & Development"]
+    ? ["Vice President","Chief Executive Officer","Chief Operating Officer","Chief Financial Officer","Chief of Staff","IT Administrator","HR / IT Staff","Office Staff","District Manager","Store Manager","Construction & Development","Field Operations Auditor"]
     : ["District Manager","Store Manager","Construction & Development"];
   const USERTYPE_OPTIONS = isFullAdmin(currentUser)
-    ? [["executive","Executive Team"],["it","IT Team"],["office_staff","Office Staff"],["dm","District Manager"],["manager","Store Manager"],["store_tablet","Store Tablet"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]]
+    ? [["executive","Executive Team"],["it","IT Team"],["office_staff","Office Staff"],["auditor","Field Operations Auditor"],["dm","District Manager"],["manager","Store Manager"],["store_tablet","Store Tablet"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]]
     : [["dm","District Manager"],["manager","Store Manager"],["store_tablet","Store Tablet"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]];
 
   const [roleFilter, setRoleFilter] = useState("all");
   const [isMobileUsers, setIsMobileUsers] = useState(() => window.innerWidth < 700);
   React.useEffect(() => { const fn = () => setIsMobileUsers(window.innerWidth < 700); window.addEventListener("resize", fn); return () => window.removeEventListener("resize", fn); }, []);
-  const ROLE_COLOR = { executive:"#10b981", it:"#3b82f6", office_staff:"#8b5cf6", dm:"#f59e0b", manager:"#9ca3af", store_tablet:"#14b8a6", vendor:"#06b6d4", construction:"#fb923c", maintenance:"#0891b2" };
-  const ROLE_LABEL = { executive:"Executive", it:"IT Team", office_staff:"Office", dm:"District Mgr", manager:"Manager", store_tablet:"Store Tablet", vendor:"Vendor", construction:"Construction", maintenance:"Maintenance" };
+  const ROLE_COLOR = { executive:"#10b981", it:"#3b82f6", office_staff:"#8b5cf6", auditor:"#e11d48", dm:"#f59e0b", manager:"#9ca3af", store_tablet:"#14b8a6", vendor:"#06b6d4", construction:"#fb923c", maintenance:"#0891b2" };
+  const ROLE_LABEL = { executive:"Executive", it:"IT Team", office_staff:"Office", auditor:"Auditor", dm:"District Mgr", manager:"Manager", store_tablet:"Store Tablet", vendor:"Vendor", construction:"Construction", maintenance:"Maintenance" };
   const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
   const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
 
@@ -15746,9 +15746,9 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           <span style={{ color: th.muted, fontSize: "0.85rem" }}>{userNotifsOpen ? "▲ Hide" : "▼ Show"}</span>
         </div>
         {userNotifsOpen && (() => {
-          const ROLE_COLORS = { executive: "#10b981", it: "#3b82f6", office_staff: "#8b5cf6", dm: "#f59e0b", manager: "#9ca3af", construction: "#fb923c", maintenance: "#0891b2", vendor: "#06b6d4" };
-          const ROLE_LABELS = { executive: "Executive", it: "IT Team", office_staff: "Office", dm: "District Mgr", manager: "Manager", construction: "Construction", maintenance: "Maintenance", vendor: "Vendor" };
-          const ROLE_ORDER = ["executive", "it", "office_staff", "dm", "manager", "construction", "maintenance", "vendor"];
+          const ROLE_COLORS = { executive: "#10b981", it: "#3b82f6", office_staff: "#8b5cf6", auditor: "#e11d48", dm: "#f59e0b", manager: "#9ca3af", construction: "#fb923c", maintenance: "#0891b2", vendor: "#06b6d4" };
+          const ROLE_LABELS = { executive: "Executive", it: "IT Team", office_staff: "Office", auditor: "Auditor", dm: "District Mgr", manager: "Manager", construction: "Construction", maintenance: "Maintenance", vendor: "Vendor" };
+          const ROLE_ORDER = ["executive", "it", "office_staff", "auditor", "dm", "manager", "construction", "maintenance", "vendor"];
           const activeUsers = (users || []).filter(u => u.active !== false && !u.userType?.startsWith('kiosk')).sort((a, b) => {
             const ai = ROLE_ORDER.indexOf(a.userType); const bi = ROLE_ORDER.indexOf(b.userType);
             if (ai !== bi) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
@@ -17074,6 +17074,7 @@ const ROLE_META = {
   executive:    { label: 'VP / Executive', admin: true,  scope: 'Full access to every section, network-wide.' },
   it:           { label: 'IT / HR Admin',  admin: true,  scope: 'Full access + user management & this Admin console.' },
   office_staff: { label: 'Office Staff',   admin: false, scope: 'All operational tabs, network-wide. No destructive admin powers.' },
+  auditor:      { label: 'Field Operations Auditor', admin: false, scope: 'Field audits (conduct + review), plus Pulse, Map, and Tickets — network-wide read.' },
   dm:           { label: 'District Manager',admin: false, scope: 'Tabs filtered to their own district only.' },
   manager:      { label: 'Store Manager',  admin: false, scope: 'Their assigned store(s) only; My Store mobile mode.' },
   store_tablet: { label: 'Store Tablet',   admin: false, scope: 'Assigned store only — Tickets + Tasks tablet view (Hexnode kiosk).' },
@@ -17937,6 +17938,7 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
     { value: "executive", label: "Executive", color: "#10b981" },
     { value: "it", label: "IT Team", color: "#3b82f6" },
     { value: "office_staff", label: "Office Staff", color: "#8b5cf6" },
+    { value: "auditor", label: "Auditors", color: "#e11d48" },
     { value: "construction", label: "Construction", color: "#fb923c" },
     { value: "maintenance", label: "Maintenance", color: "#0891b2" },
     { value: "vendor", label: "Vendors", color: "#06b6d4" },
@@ -19360,6 +19362,516 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   );
 }
 
+// ── Field Audits ────────────────────────────────────────────────────────────
+// Bands: excellent(90+)/pass(80+)/needs_improvement(70+)/fail(≤69). Colors follow
+// the labor-threshold green/yellow/red convention (green = good, yellow = watch,
+// red = fail).
+const AUDIT_BANDS = {
+  excellent:         { label: "Excellent",          color: "#10b981" },
+  pass:              { label: "Pass",               color: "#10b981" },
+  needs_improvement: { label: "Needs Improvement",  color: "#f59e0b" },
+  fail:              { label: "Fail",               color: "#ef4444" },
+};
+const auditBandColor = (band) => (AUDIT_BANDS[band] || AUDIT_BANDS.fail).color;
+const auditBandLabel = (band) => (AUDIT_BANDS[band] || AUDIT_BANDS.fail).label;
+const auditBandForScore = (s) => s >= 90 ? "excellent" : s >= 80 ? "pass" : s >= 70 ? "needs_improvement" : "fail";
+const AUDIT_SEVERITIES = ["low", "medium", "high", "critical"];
+const SEVERITY_COLOR = { low: "#6b7280", medium: "#f59e0b", high: "#f97316", critical: "#ef4444" };
+
+// Single wrapper for every /.netlify/functions/audits call (cookie auth).
+async function auditsApi(action, body = {}) {
+  const res = await fetch("/.netlify/functions/audits", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...body }),
+  });
+  let json = null;
+  try { json = await res.json(); } catch {}
+  if (!res.ok || (json && json.ok === false)) {
+    throw new Error((json && json.error) || `audits ${action} failed (${res.status})`);
+  }
+  return json || {};
+}
+
+// Container: owns the view state (list / conduct / report) shared by all three
+// internal screens. Roles that reach this tab: auditor, executive, it (conduct)
+// and dm/office_staff (read). New Audit is gated to conduct-capable roles.
+function AuditsTab({ user, th, stores, showAlert, setTab }) {
+  const [view, setView] = useState("list");         // 'list' | 'conduct' | 'report'
+  const [conduct, setConduct] = useState(null);      // { auditId, storePC }
+  const canConduct = ["auditor", "executive", "it"].includes(user?.userType);
+
+  const openConduct = (auditId, storePC) => { setConduct({ auditId, storePC }); setView("conduct"); };
+  const openReport  = (auditId, storePC) => { setConduct({ auditId, storePC }); setView("report"); };
+  const backToList  = () => { setConduct(null); setView("list"); };
+
+  if (view === "conduct" && conduct) {
+    return <AuditConduct user={user} th={th} stores={stores} showAlert={showAlert}
+      auditId={conduct.auditId} storePC={conduct.storePC}
+      onExit={backToList} onViewReport={() => setView("report")} />;
+  }
+  if (view === "report") {
+    return <AuditReportStub th={th} onBack={backToList} />;
+  }
+  return <AuditList user={user} th={th} stores={stores} showAlert={showAlert}
+    canConduct={canConduct} onConduct={openConduct} onViewReport={openReport} />;
+}
+
+// List view — table (desktop) / cards (mobile) of audits from the `list` action.
+function AuditList({ user, th, stores, showAlert, canConduct, onConduct, onViewReport }) {
+  const isMobile = useIsMobile();
+  const [audits, setAudits] = useState(null);   // null = loading
+  const [err, setErr] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [pickStore, setPickStore] = useState("");
+  const [starting, setStarting] = useState(false);
+
+  const load = useCallback(() => {
+    setErr(false);
+    auditsApi("list")
+      .then(j => setAudits(Array.isArray(j.audits) ? j.audits : []))
+      .catch(() => { setAudits([]); setErr(true); });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const storeName = (pc) => stores?.find(s => String(s.pc) === String(pc))?.name || pc;
+
+  const startAudit = async () => {
+    if (!pickStore) { showAlert?.("Pick a store first.", "warning"); return; }
+    setStarting(true);
+    const id = Date.now();
+    try {
+      const r = await auditsApi("saveDraft", { id, storePC: pickStore, results: {}, notes: "" });
+      const realId = r.id || id;
+      setPicking(false); setPickStore("");
+      onConduct(realId, pickStore);
+    } catch (e) {
+      showAlert?.("Could not start audit: " + e.message, "error");
+    } finally { setStarting(false); }
+  };
+
+  const openRow = (a) => {
+    if (a.status === "submitted") onViewReport(a.id, a.storePC);
+    else if (canConduct) onConduct(a.id, a.storePC);
+  };
+
+  const ScoreChip = ({ a }) => {
+    if (a.status !== "submitted" || a.score == null) {
+      return <span style={{ fontSize: "0.7rem", fontWeight: 700, color: th.muted }}>—</span>;
+    }
+    const color = auditBandColor(a.band);
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.72rem", fontWeight: 800,
+        padding: "0.15rem 0.5rem", borderRadius: 999, background: color + "22", color, border: `1px solid ${color}55`, whiteSpace: "nowrap" }}>
+        {Math.round(a.score)}
+        {a.cappedByCritical && <span title="Capped by a critical failure" style={{ fontSize: "0.62rem" }}>⚠︎ CAP</span>}
+      </span>
+    );
+  };
+
+  const StatusPill = ({ status }) => {
+    const map = { submitted: ["#10b981", "Submitted"], draft: [th.muted, "Draft"] };
+    const [color, label] = map[status] || [th.muted, status || "Draft"];
+    return <span style={{ fontSize: "0.66rem", fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase",
+      padding: "0.1rem 0.45rem", borderRadius: 999, background: color + "22", color, border: `1px solid ${color}44` }}>{label}</span>;
+  };
+
+  return (
+    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>
+        <div>
+          <div style={{ ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            {ICONS.audits(O)} Field Audits
+          </div>
+          <div style={{ color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" }}>
+            Store operations audits — conduct on-site, scored automatically, critical failures cap the result.
+          </div>
+        </div>
+        {canConduct && (
+          <button onClick={() => setPicking(true)} style={{ ...btn(th), minHeight: 44 }}>+ New Audit</button>
+        )}
+      </div>
+
+      {err && (
+        <div style={{ ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" }}>
+          Couldn't load audits. <button onClick={load} style={{ ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" }}>Retry</button>
+        </div>
+      )}
+
+      {audits === null ? (
+        <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>Loading audits…</div>
+      ) : audits.length === 0 ? (
+        <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>
+          No audits yet.{canConduct ? " Start one with “+ New Audit”." : ""}
+        </div>
+      ) : isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          {audits.map(a => (
+            <div key={a.id} onClick={() => openRow(a)} style={{ ...card(th), padding: "0.85rem 1rem", cursor: "pointer" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                <div style={{ fontWeight: 700, color: th.text }}>{storeName(a.storePC)}</div>
+                <ScoreChip a={a} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted }}>
+                <span>{a.auditorName || "—"}{a.submittedAt ? " · " + new Date(a.submittedAt).toLocaleDateString() : ""}</span>
+                <StatusPill status={a.status} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ ...card(th), overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+            <thead>
+              <tr>
+                {["Store", "Date", "Auditor", "Score", "Status"].map(h => (
+                  <th key={h} style={{ ...thCell(th), textAlign: "left" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {audits.map(a => (
+                <tr key={a.id} onClick={() => openRow(a)} style={{ cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` }}>
+                  <td style={{ ...tdCell(th), fontWeight: 700, color: th.text }}>{storeName(a.storePC)}</td>
+                  <td style={{ ...tdCell(th), color: th.muted }}>{a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "—"}</td>
+                  <td style={{ ...tdCell(th), color: th.muted }}>{a.auditorName || "—"}</td>
+                  <td style={tdCell(th)}><ScoreChip a={a} /></td>
+                  <td style={tdCell(th)}><StatusPill status={a.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {picking && (
+        <div onClick={() => !starting && setPicking(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
+          <div onClick={e => e.stopPropagation()} style={{ ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 }}>
+            <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>New Audit — pick a store</div>
+            <select value={pickStore} onChange={e => setPickStore(e.target.value)} style={{ ...inp(th), width: "100%", minHeight: 44 }}>
+              <option value="">Select a store…</option>
+              {[...(stores || [])].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(s => (
+                <option key={s.pc} value={s.pc}>{s.name} ({s.pc})</option>
+              ))}
+            </select>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" }}>
+              <button onClick={() => setPicking(false)} disabled={starting} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 }}>Cancel</button>
+              <button onClick={startAudit} disabled={starting || !pickStore} style={{ ...btn(th), minHeight: 44, opacity: (starting || !pickStore) ? 0.6 : 1 }}>{starting ? "Starting…" : "Start Audit"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Conduct view — one section at a time, sticky header w/ running score + progress,
+// 44px touch targets, fail-expands (severity/note/photos), 1.5s-debounced autosave
+// to localStorage + saveDraft, GPS-stamped submit, then the score screen.
+function AuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, onViewReport }) {
+  const [template, setTemplate] = useState(null);
+  const [results, setResults] = useState({});
+  const [secIdx, setSecIdx] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(null);   // { audit, capsCreated }
+  const [gpsStatus, setGpsStatus] = useState("");
+  const didHydrate = useRef(false);
+
+  const localKey = "pcg_audit_draft_" + auditId;
+  const storeName = stores?.find(s => String(s.pc) === String(storePC))?.name || storePC;
+
+  // Mount: fetch template (required) + hydrate results from server, falling back
+  // to localStorage if the server fetch fails (dead-zone tolerance).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true); setLoadErr(false);
+      try {
+        const tpl = await auditsApi("template");
+        if (cancelled) return;
+        setTemplate(tpl.template);
+        let hydrated = null;
+        try {
+          const existing = await auditsApi("get", { id: auditId });
+          if (existing?.audit?.results) hydrated = existing.audit.results;
+        } catch { /* fall through to localStorage */ }
+        if (!hydrated) {
+          try { const l = JSON.parse(localStorage.getItem(localKey) || "null"); if (l?.results) hydrated = l.results; } catch {}
+        }
+        if (!cancelled && hydrated) setResults(hydrated);
+      } catch (e) {
+        if (!cancelled) setLoadErr(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [auditId]);
+
+  // Autosave: debounce 1.5s → write localStorage immediately + fire saveDraft
+  // (fire-and-forget, last-write-wins). Skips the hydration-triggered change.
+  useEffect(() => {
+    if (loading || submitted) return;
+    if (!didHydrate.current) { didHydrate.current = true; return; }
+    const t = setTimeout(() => {
+      try { localStorage.setItem(localKey, JSON.stringify({ storePC, results, savedAt: Date.now() })); } catch {}
+      auditsApi("saveDraft", { id: auditId, storePC, results, notes: "" }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [results, loading, submitted]);
+
+  const sections = template?.sections || [];
+  const allItems = sections.flatMap(s => s.items || []);
+  const answeredCount = allItems.filter(it => results[it.id]?.result).length;
+  const totalCount = allItems.length;
+
+  const setItem = (itemId, patch, item) => setResults(prev => {
+    const cur = prev[itemId] || { result: null, severity: item?.critical ? "critical" : "medium", note: "", photoKeys: [] };
+    return { ...prev, [itemId]: { ...cur, ...patch } };
+  });
+
+  const answer = (item, result) => {
+    if (result === "fail") {
+      const cur = results[item.id];
+      setItem(item.id, { result: "fail", severity: cur?.severity || (item.critical ? "critical" : "medium") }, item);
+    } else {
+      setItem(item.id, { result }, item);
+    }
+  };
+
+  const addPhotos = async (item, fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const existing = results[item.id]?.photoKeys || [];
+    const keys = [...existing];
+    for (const f of files) {
+      const key = `audit_${auditId}_${item.id}_${keys.length}`;
+      try { await cloudSaveFile(key, f, user?.name || ""); keys.push(key); }
+      catch { showAlert?.("A photo failed to upload — try again.", "error"); }
+    }
+    setItem(item.id, { photoKeys: keys }, item);
+  };
+
+  const removePhoto = (item, key) => setItem(item.id, { photoKeys: (results[item.id]?.photoKeys || []).filter(k => k !== key) }, item);
+
+  // Running section score: points earned / points possible among answered
+  // pass|fail items (N/A excluded). Advisory only — server computes the record.
+  const sectionScore = (sec) => {
+    let earned = 0, possible = 0;
+    (sec.items || []).forEach(it => {
+      const r = results[it.id]?.result;
+      if (r === "pass") { earned += it.points || 0; possible += it.points || 0; }
+      else if (r === "fail") { possible += it.points || 0; }
+    });
+    return possible > 0 ? Math.round((earned / possible) * 100) : null;
+  };
+
+  const getPosition = () => new Promise(resolve => {
+    if (!navigator.geolocation) { resolve({ lat: null, lng: null }); return; }
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const timer = setTimeout(() => finish({ lat: null, lng: null }), 10000);
+    navigator.geolocation.getCurrentPosition(
+      p => { clearTimeout(timer); finish({ lat: p.coords.latitude, lng: p.coords.longitude }); },
+      () => { clearTimeout(timer); finish({ lat: null, lng: null }); },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  });
+
+  const doSubmit = async () => {
+    const unanswered = totalCount - answeredCount;
+    const ok = window.confirm(
+      `Submit this audit for ${storeName}?\n\n` +
+      (unanswered > 0 ? `${unanswered} unanswered item${unanswered === 1 ? "" : "s"} will be scored as FAIL.\n\n` : "") +
+      `Submitting locks the audit — it can't be edited afterward.`
+    );
+    if (!ok) return;
+    setSubmitting(true);
+    setGpsStatus("Getting GPS location…");
+    try {
+      const { lat, lng } = await getPosition();
+      setGpsStatus(lat == null ? "No GPS — submitting without location." : "");
+      // Flush the current answers before scoring (autosave may not have fired yet).
+      await auditsApi("saveDraft", { id: auditId, storePC, results, notes: "" }).catch(() => {});
+      const resp = await auditsApi("submit", { id: auditId, lat, lng });
+      try { localStorage.removeItem(localKey); } catch {}
+      setSubmitted(resp);
+    } catch (e) {
+      showAlert?.("Submit failed: " + e.message, "error");
+    } finally { setSubmitting(false); setGpsStatus(""); }
+  };
+
+  // ── Score screen ──
+  if (submitted) {
+    const a = submitted.audit || {};
+    const band = a.band || auditBandForScore(a.score || 0);
+    const color = auditBandColor(band);
+    const caps = submitted.capsCreated ?? (a.cappedByCritical ? 1 : 0);
+    return (
+      <div style={{ maxWidth: 560, margin: "2rem auto", textAlign: "center" }}>
+        <div style={{ ...card(th), padding: "2rem 1.5rem" }}>
+          <div style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" }}>{storeName} — audit complete</div>
+          <div style={{ width: 140, height: 140, borderRadius: "50%", margin: "0.5rem auto 1rem", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: color + "18", border: `4px solid ${color}` }}>
+            <div style={{ fontSize: "2.6rem", fontWeight: 900, color, lineHeight: 1 }}>{Math.round(a.score || 0)}</div>
+            <div style={{ fontSize: "0.7rem", color: th.muted }}>/ 100</div>
+          </div>
+          <div style={{ fontSize: "1.15rem", fontWeight: 800, color, marginBottom: "0.25rem" }}>{auditBandLabel(band)}</div>
+          {a.cappedByCritical && (
+            <div style={{ fontSize: "0.8rem", color: "#ef4444", marginBottom: "0.5rem" }}>⚠︎ Score capped by a critical failure</div>
+          )}
+          <div style={{ fontSize: "0.85rem", color: th.muted, margin: "0.75rem 0 1.5rem" }}>
+            {caps > 0 ? `${caps} Corrective Action Plan${caps === 1 ? "" : "s"} created.` : "No corrective action plans required."}
+          </div>
+          <div style={{ display: "flex", gap: "0.6rem", justifyContent: "center", flexWrap: "wrap" }}>
+            <button onClick={onViewReport} style={{ ...btn(th), minHeight: 44 }}>View report</button>
+            <button onClick={onExit} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 }}>Back to audits</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) return <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" }}>Loading audit…</div>;
+  if (loadErr || !template) return (
+    <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" }}>
+      Couldn't load the audit template.
+      <div style={{ marginTop: "1rem" }}><button onClick={onExit} style={{ ...btn(th), minHeight: 44 }}>Back to audits</button></div>
+    </div>
+  );
+
+  const sec = sections[secIdx] || { items: [] };
+  const secScore = sectionScore(sec);
+  const pct = totalCount ? Math.round((answeredCount / totalCount) * 100) : 0;
+  const isLast = secIdx >= sections.length - 1;
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", paddingBottom: "2rem" }}>
+      {/* Sticky header: store, section name + running score, progress bar */}
+      <div style={{ position: "sticky", top: 0, zIndex: 20, background: th.bg, paddingTop: "0.5rem", paddingBottom: "0.6rem", borderBottom: `1px solid ${th.cardBorder}` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+          <button onClick={onExit} style={{ ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) }}>← Exit</button>
+          <div style={{ fontSize: "0.78rem", color: th.muted, fontWeight: 700 }}>{storeName}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginTop: "0.35rem" }}>
+          <div style={{ fontSize: "1.05rem", fontWeight: 800, color: th.text }}>
+            {sec.name}
+            <span style={{ fontSize: "0.72rem", fontWeight: 600, color: th.muted, marginLeft: "0.5rem" }}>Section {secIdx + 1} of {sections.length}</span>
+          </div>
+          <div style={{ fontSize: "0.85rem", fontWeight: 800, color: secScore == null ? th.muted : auditBandColor(auditBandForScore(secScore)) }}>
+            {secScore == null ? "—" : secScore + "%"}
+          </div>
+        </div>
+        <div style={{ marginTop: "0.5rem", height: 8, borderRadius: 999, background: th.card2, overflow: "hidden" }}>
+          <div style={{ width: pct + "%", height: "100%", background: O, transition: "width 0.25s" }} />
+        </div>
+        <div style={{ fontSize: "0.7rem", color: th.muted, marginTop: "0.3rem" }}>{answeredCount} of {totalCount} answered</div>
+      </div>
+
+      {/* Item rows */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginTop: "1rem" }}>
+        {(sec.items || []).map(item => {
+          const r = results[item.id] || {};
+          const CHOICES = [["pass", "Pass", "#10b981"], ["fail", "Fail", "#ef4444"], ["na", "N/A", "#6b7280"]];
+          return (
+            <div key={item.id} style={{ ...card(th), padding: "0.9rem 1rem" }}>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, color: th.text, fontSize: "0.92rem" }}>
+                    {item.text}
+                    {item.critical && <span title="Critical item" style={{ marginLeft: "0.4rem", fontSize: "0.62rem", fontWeight: 800, color: "#ef4444", border: "1px solid #ef444455", background: "#ef444418", borderRadius: 999, padding: "0.05rem 0.4rem" }}>CRITICAL</span>}
+                  </div>
+                  {item.guidance && <div style={{ fontSize: "0.76rem", color: th.muted, marginTop: "0.25rem" }}>{item.guidance}</div>}
+                </div>
+                <div style={{ fontSize: "0.7rem", color: th.muted, fontWeight: 700, whiteSpace: "nowrap" }}>{item.points} pt</div>
+              </div>
+
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                {CHOICES.map(([val, label, color]) => {
+                  const selected = r.result === val;
+                  return (
+                    <button key={val} onClick={() => answer(item, val)}
+                      style={{ ...btn(th, selected
+                        ? { background: color, color: "#fff", border: `1px solid ${color}` }
+                        : { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }),
+                        flex: 1, minHeight: 44, fontWeight: 800 }}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Fail expands: severity + note + photos */}
+              {r.result === "fail" && (
+                <div style={{ marginTop: "0.75rem", padding: "0.75rem", borderRadius: "0.5rem", background: th.card2, border: `1px solid ${th.cardBorder}` }}>
+                  <label style={{ ...microLabel(th), display: "block", marginBottom: "0.3rem" }}>Severity</label>
+                  <select value={r.severity || (item.critical ? "critical" : "medium")} onChange={e => setItem(item.id, { severity: e.target.value }, item)}
+                    style={{ ...inp(th), width: "100%", minHeight: 44, borderColor: SEVERITY_COLOR[r.severity] || th.cardBorder }}>
+                    {AUDIT_SEVERITIES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                  </select>
+
+                  <label style={{ ...microLabel(th), display: "block", margin: "0.75rem 0 0.3rem" }}>Note</label>
+                  <textarea value={r.note || ""} onChange={e => setItem(item.id, { note: e.target.value }, item)}
+                    placeholder="What did you observe? Where?" rows={2} style={{ ...inp(th), width: "100%", resize: "vertical" }} />
+
+                  <label style={{ ...microLabel(th), display: "block", margin: "0.75rem 0 0.3rem" }}>Photos</label>
+                  {(r.photoKeys || []).length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.4rem" }}>
+                      {(r.photoKeys || []).map(k => (
+                        <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.7rem", color: th.text, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: "0.2rem 0.5rem" }}>
+                          📷 photo
+                          <button onClick={() => removePhoto(item, k)} style={{ background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.85rem", lineHeight: 1 }}>✕</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <input type="file" accept="image/*" capture="environment" multiple
+                    onChange={e => { addPhotos(item, e.target.files); e.target.value = ""; }}
+                    style={{ fontSize: "0.78rem", color: th.muted }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Section nav + submit */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginTop: "1.25rem" }}>
+        <button onClick={() => setSecIdx(i => Math.max(0, i - 1))} disabled={secIdx === 0}
+          style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44, opacity: secIdx === 0 ? 0.5 : 1 }}>← Previous</button>
+        {isLast ? (
+          <button onClick={doSubmit} disabled={submitting}
+            style={{ ...btn(th, { background: "#10b981", color: "#fff", border: "1px solid #10b981" }), minHeight: 44, fontWeight: 800, opacity: submitting ? 0.6 : 1 }}>
+            {submitting ? (gpsStatus || "Submitting…") : "Submit Audit"}
+          </button>
+        ) : (
+          <button onClick={() => setSecIdx(i => Math.min(sections.length - 1, i + 1))}
+            style={{ ...btn(th), minHeight: 44 }}>Next →</button>
+        )}
+      </div>
+      {gpsStatus && <div style={{ textAlign: "center", fontSize: "0.72rem", color: th.muted, marginTop: "0.5rem" }}>{gpsStatus}</div>}
+    </div>
+  );
+}
+
+// Report view — Task 7 fills this in. Keeps the view wiring so "View report" lands here.
+function AuditReportStub({ th, onBack }) {
+  return (
+    <div style={{ maxWidth: 560, margin: "2rem auto", textAlign: "center" }}>
+      <div style={{ ...card(th), padding: "2rem 1.5rem" }}>
+        <div style={{ marginBottom: "0.75rem" }}>{ICONS.audits(O)}</div>
+        <div style={{ ...sectionTitle(th), marginBottom: "0.5rem" }}>Audit report</div>
+        <div style={{ color: th.muted, fontSize: "0.9rem", marginBottom: "1.5rem" }}>
+          The detailed audit report and dashboard arrive in the next release.
+        </div>
+        <button onClick={onBack} style={{ ...btn(th), minHeight: 44 }}>Back to audits</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Tab definitions ────────────────────────────────────────────────────────
 const BASE_TABS = [
   { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c), noPinToggle: true },
@@ -19395,6 +19907,7 @@ const getTabs = (user) => {
     { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
     { id: "expenses",  label: "Expense Log",    icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
+    { id: "audits",    label: "Audits",        icon: (c) => ICONS.audits(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
     { id: "email",     label: "Email",        icon: '📧' },
@@ -19416,10 +19929,18 @@ const getTabs = (user) => {
     { id: "impact",    label: "Impact Radar", icon: (c) => ICONS.map(c) },
     { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
+    { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
     { id: "email",     label: "Email",     icon: '📧' },
+  ];
+  // Field Operations Auditor → base workspace + audits (conduct/review) + pulse/map. Tickets is in BASE_TABS.
+  if (ut === "auditor") return [
+    ...BASE_TABS,
+    { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
+    { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
+    { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
   ];
   // District Managers → base + their locations + their district analytics + projects (view-only)
   if (ut === "dm") return [
@@ -19434,6 +19955,7 @@ const getTabs = (user) => {
     { id: "pnl",       label: "District P&L",   icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash",           icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",        icon: (c) => ICONS.reports(c) },
+    { id: "audits",    label: "Audits",         icon: (c) => ICONS.audits(c) },
     { id: "projects",  label: "Projects",       icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline",  icon: (c) => ICONS.projects(c) },
   ];
@@ -20646,7 +21168,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.32";
+const APP_VERSION = "v18.33";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -39267,6 +39789,7 @@ function PCGPortal() {
   const isDM          = user?.userType === "dm";
   const isManager     = user?.userType === "manager";
   const isConstruction = user?.userType === "construction";
+  const isAuditor      = user?.userType === "auditor";
 
   // ─── Reusable nav button — same shape for all sections, just different color ───
   const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin }) => {
@@ -40132,6 +40655,7 @@ function PCGPortal() {
                 {tab === "pulse" && "Live sales monitoring and weekly trends."}
                 {tab === "cash" && "Deposit tracking and missing-deposit alerts."}
                 {tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion."}
+                {tab === "audits" && "Field operations audits — conduct on-site, scored automatically, critical failures cap the result."}
                 {tab === "projects" && "Track construction, remodels, and new store builds."}
                 {tab === "users" && "User accounts and access management."}
                 {tab === "kb" && "Company guides, SOPs, training materials, and reference articles."}
@@ -40482,14 +41006,14 @@ function PCGPortal() {
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
-          {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff ? true : s.district == user?.district)} th={th} setTab={setTab} />}
+          {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district)} th={th} setTab={setTab} />}
           {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? stores : stores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
           {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={stores} salesWeeks={salesWeeks} />}
           {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
-          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
@@ -40501,6 +41025,7 @@ function PCGPortal() {
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "expenses"  && isFullAdmin(user) && <ExpenseLogSection th={th} user={user} standalone />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
+          {tab === "audits" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
@@ -40531,6 +41056,8 @@ function PCGPortal() {
           ? ["tickets", "calendar", "chat"]
           : ut === "construction"
           ? ["projects", "chat", "tickets"]
+          : ut === "auditor"
+          ? ["audits", "tickets", "chat"]
           : ["chat", "announcements", "tickets"];
 
         const savePins = (pins) => {
