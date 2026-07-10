@@ -128,6 +128,70 @@ export const maintTicketExpenses = pgTable("maint_ticket_expenses", {
   meta: jsonb("meta").notNull().default({}),
 });
 
+// ── Field Operations Audits (LIVE) ────────────────────────────────────────────
+// Backs the Audit module UI (see netlify/functions/audits.mjs). audits.mjs
+// self-creates these three tables via CREATE TABLE IF NOT EXISTS; this block
+// documents the schema for drizzle/tooling only — it is never migrated from here.
+export const auditTemplates = pgTable("audit_templates", {
+  id: serial("id").primaryKey(),
+  version: integer("version").notNull(),
+  name: text("name").notNull(),
+  type: text("type"),
+  sections: jsonb("sections").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// `id` is the client-generated Date.now() value (bigint), same convention as
+// maintTickets above. `results` is jsonb: { [itemId]: { result, severity?, note?,
+// photoKeys? } }, plus a reserved `_photos` key for audit-level (non-item) photos.
+export const audits = pgTable("audits", {
+  id: bigint("id", { mode: "number" }).primaryKey(),
+  templateId: integer("template_id"),
+  storePC: text("store_pc").notNull(),
+  auditorUserId: integer("auditor_user_id"),
+  auditorName: text("auditor_name"),
+  status: text("status").notNull().default("draft"), // draft | submitted
+  startedAt: timestamp("started_at"),
+  submittedAt: timestamp("submitted_at"),
+  submitLat: real("submit_lat"),
+  submitLng: real("submit_lng"),
+  score: real("score"),
+  sectionScores: jsonb("section_scores"),
+  cappedByCritical: boolean("capped_by_critical").notNull().default(false),
+  results: jsonb("results").notNull().default({}),
+  notes: text("notes"),
+  unlockedBy: text("unlocked_by"),
+  unlockedAt: timestamp("unlocked_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Corrective Action Plan rows: one per checklist item that failed at submit
+// time. `id` is `cap_<auditId>_<itemId>` — deterministic, so re-inserting on a
+// submit retry is a no-op (ON CONFLICT DO NOTHING in audits.mjs).
+export const auditCaps = pgTable("audit_caps", {
+  id: text("id").primaryKey(),
+  auditId: bigint("audit_id", { mode: "number" }).notNull(),
+  templateItemId: text("template_item_id").notNull(),
+  itemText: text("item_text"),
+  sectionId: text("section_id"),
+  severity: text("severity"),
+  storePC: text("store_pc"),
+  ownerUserId: integer("owner_user_id"),
+  ownerName: text("owner_name"),
+  deadline: timestamp("deadline"),
+  status: text("status").notNull().default("open"), // open | owner_resolved | verified_closed | overdue
+  ownerNote: text("owner_note"),
+  ownerPhotoKeys: jsonb("owner_photo_keys").notNull().default([]),
+  resolvedAt: timestamp("resolved_at"),
+  verifiedBy: text("verified_by"),
+  verifiedAt: timestamp("verified_at"),
+  escalatedAt: timestamp("escalated_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // ── Business Cases (Orion AI) ─────────────────────────────────────────────────
 export const businessCases = pgTable("business_cases", {
   id: serial("id").primaryKey(),
