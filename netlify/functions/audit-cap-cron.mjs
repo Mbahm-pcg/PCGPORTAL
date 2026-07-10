@@ -185,8 +185,15 @@ export default async (request) => {
       }
 
       const escalateIds = toEscalate.map((r) => r.id);
-      await db`UPDATE audit_caps SET escalated_at = now() WHERE id = ANY(${escalateIds})`;
-      escalatedCount = escalateIds.length;
+      // Guard the escalated_at write: email and push sends already succeeded above.
+      // If this UPDATE fails on a transient DB blip, degrade gracefully rather than
+      // failing the entire run, which would be misleading (escalations already sent).
+      try {
+        await db`UPDATE audit_caps SET escalated_at = now() WHERE id = ANY(${escalateIds})`;
+        escalatedCount = escalateIds.length;
+      } catch (e) {
+        console.warn('[audit-cap-cron] escalated_at update failed', e.message);
+      }
     }
 
     console.log(`[audit-cap-cron] flipped ${flipped.length} overdue; digested ${byOwner.size} owner(s) (${ownerEmailed} emailed, ${ownerPushed} pushed); escalated ${escalatedCount} (${escalationEmailed ? 'emailed' : 'no email'}, ${escalationPushed} pushed)`);
