@@ -15809,7 +15809,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         const cur = results[item.id];
         setItem(item.id, { result: "fail", severity: cur?.severity || (item.critical ? "critical" : "medium") }, item);
       } else {
-        setItem(item.id, { result }, item);
+        setItem(item.id, { result, severity: null, note: "", photoKeys: [] }, item);
       }
     };
     const addPhotos = async (item, fileList) => {
@@ -15817,8 +15817,10 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       if (!files.length) return;
       const existing = results[item.id]?.photoKeys || [];
       const keys = [...existing];
-      for (const f of files) {
-        const key = `audit_${auditId}_${item.id}_${keys.length}`;
+      const batchTs = Date.now();
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const key = `audit_${auditId}_${item.id}_${batchTs}_${i}`;
         try {
           await cloudSaveFile(key, f, user?.name || "");
           keys.push(key);

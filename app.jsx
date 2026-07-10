@@ -19638,7 +19638,7 @@ function AuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, o
       const cur = results[item.id];
       setItem(item.id, { result: "fail", severity: cur?.severity || (item.critical ? "critical" : "medium") }, item);
     } else {
-      setItem(item.id, { result }, item);
+      setItem(item.id, { result, severity: null, note: "", photoKeys: [] }, item);
     }
   };
 
@@ -19647,8 +19647,10 @@ function AuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, o
     if (!files.length) return;
     const existing = results[item.id]?.photoKeys || [];
     const keys = [...existing];
-    for (const f of files) {
-      const key = `audit_${auditId}_${item.id}_${keys.length}`;
+    const batchTs = Date.now();
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const key = `audit_${auditId}_${item.id}_${batchTs}_${i}`;
       try { await cloudSaveFile(key, f, user?.name || ""); keys.push(key); }
       catch { showAlert?.("A photo failed to upload — try again.", "error"); }
     }
