@@ -20235,7 +20235,15 @@ function CapBoard({ user, th, stores, showAlert, onBack }) {
   const ownerOptions = [...new Set((rows || []).map(r => r.ownerName).filter(Boolean))].sort();
 
   const filtered = (rows || []).filter(r => {
-    if (statusFilter !== "all" && r.status !== statusFilter) return false;
+    if (statusFilter !== "all") {
+      if (statusFilter === "overdue") {
+        if (!(r.status === "overdue" || r.isOverdue)) return false;
+      } else if (statusFilter === "open") {
+        if (!(r.status === "open" && !r.isOverdue)) return false;
+      } else {
+        if (r.status !== statusFilter) return false;
+      }
+    }
     if (districtFilter !== "all" && String(districtOf(r.storePC)) !== districtFilter) return false;
     if (ownerFilter !== "all" && r.ownerName !== ownerFilter) return false;
     return true;
