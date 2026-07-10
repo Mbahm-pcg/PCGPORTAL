@@ -101,6 +101,10 @@
 [functions.schedule-alerts]
   schedule = "0 10 * * 1,4"
 
+# Audit CAP escalation — daily 7am ET: flip overdue, digest owners, escalate VP/DM
+[functions.audit-cap-cron]
+  schedule = "0 11 * * *"
+
 # KB article embedding — triggered manually after article approval
 [functions.kb-embed]
   timeout = 60
