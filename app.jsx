@@ -19398,9 +19398,12 @@ async function auditsApi(action, body = {}) {
 // internal screens. Roles that reach this tab: auditor, executive, it (conduct)
 // and dm/office_staff (read). New Audit is gated to conduct-capable roles.
 function AuditsTab({ user, th, stores, showAlert, setTab }) {
-  const [view, setView] = useState("list");         // 'list' | 'conduct' | 'report'
+  const [view, setView] = useState("list");         // 'list' | 'conduct' | 'report' | 'caps'
   const [conduct, setConduct] = useState(null);      // { auditId, storePC }
   const canConduct = ["auditor", "executive", "it"].includes(user?.userType);
+  // Matches the `dashboard` action's server-side gate (FULL_VIEW ∪ dm) — the only
+  // roles that can ever get a non-empty capBoard back.
+  const canSeeCapBoard = ["auditor", "executive", "it", "office_staff", "dm"].includes(user?.userType);
 
   const openConduct = (auditId, storePC) => { setConduct({ auditId, storePC }); setView("conduct"); };
   const openReport  = (auditId, storePC) => { setConduct({ auditId, storePC }); setView("report"); };
@@ -19411,15 +19414,20 @@ function AuditsTab({ user, th, stores, showAlert, setTab }) {
       auditId={conduct.auditId} storePC={conduct.storePC}
       onExit={backToList} onViewReport={() => setView("report")} />;
   }
-  if (view === "report") {
-    return <AuditReportStub th={th} onBack={backToList} />;
+  if (view === "report" && conduct) {
+    return <AuditReport user={user} th={th} stores={stores} showAlert={showAlert}
+      auditId={conduct.auditId} storePC={conduct.storePC} onBack={backToList} />;
+  }
+  if (view === "caps") {
+    return <CapBoard user={user} th={th} stores={stores} showAlert={showAlert} onBack={backToList} />;
   }
   return <AuditList user={user} th={th} stores={stores} showAlert={showAlert}
-    canConduct={canConduct} onConduct={openConduct} onViewReport={openReport} />;
+    canConduct={canConduct} canSeeCapBoard={canSeeCapBoard}
+    onConduct={openConduct} onViewReport={openReport} onOpenCapBoard={() => setView("caps")} />;
 }
 
 // List view — table (desktop) / cards (mobile) of audits from the `list` action.
-function AuditList({ user, th, stores, showAlert, canConduct, onConduct, onViewReport }) {
+function AuditList({ user, th, stores, showAlert, canConduct, canSeeCapBoard, onConduct, onViewReport, onOpenCapBoard }) {
   const isMobile = useIsMobile();
   const [audits, setAudits] = useState(null);   // null = loading
   const [err, setErr] = useState(false);
@@ -19438,7 +19446,7 @@ function AuditList({ user, th, stores, showAlert, canConduct, onConduct, onViewR
   const storeName = (pc) => stores?.find(s => String(s.pc) === String(pc))?.name || pc;
 
   const startAudit = async () => {
-    if (!pickStore) { showAlert?.("Pick a store first.", "warning"); return; }
+    if (!pickStore) { showAlert?.("warning", "Pick a store first."); return; }
     setStarting(true);
     const id = Date.now();
     try {
@@ -19447,7 +19455,7 @@ function AuditList({ user, th, stores, showAlert, canConduct, onConduct, onViewR
       setPicking(false); setPickStore("");
       onConduct(realId, pickStore);
     } catch (e) {
-      showAlert?.("Could not start audit: " + e.message, "error");
+      showAlert?.("error", "Could not start audit: " + e.message);
     } finally { setStarting(false); }
   };
 
@@ -19488,9 +19496,14 @@ function AuditList({ user, th, stores, showAlert, canConduct, onConduct, onViewR
             Store operations audits — conduct on-site, scored automatically, critical failures cap the result.
           </div>
         </div>
-        {canConduct && (
-          <button onClick={() => setPicking(true)} style={{ ...btn(th), minHeight: 44 }}>+ New Audit</button>
-        )}
+        <div style={{ display: "flex", gap: "0.6rem" }}>
+          {canSeeCapBoard && (
+            <button onClick={onOpenCapBoard} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 }}>CAP Board</button>
+          )}
+          {canConduct && (
+            <button onClick={() => setPicking(true)} style={{ ...btn(th), minHeight: 44 }}>+ New Audit</button>
+          )}
+        </div>
       </div>
 
       {err && (
@@ -19652,7 +19665,7 @@ function AuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, o
       const f = files[i];
       const key = `audit_${auditId}_${item.id}_${batchTs}_${i}`;
       try { await cloudSaveFile(key, f, user?.name || ""); keys.push(key); }
-      catch { showAlert?.("A photo failed to upload — try again.", "error"); }
+      catch { showAlert?.("error", "A photo failed to upload — try again."); }
     }
     setItem(item.id, { photoKeys: keys }, item);
   };
@@ -19702,7 +19715,7 @@ function AuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, o
       try { localStorage.removeItem(localKey); } catch {}
       setSubmitted(resp);
     } catch (e) {
-      showAlert?.("Submit failed: " + e.message, "error");
+      showAlert?.("error", "Submit failed: " + e.message);
     } finally { setSubmitting(false); setGpsStatus(""); }
   };
 
@@ -19858,18 +19871,617 @@ function AuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, o
   );
 }
 
-// Report view — Task 7 fills this in. Keeps the view wiring so "View report" lands here.
-function AuditReportStub({ th, onBack }) {
+// ── CAP status display meta + shared photo/lightbox helpers ─────────────────
+const CAP_STATUS_META = {
+  open:            { label: "Open",                color: "#3b82f6" },
+  overdue:         { label: "Overdue",              color: "#ef4444" },
+  owner_resolved:  { label: "Pending Verification", color: "#f59e0b" },
+  verified_closed: { label: "Verified Closed",      color: "#10b981" },
+};
+const capStatusMeta = (s) => CAP_STATUS_META[s] || { label: s || "—", color: "#6b7280" };
+
+// Single-photo thumbnail: lazy-loads its blob via cloudLoadFile (same pattern as
+// TicketAttachment) and opens the shared lightbox on click.
+function AuditPhotoThumb({ photoKey, th, onZoom, size = 64 }) {
+  const [src, setSrc] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    cloudLoadFile(photoKey)
+      .then(f => { if (!cancelled) { setSrc(f?.data || null); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [photoKey]);
+  const box = { width: size, height: size, borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}`, background: th.card2, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" };
+  if (loading) return <div style={box}><span style={{ fontSize: "0.6rem", color: th.muted }}>…</span></div>;
+  if (!src) return <div style={box}><span style={{ fontSize: "0.9rem" }}>📷</span></div>;
   return (
-    <div style={{ maxWidth: 560, margin: "2rem auto", textAlign: "center" }}>
-      <div style={{ ...card(th), padding: "2rem 1.5rem" }}>
-        <div style={{ marginBottom: "0.75rem" }}>{ICONS.audits(O)}</div>
-        <div style={{ ...sectionTitle(th), marginBottom: "0.5rem" }}>Audit report</div>
-        <div style={{ color: th.muted, fontSize: "0.9rem", marginBottom: "1.5rem" }}>
-          The detailed audit report and dashboard arrive in the next release.
+    <div style={{ ...box, cursor: "zoom-in" }} onClick={() => onZoom && onZoom(src)}>
+      <img src={src} alt="Finding photo" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+    </div>
+  );
+}
+
+function SimpleLightbox({ src, onClose }) {
+  if (!src) return null;
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem", cursor: "zoom-out" }}>
+      <img src={src} alt="Full size" onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: "0.75rem", objectFit: "contain", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }} />
+      <button onClick={onClose} style={{ position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.25rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+    </div>
+  );
+}
+
+// Shared "resolve" form — owner (or auditor/executive/it) closing out an open|overdue
+// CAP. Note + at least one photo are both required (server records them as
+// ownerNote/ownerPhotoKeys). Used by both the CAP board row-expand and the
+// manager's "Open CAPs" dashboard card.
+function CapResolveForm({ th, user, cap, showAlert, onDone, onCancel }) {
+  const [note, setNote] = useState("");
+  const [photoKeys, setPhotoKeys] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const addPhotos = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setUploading(true);
+    const batchTs = Date.now();
+    const keys = [...photoKeys];
+    for (let i = 0; i < files.length; i++) {
+      const key = `cap_${cap.id}_resolve_${batchTs}_${i}`;
+      try { await cloudSaveFile(key, files[i], user?.name || ""); keys.push(key); }
+      catch { showAlert?.("error", "A photo failed to upload — try again."); }
+    }
+    setPhotoKeys(keys);
+    setUploading(false);
+  };
+  const removePhoto = (k) => setPhotoKeys(ks => ks.filter(x => x !== k));
+
+  const submit = async () => {
+    if (!note.trim() || photoKeys.length === 0) return;
+    setSaving(true);
+    try {
+      const r = await auditsApi("capUpdate", { id: cap.id, to: "owner_resolved", note: note.trim(), photoKeys });
+      showAlert?.("success", "Corrective action marked resolved — awaiting verification.");
+      onDone(r.cap);
+    } catch (e) {
+      showAlert?.("error", "Could not resolve: " + e.message);
+    } finally { setSaving(false); }
+  };
+
+  const disabled = saving || uploading || !note.trim() || photoKeys.length === 0;
+  return (
+    <div style={{ padding: "0.75rem", borderRadius: "0.5rem", background: th.card2, border: `1px solid ${th.cardBorder}` }}>
+      <label style={{ ...microLabel(th), display: "block", marginBottom: "0.3rem" }}>Resolution note (required)</label>
+      <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="What did you fix? How was it verified?" rows={2}
+        style={{ ...inp(th), width: "100%", resize: "vertical" }} />
+      <label style={{ ...microLabel(th), display: "block", margin: "0.75rem 0 0.3rem" }}>Photo proof (required)</label>
+      {photoKeys.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.4rem" }}>
+          {photoKeys.map(k => (
+            <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.7rem", color: th.text, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: "0.2rem 0.5rem" }}>
+              📷 photo
+              <button onClick={() => removePhoto(k)} style={{ background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.85rem", lineHeight: 1 }}>✕</button>
+            </span>
+          ))}
         </div>
-        <button onClick={onBack} style={{ ...btn(th), minHeight: 44 }}>Back to audits</button>
+      )}
+      <input type="file" accept="image/*" capture="environment" multiple
+        onChange={e => { addPhotos(e.target.files); e.target.value = ""; }}
+        style={{ fontSize: "0.78rem", color: th.muted }} />
+      <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "0.85rem" }}>
+        {onCancel && <button onClick={onCancel} style={{ ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 }}>Cancel</button>}
+        <button onClick={submit} disabled={disabled}
+          style={{ ...btn(th, { background: "#10b981", color: "#fff", border: "1px solid #10b981" }), minHeight: 40, opacity: disabled ? 0.55 : 1 }}>
+          {saving ? "Resolving…" : uploading ? "Uploading…" : "Mark Resolved"}
+        </button>
       </div>
+    </div>
+  );
+}
+
+// Report view — header (store/date/auditor/GPS), score dial, capped-by-critical
+// banner, per-section score bars, findings (one per CAP, enriched with the
+// auditor's original note/photos), CAP list, and a PDF export of the whole thing.
+function AuditReport({ user, th, stores, showAlert, auditId, storePC, onBack }) {
+  const [audit, setAudit] = useState(null);
+  const [items, setItems] = useState([]);
+  const [caps, setCaps] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const printRef = useRef(null);
+
+  const load = useCallback(() => {
+    setLoading(true); setErr(false);
+    auditsApi("get", { id: auditId })
+      .then(j => { setAudit(j.audit); setItems(Array.isArray(j.items) ? j.items : []); setCaps(Array.isArray(j.caps) ? j.caps : []); })
+      .catch(() => setErr(true))
+      .finally(() => setLoading(false));
+  }, [auditId]);
+  useEffect(() => { load(); }, [load]);
+
+  const store = (stores || []).find(s => String(s.pc) === String(storePC));
+  const storeLabel = store ? `${store.name} (${store.pc})` : storePC;
+
+  if (loading) return <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" }}>Loading report…</div>;
+  if (err || !audit) return (
+    <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" }}>
+      Couldn't load this audit report.
+      <div style={{ marginTop: "1rem" }}><button onClick={onBack} style={{ ...btn(th), minHeight: 44 }}>Back to audits</button></div>
+    </div>
+  );
+
+  const band = audit.band || auditBandForScore(audit.score || 0);
+  const color = auditBandColor(band);
+  const hasGps = audit.submitLat != null && audit.submitLng != null;
+
+  // Section order/names, derived from `items` (already in template order — see
+  // the `get` action, which flattens sections.flatMap(...)). Scores come from
+  // the authoritative audit.sectionScores computed server-side at submit.
+  const sectionOrder = [];
+  const sectionMeta = {};
+  items.forEach(it => {
+    if (!(it.sectionId in sectionMeta)) { sectionMeta[it.sectionId] = it.sectionName; sectionOrder.push(it.sectionId); }
+  });
+  const sectionScores = audit.sectionScores || {};
+
+  // The critical item that capped the score (first critical fail/unanswered item).
+  const criticalItem = audit.cappedByCritical
+    ? items.find(it => it.critical && (it.result === "fail" || it.result == null))
+    : null;
+
+  // Findings — one per CAP (CAPs are only ever created for failed/unanswered
+  // items at submit time), enriched with the auditor's original note/photos.
+  const findings = caps.map(cap => {
+    const it = items.find(i => i.id === cap.templateItemId);
+    return { cap, text: it?.text || cap.itemText, note: it?.note, photoKeys: it?.photoKeys || [] };
+  });
+
+  const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const exportPdf = async () => {
+    if (typeof html2pdf === "undefined" || !printRef.current) return;
+    setExporting(true);
+    try {
+      const dateStr = audit.submittedAt ? isoDate(new Date(audit.submittedAt)) : isoDate(new Date());
+      const fname = `audit_${storePC}_${dateStr}.pdf`;
+      await html2pdf().set({ margin: 0.4, filename: fname, image: { type: "jpeg", quality: 0.95 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" }, pagebreak: { mode: ["css", "legacy"] } }).from(printRef.current).save();
+    } catch (e) {
+      showAlert?.("error", "PDF export failed: " + e.message);
+    } finally { setExporting(false); }
+  };
+
+  return (
+    <div style={{ maxWidth: 860, margin: "0 auto", paddingBottom: "2rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" }}>
+        <button onClick={onBack} style={{ ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) }}>← Back to audits</button>
+        <button onClick={exportPdf} disabled={exporting} style={{ ...btn(th), minHeight: 44, opacity: exporting ? 0.6 : 1 }}>{exporting ? "Exporting…" : "⤓ Export PDF"}</button>
+      </div>
+
+      <div ref={printRef}>
+        {/* Header card: store, date, auditor, GPS badge, score dial */}
+        <div style={{ ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1rem" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={pageTitle(th)}>{storeLabel}</div>
+              <div style={{ color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" }}>
+                {audit.submittedAt ? new Date(audit.submittedAt).toLocaleString() : "—"} · Auditor: {audit.auditorName || "—"}
+              </div>
+              <div style={{ marginTop: "0.5rem", display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.72rem", fontWeight: 700,
+                padding: "0.2rem 0.55rem", borderRadius: 999, background: hasGps ? "#10b98118" : `${th.muted}18`, color: hasGps ? "#10b981" : th.muted, border: `1px solid ${hasGps ? "#10b98155" : th.cardBorder}` }}>
+                📍 {hasGps ? "GPS captured" : "No GPS recorded"}
+              </div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ width: 120, height: 120, borderRadius: "50%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: color + "18", border: `4px solid ${color}` }}>
+                <div style={{ fontSize: "2.2rem", fontWeight: 900, color, lineHeight: 1 }}>{Math.round(audit.score || 0)}</div>
+                <div style={{ fontSize: "0.62rem", color: th.muted }}>/ 100</div>
+              </div>
+              <div style={{ fontSize: "0.95rem", fontWeight: 800, color, marginTop: "0.4rem" }}>{auditBandLabel(band)}</div>
+            </div>
+          </div>
+          {audit.cappedByCritical && (
+            <div style={{ marginTop: "1rem", padding: "0.65rem 0.85rem", borderRadius: "0.5rem", background: "#ef444418", border: "1px solid #ef444455", color: "#ef4444", fontSize: "0.82rem", fontWeight: 700 }}>
+              ⚠︎ CAPPED — critical failure{criticalItem ? `: ${criticalItem.text}` : ""}
+            </div>
+          )}
+        </div>
+
+        {/* Per-section score bars */}
+        {sectionOrder.length > 0 && (
+          <div style={{ ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" }}>
+            <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>Section Scores</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              {sectionOrder.map(sid => {
+                const s = sectionScores[sid];
+                const sColor = s == null ? th.muted : auditBandColor(auditBandForScore(s));
+                return (
+                  <div key={sid}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", marginBottom: "0.25rem" }}>
+                      <span style={{ color: th.text, fontWeight: 600 }}>{sectionMeta[sid]}</span>
+                      <span style={{ color: sColor, fontWeight: 800 }}>{s == null ? "N/A" : Math.round(s) + "%"}</span>
+                    </div>
+                    <div style={{ height: 8, borderRadius: 999, background: th.card2, overflow: "hidden" }}>
+                      <div style={{ width: (s == null ? 0 : s) + "%", height: "100%", background: sColor }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Findings — one per CAP */}
+        <div style={{ ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" }}>
+          <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>Findings {findings.length > 0 ? `(${findings.length})` : ""}</div>
+          {findings.length === 0 ? (
+            <div style={{ color: th.muted, fontSize: "0.85rem" }}>No failed items — clean audit.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+              {findings.map(({ cap, text, note, photoKeys }) => (
+                <div key={cap.id} style={{ padding: "0.75rem", borderRadius: "0.5rem", background: th.card2, border: `1px solid ${th.cardBorder}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", alignItems: "flex-start" }}>
+                    <div style={{ fontWeight: 700, color: th.text, fontSize: "0.88rem" }}>{text}</div>
+                    <span style={pill(SEVERITY_COLOR[cap.severity] || th.muted)}>{(cap.severity || "—").toUpperCase()}</span>
+                  </div>
+                  {note && <div style={{ fontSize: "0.8rem", color: th.muted, marginTop: "0.4rem" }}>{note}</div>}
+                  {photoKeys.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.5rem" }}>
+                      {photoKeys.map(k => <AuditPhotoThumb key={k} photoKey={k} th={th} onZoom={setLightbox} />)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* CAP list — read-only summary; actions live on the CAP board */}
+        <div style={{ ...card(th), padding: "1.1rem 1.25rem" }}>
+          <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>Corrective Action Plans {caps.length > 0 ? `(${caps.length})` : ""}</div>
+          {caps.length === 0 ? (
+            <div style={{ color: th.muted, fontSize: "0.85rem" }}>No corrective action plans for this audit.</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+                <thead><tr>{["Item", "Owner", "Deadline", "Status"].map(h => <th key={h} style={{ ...thCell(th), textAlign: "left" }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {caps.map(cap => {
+                    const meta = capStatusMeta(cap.status);
+                    const overdue = cap.status === "overdue" || cap.isOverdue;
+                    return (
+                      <tr key={cap.id} style={{ borderTop: `1px solid ${th.cardBorder}`, background: overdue ? "#ef444410" : "transparent" }}>
+                        <td style={{ ...tdCell(th), fontWeight: 600 }}>{cap.itemText}</td>
+                        <td style={tdCell(th)}>{cap.ownerName || "—"}</td>
+                        <td style={{ ...tdCell(th), color: overdue ? "#ef4444" : th.muted, fontWeight: overdue ? 700 : 400 }}>{cap.deadline ? new Date(cap.deadline).toLocaleDateString() : "—"}</td>
+                        <td style={tdCell(th)}><span style={pill(meta.color)}>{overdue && cap.status !== "overdue" ? "Overdue" : meta.label}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {lightbox && <SimpleLightbox src={lightbox} onClose={() => setLightbox(null)} />}
+    </div>
+  );
+}
+
+// CAP board — filterable (status/district/owner) view of open CAP work across the
+// caller's scope, fed by the `dashboard` action's capBoard field (same server-side
+// visibility rule as the rest of the audits module: auditor/executive/it/office_staff
+// see the whole network, dm sees their district). Row expand → resolve (owner or
+// auditor/executive/it) with note+photo, or verify-close/reject (auditor/executive/it
+// only) once the owner has marked it resolved.
+function CapBoard({ user, th, stores, showAlert, onBack }) {
+  const isMobile = useIsMobile();
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const [expanded, setExpanded] = useState(null);
+  const [rejectFor, setRejectFor] = useState(null);
+  const [rejectNote, setRejectNote] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const [lightbox, setLightbox] = useState(null);
+
+  const canAudit = ["auditor", "executive", "it"].includes(user?.userType);
+
+  const load = useCallback(() => {
+    setErr(false);
+    auditsApi("dashboard")
+      .then(j => setRows(Array.isArray(j.capBoard) ? j.capBoard : []))
+      .catch(() => { setRows([]); setErr(true); });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const storeInfo = (pc) => (stores || []).find(s => String(s.pc) === String(pc));
+  const districtOf = (pc) => storeInfo(pc)?.district;
+
+  const patchCap = (updated) => setRows(rs => (rs || []).map(r => r.id === updated.id ? updated : r));
+  const dropCap = (id) => setRows(rs => (rs || []).filter(r => r.id !== id));
+
+  const doVerify = async (cap) => {
+    setBusyId(cap.id);
+    try {
+      await auditsApi("capUpdate", { id: cap.id, to: "verified_closed" });
+      dropCap(cap.id); // capBoard only ever holds active work — a verified CAP has nothing left to track here
+      showAlert?.("success", "CAP verified and closed.");
+      setExpanded(null);
+    } catch (e) { showAlert?.("error", "Could not verify: " + e.message); }
+    finally { setBusyId(null); }
+  };
+  const doReject = async (cap) => {
+    if (!rejectNote.trim()) return;
+    setBusyId(cap.id);
+    try {
+      const r = await auditsApi("capUpdate", { id: cap.id, to: "open", note: rejectNote.trim() });
+      patchCap(r.cap);
+      showAlert?.("success", "Sent back to the owner.");
+      setRejectFor(null); setRejectNote(""); setExpanded(null);
+    } catch (e) { showAlert?.("error", "Could not reject: " + e.message); }
+    finally { setBusyId(null); }
+  };
+  const isOwnerOf = (cap) => cap.ownerUserId != null && user?.id != null && String(cap.ownerUserId) === String(user.id);
+
+  const districtOptions = [...new Set((rows || []).map(r => districtOf(r.storePC)).filter(d => d != null))].sort((a, b) => a - b);
+  const ownerOptions = [...new Set((rows || []).map(r => r.ownerName).filter(Boolean))].sort();
+
+  const filtered = (rows || []).filter(r => {
+    if (statusFilter !== "all" && r.status !== statusFilter) return false;
+    if (districtFilter !== "all" && String(districtOf(r.storePC)) !== districtFilter) return false;
+    if (ownerFilter !== "all" && r.ownerName !== ownerFilter) return false;
+    return true;
+  });
+
+  const renderDetail = (cap) => {
+    const overdue = cap.status === "overdue" || cap.isOverdue;
+    if (cap.status === "open" || overdue) {
+      if (isOwnerOf(cap) || canAudit) {
+        return <CapResolveForm th={th} user={user} cap={cap} showAlert={showAlert}
+          onDone={(updated) => { patchCap(updated); setExpanded(null); }} onCancel={() => setExpanded(null)} />;
+      }
+      return <div style={{ fontSize: "0.8rem", color: th.muted }}>Awaiting the store manager's resolution.</div>;
+    }
+    if (cap.status === "owner_resolved") {
+      return (
+        <div>
+          {cap.ownerNote && <div style={{ fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" }}><strong>Owner note:</strong> {cap.ownerNote}</div>}
+          {(cap.ownerPhotoKeys || []).length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.75rem" }}>
+              {cap.ownerPhotoKeys.map(k => <AuditPhotoThumb key={k} photoKey={k} th={th} onZoom={setLightbox} />)}
+            </div>
+          )}
+          {canAudit ? (
+            rejectFor === cap.id ? (
+              <div>
+                <textarea value={rejectNote} onChange={e => setRejectNote(e.target.value)} placeholder="Why is this being rejected?" rows={2}
+                  style={{ ...inp(th), width: "100%", resize: "vertical" }} />
+                <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "0.6rem" }}>
+                  <button onClick={() => { setRejectFor(null); setRejectNote(""); }} style={{ ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 }}>Cancel</button>
+                  <button onClick={() => doReject(cap)} disabled={busyId === cap.id || !rejectNote.trim()}
+                    style={{ ...btn(th, { background: "#ef4444", color: "#fff", border: "1px solid #ef4444" }), minHeight: 40, opacity: (busyId === cap.id || !rejectNote.trim()) ? 0.6 : 1 }}>
+                    {busyId === cap.id ? "Rejecting…" : "Confirm Reject"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+                <button onClick={() => setRejectFor(cap.id)} disabled={busyId === cap.id} style={{ ...btn(th, { background: th.card, color: "#ef4444", border: "1px solid #ef444455" }), minHeight: 40 }}>Reject</button>
+                <button onClick={() => doVerify(cap)} disabled={busyId === cap.id} style={{ ...btn(th, { background: "#10b981", color: "#fff", border: "1px solid #10b981" }), minHeight: 40, opacity: busyId === cap.id ? 0.6 : 1 }}>
+                  {busyId === cap.id ? "Verifying…" : "Verify & Close"}
+                </button>
+              </div>
+            )
+          ) : (
+            <div style={{ fontSize: "0.8rem", color: th.muted }}>Awaiting auditor/manager verification.</div>
+          )}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const summaryRow = (cap) => {
+    const meta = capStatusMeta(cap.status);
+    const overdue = cap.status === "overdue" || cap.isOverdue;
+    return (
+      <>
+        <span style={{ fontWeight: 700, color: th.text }}>{storeInfo(cap.storePC)?.name || cap.storePC}</span>
+        <span style={{ color: th.muted, fontSize: "0.78rem" }}>{cap.itemText}</span>
+        <span style={pill(SEVERITY_COLOR[cap.severity] || th.muted)}>{(cap.severity || "—").toUpperCase()}</span>
+        <span style={{ color: th.text, fontSize: "0.8rem" }}>{cap.ownerName || "Unassigned"}</span>
+        <span style={{ color: overdue ? "#ef4444" : th.muted, fontWeight: overdue ? 700 : 400, fontSize: "0.8rem" }}>{cap.deadline ? new Date(cap.deadline).toLocaleDateString() : "—"}</span>
+        <span style={pill(meta.color)}>{overdue && cap.status !== "overdue" ? "Overdue" : meta.label}</span>
+      </>
+    );
+  };
+
+  return (
+    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ marginBottom: "1rem" }}>
+        <button onClick={onBack} style={{ ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) }}>← Back to audits</button>
+        <div style={{ ...pageTitle(th), marginTop: "0.35rem" }}>CAP Board</div>
+        <div style={{ color: th.muted, fontSize: "0.85rem" }}>Open corrective action plans across your scope.</div>
+      </div>
+
+      {/* Filters */}
+      <div style={{ ...card(th), padding: "0.85rem 1rem", marginBottom: "1rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <label style={microLabel(th)}>Status</label>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ ...inp(th), minHeight: 40, minWidth: 160 }}>
+            <option value="all">All</option>
+            <option value="open">Open</option>
+            <option value="overdue">Overdue</option>
+            <option value="owner_resolved">Pending Verification</option>
+          </select>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <label style={microLabel(th)}>District</label>
+          <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} style={{ ...inp(th), minHeight: 40, minWidth: 140 }}>
+            <option value="all">All</option>
+            {districtOptions.map(d => <option key={d} value={String(d)}>District {d}</option>)}
+          </select>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <label style={microLabel(th)}>Owner</label>
+          <select value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)} style={{ ...inp(th), minHeight: 40, minWidth: 160 }}>
+            <option value="all">All</option>
+            {ownerOptions.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {err && (
+        <div style={{ ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" }}>
+          Couldn't load the CAP board. <button onClick={load} style={{ ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" }}>Retry</button>
+        </div>
+      )}
+
+      {rows === null ? (
+        <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>Loading CAP board…</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>No open corrective action plans match these filters.</div>
+      ) : isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          {filtered.map(cap => {
+            const overdue = cap.status === "overdue" || cap.isOverdue;
+            const open = expanded === cap.id;
+            return (
+              <div key={cap.id} style={{ ...card(th, { border: overdue ? "1px solid #ef444488" : `1px solid ${th.cardBorder}` }), padding: "0.85rem 1rem" }}>
+                <div onClick={() => setExpanded(open ? null : cap.id)} style={{ cursor: "pointer", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                  {summaryRow(cap)}
+                </div>
+                {open && <div style={{ marginTop: "0.75rem" }}>{renderDetail(cap)}</div>}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ ...card(th), overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+            <thead>
+              <tr>{["Store", "Item", "Severity", "Owner", "Deadline", "Status"].map(h => <th key={h} style={{ ...thCell(th), textAlign: "left" }}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {filtered.map(cap => {
+                const overdue = cap.status === "overdue" || cap.isOverdue;
+                const open = expanded === cap.id;
+                return (
+                  <React.Fragment key={cap.id}>
+                    <tr onClick={() => setExpanded(open ? null : cap.id)} style={{ cursor: "pointer", borderTop: `1px solid ${th.cardBorder}`, background: overdue ? "#ef444412" : "transparent" }}>
+                      <td style={{ ...tdCell(th), fontWeight: 700 }}>{storeInfo(cap.storePC)?.name || cap.storePC}</td>
+                      <td style={tdCell(th)}>{cap.itemText}</td>
+                      <td style={tdCell(th)}><span style={pill(SEVERITY_COLOR[cap.severity] || th.muted)}>{(cap.severity || "—").toUpperCase()}</span></td>
+                      <td style={tdCell(th)}>{cap.ownerName || "Unassigned"}</td>
+                      <td style={{ ...tdCell(th), color: overdue ? "#ef4444" : th.muted, fontWeight: overdue ? 700 : 400 }}>{cap.deadline ? new Date(cap.deadline).toLocaleDateString() : "—"}</td>
+                      <td style={tdCell(th)}><span style={pill(capStatusMeta(cap.status).color)}>{overdue && cap.status !== "overdue" ? "Overdue" : capStatusMeta(cap.status).label}</span></td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td colSpan={6} style={{ padding: "0.75rem 1rem", background: th.card2, borderTop: `1px solid ${th.cardBorder}` }}>
+                          {renderDetail(cap)}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {lightbox && <SimpleLightbox src={lightbox} onClose={() => setLightbox(null)} />}
+    </div>
+  );
+}
+
+// Manager "My Store" dashboard card — lists their store's own open/overdue CAPs
+// with the same resolve flow as the CAP board. Managers don't get the `dashboard`
+// action (server-side gated to auditor/executive/it/office_staff/dm), so this
+// aggregates client-side from `list` (already store-scoped for a manager) + `get`
+// per submitted audit — the only actions the brief has this surface consume.
+function ManagerCapCard({ user, th, stores, showAlert }) {
+  const store = getManagerStore(stores, user);
+  const [caps, setCaps] = useState(null); // null = loading
+  const [err, setErr] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+
+  const load = useCallback(() => {
+    if (!store?.pc) { setCaps([]); return; }
+    setErr(false);
+    auditsApi("list")
+      .then(async (j) => {
+        const submitted = (j.audits || []).filter(a => a.status === "submitted");
+        const results = await Promise.all(submitted.map(a => auditsApi("get", { id: a.id }).catch(() => null)));
+        const open = [];
+        results.forEach(r => { if (r?.caps) open.push(...r.caps.filter(c => c.status === "open" || c.status === "overdue")); });
+        open.sort((a, b) => new Date(a.deadline || 0) - new Date(b.deadline || 0)); // most urgent first
+        setCaps(open);
+      })
+      .catch(() => { setCaps([]); setErr(true); });
+  }, [store?.pc]);
+  useEffect(() => { load(); }, [load]);
+
+  if (!store?.pc) return null;
+
+  const dropResolved = (updated) => setCaps(cs => (cs || []).filter(c => c.id !== updated.id));
+  const n = caps == null ? null : caps.length;
+
+  return (
+    <div style={{ ...card(th), padding: "1.1rem 1.15rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.875rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{ fontSize: "1rem" }}>📋</span>
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.85rem", color: th.text }}>
+            Open CAPs {n != null ? `(${n})` : ""}
+          </span>
+        </div>
+      </div>
+      {err && (
+        <div style={{ color: "#ef4444", fontSize: "0.78rem", marginBottom: "0.5rem" }}>
+          Couldn't load corrective actions. <button onClick={load} style={{ background: "none", border: "none", color: O, cursor: "pointer", textDecoration: "underline", padding: 0 }}>Retry</button>
+        </div>
+      )}
+      {caps === null ? (
+        <div style={{ fontSize: "0.78rem", color: th.muted, textAlign: "center", padding: "0.75rem 0" }}>Loading…</div>
+      ) : caps.length === 0 ? (
+        <div style={{ fontSize: "0.78rem", color: th.muted, textAlign: "center", padding: "0.75rem 0" }}>No open corrective actions. Nice work!</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxHeight: 320, overflowY: "auto" }}>
+          {caps.map(cap => {
+            const overdue = cap.status === "overdue" || cap.isOverdue;
+            const open = expanded === cap.id;
+            return (
+              <div key={cap.id} style={{ borderRadius: "0.5rem", padding: "0.55rem 0.65rem", background: th.bg, border: overdue ? "1px solid #ef444488" : `1px solid ${th.cardBorder}` }}>
+                <div onClick={() => setExpanded(open ? null : cap.id)} style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", gap: "0.5rem", alignItems: "flex-start" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: "0.78rem", fontWeight: 700, color: th.text }}>{cap.itemText}</div>
+                    <div style={{ fontSize: "0.68rem", color: overdue ? "#ef4444" : th.muted, fontWeight: overdue ? 700 : 400, marginTop: "0.15rem" }}>
+                      {overdue ? "⚠️ Overdue" : "Due"} {cap.deadline ? new Date(cap.deadline).toLocaleDateString() : ""}
+                    </div>
+                  </div>
+                  <span style={pill(SEVERITY_COLOR[cap.severity] || th.muted)}>{(cap.severity || "—").toUpperCase()}</span>
+                </div>
+                {open && (
+                  <div style={{ marginTop: "0.6rem" }}>
+                    <CapResolveForm th={th} user={user} cap={cap} showAlert={showAlert}
+                      onDone={(updated) => { dropResolved(updated); setExpanded(null); }} onCancel={() => setExpanded(null)} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -21170,7 +21782,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.33";
+const APP_VERSION = "v18.34";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -24737,6 +25349,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
           <div style={{ marginBottom: "1.25rem", display: 'grid', gap: '0.85rem', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start', maxWidth: 1080 }}>
             <Guard name="manager-brief" fallback={null}><ManagerOrionBrief pc={mp.pc} storeName={mp.name} th={th} /></Guard>
             <Guard name="forecast-preplan" fallback={null}><ForecastPrePlanCard pc={mp.pc} storeName={mp.name} th={th} /></Guard>
+            <Guard name="manager-caps" fallback={null}><ManagerCapCard user={user} th={th} stores={stores} showAlert={showAlert} /></Guard>
           </div>
         ) : null;
       })()}

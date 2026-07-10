@@ -15615,6 +15615,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [view, setView] = useState("list");
     const [conduct, setConduct] = useState(null);
     const canConduct = ["auditor", "executive", "it"].includes(user?.userType);
+    const canSeeCapBoard = ["auditor", "executive", "it", "office_staff", "dm"].includes(user?.userType);
     const openConduct = (auditId, storePC) => {
       setConduct({ auditId, storePC });
       setView("conduct");
@@ -15642,8 +15643,22 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         }
       );
     }
-    if (view === "report") {
-      return /* @__PURE__ */ React.createElement(AuditReportStub, { th, onBack: backToList });
+    if (view === "report" && conduct) {
+      return /* @__PURE__ */ React.createElement(
+        AuditReport,
+        {
+          user,
+          th,
+          stores,
+          showAlert,
+          auditId: conduct.auditId,
+          storePC: conduct.storePC,
+          onBack: backToList
+        }
+      );
+    }
+    if (view === "caps") {
+      return /* @__PURE__ */ React.createElement(CapBoard, { user, th, stores, showAlert, onBack: backToList });
     }
     return /* @__PURE__ */ React.createElement(
       AuditList,
@@ -15653,12 +15668,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         stores,
         showAlert,
         canConduct,
+        canSeeCapBoard,
         onConduct: openConduct,
-        onViewReport: openReport
+        onViewReport: openReport,
+        onOpenCapBoard: () => setView("caps")
       }
     );
   }
-  function AuditList({ user, th, stores, showAlert, canConduct, onConduct, onViewReport }) {
+  function AuditList({ user, th, stores, showAlert, canConduct, canSeeCapBoard, onConduct, onViewReport, onOpenCapBoard }) {
     const isMobile = useIsMobile();
     const [audits, setAudits] = useState(null);
     const [err, setErr] = useState(false);
@@ -15678,7 +15695,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
     const startAudit = async () => {
       if (!pickStore) {
-        showAlert?.("Pick a store first.", "warning");
+        showAlert?.("warning", "Pick a store first.");
         return;
       }
       setStarting(true);
@@ -15690,7 +15707,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         setPickStore("");
         onConduct(realId, pickStore);
       } catch (e) {
-        showAlert?.("Could not start audit: " + e.message, "error");
+        showAlert?.("error", "Could not start audit: " + e.message);
       } finally {
         setStarting(false);
       }
@@ -15733,7 +15750,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         border: `1px solid ${color}44`
       } }, label);
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit")), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, canSeeCapBoard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenCapBoard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "CAP Board"), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit"))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
   }
   function AuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, onViewReport }) {
     const [template, setTemplate] = useState(null);
@@ -15825,7 +15842,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
           await cloudSaveFile(key, f, user?.name || "");
           keys.push(key);
         } catch {
-          showAlert?.("A photo failed to upload \u2014 try again.", "error");
+          showAlert?.("error", "A photo failed to upload \u2014 try again.");
         }
       }
       setItem(item.id, { photoKeys: keys }, item);
@@ -15893,7 +15910,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         }
         setSubmitted(resp);
       } catch (e) {
-        showAlert?.("Submit failed: " + e.message, "error");
+        showAlert?.("error", "Submit failed: " + e.message);
       } finally {
         setSubmitting(false);
         setGpsStatus("");
@@ -15987,8 +16004,363 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       "Next \u2192"
     )), gpsStatus && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontSize: "0.72rem", color: th.muted, marginTop: "0.5rem" } }, gpsStatus));
   }
-  function AuditReportStub({ th, onBack }) {
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560, margin: "2rem auto", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem 1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, ICONS.audits(O)), /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem" } }, "Audit report"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.9rem", marginBottom: "1.5rem" } }, "The detailed audit report and dashboard arrive in the next release."), /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th), minHeight: 44 } }, "Back to audits")));
+  var CAP_STATUS_META = {
+    open: { label: "Open", color: "#3b82f6" },
+    overdue: { label: "Overdue", color: "#ef4444" },
+    owner_resolved: { label: "Pending Verification", color: "#f59e0b" },
+    verified_closed: { label: "Verified Closed", color: "#10b981" }
+  };
+  var capStatusMeta = (s) => CAP_STATUS_META[s] || { label: s || "\u2014", color: "#6b7280" };
+  function AuditPhotoThumb({ photoKey, th, onZoom, size = 64 }) {
+    const [src, setSrc] = useState(null);
+    const [loading, setLoading] = useState(true);
+    useEffect(() => {
+      let cancelled = false;
+      setLoading(true);
+      cloudLoadFile(photoKey).then((f) => {
+        if (!cancelled) {
+          setSrc(f?.data || null);
+          setLoading(false);
+        }
+      }).catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [photoKey]);
+    const box = { width: size, height: size, borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}`, background: th.card2, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" };
+    if (loading) return /* @__PURE__ */ React.createElement("div", { style: box }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted } }, "\u2026"));
+    if (!src) return /* @__PURE__ */ React.createElement("div", { style: box }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.9rem" } }, "\u{1F4F7}"));
+    return /* @__PURE__ */ React.createElement("div", { style: { ...box, cursor: "zoom-in" }, onClick: () => onZoom && onZoom(src) }, /* @__PURE__ */ React.createElement("img", { src, alt: "Finding photo", style: { width: "100%", height: "100%", objectFit: "cover" } }));
+  }
+  function SimpleLightbox({ src, onClose }) {
+    if (!src) return null;
+    return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem", cursor: "zoom-out" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "Full size", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "100%", borderRadius: "0.75rem", objectFit: "contain", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" } }), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.25rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"));
+  }
+  function CapResolveForm({ th, user, cap, showAlert, onDone, onCancel }) {
+    const [note, setNote] = useState("");
+    const [photoKeys, setPhotoKeys] = useState([]);
+    const [uploading, setUploading] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const addPhotos = async (fileList) => {
+      const files = Array.from(fileList || []);
+      if (!files.length) return;
+      setUploading(true);
+      const batchTs = Date.now();
+      const keys = [...photoKeys];
+      for (let i = 0; i < files.length; i++) {
+        const key = `cap_${cap.id}_resolve_${batchTs}_${i}`;
+        try {
+          await cloudSaveFile(key, files[i], user?.name || "");
+          keys.push(key);
+        } catch {
+          showAlert?.("error", "A photo failed to upload \u2014 try again.");
+        }
+      }
+      setPhotoKeys(keys);
+      setUploading(false);
+    };
+    const removePhoto = (k) => setPhotoKeys((ks) => ks.filter((x) => x !== k));
+    const submit = async () => {
+      if (!note.trim() || photoKeys.length === 0) return;
+      setSaving(true);
+      try {
+        const r = await auditsApi("capUpdate", { id: cap.id, to: "owner_resolved", note: note.trim(), photoKeys });
+        showAlert?.("success", "Corrective action marked resolved \u2014 awaiting verification.");
+        onDone(r.cap);
+      } catch (e) {
+        showAlert?.("error", "Could not resolve: " + e.message);
+      } finally {
+        setSaving(false);
+      }
+    };
+    const disabled = saving || uploading || !note.trim() || photoKeys.length === 0;
+    return /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem", borderRadius: "0.5rem", background: th.card2, border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Resolution note (required)"), /* @__PURE__ */ React.createElement(
+      "textarea",
+      {
+        value: note,
+        onChange: (e) => setNote(e.target.value),
+        placeholder: "What did you fix? How was it verified?",
+        rows: 2,
+        style: { ...inp(th), width: "100%", resize: "vertical" }
+      }
+    ), /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", margin: "0.75rem 0 0.3rem" } }, "Photo proof (required)"), photoKeys.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.4rem" } }, photoKeys.map((k) => /* @__PURE__ */ React.createElement("span", { key: k, style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.7rem", color: th.text, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: "0.2rem 0.5rem" } }, "\u{1F4F7} photo", /* @__PURE__ */ React.createElement("button", { onClick: () => removePhoto(k), style: { background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.85rem", lineHeight: 1 } }, "\u2715")))), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "file",
+        accept: "image/*",
+        capture: "environment",
+        multiple: true,
+        onChange: (e) => {
+          addPhotos(e.target.files);
+          e.target.value = "";
+        },
+        style: { fontSize: "0.78rem", color: th.muted }
+      }
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "0.85rem" } }, onCancel && /* @__PURE__ */ React.createElement("button", { onClick: onCancel, style: { ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 } }, "Cancel"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: submit,
+        disabled,
+        style: { ...btn(th, { background: "#10b981", color: "#fff", border: "1px solid #10b981" }), minHeight: 40, opacity: disabled ? 0.55 : 1 }
+      },
+      saving ? "Resolving\u2026" : uploading ? "Uploading\u2026" : "Mark Resolved"
+    )));
+  }
+  function AuditReport({ user, th, stores, showAlert, auditId, storePC, onBack }) {
+    const [audit, setAudit] = useState(null);
+    const [items, setItems] = useState([]);
+    const [caps, setCaps] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState(false);
+    const [lightbox, setLightbox] = useState(null);
+    const [exporting, setExporting] = useState(false);
+    const printRef = useRef(null);
+    const load = useCallback(() => {
+      setLoading(true);
+      setErr(false);
+      auditsApi("get", { id: auditId }).then((j) => {
+        setAudit(j.audit);
+        setItems(Array.isArray(j.items) ? j.items : []);
+        setCaps(Array.isArray(j.caps) ? j.caps : []);
+      }).catch(() => setErr(true)).finally(() => setLoading(false));
+    }, [auditId]);
+    useEffect(() => {
+      load();
+    }, [load]);
+    const store = (stores || []).find((s) => String(s.pc) === String(storePC));
+    const storeLabel = store ? `${store.name} (${store.pc})` : storePC;
+    if (loading) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" } }, "Loading report\u2026");
+    if (err || !audit) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" } }, "Couldn't load this audit report.", /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th), minHeight: 44 } }, "Back to audits")));
+    const band = audit.band || auditBandForScore(audit.score || 0);
+    const color = auditBandColor(band);
+    const hasGps = audit.submitLat != null && audit.submitLng != null;
+    const sectionOrder = [];
+    const sectionMeta = {};
+    items.forEach((it) => {
+      if (!(it.sectionId in sectionMeta)) {
+        sectionMeta[it.sectionId] = it.sectionName;
+        sectionOrder.push(it.sectionId);
+      }
+    });
+    const sectionScores = audit.sectionScores || {};
+    const criticalItem = audit.cappedByCritical ? items.find((it) => it.critical && (it.result === "fail" || it.result == null)) : null;
+    const findings = caps.map((cap) => {
+      const it = items.find((i) => i.id === cap.templateItemId);
+      return { cap, text: it?.text || cap.itemText, note: it?.note, photoKeys: it?.photoKeys || [] };
+    });
+    const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const exportPdf = async () => {
+      if (typeof html2pdf === "undefined" || !printRef.current) return;
+      setExporting(true);
+      try {
+        const dateStr = audit.submittedAt ? isoDate(new Date(audit.submittedAt)) : isoDate(/* @__PURE__ */ new Date());
+        const fname = `audit_${storePC}_${dateStr}.pdf`;
+        await html2pdf().set({ margin: 0.4, filename: fname, image: { type: "jpeg", quality: 0.95 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" }, pagebreak: { mode: ["css", "legacy"] } }).from(printRef.current).save();
+      } catch (e) {
+        showAlert?.("error", "PDF export failed: " + e.message);
+      } finally {
+        setExporting(false);
+      }
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 860, margin: "0 auto", paddingBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) } }, "\u2190 Back to audits"), /* @__PURE__ */ React.createElement("button", { onClick: exportPdf, disabled: exporting, style: { ...btn(th), minHeight: 44, opacity: exporting ? 0.6 : 1 } }, exporting ? "Exporting\u2026" : "\u2913 Export PDF")), /* @__PURE__ */ React.createElement("div", { ref: printRef }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: pageTitle(th) }, storeLabel), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, audit.submittedAt ? new Date(audit.submittedAt).toLocaleString() : "\u2014", " \xB7 Auditor: ", audit.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: {
+      marginTop: "0.5rem",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: "0.72rem",
+      fontWeight: 700,
+      padding: "0.2rem 0.55rem",
+      borderRadius: 999,
+      background: hasGps ? "#10b98118" : `${th.muted}18`,
+      color: hasGps ? "#10b981" : th.muted,
+      border: `1px solid ${hasGps ? "#10b98155" : th.cardBorder}`
+    } }, "\u{1F4CD} ", hasGps ? "GPS captured" : "No GPS recorded")), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 120, height: 120, borderRadius: "50%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: color + "18", border: `4px solid ${color}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2.2rem", fontWeight: 900, color, lineHeight: 1 } }, Math.round(audit.score || 0)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted } }, "/ 100")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.95rem", fontWeight: 800, color, marginTop: "0.4rem" } }, auditBandLabel(band)))), audit.cappedByCritical && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", padding: "0.65rem 0.85rem", borderRadius: "0.5rem", background: "#ef444418", border: "1px solid #ef444455", color: "#ef4444", fontSize: "0.82rem", fontWeight: 700 } }, "\u26A0\uFE0E CAPPED \u2014 critical failure", criticalItem ? `: ${criticalItem.text}` : "")), sectionOrder.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Section Scores"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, sectionOrder.map((sid) => {
+      const s = sectionScores[sid];
+      const sColor = s == null ? th.muted : auditBandColor(auditBandForScore(s));
+      return /* @__PURE__ */ React.createElement("div", { key: sid }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.8rem", marginBottom: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, sectionMeta[sid]), /* @__PURE__ */ React.createElement("span", { style: { color: sColor, fontWeight: 800 } }, s == null ? "N/A" : Math.round(s) + "%")), /* @__PURE__ */ React.createElement("div", { style: { height: 8, borderRadius: 999, background: th.card2, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { width: (s == null ? 0 : s) + "%", height: "100%", background: sColor } })));
+    }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Findings ", findings.length > 0 ? `(${findings.length})` : ""), findings.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No failed items \u2014 clean audit.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.85rem" } }, findings.map(({ cap, text, note, photoKeys }) => /* @__PURE__ */ React.createElement("div", { key: cap.id, style: { padding: "0.75rem", borderRadius: "0.5rem", background: th.card2, border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.5rem", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.88rem" } }, text), /* @__PURE__ */ React.createElement("span", { style: pill(SEVERITY_COLOR[cap.severity] || th.muted) }, (cap.severity || "\u2014").toUpperCase())), note && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.4rem" } }, note), photoKeys.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.5rem" } }, photoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox }))))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Corrective Action Plans ", caps.length > 0 ? `(${caps.length})` : ""), caps.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No corrective action plans for this audit.") : /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Item", "Owner", "Deadline", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, caps.map((cap) => {
+      const meta = capStatusMeta(cap.status);
+      const overdue = cap.status === "overdue" || cap.isOverdue;
+      return /* @__PURE__ */ React.createElement("tr", { key: cap.id, style: { borderTop: `1px solid ${th.cardBorder}`, background: overdue ? "#ef444410" : "transparent" } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 600 } }, cap.itemText), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, cap.ownerName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: overdue ? "#ef4444" : th.muted, fontWeight: overdue ? 700 : 400 } }, cap.deadline ? new Date(cap.deadline).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("span", { style: pill(meta.color) }, overdue && cap.status !== "overdue" ? "Overdue" : meta.label)));
+    })))))), lightbox && /* @__PURE__ */ React.createElement(SimpleLightbox, { src: lightbox, onClose: () => setLightbox(null) }));
+  }
+  function CapBoard({ user, th, stores, showAlert, onBack }) {
+    const isMobile = useIsMobile();
+    const [rows, setRows] = useState(null);
+    const [err, setErr] = useState(false);
+    const [statusFilter, setStatusFilter] = useState("all");
+    const [districtFilter, setDistrictFilter] = useState("all");
+    const [ownerFilter, setOwnerFilter] = useState("all");
+    const [expanded, setExpanded] = useState(null);
+    const [rejectFor, setRejectFor] = useState(null);
+    const [rejectNote, setRejectNote] = useState("");
+    const [busyId, setBusyId] = useState(null);
+    const [lightbox, setLightbox] = useState(null);
+    const canAudit = ["auditor", "executive", "it"].includes(user?.userType);
+    const load = useCallback(() => {
+      setErr(false);
+      auditsApi("dashboard").then((j) => setRows(Array.isArray(j.capBoard) ? j.capBoard : [])).catch(() => {
+        setRows([]);
+        setErr(true);
+      });
+    }, []);
+    useEffect(() => {
+      load();
+    }, [load]);
+    const storeInfo = (pc) => (stores || []).find((s) => String(s.pc) === String(pc));
+    const districtOf = (pc) => storeInfo(pc)?.district;
+    const patchCap = (updated) => setRows((rs) => (rs || []).map((r) => r.id === updated.id ? updated : r));
+    const dropCap = (id) => setRows((rs) => (rs || []).filter((r) => r.id !== id));
+    const doVerify = async (cap) => {
+      setBusyId(cap.id);
+      try {
+        await auditsApi("capUpdate", { id: cap.id, to: "verified_closed" });
+        dropCap(cap.id);
+        showAlert?.("success", "CAP verified and closed.");
+        setExpanded(null);
+      } catch (e) {
+        showAlert?.("error", "Could not verify: " + e.message);
+      } finally {
+        setBusyId(null);
+      }
+    };
+    const doReject = async (cap) => {
+      if (!rejectNote.trim()) return;
+      setBusyId(cap.id);
+      try {
+        const r = await auditsApi("capUpdate", { id: cap.id, to: "open", note: rejectNote.trim() });
+        patchCap(r.cap);
+        showAlert?.("success", "Sent back to the owner.");
+        setRejectFor(null);
+        setRejectNote("");
+        setExpanded(null);
+      } catch (e) {
+        showAlert?.("error", "Could not reject: " + e.message);
+      } finally {
+        setBusyId(null);
+      }
+    };
+    const isOwnerOf = (cap) => cap.ownerUserId != null && user?.id != null && String(cap.ownerUserId) === String(user.id);
+    const districtOptions = [...new Set((rows || []).map((r) => districtOf(r.storePC)).filter((d) => d != null))].sort((a, b) => a - b);
+    const ownerOptions = [...new Set((rows || []).map((r) => r.ownerName).filter(Boolean))].sort();
+    const filtered = (rows || []).filter((r) => {
+      if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (districtFilter !== "all" && String(districtOf(r.storePC)) !== districtFilter) return false;
+      if (ownerFilter !== "all" && r.ownerName !== ownerFilter) return false;
+      return true;
+    });
+    const renderDetail = (cap) => {
+      const overdue = cap.status === "overdue" || cap.isOverdue;
+      if (cap.status === "open" || overdue) {
+        if (isOwnerOf(cap) || canAudit) {
+          return /* @__PURE__ */ React.createElement(
+            CapResolveForm,
+            {
+              th,
+              user,
+              cap,
+              showAlert,
+              onDone: (updated) => {
+                patchCap(updated);
+                setExpanded(null);
+              },
+              onCancel: () => setExpanded(null)
+            }
+          );
+        }
+        return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Awaiting the store manager's resolution.");
+      }
+      if (cap.status === "owner_resolved") {
+        return /* @__PURE__ */ React.createElement("div", null, cap.ownerNote && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("strong", null, "Owner note:"), " ", cap.ownerNote), (cap.ownerPhotoKeys || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.75rem" } }, cap.ownerPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox }))), canAudit ? rejectFor === cap.id ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
+          "textarea",
+          {
+            value: rejectNote,
+            onChange: (e) => setRejectNote(e.target.value),
+            placeholder: "Why is this being rejected?",
+            rows: 2,
+            style: { ...inp(th), width: "100%", resize: "vertical" }
+          }
+        ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+          setRejectFor(null);
+          setRejectNote("");
+        }, style: { ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 } }, "Cancel"), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => doReject(cap),
+            disabled: busyId === cap.id || !rejectNote.trim(),
+            style: { ...btn(th, { background: "#ef4444", color: "#fff", border: "1px solid #ef4444" }), minHeight: 40, opacity: busyId === cap.id || !rejectNote.trim() ? 0.6 : 1 }
+          },
+          busyId === cap.id ? "Rejecting\u2026" : "Confirm Reject"
+        ))) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setRejectFor(cap.id), disabled: busyId === cap.id, style: { ...btn(th, { background: th.card, color: "#ef4444", border: "1px solid #ef444455" }), minHeight: 40 } }, "Reject"), /* @__PURE__ */ React.createElement("button", { onClick: () => doVerify(cap), disabled: busyId === cap.id, style: { ...btn(th, { background: "#10b981", color: "#fff", border: "1px solid #10b981" }), minHeight: 40, opacity: busyId === cap.id ? 0.6 : 1 } }, busyId === cap.id ? "Verifying\u2026" : "Verify & Close")) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Awaiting auditor/manager verification."));
+      }
+      return null;
+    };
+    const summaryRow = (cap) => {
+      const meta = capStatusMeta(cap.status);
+      const overdue = cap.status === "overdue" || cap.isOverdue;
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: th.text } }, storeInfo(cap.storePC)?.name || cap.storePC), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, cap.itemText), /* @__PURE__ */ React.createElement("span", { style: pill(SEVERITY_COLOR[cap.severity] || th.muted) }, (cap.severity || "\u2014").toUpperCase()), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontSize: "0.8rem" } }, cap.ownerName || "Unassigned"), /* @__PURE__ */ React.createElement("span", { style: { color: overdue ? "#ef4444" : th.muted, fontWeight: overdue ? 700 : 400, fontSize: "0.8rem" } }, cap.deadline ? new Date(cap.deadline).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("span", { style: pill(meta.color) }, overdue && cap.status !== "overdue" ? "Overdue" : meta.label));
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) } }, "\u2190 Back to audits"), /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), marginTop: "0.35rem" } }, "CAP Board"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "Open corrective action plans across your scope.")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", marginBottom: "1rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("label", { style: microLabel(th) }, "Status"), /* @__PURE__ */ React.createElement("select", { value: statusFilter, onChange: (e) => setStatusFilter(e.target.value), style: { ...inp(th), minHeight: 40, minWidth: 160 } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All"), /* @__PURE__ */ React.createElement("option", { value: "open" }, "Open"), /* @__PURE__ */ React.createElement("option", { value: "overdue" }, "Overdue"), /* @__PURE__ */ React.createElement("option", { value: "owner_resolved" }, "Pending Verification"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("label", { style: microLabel(th) }, "District"), /* @__PURE__ */ React.createElement("select", { value: districtFilter, onChange: (e) => setDistrictFilter(e.target.value), style: { ...inp(th), minHeight: 40, minWidth: 140 } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All"), districtOptions.map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: String(d) }, "District ", d)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("label", { style: microLabel(th) }, "Owner"), /* @__PURE__ */ React.createElement("select", { value: ownerFilter, onChange: (e) => setOwnerFilter(e.target.value), style: { ...inp(th), minHeight: 40, minWidth: 160 } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All"), ownerOptions.map((o) => /* @__PURE__ */ React.createElement("option", { key: o, value: o }, o))))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load the CAP board. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), rows === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading CAP board\u2026") : filtered.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No open corrective action plans match these filters.") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, filtered.map((cap) => {
+      const overdue = cap.status === "overdue" || cap.isOverdue;
+      const open = expanded === cap.id;
+      return /* @__PURE__ */ React.createElement("div", { key: cap.id, style: { ...card(th, { border: overdue ? "1px solid #ef444488" : `1px solid ${th.cardBorder}` }), padding: "0.85rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setExpanded(open ? null : cap.id), style: { cursor: "pointer", display: "flex", flexDirection: "column", gap: "0.3rem" } }, summaryRow(cap)), open && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem" } }, renderDetail(cap)));
+    })) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Item", "Severity", "Owner", "Deadline", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, filtered.map((cap) => {
+      const overdue = cap.status === "overdue" || cap.isOverdue;
+      const open = expanded === cap.id;
+      return /* @__PURE__ */ React.createElement(React.Fragment, { key: cap.id }, /* @__PURE__ */ React.createElement("tr", { onClick: () => setExpanded(open ? null : cap.id), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}`, background: overdue ? "#ef444412" : "transparent" } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700 } }, storeInfo(cap.storePC)?.name || cap.storePC), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, cap.itemText), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("span", { style: pill(SEVERITY_COLOR[cap.severity] || th.muted) }, (cap.severity || "\u2014").toUpperCase())), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, cap.ownerName || "Unassigned"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: overdue ? "#ef4444" : th.muted, fontWeight: overdue ? 700 : 400 } }, cap.deadline ? new Date(cap.deadline).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("span", { style: pill(capStatusMeta(cap.status).color) }, overdue && cap.status !== "overdue" ? "Overdue" : capStatusMeta(cap.status).label))), open && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { padding: "0.75rem 1rem", background: th.card2, borderTop: `1px solid ${th.cardBorder}` } }, renderDetail(cap))));
+    })))), lightbox && /* @__PURE__ */ React.createElement(SimpleLightbox, { src: lightbox, onClose: () => setLightbox(null) }));
+  }
+  function ManagerCapCard({ user, th, stores, showAlert }) {
+    const store = getManagerStore(stores, user);
+    const [caps, setCaps] = useState(null);
+    const [err, setErr] = useState(false);
+    const [expanded, setExpanded] = useState(null);
+    const load = useCallback(() => {
+      if (!store?.pc) {
+        setCaps([]);
+        return;
+      }
+      setErr(false);
+      auditsApi("list").then(async (j) => {
+        const submitted = (j.audits || []).filter((a) => a.status === "submitted");
+        const results = await Promise.all(submitted.map((a) => auditsApi("get", { id: a.id }).catch(() => null)));
+        const open = [];
+        results.forEach((r) => {
+          if (r?.caps) open.push(...r.caps.filter((c) => c.status === "open" || c.status === "overdue"));
+        });
+        open.sort((a, b) => new Date(a.deadline || 0) - new Date(b.deadline || 0));
+        setCaps(open);
+      }).catch(() => {
+        setCaps([]);
+        setErr(true);
+      });
+    }, [store?.pc]);
+    useEffect(() => {
+      load();
+    }, [load]);
+    if (!store?.pc) return null;
+    const dropResolved = (updated) => setCaps((cs) => (cs || []).filter((c) => c.id !== updated.id));
+    const n = caps == null ? null : caps.length;
+    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.15rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1rem" } }, "\u{1F4CB}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.85rem", color: th.text } }, "Open CAPs ", n != null ? `(${n})` : ""))), err && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.78rem", marginBottom: "0.5rem" } }, "Couldn't load corrective actions. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { background: "none", border: "none", color: O, cursor: "pointer", textDecoration: "underline", padding: 0 } }, "Retry")), caps === null ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, textAlign: "center", padding: "0.75rem 0" } }, "Loading\u2026") : caps.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, textAlign: "center", padding: "0.75rem 0" } }, "No open corrective actions. Nice work!") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", maxHeight: 320, overflowY: "auto" } }, caps.map((cap) => {
+      const overdue = cap.status === "overdue" || cap.isOverdue;
+      const open = expanded === cap.id;
+      return /* @__PURE__ */ React.createElement("div", { key: cap.id, style: { borderRadius: "0.5rem", padding: "0.55rem 0.65rem", background: th.bg, border: overdue ? "1px solid #ef444488" : `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setExpanded(open ? null : cap.id), style: { cursor: "pointer", display: "flex", justifyContent: "space-between", gap: "0.5rem", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text } }, cap.itemText), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: overdue ? "#ef4444" : th.muted, fontWeight: overdue ? 700 : 400, marginTop: "0.15rem" } }, overdue ? "\u26A0\uFE0F Overdue" : "Due", " ", cap.deadline ? new Date(cap.deadline).toLocaleDateString() : "")), /* @__PURE__ */ React.createElement("span", { style: pill(SEVERITY_COLOR[cap.severity] || th.muted) }, (cap.severity || "\u2014").toUpperCase())), open && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(
+        CapResolveForm,
+        {
+          th,
+          user,
+          cap,
+          showAlert,
+          onDone: (updated) => {
+            dropResolved(updated);
+            setExpanded(null);
+          },
+          onCancel: () => setExpanded(null)
+        }
+      )));
+    })));
   }
   var BASE_TABS = [
     { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c), noPinToggle: true },
@@ -16823,7 +17195,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.33";
+  var APP_VERSION = "v18.34";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -19331,7 +19703,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       );
     })), user.userType === "manager" && (() => {
       const mp = getManagerStore(stores, user);
-      return mp?.pc ? /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", display: "grid", gap: "0.85rem", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", alignItems: "start", maxWidth: 1080 } }, /* @__PURE__ */ React.createElement(Guard, { name: "manager-brief", fallback: null }, /* @__PURE__ */ React.createElement(ManagerOrionBrief, { pc: mp.pc, storeName: mp.name, th })), /* @__PURE__ */ React.createElement(Guard, { name: "forecast-preplan", fallback: null }, /* @__PURE__ */ React.createElement(ForecastPrePlanCard, { pc: mp.pc, storeName: mp.name, th }))) : null;
+      return mp?.pc ? /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", display: "grid", gap: "0.85rem", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", alignItems: "start", maxWidth: 1080 } }, /* @__PURE__ */ React.createElement(Guard, { name: "manager-brief", fallback: null }, /* @__PURE__ */ React.createElement(ManagerOrionBrief, { pc: mp.pc, storeName: mp.name, th })), /* @__PURE__ */ React.createElement(Guard, { name: "forecast-preplan", fallback: null }, /* @__PURE__ */ React.createElement(ForecastPrePlanCard, { pc: mp.pc, storeName: mp.name, th })), /* @__PURE__ */ React.createElement(Guard, { name: "manager-caps", fallback: null }, /* @__PURE__ */ React.createElement(ManagerCapCard, { user, th, stores, showAlert }))) : null;
     })(), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(StackCardsSection, { th, disabled: isMobile }, /* @__PURE__ */ React.createElement(Guard, { name: "today-brief", fallback: null }, /* @__PURE__ */ React.createElement(TodayBrief, { user, th, setAnnouncements, showAlert, announcementsDismissed, setAnnouncementsDismissed })), /* @__PURE__ */ React.createElement(Guard, { name: "action-queue", fallback: null }, /* @__PURE__ */ React.createElement(ActionQueue, { stores, th, user, setTab, users, showAlert })), (() => {
       const showTickets = ticketStats.open > 0 || ticketStats.inProg > 0;
       const cols = isMobile ? "1fr" : showTickets ? "1fr 1fr" : "1fr";
