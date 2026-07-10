@@ -335,6 +335,10 @@ const PROJECT_PHASES = [
   ]},
 ];
 
+// PROJECT_PHASES plus the synthetic terminal "Complete" bucket — shared by the
+// phase filter, board columns, and phase grouping in AdminProjects.
+const ALL_PHASES = [...PROJECT_PHASES, { id: "complete", label: "Complete", icon: "✅", color: "#22c55e", items: [] }];
+
 const DEFAULT_PROFESSIONALS = {
   attorneys: [
     { id: "att1", name: "Dave Shafkowitz", phone: "", email: "", company: "" },
@@ -13434,18 +13438,20 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   }), [projects, stores]);
 
   // ── Row model: ONE derivation pass per data change (phase, done, overdue,
-  // completion), shared by the filter, sort, both table renderers, and the PDF
-  // exports. A single definition of "done" (current phase === complete — covers the
+  // completion), shared by the filter, sort, all renderers, and the PDF exports.
+  // A single definition of "done" (current phase === complete — covers the
   // completed flag, a phase override, AND a 100% checklist) drives both the
   // completed-last ranking and the OVERDUE badge so they can never contradict.
-  // Also collapses hundreds of per-render getCurrentPhase calls to one per project.
+  // Keyed by OBJECT REFERENCE (not id) so dirty/duplicate ids can't cross-wire
+  // rows. dayKey keeps OVERDUE honest across midnight on a long-open dashboard.
+  const dayKey = new Date().toDateString();
   const rowModel = React.useMemo(() => {
     const m = new Map();
     const now = new Date();
     enrichedProjects.forEach(p => {
       const phase = getCurrentPhase(p);
       const done = phase.id === "complete";
-      m.set(p.id, {
+      m.set(p, {
         phase,
         done,
         overall: getOverallCompletion(p),
@@ -13453,26 +13459,26 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
       });
     });
     return m;
-  }, [enrichedProjects]);
+  }, [enrichedProjects, dayKey]);
 
   // Filter & sort (memoized — these used to recompute on every keystroke/dragover)
   const isDM = user?.userType === "dm";
   const filtered = React.useMemo(() => enrichedProjects.filter(p => {
     if (isDM && String(p.district) !== String(user.district)) return false;
     if (filterType !== "All" && p.type !== filterType) return false;
-    if (filterPhase !== "All" && rowModel.get(p.id)?.phase.id !== filterPhase) return false;
+    if (filterPhase !== "All" && rowModel.get(p)?.phase.id !== filterPhase) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
       return (p.pc || "").toLowerCase().includes(q) || (p.nickname || "").toLowerCase().includes(q) || (p.address || "").toLowerCase().includes(q);
     }
     return true;
-  }), [enrichedProjects, rowModel, isDM, user, filterType, filterPhase, search]);
+  }), [enrichedProjects, rowModel, isDM, user?.district, filterType, filterPhase, search]);
 
   const sorted = React.useMemo(() => [...filtered].sort((a, b) => {
     // Completed projects always sink to the bottom regardless of sort column; the
     // displayed # is positional, so when a project completes, the next active one
     // takes over its rank automatically.
-    const ra = rowModel.get(a.id), rb = rowModel.get(b.id);
+    const ra = rowModel.get(a), rb = rowModel.get(b);
     const aDone = ra?.done ? 1 : 0;
     const bDone = rb?.done ? 1 : 0;
     if (aDone !== bDone) return aDone - bDone;
@@ -13485,30 +13491,50 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
     else if (sortCol === "dueDate") { av = a.dueDate || "9999"; bv = b.dueDate || "9999"; }
     else { av = a[sortCol] || ""; bv = b[sortCol] || ""; }
     const cmp = av < bv ? -1 : av > bv ? 1 : 0;
-    return sortDir === "asc" ? cmp : -cmp;
+    const dir = sortDir === "asc" ? cmp : -cmp;
+    // Deterministic tiebreak: reopened projects can carry a stale priority that
+    // collides with an active one — without this the tie order is arbitrary.
+    return dir !== 0 ? dir : (a.id || 0) - (b.id || 0);
   }), [filtered, rowModel, sortCol, sortDir]);
 
-  const toggleSort = (col) => { if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortCol(col); setSortDir("asc"); } };
+  // Header sorting is disabled while reorder mode is unlocked — drag renumbering
+  // assumes the visible order IS priority order; sorting mid-reorder would make
+  // drops land somewhere other than where they were dropped.
+  const toggleSort = (col) => { if (!reorderLocked) return; if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortCol(col); setSortDir("asc"); } };
   const SortIcon = ({ col }) => sortCol === col ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
-  // Group by current phase for board view
-  const ALL_PHASES = [...PROJECT_PHASES, { id: "complete", label: "Complete", icon: "✅", color: "#22c55e", items: [] }];
+  // Group by current phase for board view (ALL_PHASES is module-scope: stable
+  // identity, safe to use inside the memo without a dependency)
   const phaseGroups = React.useMemo(() => {
     const g = {};
-    [...PROJECT_PHASES, { id: "complete" }].forEach(ph => { g[ph.id] = []; });
-    filtered.forEach(p => { const ph = rowModel.get(p.id)?.phase; if (ph && g[ph.id]) g[ph.id].push(p); });
+    ALL_PHASES.forEach(ph => { g[ph.id] = []; });
+    filtered.forEach(p => { const ph = rowModel.get(p)?.phase; if (ph && g[ph.id]) g[ph.id].push(p); });
     return g;
   }, [filtered, rowModel]);
 
   const TYPE_COLORS = { Remodel: "#3b82f6", Relocation: "#f59e0b", "New Location": "#22c55e" };
   const PHASE_COLORS = { zoning: "#6366f1", land_development: "#14b8a6", permitting: "#f97316", pre_construction: "#3b82f6", equipment_ordering: "#f59e0b", construction: "#8b5cf6", completion: "#10b981", complete: "#22c55e" };
 
+  // Shared row visuals — single copies for the desktop table + mobile cards
+  // (each had its own inline clone, which had already started to drift).
+  const fmtDue = (d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const renderProgress = (overall) => (
+    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+      <div style={{ flex: 1, height: 6, borderRadius: 3, background: th.card3 }}>
+        <div style={{ height: "100%", borderRadius: 3, width: overall + "%", background: overall === 100 ? "#22c55e" : O, transition: "width .3s" }} />
+      </div>
+      <span style={{ fontSize: "0.7rem", fontWeight: 700, color: overall === 100 ? "#22c55e" : th.text, minWidth: 32, textAlign: "right" }}>{overall}%</span>
+    </div>
+  );
+
   // ── Detail / Drill-Down View ──
   if (view === "detail" && selectedProject) {
     const p = projects.find(pr => pr.id === selectedProject.id) || selectedProject;
     const overall = getOverallCompletion(p);
     const store = stores.find(s => s.pc === p.pc);
-    const isOverdue = p.dueDate && !p.completed && new Date(p.dueDate) < new Date();
+    // Unified done-check (same as rowModel): completed flag OR phase override OR
+    // 100% checklist — the detail badge must agree with the table/board/exports.
+    const isOverdue = p.dueDate && getCurrentPhase(p).id !== "complete" && new Date(p.dueDate) < new Date();
     return (
       <div className="fade-in">
         <button onClick={() => { setView("table"); setSelectedProject(null); }} style={{ ...btn(th, { background: th.card3, color: th.muted, marginBottom: "1.25rem", padding: "0.5rem 1rem", fontSize: "0.8125rem" }) }}>
@@ -14706,7 +14732,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             const dateStr = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
             const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
             const projectCards = sorted.map(p => {
-              const { phase = {}, overall: pct = 0, isOverdue = false } = rowModel.get(p.id) || {};
+              const { phase = {}, overall: pct = 0, isOverdue = false } = rowModel.get(p) || {};
               const missingItems = [];
               PROJECT_PHASES.forEach(ph => {
                 if (isPhaseSkipped(p, ph)) return;
@@ -14756,9 +14782,9 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             const phaseCount = {};
             PROJECT_PHASES.forEach(ph => { phaseCount[ph.label] = 0; });
             phaseCount["Complete"] = 0;
-            sorted.forEach(p => { const ph = rowModel.get(p.id)?.phase; if (ph) phaseCount[ph.label] = (phaseCount[ph.label] || 0) + 1; });
+            sorted.forEach(p => { const ph = rowModel.get(p)?.phase; if (ph) phaseCount[ph.label] = (phaseCount[ph.label] || 0) + 1; });
             const summaryPills = Object.entries(phaseCount).filter(([,v]) => v > 0).map(([k,v]) => `<span style="background:#f0f0f0;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;">${k}: ${v}</span>`).join("");
-            const overdueCount = sorted.filter(p => rowModel.get(p.id)?.isOverdue).length;
+            const overdueCount = sorted.filter(p => rowModel.get(p)?.isOverdue).length;
             const html = `<!DOCTYPE html><html><head><style>@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@600;700;800;900&family=Source+Sans+3:wght@400;600;700&display=swap');body{font-family:'Source Sans 3',sans-serif;margin:0;padding:36px;color:#1f2937;}@media print{body{padding:20px;}}</style></head><body>
               <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #FF671F;">
                 <div>
@@ -14936,7 +14962,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             <div style={{ ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted }}>No projects found.</div>
           )}
           {sorted.map((p, i) => {
-            const { overall = 0, phase = {}, isOverdue = false } = rowModel.get(p.id) || {};
+            const { overall = 0, phase = {}, isOverdue = false } = rowModel.get(p) || {};
             const phaseColor = PHASE_COLORS[phase.id] || "#666";
             return (
               <div key={p.id} onClick={() => { setSelectedProject(p); setView("detail"); }}
@@ -14963,16 +14989,11 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                   <div>
                     <div style={{ fontSize: "0.55rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Due Date</div>
                     <div style={{ fontSize: "0.78rem", fontWeight: 700, marginTop: 2, color: isOverdue ? "#ff4444" : th.text }}>
-                      {isOverdue ? "OVERDUE" : p.dueDate ? new Date(p.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                      {isOverdue ? "OVERDUE" : p.dueDate ? fmtDue(p.dueDate) : "—"}
                     </div>
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.6rem" }}>
-                  <div style={{ flex: 1, height: 6, borderRadius: 3, background: th.card3 }}>
-                    <div style={{ height: "100%", borderRadius: 3, width: overall + "%", background: overall === 100 ? "#22c55e" : O }} />
-                  </div>
-                  <span style={{ fontSize: "0.7rem", fontWeight: 700, color: overall === 100 ? "#22c55e" : th.text, minWidth: 32, textAlign: "right" }}>{overall}%</span>
-                </div>
+                <div style={{ marginTop: "0.6rem" }}>{renderProgress(overall)}</div>
               </div>
             );
           })}
@@ -15008,13 +15029,13 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                   <tr><td colSpan={7} style={{ padding: "2rem", textAlign: "center", color: th.muted }}>No projects found.</td></tr>
                 )}
                 {sorted.map((p, i) => {
-                  const { overall = 0, phase = {}, isOverdue = false } = rowModel.get(p.id) || {};
+                  const { overall = 0, phase = {}, isOverdue = false, done = false } = rowModel.get(p) || {};
                   const phaseColor = PHASE_COLORS[phase.id] || "#666";
                   const isDragTarget = !reorderLocked && dragOverIdx === i && dragIdx !== i;
                   return (
                     <tr key={p.id} onClick={() => { if (!reorderLocked) return; setSelectedProject(p); setView("detail"); }}
-                      draggable={!reorderLocked}
-                      onDragStart={e => { if (reorderLocked) return; setDragIdx(i); e.dataTransfer.effectAllowed = "move"; e.currentTarget.style.opacity = "0.4"; }}
+                      draggable={!reorderLocked && !done}
+                      onDragStart={e => { if (reorderLocked || done) return; setDragIdx(i); e.dataTransfer.effectAllowed = "move"; e.currentTarget.style.opacity = "0.4"; }}
                       onDragEnd={e => { e.currentTarget.style.opacity = "1"; setDragIdx(null); setDragOverIdx(null); }}
                       onDragOver={e => { if (reorderLocked) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverIdx !== i) setDragOverIdx(i); }}
                       onDragLeave={() => { if (dragOverIdx === i) setDragOverIdx(null); }}
@@ -15030,7 +15051,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                         // priority didn't actually change for the same reason.
                         const updates = new Map();
                         let rank = 1;
-                        reordered.forEach(proj => { if (!rowModel.get(proj.id)?.done) updates.set(proj.id, rank++); });
+                        reordered.forEach(proj => { if (!rowModel.get(proj)?.done) updates.set(proj.id, rank++); });
                         setProjects(ps => ps.map(proj => updates.has(proj.id) && proj.priority !== updates.get(proj.id) ? { ...proj, priority: updates.get(proj.id), updatedAt: new Date().toISOString(), lastEditedBy: user?.name || "Unknown", lastEditedAt: new Date().toISOString() } : proj));
                         setDragIdx(null);
                         setDragOverIdx(null);
@@ -15039,7 +15060,9 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                       onMouseEnter={e => { if (reorderLocked) e.currentTarget.style.background = th.card2; }}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                       <td style={{ padding: "0.625rem 0.75rem", color: th.muted, fontWeight: 600 }}>
-                        {!reorderLocked && <span style={{ cursor: "grab", marginRight: "0.3rem", opacity: 0.5 }}>⠿</span>}
+                        {/* Completed rows are pinned to the bottom — dragging them is a
+                            no-op, so no grab handle */}
+                        {!reorderLocked && !done && <span style={{ cursor: "grab", marginRight: "0.3rem", opacity: 0.5 }}>⠿</span>}
                         {i + 1}
                       </td>
                       <td style={{ padding: "0.625rem 0.75rem" }}>
@@ -15058,18 +15081,13 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                         <span style={{ padding: "0.125rem 0.5rem", borderRadius: "1rem", fontSize: "0.6875rem", fontWeight: 600, background: phaseColor + "22", color: phaseColor, whiteSpace: "nowrap" }}>{phase.icon} {phase.label}</span>
                       </td>
                       <td style={{ padding: "0.625rem 0.75rem", minWidth: 130 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                          <div style={{ flex: 1, height: 6, borderRadius: 3, background: th.card3 }}>
-                            <div style={{ height: "100%", borderRadius: 3, width: overall + "%", background: overall === 100 ? "#22c55e" : O, transition: "width .3s" }} />
-                          </div>
-                          <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: overall === 100 ? "#22c55e" : th.text, minWidth: 32, textAlign: "right" }}>{overall}%</span>
-                        </div>
+                        {renderProgress(overall)}
                       </td>
                       <td style={{ padding: "0.625rem 0.75rem", whiteSpace: "nowrap" }}>
                         {isOverdue ? (
                           <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#ff4444" }}>OVERDUE</span>
                         ) : p.dueDate ? (
-                          <span style={{ fontSize: "0.8125rem", color: th.muted }}>{new Date(p.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                          <span style={{ fontSize: "0.8125rem", color: th.muted }}>{fmtDue(p.dueDate)}</span>
                         ) : <span style={{ color: th.muted }}>—</span>}
                       </td>
                     </tr>
@@ -15093,8 +15111,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem", minHeight: 80 }}>
                 {(phaseGroups[phase.id] || []).map(p => {
-                  const overall = getOverallCompletion(p);
-                  const isOverdue = p.dueDate && !p.completed && new Date(p.dueDate) < new Date();
+                  const { overall = 0, isOverdue = false } = rowModel.get(p) || {};
                   const phaseComp = phase.id !== "complete" ? getPhaseCompletion(p, phase) : null;
                   return (
                     <div key={p.id} onClick={() => { setSelectedProject(p); setView("detail"); }}
@@ -19960,8 +19977,12 @@ function ForecastWeekView({ week, th }) {
 function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onPulse, onLabor, onLogout }) {
   const store = getManagerStore(stores, user) || {};
   const pc = store.pc;
-  const todayStr = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
-  const yesterdayStr = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
+  // LOCAL date string (YYYY-MM-DD) — must match the labor/hourly blobs, which key
+  // entries by ET business date. Using toISOString() here would shift to UTC and
+  // mismatch by a day every evening, so past-day lookups would silently miss.
+  const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  const todayStr = ymd(new Date());
+  const yesterdayStr = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return ymd(d); })();
   const lastYearStr  = (() => { const d = new Date(); d.setDate(d.getDate() - 364); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
   const [sales, setSales] = useState(null);
   const [salesYesterday, setSalesYesterday] = useState(null);
@@ -20151,7 +20172,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   useEffect(() => {
     if (dayOffset <= 1) { setHistHourly(null); return; }
     const d = new Date(); d.setDate(d.getDate() - dayOffset);
-    const dStr = d.toISOString().slice(0, 10);
+    const dStr = ymd(d);
 
     // Already cached — use immediately
     if (liveHistCache[dStr]) {
@@ -20210,8 +20231,8 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   // Day-cycling: derive display data for today (live) vs past days (blob history)
   const isLive = dayOffset === 0;
   const viewDate = (() => { const d = new Date(); d.setDate(d.getDate() - dayOffset); return d; })();
-  const viewDateStr = viewDate.toISOString().slice(0, 10);
-  const prevDateStr = (() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+  const viewDateStr = ymd(viewDate);
+  const prevDateStr = (() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); return ymd(d); })();
   const histEntry = !isLive ? (storeBlob?.daily || []).find(e => e.date === viewDateStr) || null : null;
   const histPrevEntry = !isLive ? (storeBlob?.daily || []).find(e => e.date === prevDateStr) || null : null;
   const liveHist = !isLive && dayOffset > 1 ? liveHistCache[viewDateStr] ?? null : null;
@@ -20226,7 +20247,9 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       ? (salesYesterday?.guests ?? null)
       : (liveHist?.sales?.guests ?? null);
   const displayLaborPct = isLive ? laborPct : (histEntry?.laborPct ?? null);
-  const displayLaborDollars = isLive ? storeLabor?.laborDollars : histEntry?.laborCost;
+  // Daily blob entries store the field as `laborDollars` (labor-cron mergeStoreBlob),
+  // never `laborCost` — the old name left the past-day labor $ permanently blank.
+  const displayLaborDollars = isLive ? storeLabor?.laborDollars : (histEntry?.laborDollars ?? null);
   const displayPaceTarget = isLive ? lwDaySales : (histPrevEntry?.sales || null);
   const laborColor = displayLaborPct == null ? th.muted : displayLaborPct <= 22.9 ? "#22c55e" : displayLaborPct <= 25.9 ? "#f59e0b" : "#ef4444";
   const laborLabel = displayLaborPct == null ? "No Data" : displayLaborPct <= 22.9 ? "On Target" : displayLaborPct <= 25.9 ? "Watch" : "Over";
@@ -20371,8 +20394,12 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
 
         {/* Daily essentials — clean metric grid under the hero */}
         {(() => {
-          const wtd = storeBlob?.weekly?.[0] || null;
-          const wtdColor = wtd ? (wtd.laborPct <= 22.9 ? "#22c55e" : wtd.laborPct <= 25.9 ? "#f59e0b" : "#ef4444") : th.muted;
+          // WTD from the authoritative network blob (pcg_labor_v1 → stores[pc].wtd),
+          // the SAME source as the daily Labor tile and Orion — not the per-store
+          // weekly[0] rollup, which was drifting (showed 0.0% / stale $ vs reality).
+          // WTD is always "current week to date", so it holds across day-cycling.
+          const wtd = labor?.wtd || null;
+          const wtdColor = wtd && wtd.laborPct > 0 ? (wtd.laborPct <= 22.9 ? "#22c55e" : wtd.laborPct <= 25.9 ? "#f59e0b" : "#ef4444") : th.muted;
           const avgCheck = displayGuests > 0 ? "$" + (displaySalesAmt / displayGuests).toFixed(2) : "--";
           const laborVal = (isLive && loading) ? "--" : displayLaborPct != null ? displayLaborPct.toFixed(1) + "%" : "--";
           return (
@@ -20384,8 +20411,8 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
               </Card>
               <Card accent={wtdColor} style={{ padding: "0.85rem 0.9rem" }}>
                 <div style={tileLabel}>WTD Labor</div>
-                <div style={{ ...tileNum, color: wtdColor }}>{wtd ? (wtd.laborPct || 0).toFixed(1) + "%" : "--"}</div>
-                <div style={tileSub}>{wtd ? fmt(wtd.laborDollars || 0) + " labor" : "Week to date"}</div>
+                <div style={{ ...tileNum, color: wtdColor }}>{wtd && wtd.laborPct > 0 ? wtd.laborPct.toFixed(1) + "%" : "--"}</div>
+                <div style={tileSub}>{wtd && wtd.laborDollars > 0 ? fmt(wtd.laborDollars) + " labor" : "Week to date"}</div>
               </Card>
               <Card accent="#74c0fc" style={{ padding: "0.85rem 0.9rem" }}>
                 <div style={tileLabel}>Guests</div>
@@ -20646,7 +20673,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.32";
+const APP_VERSION = "v18.36";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -24210,10 +24237,12 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
       {user.userType === 'manager' && (() => {
         const mp = getManagerStore(stores, user);
         return mp?.pc ? (
-          <div style={{ marginBottom: "1.25rem", display: 'grid', gap: '0.85rem', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start', maxWidth: 1080 }}>
+          // Same stacked-cards deck as the exec/DM dashboard "Section 2" — brief pins,
+          // the game plan slides over it. Self-disables to plain flow on mobile.
+          <StackCardsSection th={th}>
             <Guard name="manager-brief" fallback={null}><ManagerOrionBrief pc={mp.pc} storeName={mp.name} th={th} /></Guard>
             <Guard name="forecast-preplan" fallback={null}><ForecastPrePlanCard pc={mp.pc} storeName={mp.name} th={th} /></Guard>
-          </div>
+          </StackCardsSection>
         ) : null;
       })()}
 
@@ -38893,6 +38922,9 @@ function PCGPortal() {
           const diff = due - now;
           const overall = getOverallCompletion(p);
           if (overall === 100) continue;
+          // Also covers phaseOverride:"complete" — without this, a force-completed
+          // project with a sub-100% checklist self-refills overdue reminders daily.
+          if (getCurrentPhase(p).id === "complete") continue;
           // Check if already notified in last 24h for this type+project
           const recentlyNotified = (type) => prev.some(n => n.projectId === p.id && n.type === type && new Date(n.createdAt).getTime() > oneDayAgo);
           if (diff < 0 && !recentlyNotified("overdue")) {
@@ -40451,7 +40483,7 @@ function PCGPortal() {
         {/* Floating Orion launcher — opens the Orion analyst chat.
             Portaled to document.body so position:fixed escapes the transformed
             layout ancestor (same pattern as the modals above). */}
-        {user && !isMobile && tab !== "chat" && ["executive","it","office_staff","dm"].includes(user.userType) && ReactDOM.createPortal(
+        {user && !isMobile && tab !== "chat" && ["executive","it","office_staff","dm","manager"].includes(user.userType) && ReactDOM.createPortal(
           <button
             onClick={() => { setOrionIntent(true); setTab("chat"); }}
             title="Ask Orion"

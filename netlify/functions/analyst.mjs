@@ -88,6 +88,15 @@ export default async (request, context) => {
       // Build data context scoped to the caller's REAL role: store (managers), district (DMs),
       // or full network (execs). A manager is locked to their own store; a DM to their district.
       const effStorePC = effRole === 'manager' ? (caller?.storePC || storePC) : null;
+      // Fail closed: a manager with no resolvable store must never fall through to the
+      // district/network data path below.
+      if (effRole === 'manager' && !effStorePC) {
+        return respond(200, {
+          answer: "I can't tell which store you're assigned to yet, so I can't pull your numbers. Ask IT to set the store on your user profile and I'll be ready to go.",
+          model: 'scope-guard', tokens: 0, latencyMs: Date.now() - t0,
+          messageId: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, mentions: [],
+        });
+      }
       const isMaint = effRole === 'maintenance';
       let dataContext;
       let scope;
@@ -137,6 +146,15 @@ export default async (request, context) => {
           buildWeatherContext({ district: distArg }),
         ]);
         extraContext += (sentiment || '') + (weather || '');
+      } else if (effRole === 'manager' && effStorePC) {
+        // Managers: sentiment locked to THEIR store only; weather by their store's
+        // district (weather is regional — no cross-store data in it).
+        const mgrDistrict = STORES.find(s => s.pc === effStorePC)?.district ?? null;
+        const [sentiment, weather] = await Promise.all([
+          buildSentimentContext({ storePC: effStorePC }),
+          mgrDistrict != null ? buildWeatherContext({ district: mgrDistrict }) : Promise.resolve(''),
+        ]);
+        extraContext += (sentiment || '') + (weather || '');
       }
       // Pulse comparison engine — today-so-far vs yesterday-same-time / WTD vs last week /
       // MTD vs last month + voids/refunds/discounts + today-by-hour, per store + district.
@@ -147,6 +165,34 @@ export default async (request, context) => {
       if (effRole === 'dm' && effDistrict != null && PULSE_Q.test(question || '')) {
         try { extraContext += await buildPulseComparisonContext({ district: effDistrict }); }
         catch (e) { console.warn('[analyst] pulse comparison failed:', e.message); }
+      } else if (effRole === 'manager' && effStorePC && PULSE_Q.test(question || '')) {
+        // Managers get the same today/yesterday/WTD/MTD + today-by-hour engine,
+        // scoped to exactly their store (answers peak-hour / checks-by-hour /
+        // avg-check-vs-last-week questions from real data instead of guessing).
+        try { extraContext += await buildPulseComparisonContext({ storePC: effStorePC }); }
+        catch (e) { console.warn('[analyst] store pulse comparison failed:', e.message); }
+      }
+
+      // Forecast & game plan (managers): tomorrow's projection by daypart + weather
+      // factor for THEIR store, so "what do I need tomorrow / which daypart is
+      // strongest / am I staffed right for the afternoon" answers from the same
+      // model the Forecast & Game Plan card uses.
+      const FORECAST_Q = /\b(forecast|tomorrow|game ?plan|project(ed|ion)|daypart|par|baseline|donut|munchkin|staff(ed|ing)?|transactions? (do i )?need|target)\b/i;
+      if (effRole === 'manager' && effStorePC && FORECAST_Q.test(question || '')) {
+        try {
+          const { forecast: fc, accuracy } = await forecastStoreFull(effStorePC);
+          if (fc && fc.dayTotal > 0) {
+            const money = n => '$' + Math.round(n || 0).toLocaleString();
+            const dp = fc.dayparts || {};
+            const dpStr = `AM rush (5–9a) ${money(dp.amRush)}, mid-morning (9–11a) ${money(dp.midMorning)}, lunch (11a–2p) ${money(dp.lunch)}, afternoon (2p–close) ${money(dp.afternoon)}`;
+            const wf = fc.weatherFactor && fc.weatherFactor !== 1 ? `\n  Weather factor applied: ×${fc.weatherFactor}` : '';
+            const hol = fc.holidayName ? `\n  Holiday: ${fc.holidayName}${fc.holidayUnknown ? ' (no learned factor — treat with low confidence)' : ` ×${fc.holidayFactor}`}` : '';
+            const acc = accuracy?.mape != null ? `\n  Model accuracy: ~${accuracy.mape}% avg error over the last ${accuracy.window} scored days` : '';
+            extraContext += `\n\nTOMORROW'S FORECAST (${fc.date} ${fc.dowLabel}, your store): ${money(fc.dayTotal)} projected (range ${money(fc.low)}–${money(fc.high)}, confidence: ${fc.confidence})` +
+              `\n  By daypart: ${dpStr}` + wf + hol + acc +
+              `\n  (Same model as the Forecast & Game Plan card. For "transactions needed", divide the target by the recent avg check from the daily performance data.)`;
+          }
+        } catch (e) { console.warn('[analyst] manager forecast failed:', e.message); }
       }
       // Sales-mix attribution — category-level drops matched to open equipment tickets, so
       // Orion can answer "why are <category> sales down at <store>?" with a cause, not a guess.
