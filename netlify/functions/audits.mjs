@@ -94,6 +94,16 @@ const AUDIT_STORES = [
   { pc: '356316', district: 8, mgr: 'Perry Patel', email: '356316@rgi.life' },
 ];
 
+// itemId → text, flattened from TEMPLATE_V1 (Task 8: the `dashboard` action's
+// chronic/systemic repeat-finding aggregates only had item ids on hand — the
+// `results` JSONB blob stored per audit doesn't carry item text — so the
+// leadership dashboard's repeat-finding lists couldn't label what was actually
+// failing. Built once at module load since TEMPLATE_V1 is a static import.
+const ITEM_TEXT_BY_ID = new Map();
+for (const sec of TEMPLATE_V1.sections || []) {
+  for (const it of sec.items || []) ITEM_TEXT_BY_ID.set(it.id, it.text);
+}
+
 let _ready = false;
 async function ensureTables() {
   if (_ready) return;
@@ -506,7 +516,7 @@ export default async (req) => {
         const pcs = isFull
           ? AUDIT_STORES.map((s) => s.pc)
           : AUDIT_STORES.filter((s) => String(s.district) === String(user.district)).map((s) => s.pc);
-        if (!pcs.length) return json(200, { ok: true, latestByStore: {}, trend: [], coverage: { totalStores: 0, auditedStores: 0, pct: 0, missing: [] }, repeats: { chronic: {}, systemic: [] }, capBoard: [] });
+        if (!pcs.length) return json(200, { ok: true, latestByStore: {}, trend: [], portfolioTrend: null, coverage: { totalStores: 0, auditedStores: 0, pct: 0, missing: [] }, repeats: { chronic: {}, systemic: [] }, capBoard: [], capSummary: { total: 0, open: 0, overdue: 0, byOwner: [], avgDaysToClose: null } });
 
         // latestByStore — most recent submitted audit per store.
         const latestRows = await sql`
@@ -523,13 +533,50 @@ export default async (req) => {
           };
         }
 
-        // trend — monthly network/district average score, trailing 6 months.
-        const trendRows = await sql`
-          SELECT to_char(date_trunc('month', submitted_at), 'YYYY-MM') AS month,
-                 avg(score)::numeric(10,1) AS avg_score, count(*)::int AS n
-          FROM audits WHERE store_pc = ANY(${pcs}) AND status = 'submitted' AND submitted_at > now() - interval '6 months'
-          GROUP BY 1 ORDER BY 1`;
-        const trend = trendRows.map((r) => ({ month: r.month, avgScore: r.avg_score != null ? Number(r.avg_score) : null, count: r.n }));
+        // trend — monthly average score, trailing 6 months, + a by-district
+        // breakdown. `district` isn't a column on `audits` (only AUDIT_STORES
+        // knows it), so this pulls raw rows and aggregates in JS rather than a
+        // SQL GROUP BY — same reasoning as the chronic/systemic aggregation below.
+        const pcToDistrict = new Map(AUDIT_STORES.map((s) => [s.pc, s.district]));
+        const trendRawRows = await sql`
+          SELECT store_pc, submitted_at, score FROM audits
+          WHERE store_pc = ANY(${pcs}) AND status = 'submitted' AND submitted_at > now() - interval '6 months' AND score IS NOT NULL`;
+        const trendByMonth = new Map(); // month -> { sum, n, byDistrict: Map<district, {sum,n}> }
+        for (const r of trendRawRows) {
+          const month = new Date(r.submitted_at).toISOString().slice(0, 7);
+          if (!trendByMonth.has(month)) trendByMonth.set(month, { sum: 0, n: 0, byDistrict: new Map() });
+          const m = trendByMonth.get(month);
+          m.sum += Number(r.score); m.n += 1;
+          const d = pcToDistrict.get(r.store_pc);
+          if (d != null) {
+            if (!m.byDistrict.has(d)) m.byDistrict.set(d, { sum: 0, n: 0 });
+            const dm2 = m.byDistrict.get(d);
+            dm2.sum += Number(r.score); dm2.n += 1;
+          }
+        }
+        const trend = [...trendByMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, v]) => ({
+          month, avgScore: Math.round((v.sum / v.n) * 10) / 10, count: v.n,
+          byDistrict: Object.fromEntries([...v.byDistrict.entries()].map(([d, x]) => [d, Math.round((x.sum / x.n) * 10) / 10])),
+        }));
+
+        // portfolioTrend — network-wide monthly average, computed over ALL stores
+        // regardless of the dm district filter, only when needed: a dm's own
+        // `trend` above is already scoped to their district, so their Trend panel
+        // needs a separate portfolio-average benchmark line (brief: "trend shows
+        // their district + portfolio average"). A blended network number isn't a
+        // cross-district comparison or a manager ranking, so it doesn't violate
+        // the dm scoping rule. Full-view roles already get the whole network in
+        // `trend`, so this is left null for them (frontend just reuses `trend`).
+        let portfolioTrend = null;
+        if (isDm) {
+          const allPcs = AUDIT_STORES.map((s) => s.pc);
+          const portRows = await sql`
+            SELECT to_char(date_trunc('month', submitted_at), 'YYYY-MM') AS month,
+                   avg(score)::numeric(10,1) AS avg_score, count(*)::int AS n
+            FROM audits WHERE store_pc = ANY(${allPcs}) AND status = 'submitted' AND submitted_at > now() - interval '6 months' AND score IS NOT NULL
+            GROUP BY 1 ORDER BY 1`;
+          portfolioTrend = portRows.map((r) => ({ month: r.month, avgScore: r.avg_score != null ? Number(r.avg_score) : null, count: r.n }));
+        }
 
         // coverage — how many of the visible stores have a submitted audit in the trailing 90 days.
         const covRows = await sql`
@@ -566,7 +613,8 @@ export default async (req) => {
               if (v && v.result === 'fail') failCount[itemId] = (failCount[itemId] || 0) + 1;
             }
           }
-          const chronicItems = Object.entries(failCount).filter(([, n]) => n >= 2).map(([itemId]) => itemId);
+          const chronicItems = Object.entries(failCount).filter(([, n]) => n >= 2)
+            .map(([itemId, n]) => ({ itemId, itemText: ITEM_TEXT_BY_ID.get(itemId) || itemId, failCount: n }));
           if (chronicItems.length) chronic[pc] = chronicItems;
         }
 
@@ -585,15 +633,41 @@ export default async (req) => {
         }
         const systemic = [...storesByItem.entries()]
           .filter(([, set]) => set.size >= 5)
-          .map(([itemId, set]) => ({ itemId, storeCount: set.size }));
+          .map(([itemId, set]) => ({ itemId, itemText: ITEM_TEXT_BY_ID.get(itemId) || itemId, storeCount: set.size }));
 
-        // capBoard — open CAP work across the visible scope.
+        // capBoard — open CAP work across the visible scope. Kept as a flat array
+        // (the existing CAP Board view already consumes it that way — see
+        // `CapBoard` in app.jsx). capSummary is additive: the aggregates the
+        // leadership dashboard's CAP panel needs (open/overdue counts, top
+        // owners, avg time-to-close) that a flat list of open/in-progress CAPs
+        // can't answer on its own — avgDaysToClose in particular needs
+        // verified_closed rows, which are deliberately excluded from capBoard.
         const capRows = await sql`
           SELECT * FROM audit_caps WHERE store_pc = ANY(${pcs}) AND status IN ('open', 'owner_resolved', 'overdue')
           ORDER BY deadline ASC NULLS LAST`;
         const capBoard = capRows.map((r) => rowToCap(r));
 
-        return json(200, { ok: true, latestByStore, trend, coverage, repeats: { chronic, systemic }, capBoard });
+        const overdueCount = capBoard.filter((c) => c.isOverdue).length;
+        const openCount = capBoard.length - overdueCount;
+        const ownerCounts = new Map();
+        for (const c of capBoard) {
+          const key = c.ownerName || 'Unassigned';
+          ownerCounts.set(key, (ownerCounts.get(key) || 0) + 1);
+        }
+        const byOwner = [...ownerCounts.entries()].map(([ownerName, openCaps]) => ({ ownerName, openCaps }))
+          .sort((a, b) => b.openCaps - a.openCaps).slice(0, 10);
+
+        const closedRows = await sql`
+          SELECT created_at, verified_at FROM audit_caps
+          WHERE store_pc = ANY(${pcs}) AND status = 'verified_closed' AND verified_at IS NOT NULL AND created_at IS NOT NULL`;
+        let avgDaysToClose = null;
+        if (closedRows.length) {
+          const totalDays = closedRows.reduce((sum, r) => sum + (new Date(r.verified_at) - new Date(r.created_at)) / 86400000, 0);
+          avgDaysToClose = Math.round((totalDays / closedRows.length) * 10) / 10;
+        }
+        const capSummary = { total: capBoard.length, open: openCount, overdue: overdueCount, byOwner, avgDaysToClose };
+
+        return json(200, { ok: true, latestByStore, trend, portfolioTrend, coverage, repeats: { chronic, systemic }, capBoard, capSummary });
       }
 
       default:

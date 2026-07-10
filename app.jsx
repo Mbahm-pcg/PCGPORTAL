@@ -19398,17 +19398,37 @@ async function auditsApi(action, body = {}) {
 // internal screens. Roles that reach this tab: auditor, executive, it (conduct)
 // and dm/office_staff (read). New Audit is gated to conduct-capable roles.
 function AuditsTab({ user, th, stores, showAlert, setTab }) {
-  const [view, setView] = useState("list");         // 'list' | 'conduct' | 'report' | 'caps'
+  // 'list' | 'conduct' | 'report' | 'caps' | 'dashboard'; null while the default
+  // landing view is still being decided (see the effect below).
+  const [view, setView] = useState(null);
   const [conduct, setConduct] = useState(null);      // { auditId, storePC }
   const canConduct = ["auditor", "executive", "it"].includes(user?.userType);
   // Matches the `dashboard` action's server-side gate (FULL_VIEW ∪ dm) — the only
-  // roles that can ever get a non-empty capBoard back.
+  // roles that can ever get a non-empty capBoard/dashboard back.
   const canSeeCapBoard = ["auditor", "executive", "it", "office_staff", "dm"].includes(user?.userType);
+  const canSeeDashboard = canSeeCapBoard;
+  // Task 8: the dashboard is the default landing view for auditor/executive/it —
+  // but only once the portfolio has at least one submitted audit; an empty
+  // dashboard is worse than the familiar list. office_staff/dm always land on
+  // the list first but can still reach the dashboard via the nav button.
+  const dashboardIsDefault = ["auditor", "executive", "it"].includes(user?.userType);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!dashboardIsDefault) { setView("list"); return; }
+    auditsApi("dashboard")
+      .then(j => { if (!cancelled) setView(Object.keys(j.latestByStore || {}).length > 0 ? "dashboard" : "list"); })
+      .catch(() => { if (!cancelled) setView("list"); });
+    return () => { cancelled = true; };
+  }, [dashboardIsDefault]);
 
   const openConduct = (auditId, storePC) => { setConduct({ auditId, storePC }); setView("conduct"); };
   const openReport  = (auditId, storePC) => { setConduct({ auditId, storePC }); setView("report"); };
   const backToList  = () => { setConduct(null); setView("list"); };
 
+  if (view === null) {
+    return <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 1100, margin: "0 auto" }}>Loading…</div>;
+  }
   if (view === "conduct" && conduct) {
     return <AuditConduct user={user} th={th} stores={stores} showAlert={showAlert}
       auditId={conduct.auditId} storePC={conduct.storePC}
@@ -19421,13 +19441,18 @@ function AuditsTab({ user, th, stores, showAlert, setTab }) {
   if (view === "caps") {
     return <CapBoard user={user} th={th} stores={stores} showAlert={showAlert} onBack={backToList} />;
   }
+  if (view === "dashboard") {
+    return <AuditDashboard user={user} th={th} stores={stores} showAlert={showAlert}
+      onOpenReport={openReport} onGoList={() => setView("list")} onGoCaps={() => setView("caps")} />;
+  }
   return <AuditList user={user} th={th} stores={stores} showAlert={showAlert}
-    canConduct={canConduct} canSeeCapBoard={canSeeCapBoard}
-    onConduct={openConduct} onViewReport={openReport} onOpenCapBoard={() => setView("caps")} />;
+    canConduct={canConduct} canSeeCapBoard={canSeeCapBoard} canSeeDashboard={canSeeDashboard}
+    onConduct={openConduct} onViewReport={openReport} onOpenCapBoard={() => setView("caps")}
+    onOpenDashboard={() => setView("dashboard")} />;
 }
 
 // List view — table (desktop) / cards (mobile) of audits from the `list` action.
-function AuditList({ user, th, stores, showAlert, canConduct, canSeeCapBoard, onConduct, onViewReport, onOpenCapBoard }) {
+function AuditList({ user, th, stores, showAlert, canConduct, canSeeCapBoard, canSeeDashboard, onConduct, onViewReport, onOpenCapBoard, onOpenDashboard }) {
   const isMobile = useIsMobile();
   const [audits, setAudits] = useState(null);   // null = loading
   const [err, setErr] = useState(false);
@@ -19497,6 +19522,9 @@ function AuditList({ user, th, stores, showAlert, canConduct, canSeeCapBoard, on
           </div>
         </div>
         <div style={{ display: "flex", gap: "0.6rem" }}>
+          {canSeeDashboard && (
+            <button onClick={onOpenDashboard} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 }}>Dashboard</button>
+          )}
           {canSeeCapBoard && (
             <button onClick={onOpenCapBoard} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 }}>CAP Board</button>
           )}
@@ -20408,6 +20436,371 @@ function CapBoard({ user, th, stores, showAlert, onBack }) {
       )}
 
       {lightbox && <SimpleLightbox src={lightbox} onClose={() => setLightbox(null)} />}
+    </div>
+  );
+}
+
+// ── Leadership dashboard (Task 8) ────────────────────────────────────────────
+// Default landing view for auditor/executive/it once the portfolio has at least
+// one submitted audit (see `AuditsTab`); reachable via the "Dashboard" nav
+// button for office_staff/dm too, since the `dashboard` action's server-side
+// gate (FULL_VIEW ∪ dm) already allows them. One fetch feeds four stacked
+// panels: portfolio heatmap, score trend, coverage + repeat-finding flags, and
+// a CAP board summary. dm gets the same payload pre-filtered server-side to
+// their district — the only client-side scoping needed here is trimming the
+// store-tile grid (`stores` prop is the full unfiltered list) and hiding the
+// per-district trend lines / manager ranking per the brief.
+const DISTRICT_TREND_COLORS = ["#3b82f6", "#f59e0b", "#a855f7", "#10b981", "#ef4444", "#14b8a6", "#eab308", "#ec4899"];
+
+function AuditDashboard({ user, th, stores, showAlert, onOpenReport, onGoList, onGoCaps }) {
+  const [data, setData] = useState(null); // null = loading
+  const [err, setErr] = useState(false);
+
+  const isFull = ["auditor", "executive", "it", "office_staff"].includes(user?.userType);
+  const isDm = user?.userType === "dm";
+  const canSeeManagerRanking = ["auditor", "executive", "it"].includes(user?.userType);
+
+  const load = useCallback(() => {
+    setErr(false);
+    auditsApi("dashboard").then(setData).catch(() => { setData({}); setErr(true); });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const visibleStores = React.useMemo(() => {
+    const all = stores || [];
+    return isDm ? all.filter(s => String(s.district) === String(user?.district)) : all;
+  }, [stores, isDm, user]);
+
+  if (data === null) {
+    return (
+      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+        <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>Loading dashboard…</div>
+      </div>
+    );
+  }
+
+  const latestByStore = data.latestByStore || {};
+  const trend = data.trend || [];
+  const portfolioTrend = data.portfolioTrend || null;
+  const coverage = data.coverage || { totalStores: 0, auditedStores: 0, pct: 0, missing: [] };
+  const chronic = (data.repeats && data.repeats.chronic) || {};
+  const systemic = (data.repeats && data.repeats.systemic) || [];
+  const capSummary = data.capSummary || { total: 0, open: 0, overdue: 0, byOwner: [], avgDaysToClose: null };
+
+  return (
+    <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem" }}>
+        <div>
+          <div style={{ ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            {ICONS.audits(O)} Audits Dashboard
+          </div>
+          <div style={{ color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" }}>
+            {isDm ? `District ${user?.district} — ` : ""}Portfolio scorecard, trend, coverage and open corrective action.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "0.6rem" }}>
+          <button onClick={onGoCaps} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 }}>CAP Board</button>
+          <button onClick={onGoList} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 }}>All Audits</button>
+        </div>
+      </div>
+
+      {err && (
+        <div style={{ ...card(th), padding: "0.75rem 1rem", color: "#ef4444", fontSize: "0.85rem" }}>
+          Couldn't load the dashboard. <button onClick={load} style={{ ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" }}>Retry</button>
+        </div>
+      )}
+
+      <DashboardHeatmap th={th} stores={visibleStores} latestByStore={latestByStore} onOpenReport={onOpenReport} />
+      <DashboardTrend th={th} isFull={isFull} isDm={isDm} trend={trend} portfolioTrend={portfolioTrend} user={user} />
+      <DashboardCoverage th={th} stores={stores} coverage={coverage} latestByStore={latestByStore}
+        chronic={chronic} systemic={systemic} canSeeManagerRanking={canSeeManagerRanking} />
+      <DashboardCapSummary th={th} capSummary={capSummary} onOpenCapBoard={onGoCaps} />
+    </div>
+  );
+}
+
+// Panel 1 — store tiles grouped by district, tile color = band. Mirrors the
+// AdminLabor store-grid tile pattern (border-left accent + click-through), just
+// scored by audit band instead of labor %.
+function DashboardHeatmap({ th, stores, latestByStore, onOpenReport }) {
+  const byDistrict = React.useMemo(() => {
+    const m = new Map();
+    for (const s of (stores || [])) {
+      const d = s.district ?? "—";
+      if (!m.has(d)) m.set(d, []);
+      m.get(d).push(s);
+    }
+    return [...m.entries()]
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([d, list]) => [d, [...list].sort((a, b) => (a.name || "").localeCompare(b.name || ""))]);
+  }, [stores]);
+
+  return (
+    <div style={{ ...card(th), padding: "1.1rem 1.15rem" }}>
+      <div style={{ ...sectionTitle(th), marginBottom: "0.25rem" }}>Portfolio Heatmap</div>
+      <div style={{ fontSize: "0.78rem", color: th.muted, marginBottom: "0.85rem" }}>
+        Latest submitted score per store, grouped by district. Click a tile for its latest report.
+      </div>
+      {byDistrict.length === 0 ? (
+        <div style={{ color: th.muted, fontSize: "0.85rem" }}>No stores in scope.</div>
+      ) : byDistrict.map(([d, list]) => (
+        <div key={d} style={{ marginBottom: "1rem" }}>
+          <div style={{ ...microLabel(th), marginBottom: "0.4rem" }}>District {d}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.6rem" }}>
+            {list.map(s => {
+              const info = latestByStore[s.pc];
+              const clr = info?.band ? auditBandColor(info.band) : th.muted;
+              const clickable = !!info?.id;
+              return (
+                <div key={s.pc} onClick={() => clickable && onOpenReport(info.id, s.pc)}
+                  title={info
+                    ? `${s.name} — ${Math.round(info.score)} (${auditBandLabel(info.band)}) · ${info.submittedAt ? new Date(info.submittedAt).toLocaleDateString() : ""}`
+                    : `${s.name} — never audited`}
+                  style={{ ...card(th, { borderLeft: `4px solid ${clr}` }), padding: "0.6rem 0.7rem", cursor: clickable ? "pointer" : "default", opacity: info ? 1 : 0.55 }}>
+                  <div style={{ fontWeight: 700, fontSize: "0.78rem", color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</div>
+                  <div style={{ marginTop: "0.3rem" }}>
+                    {info ? (
+                      <span style={pill(clr, { fontWeight: 800 })}>{Math.round(info.score)}{info.cappedByCritical ? " ⚠︎" : ""}</span>
+                    ) : (
+                      <span style={{ fontSize: "0.65rem", color: th.muted }}>No audit</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Panel 2 — line chart via window.Chart (CDN global), canvas ref + chart
+// instance cleanup on unmount/re-render (pattern mirrors PnLStoreDetail's
+// Margin % Trend chart — search `new Chart(`). Full-view roles get the
+// portfolio average plus one line per district; dm gets their own district's
+// line plus a portfolio-average benchmark line (no cross-district comparison).
+function DashboardTrend({ th, isFull, isDm, trend, portfolioTrend, user }) {
+  const canvasRef = React.useRef(null);
+  const chartRef = React.useRef(null);
+
+  const districts = React.useMemo(() => {
+    if (!isFull) return [];
+    const set = new Set();
+    for (const m of trend) Object.keys(m.byDistrict || {}).forEach(d => set.add(d));
+    return [...set].sort((a, b) => Number(a) - Number(b));
+  }, [trend, isFull]);
+
+  useEffect(() => {
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+    if (!canvasRef.current || typeof Chart === "undefined" || !trend.length) return;
+    const labels = trend.map(m => m.month);
+    const datasets = [{
+      label: isDm ? `District ${user?.district}` : "Portfolio avg",
+      data: trend.map(m => m.avgScore), borderColor: O, borderWidth: 3, tension: 0.3, fill: false, pointRadius: 2,
+    }];
+    if (isFull) {
+      districts.forEach((d, i) => {
+        datasets.push({
+          label: `District ${d}`, data: trend.map(m => (m.byDistrict && m.byDistrict[d] != null) ? m.byDistrict[d] : null),
+          borderColor: DISTRICT_TREND_COLORS[i % DISTRICT_TREND_COLORS.length], borderWidth: 1.5, tension: 0.3, fill: false, pointRadius: 0, borderDash: [4, 3],
+        });
+      });
+    }
+    if (isDm && portfolioTrend?.length) {
+      const byMonth = new Map(portfolioTrend.map(m => [m.month, m.avgScore]));
+      datasets.push({
+        label: "Portfolio avg", data: labels.map(mo => byMonth.has(mo) ? byMonth.get(mo) : null),
+        borderColor: th.muted, borderWidth: 2, tension: 0.3, fill: false, pointRadius: 0, borderDash: [6, 4],
+      });
+    }
+    chartRef.current = new Chart(canvasRef.current, {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: true, position: "bottom", labels: { color: th.muted, boxWidth: 12, font: { size: 10 } } } },
+        scales: { x: { ticks: { color: th.muted } }, y: { min: 0, max: 100, ticks: { color: th.muted } } },
+      },
+    });
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [trend, portfolioTrend, isFull, isDm, districts, th, user]);
+
+  return (
+    <div style={{ ...card(th), padding: "1.1rem 1.15rem" }}>
+      <div style={{ ...sectionTitle(th), marginBottom: "0.25rem" }}>Score Trend</div>
+      <div style={{ fontSize: "0.78rem", color: th.muted, marginBottom: "0.85rem" }}>
+        {isDm ? "Your district vs. the portfolio average, " : isFull ? "Portfolio average + per-district, " : ""}trailing 6 months.
+      </div>
+      {trend.length === 0 ? (
+        <div style={{ color: th.muted, fontSize: "0.85rem", padding: "1rem 0" }}>Not enough submitted audits yet to chart a trend.</div>
+      ) : (
+        <canvas ref={canvasRef} style={{ maxHeight: "260px" }} />
+      )}
+    </div>
+  );
+}
+
+// Panel 3 — coverage baseline (never-audited / oldest), chronic + systemic
+// repeat-finding flags with store/district attribution, and (gated) a
+// store/manager score ranking. `coverage` from the server is a summary
+// ({ missing: [storePC,...] }) rather than a per-store days-since list — this
+// derives days-since by cross-referencing `latestByStore`: a missing pc absent
+// from `latestByStore` entirely has never had a submitted audit; one present
+// but stale has a real submittedAt to diff against "now".
+function DashboardCoverage({ th, stores, coverage, latestByStore, chronic, systemic, canSeeManagerRanking }) {
+  const storeOf = (pc) => (stores || []).find(s => String(s.pc) === String(pc));
+  const storeName = (pc) => storeOf(pc)?.name || pc;
+  const storeDistrict = (pc) => storeOf(pc)?.district ?? "—";
+
+  const neverOrOldest = React.useMemo(() => {
+    const now = Date.now();
+    return (coverage.missing || []).map(pc => {
+      const info = latestByStore[pc];
+      const daysSince = info?.submittedAt ? Math.floor((now - new Date(info.submittedAt).getTime()) / 86400000) : null;
+      return { pc, name: storeName(pc), district: storeDistrict(pc), daysSince };
+    }).sort((a, b) => {
+      if (a.daysSince == null && b.daysSince == null) return 0;
+      if (a.daysSince == null) return -1;
+      if (b.daysSince == null) return 1;
+      return b.daysSince - a.daysSince;
+    });
+  }, [coverage, latestByStore, stores]);
+
+  const chronicRows = React.useMemo(() => {
+    const rows = [];
+    for (const [pc, items] of Object.entries(chronic || {})) {
+      for (const it of items) rows.push({ pc, name: storeName(pc), district: storeDistrict(pc), ...it });
+    }
+    return rows.sort((a, b) => b.failCount - a.failCount);
+  }, [chronic, stores]);
+
+  const systemicRows = React.useMemo(() => [...(systemic || [])].sort((a, b) => b.storeCount - a.storeCount), [systemic]);
+
+  const managerRanking = React.useMemo(() => {
+    if (!canSeeManagerRanking) return [];
+    return Object.entries(latestByStore)
+      .filter(([, info]) => info?.score != null)
+      .map(([pc, info]) => ({ pc, name: storeName(pc), mgr: storeOf(pc)?.mgr, score: info.score, band: info.band }))
+      .sort((a, b) => a.score - b.score); // lowest first — the signal leadership needs to act on
+  }, [latestByStore, canSeeManagerRanking, stores]);
+
+  const listBoxStyle = { display: "flex", flexDirection: "column", gap: "0.35rem", maxHeight: 260, overflowY: "auto" };
+
+  return (
+    <div style={{ ...card(th), padding: "1.1rem 1.15rem" }}>
+      <div style={{ ...sectionTitle(th), marginBottom: "0.85rem" }}>Coverage & Repeat Findings</div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1.25rem" }}>
+        <div>
+          <div style={{ ...microLabel(th), marginBottom: "0.5rem" }}>
+            Never Audited / Oldest ({coverage.auditedStores}/{coverage.totalStores} audited in 90d)
+          </div>
+          {neverOrOldest.length === 0 ? (
+            <div style={{ fontSize: "0.8rem", color: th.muted }}>Every store in scope was audited within the last 90 days.</div>
+          ) : (
+            <div style={listBoxStyle}>
+              {neverOrOldest.map(s => (
+                <div key={s.pc} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: "0.3rem" }}>
+                  <span style={{ color: th.text }}>{s.name} <span style={{ color: th.muted, fontSize: "0.7rem" }}>D{s.district}</span></span>
+                  <span style={{ color: s.daysSince == null ? "#ef4444" : th.muted, fontWeight: s.daysSince == null ? 700 : 400, whiteSpace: "nowrap" }}>
+                    {s.daysSince == null ? "Never audited" : `${s.daysSince}d ago`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div style={{ ...microLabel(th), marginBottom: "0.5rem" }}>Chronic Findings (≥2 of last 3 audits)</div>
+          {chronicRows.length === 0 ? (
+            <div style={{ fontSize: "0.8rem", color: th.muted }}>No repeat failures at any single store.</div>
+          ) : (
+            <div style={listBoxStyle}>
+              {chronicRows.map((r, i) => (
+                <div key={r.pc + "_" + r.itemId + "_" + i} style={{ fontSize: "0.8rem", borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: "0.3rem" }}>
+                  <div style={{ color: th.text, fontWeight: 600 }}>{r.name} <span style={{ color: th.muted, fontSize: "0.7rem", fontWeight: 400 }}>D{r.district}</span></div>
+                  <div style={{ color: th.muted, fontSize: "0.75rem" }}>{r.itemText} · {r.failCount}/3</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div style={{ ...microLabel(th), marginBottom: "0.5rem" }}>Systemic Findings (≥5 stores, 60d)</div>
+          {systemicRows.length === 0 ? (
+            <div style={{ fontSize: "0.8rem", color: th.muted }}>No item is failing network-wide.</div>
+          ) : (
+            <div style={listBoxStyle}>
+              {systemicRows.map(s => (
+                <div key={s.itemId} style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", fontSize: "0.8rem", borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: "0.3rem" }}>
+                  <span style={{ color: th.text }}>{s.itemText}</span>
+                  <span style={pill("#ef4444")}>{s.storeCount} stores</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {canSeeManagerRanking && managerRanking.length > 0 && (
+        <div style={{ marginTop: "1.1rem", paddingTop: "1rem", borderTop: `1px solid ${th.cardBorder}` }}>
+          <div style={{ ...microLabel(th), marginBottom: "0.5rem" }}>Store / Manager Ranking (lowest score first)</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.5rem" }}>
+            {managerRanking.map(r => (
+              <div key={r.pc} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.8rem", padding: "0.4rem 0.6rem", borderRadius: "0.5rem", background: th.card2 }}>
+                <div>
+                  <div style={{ color: th.text, fontWeight: 600 }}>{r.name}</div>
+                  <div style={{ color: th.muted, fontSize: "0.7rem" }}>{r.mgr || "No manager on file"}</div>
+                </div>
+                <span style={pill(auditBandColor(r.band), { fontWeight: 800 })}>{Math.round(r.score)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Panel 4 — CAP board summary: open/overdue counts, top owners by open CAPs,
+// avg time-to-close. Fed by `capSummary` (additive alongside the existing flat
+// `capBoard` array the CAP Board view already consumes).
+function DashboardCapSummary({ th, capSummary, onOpenCapBoard }) {
+  const tiles = [
+    { label: "Open CAPs", value: capSummary.open ?? 0, color: "#f59e0b" },
+    { label: "Overdue", value: capSummary.overdue ?? 0, color: "#ef4444" },
+    { label: "Avg Days to Close", value: capSummary.avgDaysToClose != null ? capSummary.avgDaysToClose : "—", color: "#10b981" },
+  ];
+  return (
+    <div style={{ ...card(th), padding: "1.1rem 1.15rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.85rem" }}>
+        <div style={sectionTitle(th)}>CAP Board Summary</div>
+        <button onClick={onOpenCapBoard} style={{ ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline", fontSize: "0.8rem" }}>Open full CAP board →</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: (capSummary.byOwner || []).length ? "1rem" : 0 }}>
+        {tiles.map(t => (
+          <div key={t.label} style={{ ...card(th, { border: `1px solid ${t.color}33` }), padding: "0.75rem 0.9rem" }}>
+            <div style={microLabel(th)}>{t.label}</div>
+            <div style={{ fontSize: "1.4rem", fontWeight: 800, color: t.color }}>{t.value}</div>
+          </div>
+        ))}
+      </div>
+      {(capSummary.byOwner || []).length > 0 && (
+        <div>
+          <div style={{ ...microLabel(th), marginBottom: "0.4rem" }}>Top Owners by Open CAPs</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+            {capSummary.byOwner.map(o => (
+              <div key={o.ownerName} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: "0.25rem" }}>
+                <span style={{ color: th.text }}>{o.ownerName}</span>
+                <span style={{ color: th.muted, fontWeight: 700 }}>{o.openCaps}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -21790,7 +22183,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.34";
+const APP_VERSION = "v18.35";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

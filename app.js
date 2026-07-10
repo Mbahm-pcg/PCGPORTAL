@@ -15612,10 +15612,27 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     return json || {};
   }
   function AuditsTab({ user, th, stores, showAlert, setTab }) {
-    const [view, setView] = useState("list");
+    const [view, setView] = useState(null);
     const [conduct, setConduct] = useState(null);
     const canConduct = ["auditor", "executive", "it"].includes(user?.userType);
     const canSeeCapBoard = ["auditor", "executive", "it", "office_staff", "dm"].includes(user?.userType);
+    const canSeeDashboard = canSeeCapBoard;
+    const dashboardIsDefault = ["auditor", "executive", "it"].includes(user?.userType);
+    useEffect(() => {
+      let cancelled = false;
+      if (!dashboardIsDefault) {
+        setView("list");
+        return;
+      }
+      auditsApi("dashboard").then((j) => {
+        if (!cancelled) setView(Object.keys(j.latestByStore || {}).length > 0 ? "dashboard" : "list");
+      }).catch(() => {
+        if (!cancelled) setView("list");
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [dashboardIsDefault]);
     const openConduct = (auditId, storePC) => {
       setConduct({ auditId, storePC });
       setView("conduct");
@@ -15628,6 +15645,9 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       setConduct(null);
       setView("list");
     };
+    if (view === null) {
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 1100, margin: "0 auto" } }, "Loading\u2026");
+    }
     if (view === "conduct" && conduct) {
       return /* @__PURE__ */ React.createElement(
         AuditConduct,
@@ -15660,6 +15680,20 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     if (view === "caps") {
       return /* @__PURE__ */ React.createElement(CapBoard, { user, th, stores, showAlert, onBack: backToList });
     }
+    if (view === "dashboard") {
+      return /* @__PURE__ */ React.createElement(
+        AuditDashboard,
+        {
+          user,
+          th,
+          stores,
+          showAlert,
+          onOpenReport: openReport,
+          onGoList: () => setView("list"),
+          onGoCaps: () => setView("caps")
+        }
+      );
+    }
     return /* @__PURE__ */ React.createElement(
       AuditList,
       {
@@ -15669,13 +15703,15 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         showAlert,
         canConduct,
         canSeeCapBoard,
+        canSeeDashboard,
         onConduct: openConduct,
         onViewReport: openReport,
-        onOpenCapBoard: () => setView("caps")
+        onOpenCapBoard: () => setView("caps"),
+        onOpenDashboard: () => setView("dashboard")
       }
     );
   }
-  function AuditList({ user, th, stores, showAlert, canConduct, canSeeCapBoard, onConduct, onViewReport, onOpenCapBoard }) {
+  function AuditList({ user, th, stores, showAlert, canConduct, canSeeCapBoard, canSeeDashboard, onConduct, onViewReport, onOpenCapBoard, onOpenDashboard }) {
     const isMobile = useIsMobile();
     const [audits, setAudits] = useState(null);
     const [err, setErr] = useState(false);
@@ -15750,7 +15786,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         border: `1px solid ${color}44`
       } }, label);
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, canSeeCapBoard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenCapBoard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "CAP Board"), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit"))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, canSeeDashboard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenDashboard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Dashboard"), canSeeCapBoard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenCapBoard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "CAP Board"), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit"))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
   }
   function AuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, onViewReport }) {
     const [template, setTemplate] = useState(null);
@@ -16319,6 +16355,188 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       const open = expanded === cap.id;
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: cap.id }, /* @__PURE__ */ React.createElement("tr", { onClick: () => setExpanded(open ? null : cap.id), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}`, background: overdue ? "#ef444412" : "transparent" } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700 } }, storeInfo(cap.storePC)?.name || cap.storePC), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, cap.itemText), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("span", { style: pill(SEVERITY_COLOR[cap.severity] || th.muted) }, (cap.severity || "\u2014").toUpperCase())), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, cap.ownerName || "Unassigned"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: overdue ? "#ef4444" : th.muted, fontWeight: overdue ? 700 : 400 } }, cap.deadline ? new Date(cap.deadline).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("span", { style: pill(capStatusMeta(cap.status).color) }, overdue && cap.status !== "overdue" ? "Overdue" : capStatusMeta(cap.status).label))), open && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { padding: "0.75rem 1rem", background: th.card2, borderTop: `1px solid ${th.cardBorder}` } }, renderDetail(cap))));
     })))), lightbox && /* @__PURE__ */ React.createElement(SimpleLightbox, { src: lightbox, onClose: () => setLightbox(null) }));
+  }
+  var DISTRICT_TREND_COLORS = ["#3b82f6", "#f59e0b", "#a855f7", "#10b981", "#ef4444", "#14b8a6", "#eab308", "#ec4899"];
+  function AuditDashboard({ user, th, stores, showAlert, onOpenReport, onGoList, onGoCaps }) {
+    const [data, setData] = useState(null);
+    const [err, setErr] = useState(false);
+    const isFull = ["auditor", "executive", "it", "office_staff"].includes(user?.userType);
+    const isDm = user?.userType === "dm";
+    const canSeeManagerRanking = ["auditor", "executive", "it"].includes(user?.userType);
+    const load = useCallback(() => {
+      setErr(false);
+      auditsApi("dashboard").then(setData).catch(() => {
+        setData({});
+        setErr(true);
+      });
+    }, []);
+    useEffect(() => {
+      load();
+    }, [load]);
+    const visibleStores = React.useMemo(() => {
+      const all = stores || [];
+      return isDm ? all.filter((s) => String(s.district) === String(user?.district)) : all;
+    }, [stores, isDm, user]);
+    if (data === null) {
+      return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1200, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading dashboard\u2026"));
+    }
+    const latestByStore = data.latestByStore || {};
+    const trend = data.trend || [];
+    const portfolioTrend = data.portfolioTrend || null;
+    const coverage = data.coverage || { totalStores: 0, auditedStores: 0, pct: 0, missing: [] };
+    const chronic = data.repeats && data.repeats.chronic || {};
+    const systemic = data.repeats && data.repeats.systemic || [];
+    const capSummary = data.capSummary || { total: 0, open: 0, overdue: 0, byOwner: [], avgDaysToClose: null };
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1200, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Audits Dashboard"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, isDm ? `District ${user?.district} \u2014 ` : "", "Portfolio scorecard, trend, coverage and open corrective action.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onGoCaps, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "CAP Board"), /* @__PURE__ */ React.createElement("button", { onClick: onGoList, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "All Audits"))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load the dashboard. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), /* @__PURE__ */ React.createElement(DashboardHeatmap, { th, stores: visibleStores, latestByStore, onOpenReport }), /* @__PURE__ */ React.createElement(DashboardTrend, { th, isFull, isDm, trend, portfolioTrend, user }), /* @__PURE__ */ React.createElement(
+      DashboardCoverage,
+      {
+        th,
+        stores,
+        coverage,
+        latestByStore,
+        chronic,
+        systemic,
+        canSeeManagerRanking
+      }
+    ), /* @__PURE__ */ React.createElement(DashboardCapSummary, { th, capSummary, onOpenCapBoard: onGoCaps }));
+  }
+  function DashboardHeatmap({ th, stores, latestByStore, onOpenReport }) {
+    const byDistrict = React.useMemo(() => {
+      const m = /* @__PURE__ */ new Map();
+      for (const s of stores || []) {
+        const d = s.district ?? "\u2014";
+        if (!m.has(d)) m.set(d, []);
+        m.get(d).push(s);
+      }
+      return [...m.entries()].sort((a, b) => Number(a[0]) - Number(b[0])).map(([d, list]) => [d, [...list].sort((a, b) => (a.name || "").localeCompare(b.name || ""))]);
+    }, [stores]);
+    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.15rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.25rem" } }, "Portfolio Heatmap"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.85rem" } }, "Latest submitted score per store, grouped by district. Click a tile for its latest report."), byDistrict.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No stores in scope.") : byDistrict.map(([d, list]) => /* @__PURE__ */ React.createElement("div", { key: d, style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.4rem" } }, "District ", d), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.6rem" } }, list.map((s) => {
+      const info = latestByStore[s.pc];
+      const clr = info?.band ? auditBandColor(info.band) : th.muted;
+      const clickable = !!info?.id;
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: s.pc,
+          onClick: () => clickable && onOpenReport(info.id, s.pc),
+          title: info ? `${s.name} \u2014 ${Math.round(info.score)} (${auditBandLabel(info.band)}) \xB7 ${info.submittedAt ? new Date(info.submittedAt).toLocaleDateString() : ""}` : `${s.name} \u2014 never audited`,
+          style: { ...card(th, { borderLeft: `4px solid ${clr}` }), padding: "0.6rem 0.7rem", cursor: clickable ? "pointer" : "default", opacity: info ? 1 : 0.55 }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.78rem", color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.name),
+        /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.3rem" } }, info ? /* @__PURE__ */ React.createElement("span", { style: pill(clr, { fontWeight: 800 }) }, Math.round(info.score), info.cappedByCritical ? " \u26A0\uFE0E" : "") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "No audit"))
+      );
+    })))));
+  }
+  function DashboardTrend({ th, isFull, isDm, trend, portfolioTrend, user }) {
+    const canvasRef = React.useRef(null);
+    const chartRef = React.useRef(null);
+    const districts = React.useMemo(() => {
+      if (!isFull) return [];
+      const set = /* @__PURE__ */ new Set();
+      for (const m of trend) Object.keys(m.byDistrict || {}).forEach((d) => set.add(d));
+      return [...set].sort((a, b) => Number(a) - Number(b));
+    }, [trend, isFull]);
+    useEffect(() => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+      if (!canvasRef.current || typeof Chart === "undefined" || !trend.length) return;
+      const labels = trend.map((m) => m.month);
+      const datasets = [{
+        label: isDm ? `District ${user?.district}` : "Portfolio avg",
+        data: trend.map((m) => m.avgScore),
+        borderColor: O,
+        borderWidth: 3,
+        tension: 0.3,
+        fill: false,
+        pointRadius: 2
+      }];
+      if (isFull) {
+        districts.forEach((d, i) => {
+          datasets.push({
+            label: `District ${d}`,
+            data: trend.map((m) => m.byDistrict && m.byDistrict[d] != null ? m.byDistrict[d] : null),
+            borderColor: DISTRICT_TREND_COLORS[i % DISTRICT_TREND_COLORS.length],
+            borderWidth: 1.5,
+            tension: 0.3,
+            fill: false,
+            pointRadius: 0,
+            borderDash: [4, 3]
+          });
+        });
+      }
+      if (isDm && portfolioTrend?.length) {
+        const byMonth = new Map(portfolioTrend.map((m) => [m.month, m.avgScore]));
+        datasets.push({
+          label: "Portfolio avg",
+          data: labels.map((mo) => byMonth.has(mo) ? byMonth.get(mo) : null),
+          borderColor: th.muted,
+          borderWidth: 2,
+          tension: 0.3,
+          fill: false,
+          pointRadius: 0,
+          borderDash: [6, 4]
+        });
+      }
+      chartRef.current = new Chart(canvasRef.current, {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { display: true, position: "bottom", labels: { color: th.muted, boxWidth: 12, font: { size: 10 } } } },
+          scales: { x: { ticks: { color: th.muted } }, y: { min: 0, max: 100, ticks: { color: th.muted } } }
+        }
+      });
+      return () => {
+        if (chartRef.current) {
+          chartRef.current.destroy();
+          chartRef.current = null;
+        }
+      };
+    }, [trend, portfolioTrend, isFull, isDm, districts, th, user]);
+    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.15rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.25rem" } }, "Score Trend"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.85rem" } }, isDm ? "Your district vs. the portfolio average, " : isFull ? "Portfolio average + per-district, " : "", "trailing 6 months."), trend.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", padding: "1rem 0" } }, "Not enough submitted audits yet to chart a trend.") : /* @__PURE__ */ React.createElement("canvas", { ref: canvasRef, style: { maxHeight: "260px" } }));
+  }
+  function DashboardCoverage({ th, stores, coverage, latestByStore, chronic, systemic, canSeeManagerRanking }) {
+    const storeOf = (pc) => (stores || []).find((s) => String(s.pc) === String(pc));
+    const storeName = (pc) => storeOf(pc)?.name || pc;
+    const storeDistrict = (pc) => storeOf(pc)?.district ?? "\u2014";
+    const neverOrOldest = React.useMemo(() => {
+      const now = Date.now();
+      return (coverage.missing || []).map((pc) => {
+        const info = latestByStore[pc];
+        const daysSince = info?.submittedAt ? Math.floor((now - new Date(info.submittedAt).getTime()) / 864e5) : null;
+        return { pc, name: storeName(pc), district: storeDistrict(pc), daysSince };
+      }).sort((a, b) => {
+        if (a.daysSince == null && b.daysSince == null) return 0;
+        if (a.daysSince == null) return -1;
+        if (b.daysSince == null) return 1;
+        return b.daysSince - a.daysSince;
+      });
+    }, [coverage, latestByStore, stores]);
+    const chronicRows = React.useMemo(() => {
+      const rows = [];
+      for (const [pc, items] of Object.entries(chronic || {})) {
+        for (const it of items) rows.push({ pc, name: storeName(pc), district: storeDistrict(pc), ...it });
+      }
+      return rows.sort((a, b) => b.failCount - a.failCount);
+    }, [chronic, stores]);
+    const systemicRows = React.useMemo(() => [...systemic || []].sort((a, b) => b.storeCount - a.storeCount), [systemic]);
+    const managerRanking = React.useMemo(() => {
+      if (!canSeeManagerRanking) return [];
+      return Object.entries(latestByStore).filter(([, info]) => info?.score != null).map(([pc, info]) => ({ pc, name: storeName(pc), mgr: storeOf(pc)?.mgr, score: info.score, band: info.band })).sort((a, b) => a.score - b.score);
+    }, [latestByStore, canSeeManagerRanking, stores]);
+    const listBoxStyle = { display: "flex", flexDirection: "column", gap: "0.35rem", maxHeight: 260, overflowY: "auto" };
+    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.15rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.85rem" } }, "Coverage & Repeat Findings"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.5rem" } }, "Never Audited / Oldest (", coverage.auditedStores, "/", coverage.totalStores, " audited in 90d)"), neverOrOldest.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Every store in scope was audited within the last 90 days.") : /* @__PURE__ */ React.createElement("div", { style: listBoxStyle }, neverOrOldest.map((s) => /* @__PURE__ */ React.createElement("div", { key: s.pc, style: { display: "flex", justifyContent: "space-between", fontSize: "0.8rem", borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, s.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.7rem" } }, "D", s.district)), /* @__PURE__ */ React.createElement("span", { style: { color: s.daysSince == null ? "#ef4444" : th.muted, fontWeight: s.daysSince == null ? 700 : 400, whiteSpace: "nowrap" } }, s.daysSince == null ? "Never audited" : `${s.daysSince}d ago`))))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.5rem" } }, "Chronic Findings (\u22652 of last 3 audits)"), chronicRows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No repeat failures at any single store.") : /* @__PURE__ */ React.createElement("div", { style: listBoxStyle }, chronicRows.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: r.pc + "_" + r.itemId + "_" + i, style: { fontSize: "0.8rem", borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 600 } }, r.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.7rem", fontWeight: 400 } }, "D", r.district)), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.75rem" } }, r.itemText, " \xB7 ", r.failCount, "/3"))))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.5rem" } }, "Systemic Findings (\u22655 stores, 60d)"), systemicRows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No item is failing network-wide.") : /* @__PURE__ */ React.createElement("div", { style: listBoxStyle }, systemicRows.map((s) => /* @__PURE__ */ React.createElement("div", { key: s.itemId, style: { display: "flex", justifyContent: "space-between", gap: "0.5rem", fontSize: "0.8rem", borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, s.itemText), /* @__PURE__ */ React.createElement("span", { style: pill("#ef4444") }, s.storeCount, " stores")))))), canSeeManagerRanking && managerRanking.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.1rem", paddingTop: "1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.5rem" } }, "Store / Manager Ranking (lowest score first)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.5rem" } }, managerRanking.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.8rem", padding: "0.4rem 0.6rem", borderRadius: "0.5rem", background: th.card2 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 600 } }, r.name), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.7rem" } }, r.mgr || "No manager on file")), /* @__PURE__ */ React.createElement("span", { style: pill(auditBandColor(r.band), { fontWeight: 800 }) }, Math.round(r.score)))))));
+  }
+  function DashboardCapSummary({ th, capSummary, onOpenCapBoard }) {
+    const tiles = [
+      { label: "Open CAPs", value: capSummary.open ?? 0, color: "#f59e0b" },
+      { label: "Overdue", value: capSummary.overdue ?? 0, color: "#ef4444" },
+      { label: "Avg Days to Close", value: capSummary.avgDaysToClose != null ? capSummary.avgDaysToClose : "\u2014", color: "#10b981" }
+    ];
+    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.15rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: sectionTitle(th) }, "CAP Board Summary"), /* @__PURE__ */ React.createElement("button", { onClick: onOpenCapBoard, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline", fontSize: "0.8rem" } }, "Open full CAP board \u2192")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: (capSummary.byOwner || []).length ? "1rem" : 0 } }, tiles.map((t) => /* @__PURE__ */ React.createElement("div", { key: t.label, style: { ...card(th, { border: `1px solid ${t.color}33` }), padding: "0.75rem 0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: microLabel(th) }, t.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.4rem", fontWeight: 800, color: t.color } }, t.value)))), (capSummary.byOwner || []).length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.4rem" } }, "Top Owners by Open CAPs"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, capSummary.byOwner.map((o) => /* @__PURE__ */ React.createElement("div", { key: o.ownerName, style: { display: "flex", justifyContent: "space-between", fontSize: "0.8rem", borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, o.ownerName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 700 } }, o.openCaps))))));
   }
   function ManagerCapCard({ user, th, stores, showAlert }) {
     const store = getManagerStore(stores, user);
@@ -17203,7 +17421,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.34";
+  var APP_VERSION = "v18.35";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
