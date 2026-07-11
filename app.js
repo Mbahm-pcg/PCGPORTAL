@@ -15937,8 +15937,12 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       try {
         const { lat, lng } = await getPosition();
         setGpsStatus(lat == null ? "No GPS \u2014 submitting without location." : "");
-        await auditsApi("saveDraft", { id: auditId, storePC, results, notes: "" }).catch(() => {
-        });
+        try {
+          await auditsApi("saveDraft", { id: auditId, storePC, results, notes: "" });
+        } catch {
+          showAlert?.("error", "Couldn't sync your answers \u2014 check connection and try again");
+          return;
+        }
         const resp = await auditsApi("submit", { id: auditId, lat, lng });
         try {
           localStorage.removeItem(localKey);

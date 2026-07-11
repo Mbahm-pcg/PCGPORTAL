@@ -438,9 +438,18 @@ export default async (req) => {
         if (!CAN_UNLOCK.has(user.userType)) return json(403, { ok: false, error: 'forbidden' });
         const id = toBigInt(body.id);
         if (id == null) return json(400, { ok: false, error: 'id required' });
-        const rows = await sql`SELECT id FROM audits WHERE id = ${id}`;
+        const rows = await sql`SELECT id, store_pc FROM audits WHERE id = ${id}`;
         if (!rows.length) return json(404, { ok: false, error: 'not found' });
         await sql`UPDATE audits SET status = 'draft', unlocked_by = ${user.name || user.username || null}, unlocked_at = now(), updated_at = now() WHERE id = ${id}`;
+        // Record the unlock in audit_log (see analyst-audit.mjs logAudit for the
+        // precedent) — logging failure must never fail the unlock itself.
+        try {
+          await sql`
+            INSERT INTO audit_log (type, user_id, user_role, action, metadata)
+            VALUES ('audit_unlock', ${user.sub ?? null}, ${user.userType ?? null}, 'audit_unlock',
+                    ${JSON.stringify({ auditId: String(id), storePC: rows[0].store_pc })}::jsonb)
+          `;
+        } catch (e) { console.warn('audit_log insert (unlock) failed:', e.message); }
         return json(200, { ok: true });
       }
 

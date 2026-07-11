@@ -19738,7 +19738,14 @@ function AuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, o
       const { lat, lng } = await getPosition();
       setGpsStatus(lat == null ? "No GPS — submitting without location." : "");
       // Flush the current answers before scoring (autosave may not have fired yet).
-      await auditsApi("saveDraft", { id: auditId, storePC, results, notes: "" }).catch(() => {});
+      // A failed flush must abort the submit — otherwise the server scores stale
+      // answers and the audit gets permanently locked with the wrong results.
+      try {
+        await auditsApi("saveDraft", { id: auditId, storePC, results, notes: "" });
+      } catch {
+        showAlert?.("error", "Couldn't sync your answers — check connection and try again");
+        return;
+      }
       const resp = await auditsApi("submit", { id: auditId, lat, lng });
       try { localStorage.removeItem(localKey); } catch {}
       setSubmitted(resp);
