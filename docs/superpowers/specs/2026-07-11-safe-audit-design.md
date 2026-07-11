@@ -31,7 +31,7 @@ Sections and fields (all captured on the conduct form):
 
 1. **General** — Reason for Audit (`Random | Scheduled | Cash Discrepancy | Manager Change | Shift Change | Other`); Current Safe Code (text); Approx. date code last changed (date).
 2. **Store** — Store Manager Name (text); District (number; label rendered via the Part-B helper).
-3. **Petty Cash** — Expected Petty Cash Amount (currency).
+3. **Petty Cash** — Expected Petty Cash Amount (currency) — **per-store locked value, see A8** (entered on the store's first audit, then read-only for everyone except executive/it).
 4. **Receipts** — Are there receipts in the safe? (Yes/No). If **Yes**: receipt photo(s) (chunked blob upload) + Total amount in receipts (currency).
 5. **Cash count** — enter the **count** of each denomination; the app computes each line's value and all totals (see A3).
 6. **Counterfeit** — Any fake bills? (Yes/No). If **Yes**: photo(s) + Total counterfeit amount (currency). Counterfeit cash is NOT counted toward the legitimate total.
@@ -60,7 +60,20 @@ On **submit**, send email + push to the store's **district DM** (by district) an
 `variance ≤ −SHORTAGE_ALERT_THRESHOLD` (default **$5.00**) **OR** `hasCounterfeit === true`.
 Over-variance alone does not alert. Reuse the exact send helpers from `audit-cap-cron.mjs` (Resend email + web-push). Sent inline in the submit handler (a few recipients, well under the 26s limit); guarded so nothing sends when the condition is false. Threshold and tolerance are named constants.
 
-### A5. Data model — `safe_audits` (Neon, self-created via `ensureTables()` like `tickets.mjs`)
+### A8. Per-store locked expected petty cash
+
+The expected petty cash amount belongs to the **store**, not the audit:
+
+- **First audit at a store:** the conductor enters the expected amount. On **submit**, it is written to `safe_settings[store_pc]` and becomes the locked value for that store.
+- **Every later audit at that store:** the expected amount is auto-populated from `safe_settings` and shown **read-only** — the conductor cannot change it.
+- **Editing later:** only **executive/it** may change a store's locked expected amount. They can edit it inline on the audit form (their field stays editable) and via a dedicated `setSafeExpected` action. Any change is recorded (`updated_by`, `updated_at`).
+- **Server is authoritative:** at submit the server computes variance against the stored `safe_settings` expected (set-if-absent on first submit via `ON CONFLICT (store_pc) DO NOTHING`, then re-read). A non-exec/it client cannot override a locked value even by crafting the request.
+
+### A5. Data model — `safe_audits` + `safe_settings` (Neon, self-created via `ensureTables()` like `tickets.mjs`)
+
+**`safe_settings`** — per-store locked expected cash: `store_pc text PRIMARY KEY`, `expected_petty_cash numeric NOT NULL`, `set_by_user_id int`, `set_by_name text`, `set_at timestamptz`, `updated_by_user_id int`, `updated_by_name text`, `updated_at timestamptz`.
+
+**`safe_audits`** —
 
 `id bigint PK` (client Date.now()), `store_pc text`, `store_name text`, `auditor_user_id int`, `auditor_name text`, `auditor_role text`, `status text default 'draft'`, `started_at`, `submitted_at`, `reason text`, `safe_code text`, `code_last_changed text`, `store_manager_name text`, `district int`, `expected_petty_cash numeric`, `has_receipts bool`, `receipts_total numeric`, `receipt_photo_keys jsonb default '[]'`, `bill_counts jsonb default '{}'`, `coin_counts jsonb default '{}'`, `bills_total numeric`, `coins_total numeric`, `counted_total numeric`, `accounted_total numeric`, `variance numeric`, `variance_status text`, `has_counterfeit bool`, `counterfeit_total numeric`, `counterfeit_photo_keys jsonb default '[]'`, `conductor_sig_key text`, `manager_sig_key text`, `manager_ack_name text`, `notes text`, `created_at`, `updated_at`. Documented in `db/schema.ts`.
 
@@ -70,15 +83,18 @@ Photos & signatures use the existing chunked blob path (`cloudSaveFile`); the ro
 
 - `list {storePC?}` → role-scoped rows (id, store, auditor, submittedAt, expected, countedTotal, variance, varianceStatus, hasCounterfeit, status).
 - `get {id}` → full row (role-checked).
-- `saveDraft {id?, ...fields}` → conduct roles only; upserts draft (id = client Date.now()).
-- `submit {id}` → conduct roles only; recomputes totals/variance server-side (never trust client math), locks (`status='submitted'`), fires A4 notification. Returns the finalized row.
+- `safeSetting {storePC}` → `{ expected|null, locked: bool, canEdit: bool, setByName, setAt }` — `locked` = a setting exists; `canEdit` = caller is executive/it. Drives the form's read-only/editable state.
+- `setSafeExpected {storePC, expected}` → **executive/it only**; upserts `safe_settings` and stamps `updated_by`/`updated_at`. The "edit later" path.
+- `saveDraft {id?, ...fields}` → conduct roles only; upserts draft (id = client Date.now()). Ignores any client `expected` when a locked setting exists and caller isn't exec/it.
+- `submit {id}` → conduct roles only; recomputes totals/variance server-side (never trust client math) against the **authoritative** expected (first submit sets `safe_settings` via `ON CONFLICT DO NOTHING` then re-reads; later submits read the locked value), locks (`status='submitted'`), fires A4 notification. Returns the finalized row.
 - Server recomputes cash math with the same lib so the stored totals are authoritative.
-- Reason/status validated; access enforced per A1 in every action.
+- Reason/status validated; access enforced per A1 in every action; expected-cash edits gated to exec/it per A8.
 
 ### A7. Frontend
 
 - `AuditsTab` gains segment state; renders the Field Ops views (existing) and a new Safe path. Managers see Safe only; the tab is added to `getTabs` for managers and to the manager sidebar section.
 - Safe views: **list** (store, date, conductor, expected, counted, variance badge, counterfeit flag), **conduct** (the A2 form: denomination grid with live totals, conditional receipt/counterfeit photo blocks, signature pad, GPS-free), **report** (PDF-styled layout matching the sample PDFs, variance badge, photos, signatures) with html2pdf export → `safe_audit_<storePC>_<yyyy-mm-dd>.pdf`.
+- **Expected-cash field behavior** (A8): on store select, the form calls `safeSetting`. If `locked` and not `canEdit` → the expected field is read-only, pre-filled, with a lock icon + "Set by X on <date>". If not locked (first audit) → editable input with a note "This becomes the locked expected amount for this store." If `canEdit` (exec/it) → always editable; changing it calls `setSafeExpected`.
 - Signature pad: a small canvas component (pointer/touch draw, Clear, export PNG dataURL → `cloudSaveFile`).
 - All calls go through a `safeAuditsApi(action, body)` wrapper that includes `credentials:'include'` **and** `...authHeader()` (the Bearer token — this was the v18.41 lesson).
 
@@ -106,4 +122,4 @@ Photos & signatures use the existing chunked blob path (`cloudSaveFile`); the ro
 
 ## Out of scope (phase 2)
 
-Safe-audit trend analytics/dashboard, recurring-shortage detection per store/manager, per-store expected-cash config table (expected is entered per audit for now), editable district→DM admin UI (the map is seeded/loaded as today).
+Safe-audit trend analytics/dashboard, recurring-shortage detection per store/manager, a standalone "Safe Cash Settings" admin screen (exec/it edit the locked amount inline on the form for now), editable district→DM admin UI (the map is seeded/loaded as today).
