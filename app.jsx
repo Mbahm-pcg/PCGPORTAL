@@ -4995,7 +4995,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
           >
             <option value="All">All Districts</option>
             {Object.values(districts || DISTRICTS_SEED).sort((a, b) => a.num - b.num).map(d => (
-              <option key={d.num} value={String(d.num)}>District {d.num} — {d.name.split(" ")[0]}</option>
+              <option key={d.num} value={String(d.num)}>{districtLabel(d.num)}</option>
             ))}
           </select>
         )}
@@ -5903,7 +5903,7 @@ function AdminDistricts({ districts, setDistricts, stores, setStores, users, th 
                       {moveStore?.storeId === s.id ? (
                         <select style={{...inp(th), fontSize:"0.75rem", padding:"0.312rem 0.5rem"}} defaultValue="" onChange={e=>{ if(e.target.value) reassignStore(s.id, +e.target.value); }}>
                           <option value="">Move to...</option>
-                          {distList.filter(d=>d.num!==dist.num).map(d=><option key={d.num} value={d.num}>District {d.num} — {d.name.split(" ")[0]}</option>)}
+                          {distList.filter(d=>d.num!==dist.num).map(d=><option key={d.num} value={d.num}>{districtLabel(d.num)}</option>)}
                         </select>
                       ) : (
                         <button style={btn(th,{padding:"0.25rem 0.625rem",fontSize:"0.6875rem",background:th.card3,color:th.muted})} onClick={()=>setMoveStore({storeId:s.id})}>Move</button>
@@ -11139,7 +11139,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
           {pulseView.level === "district" && (
             <>
               <span style={{ color:th.muted }}>›</span>
-              <span style={{ color:th.text, fontWeight:600 }}>District {pulseView.num} — {dmName(pulseView.num)}</span>
+              <span style={{ color:th.text, fontWeight:600 }}>{districtLabel(pulseView.num)}</span>
             </>
           )}
           {pulseView.level === "store" && (
@@ -11447,7 +11447,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
               <select style={{ ...inp(th), width:'auto', padding:'0.3rem 0.6rem', fontSize:'0.75rem' }}
                 value={distFilter} onChange={e=>setDistFilter(+e.target.value)}>
                 <option value={0}>All Districts</option>
-                {distList.map(d=><option key={d.num} value={d.num}>District {d.num} — {d.name.split(' ')[0]}</option>)}
+                {distList.map(d=><option key={d.num} value={d.num}>{districtLabel(d.num)}</option>)}
               </select>
             )}
             {isDMUser && (
@@ -11490,7 +11490,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                         <td style={{ ...tdS, fontWeight:800, color:G, fontSize:'0.75rem', paddingLeft:'0.75rem' }}
                           colSpan={1}>
                           <span style={{ marginRight:'0.4rem', fontSize:'0.65rem' }}>{isCollapsed ? '▶' : '▼'}</span>
-                          District {distNum} — {dmName(distNum)}
+                          {districtLabel(distNum)}
                           <button onClick={e => { e.stopPropagation(); setPulseView({ level:'district', num:distNum }); }}
                             style={{ marginLeft:'0.6rem', background:'none', border:`1px solid ${G}44`, color:G, cursor:'pointer',
                               fontSize:'0.62rem', fontWeight:700, padding:'0.1rem 0.45rem', borderRadius:999 }}>
@@ -22276,7 +22276,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.42";
+const APP_VERSION = "v18.43";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -27364,7 +27364,7 @@ function CashManagement({ user, th, stores, districts, cashDeposits, setCashDepo
             <select style={{ ...inp(th), width: 'auto', padding: '0.55rem 0.75rem', fontSize: '0.75rem', borderRadius: '0.625rem' }}
               value={distFilter} onChange={e => setDistFilter(+e.target.value)}>
               <option value={0}>All Districts</option>
-              {distList.map(d => <option key={d.num} value={d.num}>District {d.num} — {d.name.split(' ')[0]}</option>)}
+              {distList.map(d => <option key={d.num} value={d.num}>{districtLabel(d.num)}</option>)}
             </select>
           )}
           {/* Week selector stepper */}

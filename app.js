@@ -5287,7 +5287,7 @@
         onChange: (e) => setFilterDistrict(e.target.value)
       },
       /* @__PURE__ */ React.createElement("option", { value: "All" }, "All Districts"),
-      Object.values(districts || DISTRICTS_SEED).sort((a, b) => a.num - b.num).map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: String(d.num) }, "District ", d.num, " \u2014 ", d.name.split(" ")[0]))
+      Object.values(districts || DISTRICTS_SEED).sort((a, b) => a.num - b.num).map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: String(d.num) }, districtLabel(d.num)))
     )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.55rem", marginBottom: "1.25rem", alignItems: "center", flexWrap: "wrap" } }, isAdmin && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -5770,7 +5770,7 @@
         s.pc
       ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8125rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.name || s.address), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.address), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, s.mgr || "\u2014"), moveStore?.storeId === s.id ? /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), fontSize: "0.75rem", padding: "0.312rem 0.5rem" }, defaultValue: "", onChange: (e) => {
         if (e.target.value) reassignStore(s.id, +e.target.value);
-      } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Move to..."), distList.filter((d) => d.num !== dist.num).map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, "District ", d.num, " \u2014 ", d.name.split(" ")[0]))) : /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.25rem 0.625rem", fontSize: "0.6875rem", background: th.card3, color: th.muted }), onClick: () => setMoveStore({ storeId: s.id }) }, "Move"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.25rem 0.5rem", fontSize: "0.6875rem", background: "#ff444418", color: "#ff6666" }), onClick: () => unassignStore(s.id), title: "Remove from district" }, "\u2715"))), unassignedStores.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 1.25rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "Assign store:"), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), maxWidth: 280, fontSize: "0.75rem" }, defaultValue: "", onChange: (e) => {
+      } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Move to..."), distList.filter((d) => d.num !== dist.num).map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, districtLabel(d.num)))) : /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.25rem 0.625rem", fontSize: "0.6875rem", background: th.card3, color: th.muted }), onClick: () => setMoveStore({ storeId: s.id }) }, "Move"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.25rem 0.5rem", fontSize: "0.6875rem", background: "#ff444418", color: "#ff6666" }), onClick: () => unassignStore(s.id), title: "Remove from district" }, "\u2715"))), unassignedStores.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 1.25rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "Assign store:"), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), maxWidth: 280, fontSize: "0.75rem" }, defaultValue: "", onChange: (e) => {
         if (e.target.value) reassignStore(+e.target.value, dist.num);
       } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Select unassigned store \u2014"), unassignedStores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.name || s.address, " (PC# ", s.pc, ")"))))));
     })));
@@ -9767,7 +9767,7 @@ ${t2.slice(0, 300)}`);
       next.has(d) ? next.delete(d) : next.add(d);
       return next;
     });
-    return /* @__PURE__ */ React.createElement("div", null, pulseView !== "network" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.75rem", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPulseView("network"), style: { background: "none", border: "none", color: G, cursor: "pointer", fontWeight: 600, fontFamily: "'Source Sans 3'", fontSize: "0.8rem" } }, "Network"), pulseView.level === "district" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, "District ", pulseView.num, " \u2014 ", dmName(pulseView.num))), pulseView.level === "store" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    return /* @__PURE__ */ React.createElement("div", null, pulseView !== "network" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.75rem", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPulseView("network"), style: { background: "none", border: "none", color: G, cursor: "pointer", fontWeight: 600, fontFamily: "'Source Sans 3'", fontSize: "0.8rem" } }, "Network"), pulseView.level === "district" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, districtLabel(pulseView.num))), pulseView.level === "store" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
       const s = stores.find((st) => st.pc === pulseView.pc);
       if (s?.district) setPulseView({ level: "district", num: s.district });
     }, style: { background: "none", border: "none", color: G, cursor: "pointer", fontWeight: 600, fontFamily: "'Source Sans 3'", fontSize: "0.8rem" } }, "District ", stores.find((st) => st.pc === pulseView.pc)?.district || "?"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, stores.find((st) => st.pc === pulseView.pc)?.name || pulseView.pc))), pulseView?.level !== "store" && /* @__PURE__ */ React.createElement("div", { style: {
@@ -10009,7 +10009,7 @@ ${t2.slice(0, 300)}`);
         onChange: (e) => setDistFilter(+e.target.value)
       },
       /* @__PURE__ */ React.createElement("option", { value: 0 }, "All Districts"),
-      distList.map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, "District ", d.num, " \u2014 ", d.name.split(" ")[0]))
+      distList.map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, districtLabel(d.num)))
     ), isDMUser && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, background: th.card2, borderRadius: 6, padding: "3px 10px" } }, "District ", dmDistrict)), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", { style: { position: "sticky", top: 0, zIndex: 2 } }, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `2px solid ${th.cardBorder}`, background: th.card } }, ["Store", "City", "Status", "Net Sales", "Guests", "Avg Check"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thS, textAlign: h === "Store" || h === "City" || h === "Status" ? "left" : "right" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, distNums.map((distNum) => {
       const distRows = allRows.filter((s) => s.district === distNum).sort((a, b) => (b.live?.data?.netSales || 0) - (a.live?.data?.netSales || 0));
       if (!distRows.length) return null;
@@ -10040,10 +10040,7 @@ ${t2.slice(0, 300)}`);
             colSpan: 1
           },
           /* @__PURE__ */ React.createElement("span", { style: { marginRight: "0.4rem", fontSize: "0.65rem" } }, isCollapsed ? "\u25B6" : "\u25BC"),
-          "District ",
-          distNum,
-          " \u2014 ",
-          dmName(distNum),
+          districtLabel(distNum),
           /* @__PURE__ */ React.createElement(
             "button",
             {
@@ -17447,7 +17444,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.42";
+  var APP_VERSION = "v18.43";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -21044,7 +21041,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         onChange: (e) => setDistFilter(+e.target.value)
       },
       /* @__PURE__ */ React.createElement("option", { value: 0 }, "All Districts"),
-      distList.map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, "District ", d.num, " \u2014 ", d.name.split(" ")[0]))
+      distList.map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, districtLabel(d.num)))
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem", background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: "0.625rem", padding: "0.25rem" } }, /* @__PURE__ */ React.createElement(
       "button",
       {
