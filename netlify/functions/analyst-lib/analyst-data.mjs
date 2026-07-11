@@ -444,10 +444,16 @@ function cumThroughHour(entry, hour) {
   return { sales: Math.round(sales * 100) / 100, checks };
 }
 
-async function buildPulseComparisonContext({ district } = {}) {
-  if (district == null) return ''; // district-scoped render only (network would be 45 stores of text)
-  const stores = getStoresByDistrict(district);
+async function buildPulseComparisonContext({ district, storePC } = {}) {
+  // Store scope (managers): same comparison engine over exactly one store, with
+  // store-labelled rendering. District scope (DMs/execs) unchanged. Network (both
+  // null) stays unsupported — 45 stores of text.
+  const single = storePC != null ? STORES.find(s => s.pc === storePC) : null;
+  if (storePC != null && !single) return '';
+  if (single == null && district == null) return '';
+  const stores = single ? [single] : getStoresByDistrict(district);
   if (!stores.length) return '';
+  const scopeLabel = single ? `${single.name} (PC# ${single.pc})` : `District ${district}`;
 
   const today = todayET();
   const hour = currentETHour();
@@ -522,14 +528,16 @@ async function buildPulseComparisonContext({ district } = {}) {
   const freshNote = blobFresh ? ` (sales data ~${dataAge} min old)` : ' (live)';
   const netToday = rows.reduce((s, r) => s + (r.ops?.net || 0), 0);
   const lines = [];
-  lines.push(`\n\nPULSE COMPARISON — District ${district}, as of ${clock} ET${freshNote}.`);
+  lines.push(`\n\nPULSE COMPARISON — ${scopeLabel}, as of ${clock} ET${freshNote}.`);
   lines.push(`Methodology: "today so far" = sales/guests through the current hour; "yesterday same time" = yesterday cumulative through the same hour. Avg check = sales ÷ guest checks. WTD = Sunday→today vs last Sun→same weekday. MTD = month 1st→today vs last month 1st→same day. SALES here are guest-check totals (include tax), so they run a few % above the NET sales shown in the main summary — that gap is expected, don't flag it as a discrepancy. Use this block for ALL today/yesterday/week/month comparison questions; do NOT invent figures beyond it.`);
-  lines.push(`\nDISTRICT TOTALS`);
+  lines.push(single ? `\nSTORE TOTALS` : `\nDISTRICT TOTALS`);
   lines.push(`  ${pair(dTodaySoFar, dYST, 'Today so far vs yesterday same time')}`);
   if (netToday) lines.push(`  Today net sales (for reference, ties to main summary): ${money(netToday)}`);
   lines.push(`  ${pair(dWtd, dLastWtd, 'WTD vs last week')}`);
   lines.push(`  ${pair(dMtd, dLastMtd, 'MTD vs last month')}`);
-  lines.push(`\nPER STORE (today so far vs yesterday same time — sales, guests, avg check, labor%):`);
+  lines.push(single
+    ? `\nSTORE DETAIL (today so far vs yesterday same time — sales, guests, avg check, labor%):`
+    : `\nPER STORE (today so far vs yesterday same time — sales, guests, avg check, labor%):`);
   rows.sort((a, b) => b.today.sales - a.today.sales);
   for (const r of rows) {
     // Only today's labor% — labor WTD is a Monday-start week (Pulse sales WTD here is
@@ -546,7 +554,7 @@ async function buildPulseComparisonContext({ district } = {}) {
   if (hourArr.length) {
     const hr12 = h => `${((h + 11) % 12) + 1}${h < 12 ? 'a' : 'p'}`;
     const peak = [...hourArr].sort((a, b) => b.sales - a.sales)[0];
-    lines.push(`\nTODAY BY HOUR (district, through ${hour}:00 ET) — busiest ${hr12(peak.h)} (${money(peak.sales)}):`);
+    lines.push(`\nTODAY BY HOUR (${single ? 'store' : 'district'}, through ${hour}:00 ET) — busiest ${hr12(peak.h)} (${money(peak.sales)}):`);
     lines.push('  ' + hourArr.map(h => `${hr12(h.h)} ${money(h.sales)}`).join(', '));
   }
 
@@ -556,7 +564,7 @@ async function buildPulseComparisonContext({ district } = {}) {
   const tD = rows.reduce((s, r) => s + (r.ops?.discounts || 0), 0);
   const tG = rows.reduce((s, r) => s + (r.ops?.gross || 0), 0);
   lines.push(`\nEXCEPTIONS TODAY (live; voids/refunds from checks, discounts from daily totals — these are TODAY only, not comparable to prior periods here):`);
-  lines.push(`  District totals: voids ${money(tV)} (${tVc}), refunds ${money(tR)} (${tRc}), discounts ${money(tD)}${tG ? `, gross ${money(tG)}` : ''}`);
+  lines.push(`  ${single ? 'Store' : 'District'} totals: voids ${money(tV)} (${tVc}), refunds ${money(tR)} (${tRc}), discounts ${money(tD)}${tG ? `, gross ${money(tG)}` : ''}`);
   for (const r of rows) {
     if (r.voids.count || r.refunds.count || (r.ops?.discounts || 0) > 0) {
       const big = r.exceptions.length ? ` — largest: ${r.exceptions.slice(0, 2).map(e => `${e.type} ${money(e.amount)} @ ${e.time}`).join('; ')}` : '';
@@ -819,9 +827,23 @@ async function getNetworkReviews() {
   return cacheLoad('pcg_reviews_network');
 }
 
-async function buildSentimentContext({ district } = {}) {
+async function buildSentimentContext({ district, storePC } = {}) {
   const network = await getNetworkReviews();
   if (!network) return '';
+
+  // Store scope (managers): ONLY their own rating + their own action items —
+  // never other stores' names/ratings, and the network average only as a benchmark.
+  if (storePC != null) {
+    const lines = [];
+    const rating = network.storeRatings?.[storePC];
+    if (rating > 0) lines.push(`Your store's Google rating: ★${rating} (network avg ★${network.networkAvgRating})`);
+    const mine = (network.actionItems || []).filter(a => String(a.pc) === String(storePC));
+    if (mine.length > 0) {
+      lines.push('Action items from your store\'s recent reviews:');
+      for (const item of mine) lines.push(`  - ${item.action} (${item.reviewCount} review${item.reviewCount > 1 ? 's' : ''})`);
+    }
+    return lines.length ? '\n\nGUEST SENTIMENT (your store):\n' + lines.join('\n') : '';
+  }
 
   const lines = [];
   lines.push(`Network avg rating: ★${network.networkAvgRating}`);
