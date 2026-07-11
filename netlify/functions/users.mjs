@@ -21,8 +21,15 @@ const AUDITS_ACCESS_VALUES = new Set([null, 'view', 'full']);
 let _auditsColumnEnsured = false;
 async function ensureAuditsColumn(db) {
   if (_auditsColumnEnsured) return;
-  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS audits_access text`;
-  _auditsColumnEnsured = true;
+  try {
+    await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS audits_access text`;
+    _auditsColumnEnsured = true;
+  } catch (err) {
+    // best-effort — SELECTs below will surface any real DB problem through
+    // the handler's existing catch, with CORS headers intact. A transient
+    // ALTER failure here must not 500 the public pre-auth `list` action.
+    console.warn('ensureAuditsColumn failed (continuing):', err?.message || err);
+  }
 }
 
 // Map a DB row (snake_case) to a client-safe object (camelCase). Never includes
@@ -63,7 +70,9 @@ function isFullAdmin(claims) {
 }
 function canManage(claims, targetUserType) {
   if (isFullAdmin(claims)) return true;
-  if (claims?.userType === 'office_staff') return !['executive', 'it'].includes(targetUserType);
+  // auditor carries audit-module powers — only executive/it may assign it
+  // (mirrors the audits_access grant rule).
+  if (claims?.userType === 'office_staff') return !['executive', 'it', 'auditor'].includes(targetUserType);
   return false;
 }
 
