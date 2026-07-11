@@ -63,7 +63,21 @@ async function requireActiveUser(event, db, opts = {}) {
     // Fresh per-request lookup (not baked into the signed token) so a grant/revoke
     // by an executive/it admin takes effect immediately, not just at next login.
     claims.auditsAccess = rows[0].audits_access ?? null;
-  } catch { /* only a DB ERROR fails open (token still expires in ≤12h) — not a 0-row result */ }
+  } catch {
+    // The first query can fail for a reason unrelated to active/session enforcement:
+    // audits_access is self-ensured by users.mjs/audits.mjs (idempotent ALTER), so on a
+    // fresh deploy this shared lib can be called before either has run, and the column
+    // won't exist yet. Retry once with the original two-column SELECT so a missing
+    // column degrades to auditsAccess=null instead of falling open on active/session
+    // checks — only a genuine DB error on the reduced query still fails open.
+    try {
+      const rows = await db`SELECT sessions_valid_from, active FROM users WHERE id = ${claims.sub}`;
+      if (!rows.length) return null;
+      if (rows[0].active === false) return null;
+      if (!sessionIsValid(claims, rows[0].sessions_valid_from)) return null;
+      claims.auditsAccess = null;
+    } catch { /* only a DB ERROR fails open (token still expires in ≤12h) — not a 0-row result */ }
+  }
   return claims;
 }
 

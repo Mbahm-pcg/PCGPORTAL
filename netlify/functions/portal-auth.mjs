@@ -25,6 +25,21 @@ const clearedCookie = () => `pcg_session=; Max-Age=0; Path=/; HttpOnly; Secure; 
 
 const GSI_CLIENT_ID = '450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com';
 
+// Idempotent column add — matches the codebase's self-managing-schema pattern (see
+// users.mjs ensureAuditsColumn / audits.mjs ensureTables). Module-level once-flag so a
+// warm lambda only issues the ALTER once. Belt-and-suspenders with those two: a fresh
+// deploy could hit portal-auth first, and the user SELECTs below select audits_access.
+// An ALTER failure must not break login — swallow it and let the SELECT surface the
+// real problem (e.g. an unrelated DB outage) instead of masking it as a schema error.
+let _auditsColumnEnsured = false;
+async function ensureAuditsColumn(db) {
+  if (_auditsColumnEnsured) return;
+  try {
+    await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS audits_access text`;
+    _auditsColumnEnsured = true;
+  } catch { /* best-effort — SELECT below will surface any real DB problem */ }
+}
+
 function blobStore() {
   return getStore({ name: 'pcg-portal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 }
@@ -93,6 +108,7 @@ export default async (request, context) => {
   try { body = await request.json().catch(() => ({})); } catch { return reply(400, { error: 'bad json' }); }
   const action = body.action || 'login';
   const db = sql();
+  await ensureAuditsColumn(db);
 
   const eventShim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
 

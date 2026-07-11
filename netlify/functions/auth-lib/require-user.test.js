@@ -69,3 +69,46 @@ test('requireActiveUser fails open (no auditsAccess mutation) on a DB error', as
   assert.ok(claims); // fails open — token still valid
   assert.equal(claims.auditsAccess, undefined);
 });
+
+// Simulates a fresh deploy where audits_access hasn't been column-ensured yet by
+// users.mjs/audits.mjs: the first (3-column) SELECT throws because the column doesn't
+// exist; the retry drops audits_access from the query and should still succeed —
+// active/session-revocation enforcement must stay in force, only auditsAccess degrades.
+const stubDbMissingAuditsColumn = (rows) => async (strings) => {
+  const text = strings.join('');
+  if (text.includes('audits_access')) throw new Error('column "audits_access" does not exist');
+  return rows;
+};
+
+test('requireActiveUser retries without audits_access and still enforces active/session when the column is missing', async () => {
+  const token = signToken({ kind: 'portal', sub: 3, username: 'newcol', userType: 'manager' }, SECRET);
+  const db = stubDbMissingAuditsColumn([{ sessions_valid_from: null, active: true }]);
+  const claims = await requireActiveUser(ev(token), db, { secret: SECRET });
+  assert.ok(claims);
+  assert.equal(claims.auditsAccess, null); // degrades to null, not left unset / fail-open
+});
+
+test('requireActiveUser retry path still rejects a deactivated user when audits_access is missing', async () => {
+  const token = signToken({ kind: 'portal', sub: 4, username: 'gone2', userType: 'manager' }, SECRET);
+  const db = stubDbMissingAuditsColumn([{ sessions_valid_from: null, active: false }]);
+  const claims = await requireActiveUser(ev(token), db, { secret: SECRET });
+  assert.equal(claims, null); // active/session checks still ENFORCED, not fail-open
+});
+
+test('requireActiveUser retry path still rejects a revoked session when audits_access is missing', async () => {
+  // Token issued "now" (so it's not simply expired) but sessions_valid_from is set an
+  // hour into the future, i.e. a sign-out-everywhere happened after this token was minted.
+  const token = signToken({ kind: 'portal', sub: 5, username: 'revoked2', userType: 'manager' }, SECRET);
+  const futureCutoff = new Date(Date.now() + 3600_000).toISOString();
+  const db = stubDbMissingAuditsColumn([{ sessions_valid_from: futureCutoff, active: true }]);
+  const claims = await requireActiveUser(ev(token), db, { secret: SECRET });
+  assert.equal(claims, null); // active/session checks still ENFORCED, not fail-open
+});
+
+test('requireActiveUser fails open only when the retry itself also errors', async () => {
+  const token = signToken({ kind: 'portal', sub: 6, username: 'stilldown', userType: 'manager' }, SECRET);
+  const db = async () => { throw new Error('db still down'); }; // both queries fail
+  const claims = await requireActiveUser(ev(token), db, { secret: SECRET });
+  assert.ok(claims); // fails open — token still valid
+  assert.equal(claims.auditsAccess, undefined);
+});
