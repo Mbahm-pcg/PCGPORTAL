@@ -3167,7 +3167,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const [view, setView] = useState('list'); // 'list' | 'edit'
   const [editId, setEditId] = useState(null);
   const [showPw, setShowPw]   = useState(false);
-  const [form, setForm] = useState({ username:"", password:"", name:"", role:"", initials:"", isAdmin:false, region:"PA", active:true, email:"", phone:"", twoFactorRequired:false });
+  const [form, setForm] = useState({ username:"", password:"", name:"", role:"", initials:"", isAdmin:false, region:"PA", active:true, email:"", phone:"", twoFactorRequired:false, auditsAccess:null });
   const [search, setSearch] = useState("");
   const [welcomeSent, setWelcomeSent] = useState(null);
   const [saveFlash, setSaveFlash] = useState(false);
@@ -3284,7 +3284,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
 
   const openEditPage = (u = null) => {
     setEditId(u ? u.id : null);
-    setForm(u ? { ...u } : { username:"", password:"", name:"", role:"", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
+    setForm(u ? { ...u } : { username:"", password:"", name:"", role:"", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false, auditsAccess:null });
     setView('edit');
   };
   const closeEditPage = () => {
@@ -3338,7 +3338,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
       sendWelcomeEmail(json.user);
       logClientEvent(currentUser?.id, currentUser?.userType, 'user_created', { targetName: form.name, targetRole: form.userType });
     }
-    setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false });
+    setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false, auditsAccess:null });
     setSaveFlash(true);
     setTimeout(() => { setSaveFlash(false); closeEditPage(); }, 450);
   };
@@ -3476,6 +3476,26 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                     <input type="checkbox" checked={formTwoFactorLocked && isAhmed(form) ? true : !!form.twoFactorRequired} disabled={formTwoFactorLocked} onChange={e=>setForm(f=>({...f,twoFactorRequired:e.target.checked}))} style={{ accentColor:"#FF671F", width:15, height:15 }} /> Require 2FA{formTwoFactorLocked ? ` (${isAhmed(form) ? "always on" : "IT admin only"})` : ""}
                   </label>
                 </div>
+                {/* Audits module grant — executive/it only; widens (never narrows) this
+                    user's access to the Audits module beyond their role's baseline. */}
+                {isFullAdmin(currentUser) && (
+                  <>
+                    <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
+                      <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
+                      <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Audits Module</span>
+                    </div>
+                    <div style={{ marginBottom:"1.25rem" }}>
+                      <select style={{ ...inp(th), width:"100%" }} value={form.auditsAccess || ""} onChange={e=>setForm(f=>({...f, auditsAccess: e.target.value || null}))}>
+                        <option value="">Role default</option>
+                        <option value="view">View only</option>
+                        <option value="full">Full audit powers</option>
+                      </select>
+                      <div style={{ fontSize:"0.68rem", color:th.muted, marginTop:"0.4rem", paddingLeft:"0.2rem" }}>
+                        Grants only add access — they never take away what this user's role already has. Takes effect for the module immediately; the Audits tab appears at next login.
+                      </div>
+                    </div>
+                  </>
+                )}
                 {/* Store Assignment — managers + store tablets */}
                 {(form.userType === "manager" || form.userType === "store_tablet") && (<>
                   <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
@@ -3659,6 +3679,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                   <span style={{ fontSize:"0.62rem", fontWeight:700, color:rc, background:`${rc}20`, border:`1px solid ${rc}44`, borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap" }}>{roleLabel(u.userType)}</span>
                   <span style={{ fontSize:"0.62rem", fontWeight:700, color: isInactive?"#f87171":"#4ade80", background: isInactive?"#f8717118":"#4ade8018", border:`1px solid ${isInactive?"#f8717144":"#4ade8044"}`, borderRadius:999, padding:"0.15rem 0.55rem" }}>{isInactive?"Inactive":"Active"}</span>
                   {u.locked && <span title={`Locked after ${u.failedAttempts || 5} failed login attempts`} style={{ fontSize:"0.62rem", fontWeight:700, color:"#f87171", background:"#f8717118", border:"1px solid #f8717155", borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:"0.25rem" }}><Icon d={BTN.lock} size={10} color="#f87171" />Locked</span>}
+                  {(u.auditsAccess === "view" || u.auditsAccess === "full") && <span title="Granted access to the Audits module beyond this user's role" style={{ fontSize:"0.62rem", fontWeight:700, color:O, background:`${O}18`, border:`1px solid ${O}44`, borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap" }}>Audits: {u.auditsAccess}</span>}
                 </div>
               </div>
 
@@ -19411,24 +19432,34 @@ async function auditsApi(action, body = {}) {
   return json || {};
 }
 
+// Shared elevation gates for the Audits module — mirror `effectiveAudits` in
+// audit-lib/access.js: a per-user `auditsAccess` grant ('view'/'full') only
+// ever elevates a user's baseline role access, never reduces it.
+// canAudit: conduct/submit audits, verify-close/reject CAPs, default-land on
+// the dashboard, see manager rankings.
+const auditCanAudit = (u) => ["auditor", "executive", "it"].includes(u?.userType) || u?.auditsAccess === "full";
+// canView: reach the Audits tab / CAP board / dashboard at all (read-only floor).
+const auditCanView = (u) => ["auditor", "executive", "it", "office_staff", "dm"].includes(u?.userType) || !!u?.auditsAccess;
+
 // Container: owns the view state (list / conduct / report) shared by all three
 // internal screens. Roles that reach this tab: auditor, executive, it (conduct)
-// and dm/office_staff (read). New Audit is gated to conduct-capable roles.
+// and dm/office_staff (read), plus any user granted `auditsAccess`.
 function AuditsTab({ user, th, stores, showAlert, setTab }) {
   // 'list' | 'conduct' | 'report' | 'caps' | 'dashboard'; null while the default
   // landing view is still being decided (see the effect below).
   const [view, setView] = useState(null);
   const [conduct, setConduct] = useState(null);      // { auditId, storePC }
-  const canConduct = ["auditor", "executive", "it"].includes(user?.userType);
-  // Matches the `dashboard` action's server-side gate (FULL_VIEW ∪ dm) — the only
-  // roles that can ever get a non-empty capBoard/dashboard back.
-  const canSeeCapBoard = ["auditor", "executive", "it", "office_staff", "dm"].includes(user?.userType);
+  const canConduct = auditCanAudit(user);
+  // Matches the `dashboard` action's server-side gate (FULL_VIEW ∪ dm ∪ grant) —
+  // the only roles/grants that can ever get a non-empty capBoard/dashboard back.
+  const canSeeCapBoard = auditCanView(user);
   const canSeeDashboard = canSeeCapBoard;
-  // Task 8: the dashboard is the default landing view for auditor/executive/it —
-  // but only once the portfolio has at least one submitted audit; an empty
-  // dashboard is worse than the familiar list. office_staff/dm always land on
-  // the list first but can still reach the dashboard via the nav button.
-  const dashboardIsDefault = ["auditor", "executive", "it"].includes(user?.userType);
+  // Task 8: the dashboard is the default landing view for auditor/executive/it
+  // (and 'full'-granted users) — but only once the portfolio has at least one
+  // submitted audit; an empty dashboard is worse than the familiar list.
+  // office_staff/dm/'view'-granted users always land on the list first but can
+  // still reach the dashboard via the nav button.
+  const dashboardIsDefault = auditCanAudit(user);
 
   useEffect(() => {
     let cancelled = false;
@@ -20244,7 +20275,7 @@ function CapBoard({ user, th, stores, showAlert, onBack }) {
   const [busyId, setBusyId] = useState(null);
   const [lightbox, setLightbox] = useState(null);
 
-  const canAudit = ["auditor", "executive", "it"].includes(user?.userType);
+  const canAudit = auditCanAudit(user);
 
   const load = useCallback(() => {
     setErr(false);
@@ -20480,9 +20511,12 @@ function AuditDashboard({ user, th, stores, showAlert, onOpenReport, onGoList, o
   const [data, setData] = useState(null); // null = loading
   const [err, setErr] = useState(false);
 
-  const isFull = ["auditor", "executive", "it", "office_staff"].includes(user?.userType);
+  // Full-portfolio trend view: role-based network-wide roles, or any granted
+  // (view/full) user — excluding actual dm-role users, who keep the district-
+  // scoped trend via `isDm` below regardless of a grant.
+  const isFull = auditCanView(user) && user?.userType !== "dm";
   const isDm = user?.userType === "dm";
-  const canSeeManagerRanking = ["auditor", "executive", "it"].includes(user?.userType);
+  const canSeeManagerRanking = auditCanAudit(user);
 
   const load = useCallback(() => {
     setErr(false);
@@ -20925,7 +20959,18 @@ const BASE_TABS = [
   { id: "tickets", label: "Tickets", icon: (c) => ICONS.tickets(c) },
 ];
 const BASE_TAB_IDS = BASE_TABS.map(t => t.id);
+// Per-user `auditsAccess` grant ('view'/'full') adds the Audits tab for roles
+// whose branch below doesn't already include it (e.g. manager, construction,
+// vendor, maintenance) — appended post-hoc so the role branches themselves
+// stay untouched. Roles that already carry "audits" are left as-is.
 const getTabs = (user) => {
+  const tabs = computeRoleTabs(user);
+  if (user && (user.auditsAccess === "view" || user.auditsAccess === "full") && !tabs.some(t => t.id === "audits")) {
+    return [...tabs, { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) }];
+  }
+  return tabs;
+};
+const computeRoleTabs = (user) => {
   if (!user) return BASE_TABS;
   const ut = user.userType;
   // Executive & IT → full admin suite
@@ -22217,7 +22262,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.37";
+const APP_VERSION = "v18.38";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -42080,7 +42125,7 @@ function PCGPortal() {
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "expenses"  && isFullAdmin(user) && <ExpenseLogSection th={th} user={user} standalone />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
-          {tab === "audits" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
+          {tab === "audits" && auditCanView(user) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
