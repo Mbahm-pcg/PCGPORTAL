@@ -3,7 +3,7 @@ import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG, BTN } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
-import { portalLogin, portalLoginGoogle, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions } from './src/portal-auth.mjs';
+import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 
@@ -989,6 +989,10 @@ function Login({ onLogin, dark, toggleDark, users }) {
               return u.active !== false && (userEmail === email || username === email);
             });
             if (!found) { setErr("Google login worked, but this email is not active in the portal users list."); return; }
+            // Exchange the Google access token for a server-signed portal session so
+            // hardened endpoints (users, audits) authenticate — same token password
+            // logins get. Best-effort: on failure the legacy grace flow still works.
+            await portalLoginGoogleAccess(tokenResponse.access_token);
             // Carry the live Google access token onto the user object — it's the caller's
             // only proof of identity for deal-auth (Google logins hold no portal session
             // token). Only needed by IT/Exec (Deal Pipeline), harmless for everyone else.
@@ -22262,7 +22266,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.40";
+const APP_VERSION = "v18.41";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

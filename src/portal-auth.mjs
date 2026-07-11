@@ -83,6 +83,12 @@ export async function portalLoginGoogle(idToken) {
   return post({ action: 'login', googleIdToken: idToken });
 }
 
+// Exchange a GIS OAuth2 access token (the flow the current Google button uses) for a
+// portal token. Server verifies the token with Google (tokeninfo, audience-checked).
+export async function portalLoginGoogleAccess(accessToken) {
+  return post({ action: 'login', googleAccessToken: accessToken });
+}
+
 // Change the current user's password (requires a held token). The server flips
 // must_change=false on success.
 export async function portalChangePassword(oldPassword, newPassword) {

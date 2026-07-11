@@ -240,6 +240,9 @@
   async function portalLogin(username, password) {
     return post({ action: "login", username, password });
   }
+  async function portalLoginGoogleAccess(accessToken) {
+    return post({ action: "login", googleAccessToken: accessToken });
+  }
   async function portalChangePassword(oldPassword, newPassword) {
     return post({ action: "change-password", oldPassword, newPassword });
   }
@@ -1966,6 +1969,7 @@
                 setErr("Google login worked, but this email is not active in the portal users list.");
                 return;
               }
+              await portalLoginGoogleAccess(tokenResponse.access_token);
               let enrichedFound = { ...found, googleAccessToken: tokenResponse.access_token };
               if (isTwoFactorRequired(found) && found.twoFactorEnabled && !found.twoFactorSecret) {
                 try {
@@ -17436,7 +17440,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.40";
+  var APP_VERSION = "v18.41";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

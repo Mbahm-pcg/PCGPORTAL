@@ -62,6 +62,20 @@ async function verifyGoogle(idToken) {
   return lc(p.email);
 }
 
+// Verify a GIS OAuth2 access token via Google's tokeninfo endpoint. Returns the
+// verified lowercase email or null. Audience is checked against GSI_CLIENT_ID so a
+// token minted for some other app can't log in here.
+async function verifyGoogleAccess(accessToken) {
+  try {
+    const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (j.aud !== GSI_CLIENT_ID && j.azp !== GSI_CLIENT_ID) return null;
+    if (j.email_verified !== 'true' && j.email_verified !== true) return null;
+    return j.email ? lc(j.email) : null;
+  } catch { return null; }
+}
+
 // Build the signed token + safe user object from a resolved DB row.
 function issue(row, mustChange) {
   const secret = process.env.DEAL_SESSION_SECRET;
@@ -146,8 +160,8 @@ export default async (request, context) => {
 
     if (action === 'login') {
       // ── Google ──
-      if (body.googleIdToken) {
-        const email = await verifyGoogle(body.googleIdToken);
+      if (body.googleIdToken || body.googleAccessToken) {
+        const email = body.googleIdToken ? await verifyGoogle(body.googleIdToken) : await verifyGoogleAccess(body.googleAccessToken);
         if (!email) return reply(401, { error: 'google verification failed' });
 
         // Look up user in Neon users table by email
