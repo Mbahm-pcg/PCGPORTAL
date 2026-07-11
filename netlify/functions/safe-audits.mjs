@@ -24,7 +24,7 @@ import webpush from 'web-push';
 // `module.exports = { ... }`; a static `import` survives Netlify's function bundler, whereas
 // createRequire(import.meta.url) does not — see the long note in audits.mjs).
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { computeCashTotals, computeVariance, shouldAlert, REASONS } from './audit-lib/safe-cash.js';
+import { computeCashTotals, computeVariance, shouldAlert, SHORTAGE_ALERT_THRESHOLD, REASONS } from './audit-lib/safe-cash.js';
 
 const cors = {
   'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -312,6 +312,7 @@ export default async (req) => {
         if (!safeCanView(user.userType, grant)) return json(403, { ok: false, error: 'forbidden' });
         const storePC = String(body.storePC || '');
         if (!storePC) return json(400, { ok: false, error: 'storePC required' });
+        if (!storeInScope(visibleStoresSafe(user), storePC)) return json(403, { ok: false, error: 'forbidden' });
         const rows = await sql`SELECT * FROM safe_settings WHERE store_pc = ${storePC}`;
         const s = rows[0];
         return json(200, {
@@ -352,9 +353,14 @@ export default async (req) => {
         const id = body.id != null ? toBigInt(body.id) : Date.now();
         if (id == null) return json(400, { ok: false, error: 'invalid id' });
 
-        const existing = await sql`SELECT status FROM safe_audits WHERE id = ${id}`;
+        const existing = await sql`SELECT status, store_pc FROM safe_audits WHERE id = ${id}`;
         if (existing.length && existing[0].status !== 'draft') {
           return json(409, { ok: false, error: 'audit is locked (already submitted)' });
+        }
+        // Rebinding guard: an existing draft's store is fixed by its original store_pc — a caller
+        // can't reassign someone else's out-of-scope draft to their own store by guessing its id.
+        if (existing.length && !storeInScope(visibleStoresSafe(user), existing[0].store_pc)) {
+          return json(403, { ok: false, error: 'forbidden' });
         }
 
         const reason = body.reason != null && body.reason !== '' ? String(body.reason) : null;
@@ -482,7 +488,7 @@ export default async (req) => {
 
             const storeLabel = row.store_name ? `${row.store_name} (${storePC})` : storePC;
             const flags = [];
-            if (variance <= -5) flags.push(`shortage of ${fmtMoney(Math.abs(variance))}`);
+            if (variance <= -SHORTAGE_ALERT_THRESHOLD) flags.push(`shortage of ${fmtMoney(Math.abs(variance))}`);
             if (hasCounterfeit) flags.push(`counterfeit cash reported (${fmtMoney(row.counterfeit_total || 0)})`);
             const subject = `Safe Audit alert — ${storeLabel}: ${flags.join(' + ')}`;
             const html = `
