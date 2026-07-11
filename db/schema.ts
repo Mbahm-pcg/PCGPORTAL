@@ -1,4 +1,4 @@
-import { integer, pgTable, varchar, text, boolean, timestamp, real, jsonb, serial, bigint, primaryKey } from "drizzle-orm/pg-core";
+import { integer, pgTable, varchar, text, boolean, timestamp, real, jsonb, serial, bigint, primaryKey, numeric } from "drizzle-orm/pg-core";
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 export const users = pgTable("users", {
@@ -193,6 +193,70 @@ export const auditCaps = pgTable("audit_caps", {
   verifiedBy: text("verified_by"),
   verifiedAt: timestamp("verified_at"),
   escalatedAt: timestamp("escalated_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ── Safe Audits (cash / petty-cash reconciliation — LIVE) ─────────────────────
+// Backs the Safe Audit UI (see netlify/functions/safe-audits.mjs). This is a distinct
+// audit type from the Field Ops checklist above — a denomination cash count reconciled
+// against a per-store locked "expected petty cash". safe-audits.mjs self-creates both
+// tables via CREATE TABLE IF NOT EXISTS; this block documents the schema for
+// drizzle/tooling only — it is never migrated from here.
+//
+// Per-store locked expected petty cash. `storePC` is the PK. Set on a store's first audit
+// submit (via ON CONFLICT DO NOTHING); only executive/it may change it afterward, which
+// stamps updatedBy*/updatedAt. See spec §A8.
+export const safeSettings = pgTable("safe_settings", {
+  storePC: text("store_pc").primaryKey(),
+  expectedPettyCash: numeric("expected_petty_cash").notNull(),
+  setByUserId: integer("set_by_user_id"),
+  setByName: text("set_by_name"),
+  setAt: timestamp("set_at"),
+  updatedByUserId: integer("updated_by_user_id"),
+  updatedByName: text("updated_by_name"),
+  updatedAt: timestamp("updated_at"),
+});
+
+// One row per safe audit. `id` is the client-generated Date.now() value (bigint), same
+// convention as maintTickets/audits. Cash math (billsTotal/coinsTotal/countedTotal/
+// accountedTotal/variance/varianceStatus) is recomputed server-side at submit from
+// billCounts/coinCounts (jsonb count maps) against the authoritative safeSettings expected —
+// client-supplied totals are never trusted. Photos & signatures store blob keys only.
+export const safeAudits = pgTable("safe_audits", {
+  id: bigint("id", { mode: "number" }).primaryKey(),
+  storePC: text("store_pc"),
+  storeName: text("store_name"),
+  auditorUserId: integer("auditor_user_id"),
+  auditorName: text("auditor_name"),
+  auditorRole: text("auditor_role"),
+  status: text("status").notNull().default("draft"), // draft | submitted
+  startedAt: timestamp("started_at"),
+  submittedAt: timestamp("submitted_at"),
+  reason: text("reason"), // one of safe-cash.js REASONS
+  safeCode: text("safe_code"),
+  codeLastChanged: text("code_last_changed"),
+  storeManagerName: text("store_manager_name"),
+  district: integer("district"),
+  expectedPettyCash: numeric("expected_petty_cash"),
+  hasReceipts: boolean("has_receipts"),
+  receiptsTotal: numeric("receipts_total"),
+  receiptPhotoKeys: jsonb("receipt_photo_keys").notNull().default([]),
+  billCounts: jsonb("bill_counts").notNull().default({}),
+  coinCounts: jsonb("coin_counts").notNull().default({}),
+  billsTotal: numeric("bills_total"),
+  coinsTotal: numeric("coins_total"),
+  countedTotal: numeric("counted_total"),
+  accountedTotal: numeric("accounted_total"),
+  variance: numeric("variance"),
+  varianceStatus: text("variance_status"), // balanced | short | over
+  hasCounterfeit: boolean("has_counterfeit"),
+  counterfeitTotal: numeric("counterfeit_total"),
+  counterfeitPhotoKeys: jsonb("counterfeit_photo_keys").notNull().default([]),
+  conductorSigKey: text("conductor_sig_key"),
+  managerSigKey: text("manager_sig_key"),
+  managerAckName: text("manager_ack_name"),
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
