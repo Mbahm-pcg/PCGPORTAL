@@ -15625,7 +15625,607 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
   }
   var auditCanAudit = (u) => ["auditor", "executive", "it"].includes(u?.userType) || u?.auditsAccess === "full";
   var auditCanView = (u) => ["auditor", "executive", "it", "office_staff", "dm"].includes(u?.userType) || !!u?.auditsAccess;
+  async function safeAuditsApi(action, body = {}) {
+    const res = await fetch("/.netlify/functions/safe-audits", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...authHeader() },
+      body: JSON.stringify({ action, ...body })
+    });
+    let json = null;
+    try {
+      json = await res.json();
+    } catch {
+    }
+    if (!res.ok || json && json.ok === false) {
+      throw new Error(json && json.error || `safe ${action} failed (${res.status})`);
+    }
+    return json || {};
+  }
+  var safeCanView = (u) => ["manager", "dm", "auditor", "executive", "it"].includes(u?.userType) || !!u?.auditsAccess;
+  var safeCanConduct = (u) => ["manager", "dm", "auditor", "executive", "it"].includes(u?.userType) || u?.auditsAccess === "full";
+  var SAFE_BILLS = [
+    { key: "hundreds", label: "$100", value: 100 },
+    { key: "fifties", label: "$50", value: 50 },
+    { key: "twenties", label: "$20", value: 20 },
+    { key: "tens", label: "$10", value: 10 },
+    { key: "fives", label: "$5", value: 5 },
+    { key: "ones", label: "$1", value: 1 }
+  ];
+  var SAFE_COINS = [
+    { key: "halfDollars", label: "Half-dollars ($0.50)", value: 0.5 },
+    { key: "quarters", label: "Quarters ($0.25)", value: 0.25 },
+    { key: "dimes", label: "Dimes ($0.10)", value: 0.1 },
+    { key: "nickels", label: "Nickels ($0.05)", value: 0.05 },
+    { key: "pennies", label: "Pennies ($0.01)", value: 0.01 }
+  ];
+  var SAFE_REASONS = ["Random", "Scheduled", "Cash Discrepancy", "Manager Change", "Shift Change", "Other"];
+  var SAFE_DISPLAY_TOLERANCE = 0.5;
+  var safeToCount = (v) => {
+    if (v === "" || v == null) return 0;
+    const s = String(v).trim();
+    if (!s || /^n\/?a$/i.test(s)) return 0;
+    const n = Math.floor(Number(s));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  var safeCents = (n) => Math.round((Number(n) || 0) * 100);
+  function safeComputeTotals(billCounts, coinCounts) {
+    let bc = 0;
+    SAFE_BILLS.forEach((d) => {
+      bc += safeToCount(billCounts?.[d.key]) * safeCents(d.value);
+    });
+    let cc = 0;
+    SAFE_COINS.forEach((d) => {
+      cc += safeToCount(coinCounts?.[d.key]) * safeCents(d.value);
+    });
+    return { billsTotal: bc / 100, coinsTotal: cc / 100, countedTotal: (bc + cc) / 100 };
+  }
+  function safeComputeVariance({ countedTotal, receiptsTotal, expected }) {
+    const acc = safeCents(countedTotal) + safeCents(receiptsTotal);
+    const varc = acc - safeCents(expected);
+    const tol = safeCents(SAFE_DISPLAY_TOLERANCE);
+    const status = varc < -tol ? "short" : varc > tol ? "over" : "balanced";
+    return { accountedTotal: acc / 100, variance: varc / 100, status };
+  }
+  var SAFE_VAR_COLOR = { balanced: "#10b981", short: "#ef4444", over: "#f59e0b" };
+  var SAFE_VAR_LABEL = { balanced: "Balanced", short: "Short", over: "Over" };
+  var fmtSafeMoney = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+  function safeDataUrlToFile(dataUrl, name) {
+    const [head, b64] = String(dataUrl || "").split(",");
+    const mime = (head.match(/data:([^;]+)/) || [null, "image/png"])[1];
+    const bin = atob(b64 || "");
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const blob = new Blob([arr], { type: mime });
+    try {
+      return new File([blob], name || "signature.png", { type: mime });
+    } catch {
+      blob.name = name || "signature.png";
+      return blob;
+    }
+  }
+  function SafeVarBadge({ status, variance, th }) {
+    const st = status || "balanced";
+    const color = SAFE_VAR_COLOR[st] || th.muted;
+    return /* @__PURE__ */ React.createElement("span", { style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: "0.72rem",
+      fontWeight: 800,
+      padding: "0.15rem 0.55rem",
+      borderRadius: 999,
+      background: color + "22",
+      color,
+      border: `1px solid ${color}55`,
+      whiteSpace: "nowrap"
+    } }, SAFE_VAR_LABEL[st] || st, variance != null ? ` ${fmtSafeMoney(variance)}` : "");
+  }
+  function SignaturePad({ th, onCapture, label }) {
+    const ref = useRef(null);
+    const drawing = useRef(false);
+    const pos = (e) => {
+      const r = ref.current.getBoundingClientRect();
+      const t = e.touches ? e.touches[0] : e;
+      return { x: t.clientX - r.left, y: t.clientY - r.top };
+    };
+    const start = (e) => {
+      drawing.current = true;
+      const c = ref.current.getContext("2d");
+      const p = pos(e);
+      c.beginPath();
+      c.moveTo(p.x, p.y);
+      e.preventDefault();
+    };
+    const move = (e) => {
+      if (!drawing.current) return;
+      const c = ref.current.getContext("2d");
+      const p = pos(e);
+      c.lineTo(p.x, p.y);
+      c.stroke();
+      e.preventDefault();
+    };
+    const end = () => {
+      drawing.current = false;
+    };
+    const clear = () => {
+      const c = ref.current;
+      c.getContext("2d").clearRect(0, 0, c.width, c.height);
+      onCapture(null);
+    };
+    const save = () => {
+      onCapture(ref.current.toDataURL("image/png"));
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: 4 } }, label), /* @__PURE__ */ React.createElement(
+      "canvas",
+      {
+        ref,
+        width: 320,
+        height: 120,
+        style: { border: `1px solid ${th.cardBorder}`, borderRadius: 8, touchAction: "none", background: "#fff", maxWidth: "100%" },
+        onMouseDown: start,
+        onMouseMove: move,
+        onMouseUp: end,
+        onMouseLeave: end,
+        onTouchStart: start,
+        onTouchMove: move,
+        onTouchEnd: end
+      }
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: save, style: { ...btn(th), minHeight: 40 } }, "Save signature"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: clear, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 } }, "Clear")));
+  }
+  function SafeAuditsPane({ user, th, stores, showAlert, setTab }) {
+    const [view, setView] = useState("list");
+    const [sel, setSel] = useState(null);
+    const openConduct = (id, storePC) => {
+      setSel({ id, storePC });
+      setView("conduct");
+    };
+    const openReport = (id, storePC) => {
+      setSel({ id, storePC });
+      setView("report");
+    };
+    const back = () => {
+      setSel(null);
+      setView("list");
+    };
+    if (view === "conduct" && sel) {
+      return /* @__PURE__ */ React.createElement(
+        SafeAuditConduct,
+        {
+          user,
+          th,
+          stores,
+          showAlert,
+          auditId: sel.id,
+          storePC: sel.storePC,
+          onExit: back,
+          onViewReport: () => openReport(sel.id, sel.storePC)
+        }
+      );
+    }
+    if (view === "report" && sel) {
+      return /* @__PURE__ */ React.createElement(SafeReportStub, { user, th, stores, auditId: sel.id, storePC: sel.storePC, onBack: back });
+    }
+    return /* @__PURE__ */ React.createElement(
+      SafeAuditList,
+      {
+        user,
+        th,
+        stores,
+        showAlert,
+        onConduct: openConduct,
+        onViewReport: openReport
+      }
+    );
+  }
+  function SafeAuditList({ user, th, stores, showAlert, onConduct, onViewReport }) {
+    const isMobile = useIsMobile();
+    const [audits, setAudits] = useState(null);
+    const [err, setErr] = useState(false);
+    const [picking, setPicking] = useState(false);
+    const [pickStore, setPickStore] = useState("");
+    const [starting, setStarting] = useState(false);
+    const canConduct = safeCanConduct(user);
+    const load = useCallback(() => {
+      setErr(false);
+      safeAuditsApi("list").then((j) => setAudits(Array.isArray(j.audits) ? j.audits : [])).catch(() => {
+        setAudits([]);
+        setErr(true);
+      });
+    }, []);
+    useEffect(() => {
+      load();
+    }, [load]);
+    const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
+    const startAudit = async () => {
+      if (!pickStore) {
+        showAlert?.("warning", "Pick a store first.");
+        return;
+      }
+      setStarting(true);
+      const id = Date.now();
+      try {
+        const r = await safeAuditsApi("saveDraft", { id, storePC: pickStore, storeName: storeName(pickStore) });
+        const realId = r.id || id;
+        setPicking(false);
+        setPickStore("");
+        onConduct(realId, pickStore);
+      } catch (e) {
+        showAlert?.("error", "Could not start safe audit: " + e.message);
+      } finally {
+        setStarting(false);
+      }
+    };
+    const openRow = (a) => {
+      if (a.status === "submitted") onViewReport(a.id, a.storePC);
+      else if (canConduct) onConduct(a.id, a.storePC);
+    };
+    const StatusPill = ({ status }) => {
+      const map = { submitted: ["#10b981", "Submitted"], draft: [th.muted, "Draft"] };
+      const [color, label] = map[status] || [th.muted, status || "Draft"];
+      return /* @__PURE__ */ React.createElement("span", { style: {
+        fontSize: "0.66rem",
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        textTransform: "uppercase",
+        padding: "0.1rem 0.45rem",
+        borderRadius: 999,
+        background: color + "22",
+        color,
+        border: `1px solid ${color}44`
+      } }, label);
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.dollar(O), " Safe Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Petty-cash / safe reconciliation \u2014 count denominations, reconcile against the store's expected amount.")), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Safe Audit")), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load safe audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading safe audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No safe audits yet.", canConduct ? " Start one with \u201C+ New Safe Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC), a.hasCounterfeit ? " \u{1F6A9}" : ""), a.status === "submitted" ? /* @__PURE__ */ React.createElement(SafeVarBadge, { status: a.varianceStatus, variance: a.variance, th }) : /* @__PURE__ */ React.createElement(StatusPill, { status: a.status })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement("span", null, "Counted ", fmtSafeMoney(a.countedTotal), " / Exp ", fmtSafeMoney(a.expected)))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Conductor", "Expected", "Counted", "Variance", "Fake", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.expected != null ? fmtSafeMoney(a.expected) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.text } }, a.countedTotal != null ? fmtSafeMoney(a.countedTotal) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, a.status === "submitted" ? /* @__PURE__ */ React.createElement(SafeVarBadge, { status: a.varianceStatus, variance: a.variance, th }) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "center" } }, a.hasCounterfeit ? "\u{1F6A9}" : ""), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Safe Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
+  }
+  function SafeSection({ th, title, children }) {
+    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.15rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, title), children);
+  }
+  function SafeField({ th, label, children }) {
+    return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: 4 } }, label), children);
+  }
+  function SafeYesNo({ th, value, onChange }) {
+    return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, [["Yes", true], ["No", false]].map(([lbl, v]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: lbl,
+        type: "button",
+        onClick: () => onChange(v),
+        style: { ...btn(th, value === v ? {} : { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40, minWidth: 72 }
+      },
+      lbl
+    )));
+  }
+  function SafeAuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, onViewReport }) {
+    const store = stores?.find((s) => String(s.pc) === String(storePC));
+    const storeName = store?.name || storePC;
+    const storeDistrict = store?.district ?? null;
+    const localKey = "pcg_safe_draft_" + auditId;
+    const [loading, setLoading] = useState(true);
+    const [loadErr, setLoadErr] = useState(false);
+    const [setting, setSetting] = useState(null);
+    const [savingExpected, setSavingExpected] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [submitted, setSubmitted] = useState(null);
+    const didHydrate = useRef(false);
+    const [f, setF] = useState({
+      reason: "",
+      safeCode: "",
+      codeLastChanged: "",
+      storeManagerName: "",
+      district: storeDistrict,
+      expectedPettyCash: "",
+      hasReceipts: false,
+      receiptsTotal: "",
+      receiptPhotoKeys: [],
+      billCounts: {},
+      coinCounts: {},
+      hasCounterfeit: false,
+      counterfeitTotal: "",
+      counterfeitPhotoKeys: [],
+      conductorSigKey: null,
+      managerSigKey: null,
+      managerAckName: "",
+      notes: ""
+    });
+    const set = (patch) => setF((prev) => ({ ...prev, ...patch }));
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        setLoading(true);
+        setLoadErr(false);
+        try {
+          let hydrated = null;
+          try {
+            const existing = await safeAuditsApi("get", { id: auditId });
+            if (existing?.audit) hydrated = existing.audit;
+          } catch {
+          }
+          if (!hydrated) {
+            try {
+              const l = JSON.parse(localStorage.getItem(localKey) || "null");
+              if (l?.f) hydrated = l.f;
+            } catch {
+            }
+          }
+          let s = null;
+          try {
+            s = await safeAuditsApi("safeSetting", { storePC });
+          } catch {
+          }
+          if (cancelled) return;
+          if (s) setSetting(s);
+          if (hydrated) {
+            set({
+              reason: hydrated.reason ?? "",
+              safeCode: hydrated.safeCode ?? "",
+              codeLastChanged: hydrated.codeLastChanged ?? "",
+              storeManagerName: hydrated.storeManagerName ?? "",
+              district: hydrated.district ?? storeDistrict,
+              expectedPettyCash: hydrated.expectedPettyCash != null ? String(hydrated.expectedPettyCash) : s?.expected != null ? String(s.expected) : "",
+              hasReceipts: !!hydrated.hasReceipts,
+              receiptsTotal: hydrated.receiptsTotal != null ? String(hydrated.receiptsTotal) : "",
+              receiptPhotoKeys: hydrated.receiptPhotoKeys || [],
+              billCounts: hydrated.billCounts || {},
+              coinCounts: hydrated.coinCounts || {},
+              hasCounterfeit: !!hydrated.hasCounterfeit,
+              counterfeitTotal: hydrated.counterfeitTotal != null ? String(hydrated.counterfeitTotal) : "",
+              counterfeitPhotoKeys: hydrated.counterfeitPhotoKeys || [],
+              conductorSigKey: hydrated.conductorSigKey ?? null,
+              managerSigKey: hydrated.managerSigKey ?? null,
+              managerAckName: hydrated.managerAckName ?? "",
+              notes: hydrated.notes ?? ""
+            });
+          } else if (s?.expected != null) {
+            set({ expectedPettyCash: String(s.expected) });
+          }
+        } catch (e) {
+          if (!cancelled) setLoadErr(true);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [auditId]);
+    const expectedForCalc = setting?.locked && !setting?.canEdit ? Number(setting.expected) : f.expectedPettyCash === "" ? null : Number(f.expectedPettyCash);
+    const receiptsForCalc = f.hasReceipts ? Number(f.receiptsTotal) || 0 : 0;
+    const totals = safeComputeTotals(f.billCounts, f.coinCounts);
+    const variance = expectedForCalc != null ? safeComputeVariance({ countedTotal: totals.countedTotal, receiptsTotal: receiptsForCalc, expected: expectedForCalc }) : null;
+    const draftBody = () => ({
+      id: auditId,
+      storePC,
+      storeName,
+      reason: f.reason,
+      safeCode: f.safeCode,
+      codeLastChanged: f.codeLastChanged,
+      storeManagerName: f.storeManagerName,
+      district: f.district,
+      expectedPettyCash: f.expectedPettyCash === "" ? null : Number(f.expectedPettyCash),
+      hasReceipts: f.hasReceipts,
+      receiptsTotal: f.receiptsTotal === "" ? null : Number(f.receiptsTotal),
+      receiptPhotoKeys: f.receiptPhotoKeys,
+      billCounts: f.billCounts,
+      coinCounts: f.coinCounts,
+      hasCounterfeit: f.hasCounterfeit,
+      counterfeitTotal: f.counterfeitTotal === "" ? null : Number(f.counterfeitTotal),
+      counterfeitPhotoKeys: f.counterfeitPhotoKeys,
+      conductorSigKey: f.conductorSigKey,
+      managerSigKey: f.managerSigKey,
+      managerAckName: f.managerAckName,
+      notes: f.notes
+    });
+    useEffect(() => {
+      if (loading || submitted) return;
+      if (!didHydrate.current) {
+        didHydrate.current = true;
+        return;
+      }
+      const t = setTimeout(() => {
+        try {
+          localStorage.setItem(localKey, JSON.stringify({ storePC, f, savedAt: Date.now() }));
+        } catch {
+        }
+        safeAuditsApi("saveDraft", draftBody()).catch(() => {
+        });
+      }, 1500);
+      return () => clearTimeout(t);
+    }, [f, loading, submitted]);
+    const setCount = (group, key, val) => set({ [group]: { ...f[group], [key]: val } });
+    const uploadPhotos = async (group, fileList) => {
+      const files = Array.from(fileList || []);
+      if (!files.length) return;
+      const keys = [...f[group] || []];
+      const batchTs = Date.now();
+      const prefix = group === "receiptPhotoKeys" ? "receipt" : "counterfeit";
+      for (let i = 0; i < files.length; i++) {
+        const key = `safe_${auditId}_${prefix}_${keys.length}_${batchTs}_${i}`;
+        try {
+          await cloudSaveFile(key, files[i], user?.name || "");
+          keys.push(key);
+        } catch {
+          showAlert?.("error", "A photo failed to upload \u2014 try again.");
+        }
+      }
+      set({ [group]: keys });
+    };
+    const captureSig = async (which, dataUrl) => {
+      const field = which === "conductor" ? "conductorSigKey" : "managerSigKey";
+      if (!dataUrl) {
+        set({ [field]: null });
+        return;
+      }
+      const key = `safe_${auditId}_sig_${which}`;
+      try {
+        const file = safeDataUrlToFile(dataUrl, `${key}.png`);
+        await cloudSaveFile(key, file, user?.name || "");
+        set({ [field]: key });
+        showAlert?.("success", `${which === "conductor" ? "Conductor" : "Manager"} signature saved.`);
+      } catch {
+        showAlert?.("error", "Signature failed to save \u2014 try again.");
+      }
+    };
+    const saveExpected = async () => {
+      const v = Number(f.expectedPettyCash);
+      if (!Number.isFinite(v)) {
+        showAlert?.("warning", "Enter a valid expected amount.");
+        return;
+      }
+      setSavingExpected(true);
+      try {
+        await safeAuditsApi("setSafeExpected", { storePC, expected: v });
+        const s = await safeAuditsApi("safeSetting", { storePC });
+        setSetting(s);
+        showAlert?.("success", "Expected petty cash saved for this store.");
+      } catch (e) {
+        showAlert?.("error", "Could not save expected: " + e.message);
+      } finally {
+        setSavingExpected(false);
+      }
+    };
+    const canSubmit = !!f.conductorSigKey && !submitting;
+    const doSubmit = async () => {
+      if (!f.conductorSigKey) {
+        showAlert?.("warning", "Capture the conductor signature first.");
+        return;
+      }
+      if (!window.confirm(`Submit this safe audit for ${storeName}?
+
+Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
+      setSubmitting(true);
+      try {
+        try {
+          await safeAuditsApi("saveDraft", draftBody());
+        } catch {
+          showAlert?.("error", "Couldn't sync \u2014 check connection and try again");
+          return;
+        }
+        const resp = await safeAuditsApi("submit", { id: auditId });
+        try {
+          localStorage.removeItem(localKey);
+        } catch {
+        }
+        setSubmitted(resp);
+      } catch (e) {
+        showAlert?.("error", "Submit failed: " + e.message);
+      } finally {
+        setSubmitting(false);
+      }
+    };
+    if (loading) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" } }, "Loading safe audit\u2026");
+    if (loadErr) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" } }, "Couldn't load the safe audit.", /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onExit, style: { ...btn(th), minHeight: 44 } }, "Back")));
+    if (submitted) {
+      const a = submitted.audit || {};
+      return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560, margin: "2rem auto", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem 1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" } }, storeName, " \u2014 safe audit submitted"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement(SafeVarBadge, { status: a.varianceStatus, variance: a.variance, th })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", color: th.text } }, "Expected ", fmtSafeMoney(a.expectedPettyCash), " \xB7 Accounted ", fmtSafeMoney(a.accountedTotal)), a.hasCounterfeit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444", marginTop: "0.5rem" } }, "\u{1F6A9} Counterfeit reported (", fmtSafeMoney(a.counterfeitTotal), ")"), submitted.alerted && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.5rem" } }, "DM + executives were notified of this discrepancy."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", justifyContent: "center", flexWrap: "wrap", marginTop: "1.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onViewReport, style: { ...btn(th), minHeight: 44 } }, "View report"), /* @__PURE__ */ React.createElement("button", { onClick: onExit, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Back to safe audits"))));
+    }
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 720, margin: "0 auto", paddingBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onExit, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) } }, "\u2190 Exit"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", fontWeight: 800, color: th.text } }, storeName, " \u2014 Safe Audit")), /* @__PURE__ */ React.createElement(SafeSection, { th, title: "General" }, /* @__PURE__ */ React.createElement(SafeField, { th, label: "Reason for audit" }, /* @__PURE__ */ React.createElement("select", { value: f.reason, onChange: (e) => set({ reason: e.target.value }), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select\u2026"), SAFE_REASONS.map((r) => /* @__PURE__ */ React.createElement("option", { key: r, value: r }, r)))), /* @__PURE__ */ React.createElement(SafeField, { th, label: "Current safe code" }, /* @__PURE__ */ React.createElement("input", { value: f.safeCode, onChange: (e) => set({ safeCode: e.target.value }), style: { ...inp(th), width: "100%", minHeight: 44 } })), /* @__PURE__ */ React.createElement(SafeField, { th, label: "Approx. date code last changed" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: f.codeLastChanged, onChange: (e) => set({ codeLastChanged: e.target.value }), style: { ...inp(th), width: "100%", minHeight: 44 } }))), /* @__PURE__ */ React.createElement(SafeSection, { th, title: "Store" }, /* @__PURE__ */ React.createElement(SafeField, { th, label: "Store manager name" }, /* @__PURE__ */ React.createElement("input", { value: f.storeManagerName, onChange: (e) => set({ storeManagerName: e.target.value }), style: { ...inp(th), width: "100%", minHeight: 44 } })), /* @__PURE__ */ React.createElement(SafeField, { th, label: "District" }, /* @__PURE__ */ React.createElement("input", { value: districtLabel(f.district) || "\u2014", readOnly: true, style: { ...inp(th), width: "100%", minHeight: 44, opacity: 0.7 } }))), /* @__PURE__ */ React.createElement(SafeSection, { th, title: "Petty cash" }, setting?.locked && !setting?.canEdit ? /* @__PURE__ */ React.createElement(SafeField, { th, label: "Expected petty cash amount" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", ...inp(th), minHeight: 44, opacity: 0.85 } }, /* @__PURE__ */ React.createElement("span", null, "\u{1F512}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700 } }, fmtSafeMoney(setting.expected))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: 4 } }, "Locked", setting.setByName ? ` \u2014 set by ${setting.setByName}` : "", setting.setAt ? ` on ${new Date(setting.setAt).toLocaleDateString()}` : "", ".")) : /* @__PURE__ */ React.createElement(SafeField, { th, label: "Expected petty cash amount" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "number",
+        inputMode: "decimal",
+        step: "0.01",
+        value: f.expectedPettyCash,
+        onChange: (e) => set({ expectedPettyCash: e.target.value }),
+        style: { ...inp(th), minHeight: 44, width: 160 },
+        placeholder: "0.00"
+      }
+    ), setting?.canEdit && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        onClick: saveExpected,
+        disabled: savingExpected,
+        style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44, opacity: savingExpected ? 0.6 : 1 }
+      },
+      savingExpected ? "Saving\u2026" : "Save expected"
+    )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: 4 } }, setting?.locked ? setting?.canEdit ? "You (exec/IT) can change the locked expected for this store." : "" : "This becomes the locked expected for this store on first submit."))), /* @__PURE__ */ React.createElement(SafeSection, { th, title: "Receipts" }, /* @__PURE__ */ React.createElement(SafeField, { th, label: "Are there receipts in the safe?" }, /* @__PURE__ */ React.createElement(SafeYesNo, { th, value: f.hasReceipts, onChange: (v) => set({ hasReceipts: v }) })), f.hasReceipts && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SafeField, { th, label: "Total amount in receipts" }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "number",
+        inputMode: "decimal",
+        step: "0.01",
+        value: f.receiptsTotal,
+        onChange: (e) => set({ receiptsTotal: e.target.value }),
+        style: { ...inp(th), width: 160, minHeight: 44 },
+        placeholder: "0.00"
+      }
+    )), /* @__PURE__ */ React.createElement(SafeField, { th, label: `Receipt photos (${f.receiptPhotoKeys.length})` }, /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", multiple: true, onChange: (e) => {
+      uploadPhotos("receiptPhotoKeys", e.target.files);
+      e.target.value = "";
+    }, style: { fontSize: "0.85rem", color: th.text } })))), /* @__PURE__ */ React.createElement(SafeSection, { th, title: "Cash count" }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, "Enter the count of each denomination \u2014 the app computes each line and all totals."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.9rem" } }, [["Bills", SAFE_BILLS, "billCounts"], ["Coins", SAFE_COINS, "coinCounts"]].map(([grpLabel, defs, group]) => /* @__PURE__ */ React.createElement("div", { key: group }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.text, marginBottom: "0.4rem", textTransform: "uppercase", letterSpacing: 0.4 } }, grpLabel), defs.map((d) => {
+      const cnt = safeToCount(f[group]?.[d.key]);
+      return /* @__PURE__ */ React.createElement("div", { key: d.key, style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, width: 92 } }, d.label), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "number",
+          inputMode: "numeric",
+          min: "0",
+          value: f[group]?.[d.key] ?? "",
+          onChange: (e) => setCount(group, d.key, e.target.value),
+          style: { ...inp(th), minHeight: 40, width: 70 },
+          placeholder: "0"
+        }
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.text, marginLeft: "auto", fontWeight: 600 } }, fmtSafeMoney(cnt * d.value)));
+    })))), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, marginTop: "0.75rem", paddingTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Bills total"), /* @__PURE__ */ React.createElement("span", null, fmtSafeMoney(totals.billsTotal))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Coins total"), /* @__PURE__ */ React.createElement("span", null, fmtSafeMoney(totals.coinsTotal))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", color: th.text, fontWeight: 800 } }, /* @__PURE__ */ React.createElement("span", null, "Counted total"), /* @__PURE__ */ React.createElement("span", null, fmtSafeMoney(totals.countedTotal))), variance && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "Variance vs expected (", fmtSafeMoney(expectedForCalc), ")"), /* @__PURE__ */ React.createElement(SafeVarBadge, { status: variance.status, variance: variance.variance, th })))), /* @__PURE__ */ React.createElement(SafeSection, { th, title: "Counterfeit" }, /* @__PURE__ */ React.createElement(SafeField, { th, label: "Any fake bills?" }, /* @__PURE__ */ React.createElement(SafeYesNo, { th, value: f.hasCounterfeit, onChange: (v) => set({ hasCounterfeit: v }) })), f.hasCounterfeit && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SafeField, { th, label: "Total counterfeit amount" }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "number",
+        inputMode: "decimal",
+        step: "0.01",
+        value: f.counterfeitTotal,
+        onChange: (e) => set({ counterfeitTotal: e.target.value }),
+        style: { ...inp(th), width: 160, minHeight: 44 },
+        placeholder: "0.00"
+      }
+    )), /* @__PURE__ */ React.createElement(SafeField, { th, label: `Counterfeit photos (${f.counterfeitPhotoKeys.length})` }, /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", multiple: true, onChange: (e) => {
+      uploadPhotos("counterfeitPhotoKeys", e.target.files);
+      e.target.value = "";
+    }, style: { fontSize: "0.85rem", color: th.text } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "Counterfeit cash is not counted toward the legitimate total."))), /* @__PURE__ */ React.createElement(SafeSection, { th, title: "Signatures" }, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement(SignaturePad, { th, label: `Conductor signature (required) \u2014 ${f.conductorSigKey ? "\u2713 captured" : "not captured"}`, onCapture: (d) => captureSig("conductor", d) })), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement(SignaturePad, { th, label: `Store manager / witness signature (optional) \u2014 ${f.managerSigKey ? "\u2713 captured" : "not captured"}`, onCapture: (d) => captureSig("manager", d) })), /* @__PURE__ */ React.createElement(SafeField, { th, label: "Manager / witness printed name" }, /* @__PURE__ */ React.createElement("input", { value: f.managerAckName, onChange: (e) => set({ managerAckName: e.target.value }), style: { ...inp(th), width: "100%", minHeight: 44 } }))), /* @__PURE__ */ React.createElement(SafeSection, { th, title: "Notes" }, /* @__PURE__ */ React.createElement("textarea", { value: f.notes, onChange: (e) => set({ notes: e.target.value }), rows: 3, style: { ...inp(th), width: "100%", resize: "vertical" }, placeholder: "Optional notes\u2026" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onExit, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Save & exit"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: doSubmit,
+        disabled: !canSubmit,
+        title: !f.conductorSigKey ? "Conductor signature required" : "",
+        style: { ...btn(th), minHeight: 44, opacity: canSubmit ? 1 : 0.55 }
+      },
+      submitting ? "Submitting\u2026" : "Submit safe audit"
+    )));
+  }
+  function SafeReportStub({ user, th, stores, auditId, storePC, onBack }) {
+    const storeName = stores?.find((s) => String(s.pc) === String(storePC))?.name || storePC;
+    const [audit, setAudit] = useState(null);
+    const [err, setErr] = useState(false);
+    useEffect(() => {
+      let cancelled = false;
+      safeAuditsApi("get", { id: auditId }).then((j) => {
+        if (!cancelled) setAudit(j.audit || null);
+      }).catch(() => {
+        if (!cancelled) setErr(true);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [auditId]);
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 720, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }), marginBottom: "0.5rem" } }, "\u2190 Back"), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, storeName, " \u2014 Safe Audit"), err ? /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444" } }, "Couldn't load this audit.") : !audit ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted } }, "Loading\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", color: th.text } }, "Conductor: ", audit.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", color: th.text } }, "Expected ", fmtSafeMoney(audit.expectedPettyCash), " \xB7 Counted ", fmtSafeMoney(audit.countedTotal), " \xB7 Accounted ", fmtSafeMoney(audit.accountedTotal)), audit.hasCounterfeit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: "#ef4444", marginTop: "0.4rem" } }, "\u{1F6A9} Counterfeit ", fmtSafeMoney(audit.counterfeitTotal)), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", padding: "0.75rem", borderRadius: 8, background: th.card2, color: th.muted, fontSize: "0.82rem" } }, "The full printable safe-audit report (denomination breakdown, photos, signatures) arrives in the next update."))));
+  }
   function AuditsTab({ user, th, stores, showAlert, setTab }) {
+    const canFieldOps = auditCanView(user);
+    const canSafe = safeCanView(user);
+    const [mode, setMode] = useState(canFieldOps ? "field" : "safe");
+    const both = canFieldOps && canSafe;
+    const effectiveMode = canFieldOps ? mode : "safe";
+    const seg = both ? /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", padding: 3, gap: 3, borderRadius: 999, background: th.card2, border: `1px solid ${th.cardBorder}` } }, [["field", "Field Ops"], ["safe", "Safe"]].map(([m, lbl]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: m,
+        onClick: () => setMode(m),
+        style: { ...btn(th, effectiveMode === m ? {} : { background: "transparent", color: th.muted, border: "none" }), minHeight: 38, borderRadius: 999, padding: "0.35rem 1.1rem", fontSize: "0.82rem" }
+      },
+      lbl
+    )))) : null;
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, seg, effectiveMode === "safe" ? /* @__PURE__ */ React.createElement(SafeAuditsPane, { user, th, stores, showAlert, setTab }) : /* @__PURE__ */ React.createElement(FieldOpsAudits, { user, th, stores, showAlert, setTab }));
+  }
+  function FieldOpsAudits({ user, th, stores, showAlert, setTab }) {
     const [view, setView] = useState(null);
     const [conduct, setConduct] = useState(null);
     const canConduct = auditCanAudit(user);
@@ -16703,6 +17303,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       { id: "labor", label: "My Labor", icon: (c) => ICONS.dollar(c) },
       { id: "pnl", label: "My P&L", icon: (c) => ICONS.dollar(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
+      { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.projects(c) }
     ];
     if (ut === "construction") return [
@@ -17444,7 +18045,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.43";
+  var APP_VERSION = "v18.44";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -31959,7 +32560,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" ? "0.75rem 1rem" : tab === "locations" || tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "1.25rem 5vw 1rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && auditCanView(user) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {
+    }, showAlert, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "cash" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert, isMobile, users }), tab === "recon" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert }), tab === "expenses" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {
       const ut = user?.userType;
       const roleDefaults = ut === "executive" || ut === "it" ? ["pulse", "labor", "chat"] : ut === "office_staff" ? ["pulse", "tickets", "chat"] : ut === "dm" ? ["tasks", "labor", "chat"] : ut === "manager" ? ["tasks", "chat", "tickets"] : ut === "maintenance" ? ["tickets", "calendar", "chat"] : ut === "construction" ? ["projects", "chat", "tickets"] : ut === "auditor" ? ["audits", "tickets", "chat"] : ["chat", "announcements", "tickets"];
       const savePins = (pins) => {

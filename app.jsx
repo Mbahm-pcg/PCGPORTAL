@@ -19455,10 +19455,729 @@ const auditCanAudit = (u) => ["auditor", "executive", "it"].includes(u?.userType
 // canView: reach the Audits tab / CAP board / dashboard at all (read-only floor).
 const auditCanView = (u) => ["auditor", "executive", "it", "office_staff", "dm"].includes(u?.userType) || !!u?.auditsAccess;
 
+// ════════════════════════════════════════════════════════════════════════════
+// Safe Audits (cash-count reconciliation) — separate module from Field Ops.
+// Backend: /.netlify/functions/safe-audits (safe-audits.mjs). See spec §A2/A7/A8.
+// ════════════════════════════════════════════════════════════════════════════
+
+// safeAuditsApi — mirrors auditsApi exactly (cookie via credentials:'include' +
+// Bearer via ...authHeader()).
+async function safeAuditsApi(action, body = {}) {
+  const res = await fetch("/.netlify/functions/safe-audits", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...authHeader() },
+    body: JSON.stringify({ action, ...body }),
+  });
+  let json = null;
+  try { json = await res.json(); } catch {}
+  if (!res.ok || (json && json.ok === false)) {
+    throw new Error((json && json.error) || `safe ${action} failed (${res.status})`);
+  }
+  return json || {};
+}
+
+// Who gets the Safe-mode UI (toggle / pane) — per Task-4 brief §4. The backend
+// (safeCanView in safe-audits.mjs) additionally permits office_staff read, but the
+// UI surfaces Safe mode only to these roles/grants.
+const safeCanView = (u) =>
+  ["manager", "dm", "auditor", "executive", "it"].includes(u?.userType) || !!u?.auditsAccess;
+// Who can conduct/submit a Safe audit — mirrors CONDUCT_ROLES ∪ grant==='full'.
+const safeCanConduct = (u) =>
+  ["manager", "dm", "auditor", "executive", "it"].includes(u?.userType) || u?.auditsAccess === "full";
+
+// Denomination values + reasons — DUPLICATED from audit-lib/safe-cash.js, the
+// source of truth. That lib is CommonJS and is NOT bundled into the browser
+// (see CLAUDE.md "Common Gotchas" #9). Keep these values in sync with the lib.
+const SAFE_BILLS = [
+  { key: "hundreds", label: "$100", value: 100 },
+  { key: "fifties",  label: "$50",  value: 50 },
+  { key: "twenties", label: "$20",  value: 20 },
+  { key: "tens",     label: "$10",  value: 10 },
+  { key: "fives",    label: "$5",   value: 5 },
+  { key: "ones",     label: "$1",   value: 1 },
+];
+const SAFE_COINS = [
+  { key: "halfDollars", label: "Half-dollars ($0.50)", value: 0.50 },
+  { key: "quarters",    label: "Quarters ($0.25)",     value: 0.25 },
+  { key: "dimes",       label: "Dimes ($0.10)",        value: 0.10 },
+  { key: "nickels",     label: "Nickels ($0.05)",      value: 0.05 },
+  { key: "pennies",     label: "Pennies ($0.01)",      value: 0.01 },
+];
+const SAFE_REASONS = ["Random", "Scheduled", "Cash Discrepancy", "Manager Change", "Shift Change", "Other"];
+const SAFE_DISPLAY_TOLERANCE = 0.50; // mirrors DISPLAY_TOLERANCE in safe-cash.js
+
+// Client-side display math — same cent-integer arithmetic as safe-cash.js. The
+// server recomputes authoritatively on submit; these are for live display only.
+const safeToCount = (v) => {
+  if (v === "" || v == null) return 0;
+  const s = String(v).trim();
+  if (!s || /^n\/?a$/i.test(s)) return 0;
+  const n = Math.floor(Number(s));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+const safeCents = (n) => Math.round((Number(n) || 0) * 100);
+function safeComputeTotals(billCounts, coinCounts) {
+  let bc = 0; SAFE_BILLS.forEach(d => { bc += safeToCount(billCounts?.[d.key]) * safeCents(d.value); });
+  let cc = 0; SAFE_COINS.forEach(d => { cc += safeToCount(coinCounts?.[d.key]) * safeCents(d.value); });
+  return { billsTotal: bc / 100, coinsTotal: cc / 100, countedTotal: (bc + cc) / 100 };
+}
+function safeComputeVariance({ countedTotal, receiptsTotal, expected }) {
+  const acc = safeCents(countedTotal) + safeCents(receiptsTotal);
+  const varc = acc - safeCents(expected);
+  const tol = safeCents(SAFE_DISPLAY_TOLERANCE);
+  const status = varc < -tol ? "short" : varc > tol ? "over" : "balanced";
+  return { accountedTotal: acc / 100, variance: varc / 100, status };
+}
+const SAFE_VAR_COLOR = { balanced: "#10b981", short: "#ef4444", over: "#f59e0b" };
+const SAFE_VAR_LABEL = { balanced: "Balanced", short: "Short", over: "Over" };
+const fmtSafeMoney = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+
+// data: URL → File (for cloudSaveFile, which reads .type/.size via FileReader).
+function safeDataUrlToFile(dataUrl, name) {
+  const [head, b64] = String(dataUrl || "").split(",");
+  const mime = (head.match(/data:([^;]+)/) || [null, "image/png"])[1];
+  const bin = atob(b64 || "");
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  const blob = new Blob([arr], { type: mime });
+  try { return new File([blob], name || "signature.png", { type: mime }); }
+  catch { blob.name = name || "signature.png"; return blob; } // File may be absent on some engines
+}
+
+// Variance badge — green balanced / red short / amber over.
+function SafeVarBadge({ status, variance, th }) {
+  const st = status || "balanced";
+  const color = SAFE_VAR_COLOR[st] || th.muted;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.72rem", fontWeight: 800,
+      padding: "0.15rem 0.55rem", borderRadius: 999, background: color + "22", color, border: `1px solid ${color}55`, whiteSpace: "nowrap" }}>
+      {SAFE_VAR_LABEL[st] || st}{variance != null ? ` ${fmtSafeMoney(variance)}` : ""}
+    </span>
+  );
+}
+
+// Minimal canvas signature pad (pointer + touch). Exports a PNG data URL.
+function SignaturePad({ th, onCapture, label }) {
+  const ref = useRef(null); const drawing = useRef(false);
+  const pos = (e) => { const r = ref.current.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; return { x: t.clientX - r.left, y: t.clientY - r.top }; };
+  const start = (e) => { drawing.current = true; const c = ref.current.getContext("2d"); const p = pos(e); c.beginPath(); c.moveTo(p.x, p.y); e.preventDefault(); };
+  const move = (e) => { if (!drawing.current) return; const c = ref.current.getContext("2d"); const p = pos(e); c.lineTo(p.x, p.y); c.stroke(); e.preventDefault(); };
+  const end = () => { drawing.current = false; };
+  const clear = () => { const c = ref.current; c.getContext("2d").clearRect(0, 0, c.width, c.height); onCapture(null); };
+  const save = () => { onCapture(ref.current.toDataURL("image/png")); };
+  return (<div>
+    <div style={{ fontSize: "0.8rem", color: th.muted, marginBottom: 4 }}>{label}</div>
+    <canvas ref={ref} width={320} height={120} style={{ border: `1px solid ${th.cardBorder}`, borderRadius: 8, touchAction: "none", background: "#fff", maxWidth: "100%" }}
+      onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
+      onTouchStart={start} onTouchMove={move} onTouchEnd={end} />
+    <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+      <button type="button" onClick={save} style={{ ...btn(th), minHeight: 40 }}>Save signature</button>
+      <button type="button" onClick={clear} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 }}>Clear</button>
+    </div>
+  </div>);
+}
+
+// Container for Safe mode — list / conduct / report (report is a Task-5 stub).
+function SafeAuditsPane({ user, th, stores, showAlert, setTab }) {
+  const [view, setView] = useState("list");   // 'list' | 'conduct' | 'report'
+  const [sel, setSel] = useState(null);        // { id, storePC }
+  const openConduct = (id, storePC) => { setSel({ id, storePC }); setView("conduct"); };
+  const openReport  = (id, storePC) => { setSel({ id, storePC }); setView("report"); };
+  const back = () => { setSel(null); setView("list"); };
+
+  if (view === "conduct" && sel) {
+    return <SafeAuditConduct user={user} th={th} stores={stores} showAlert={showAlert}
+      auditId={sel.id} storePC={sel.storePC} onExit={back} onViewReport={() => openReport(sel.id, sel.storePC)} />;
+  }
+  if (view === "report" && sel) {
+    return <SafeReportStub user={user} th={th} stores={stores} auditId={sel.id} storePC={sel.storePC} onBack={back} />;
+  }
+  return <SafeAuditList user={user} th={th} stores={stores} showAlert={showAlert}
+    onConduct={openConduct} onViewReport={openReport} />;
+}
+
+// Safe list — store, date, conductor, expected, counted, variance, counterfeit, status.
+function SafeAuditList({ user, th, stores, showAlert, onConduct, onViewReport }) {
+  const isMobile = useIsMobile();
+  const [audits, setAudits] = useState(null);
+  const [err, setErr] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [pickStore, setPickStore] = useState("");
+  const [starting, setStarting] = useState(false);
+  const canConduct = safeCanConduct(user);
+
+  const load = useCallback(() => {
+    setErr(false);
+    safeAuditsApi("list")
+      .then(j => setAudits(Array.isArray(j.audits) ? j.audits : []))
+      .catch(() => { setAudits([]); setErr(true); });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const storeName = (pc) => stores?.find(s => String(s.pc) === String(pc))?.name || pc;
+
+  const startAudit = async () => {
+    if (!pickStore) { showAlert?.("warning", "Pick a store first."); return; }
+    setStarting(true);
+    const id = Date.now();
+    try {
+      const r = await safeAuditsApi("saveDraft", { id, storePC: pickStore, storeName: storeName(pickStore) });
+      const realId = r.id || id;
+      setPicking(false); setPickStore("");
+      onConduct(realId, pickStore);
+    } catch (e) {
+      showAlert?.("error", "Could not start safe audit: " + e.message);
+    } finally { setStarting(false); }
+  };
+
+  const openRow = (a) => {
+    if (a.status === "submitted") onViewReport(a.id, a.storePC);
+    else if (canConduct) onConduct(a.id, a.storePC);
+  };
+
+  const StatusPill = ({ status }) => {
+    const map = { submitted: ["#10b981", "Submitted"], draft: [th.muted, "Draft"] };
+    const [color, label] = map[status] || [th.muted, status || "Draft"];
+    return <span style={{ fontSize: "0.66rem", fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase",
+      padding: "0.1rem 0.45rem", borderRadius: 999, background: color + "22", color, border: `1px solid ${color}44` }}>{label}</span>;
+  };
+
+  return (
+    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>
+        <div>
+          <div style={{ ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            {ICONS.dollar(O)} Safe Audits
+          </div>
+          <div style={{ color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" }}>
+            Petty-cash / safe reconciliation — count denominations, reconcile against the store's expected amount.
+          </div>
+        </div>
+        {canConduct && (
+          <button onClick={() => setPicking(true)} style={{ ...btn(th), minHeight: 44 }}>+ New Safe Audit</button>
+        )}
+      </div>
+
+      {err && (
+        <div style={{ ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" }}>
+          Couldn't load safe audits. <button onClick={load} style={{ ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" }}>Retry</button>
+        </div>
+      )}
+
+      {audits === null ? (
+        <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>Loading safe audits…</div>
+      ) : audits.length === 0 ? (
+        <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted }}>
+          No safe audits yet.{canConduct ? " Start one with “+ New Safe Audit”." : ""}
+        </div>
+      ) : isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          {audits.map(a => (
+            <div key={a.id} onClick={() => openRow(a)} style={{ ...card(th), padding: "0.85rem 1rem", cursor: "pointer" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                <div style={{ fontWeight: 700, color: th.text }}>{storeName(a.storePC)}{a.hasCounterfeit ? " 🚩" : ""}</div>
+                {a.status === "submitted" ? <SafeVarBadge status={a.varianceStatus} variance={a.variance} th={th} /> : <StatusPill status={a.status} />}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted }}>
+                <span>{a.auditorName || "—"}{a.submittedAt ? " · " + new Date(a.submittedAt).toLocaleDateString() : ""}</span>
+                <span>Counted {fmtSafeMoney(a.countedTotal)} / Exp {fmtSafeMoney(a.expected)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ ...card(th), overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+            <thead>
+              <tr>
+                {["Store", "Date", "Conductor", "Expected", "Counted", "Variance", "Fake", "Status"].map(h => (
+                  <th key={h} style={{ ...thCell(th), textAlign: "left" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {audits.map(a => (
+                <tr key={a.id} onClick={() => openRow(a)} style={{ cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` }}>
+                  <td style={{ ...tdCell(th), fontWeight: 700, color: th.text }}>{storeName(a.storePC)}</td>
+                  <td style={{ ...tdCell(th), color: th.muted }}>{a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "—"}</td>
+                  <td style={{ ...tdCell(th), color: th.muted }}>{a.auditorName || "—"}</td>
+                  <td style={{ ...tdCell(th), color: th.muted }}>{a.expected != null ? fmtSafeMoney(a.expected) : "—"}</td>
+                  <td style={{ ...tdCell(th), color: th.text }}>{a.countedTotal != null ? fmtSafeMoney(a.countedTotal) : "—"}</td>
+                  <td style={tdCell(th)}>{a.status === "submitted" ? <SafeVarBadge status={a.varianceStatus} variance={a.variance} th={th} /> : "—"}</td>
+                  <td style={{ ...tdCell(th), textAlign: "center" }}>{a.hasCounterfeit ? "🚩" : ""}</td>
+                  <td style={tdCell(th)}><StatusPill status={a.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {picking && (
+        <div onClick={() => !starting && setPicking(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
+          <div onClick={e => e.stopPropagation()} style={{ ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 }}>
+            <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>New Safe Audit — pick a store</div>
+            <select value={pickStore} onChange={e => setPickStore(e.target.value)} style={{ ...inp(th), width: "100%", minHeight: 44 }}>
+              <option value="">Select a store…</option>
+              {[...(stores || [])].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(s => (
+                <option key={s.pc} value={s.pc}>{s.name} ({s.pc})</option>
+              ))}
+            </select>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" }}>
+              <button onClick={() => setPicking(false)} disabled={starting} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 }}>Cancel</button>
+              <button onClick={startAudit} disabled={starting || !pickStore} style={{ ...btn(th), minHeight: 44, opacity: (starting || !pickStore) ? 0.6 : 1 }}>{starting ? "Starting…" : "Start Audit"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Module-scope so their identity is stable across SafeAuditConduct re-renders —
+// defining them inside the render would remount their inputs on every keystroke.
+function SafeSection({ th, title, children }) {
+  return (
+    <div style={{ ...card(th), padding: "1rem 1.15rem", marginBottom: "0.9rem" }}>
+      <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+function SafeField({ th, label, children }) {
+  return (
+    <div style={{ marginBottom: "0.75rem" }}>
+      <div style={{ fontSize: "0.78rem", color: th.muted, marginBottom: 4 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+function SafeYesNo({ th, value, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: "0.5rem" }}>
+      {[["Yes", true], ["No", false]].map(([lbl, v]) => (
+        <button key={lbl} type="button" onClick={() => onChange(v)}
+          style={{ ...btn(th, value === v ? {} : { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40, minWidth: 72 }}>{lbl}</button>
+      ))}
+    </div>
+  );
+}
+
+// Safe conduct form — the A2 sections with live cash math + locked expected + signatures.
+function SafeAuditConduct({ user, th, stores, showAlert, auditId, storePC, onExit, onViewReport }) {
+  const store = stores?.find(s => String(s.pc) === String(storePC));
+  const storeName = store?.name || storePC;
+  const storeDistrict = store?.district ?? null;
+  const localKey = "pcg_safe_draft_" + auditId;
+
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState(false);
+  const [setting, setSetting] = useState(null);   // { expected, locked, canEdit, setByName, setAt }
+  const [savingExpected, setSavingExpected] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(null); // { audit, alerted }
+  const didHydrate = useRef(false);
+
+  const [f, setF] = useState({
+    reason: "", safeCode: "", codeLastChanged: "", storeManagerName: "", district: storeDistrict,
+    expectedPettyCash: "", hasReceipts: false, receiptsTotal: "", receiptPhotoKeys: [],
+    billCounts: {}, coinCounts: {}, hasCounterfeit: false, counterfeitTotal: "", counterfeitPhotoKeys: [],
+    conductorSigKey: null, managerSigKey: null, managerAckName: "", notes: "",
+  });
+  const set = (patch) => setF(prev => ({ ...prev, ...patch }));
+
+  // Mount: hydrate the draft from the server (localStorage fallback) + fetch the
+  // per-store safe setting (locked expected).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true); setLoadErr(false);
+      try {
+        let hydrated = null;
+        try {
+          const existing = await safeAuditsApi("get", { id: auditId });
+          if (existing?.audit) hydrated = existing.audit;
+        } catch { /* fall through to localStorage */ }
+        if (!hydrated) {
+          try { const l = JSON.parse(localStorage.getItem(localKey) || "null"); if (l?.f) hydrated = l.f; } catch {}
+        }
+        let s = null;
+        try { s = await safeAuditsApi("safeSetting", { storePC }); } catch {}
+        if (cancelled) return;
+        if (s) setSetting(s);
+        if (hydrated) {
+          set({
+            reason: hydrated.reason ?? "", safeCode: hydrated.safeCode ?? "",
+            codeLastChanged: hydrated.codeLastChanged ?? "", storeManagerName: hydrated.storeManagerName ?? "",
+            district: hydrated.district ?? storeDistrict,
+            expectedPettyCash: hydrated.expectedPettyCash != null ? String(hydrated.expectedPettyCash) : (s?.expected != null ? String(s.expected) : ""),
+            hasReceipts: !!hydrated.hasReceipts, receiptsTotal: hydrated.receiptsTotal != null ? String(hydrated.receiptsTotal) : "",
+            receiptPhotoKeys: hydrated.receiptPhotoKeys || [],
+            billCounts: hydrated.billCounts || {}, coinCounts: hydrated.coinCounts || {},
+            hasCounterfeit: !!hydrated.hasCounterfeit, counterfeitTotal: hydrated.counterfeitTotal != null ? String(hydrated.counterfeitTotal) : "",
+            counterfeitPhotoKeys: hydrated.counterfeitPhotoKeys || [],
+            conductorSigKey: hydrated.conductorSigKey ?? null, managerSigKey: hydrated.managerSigKey ?? null,
+            managerAckName: hydrated.managerAckName ?? "", notes: hydrated.notes ?? "",
+          });
+        } else if (s?.expected != null) {
+          set({ expectedPettyCash: String(s.expected) });
+        }
+      } catch (e) {
+        if (!cancelled) setLoadErr(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [auditId]);
+
+  // Expected value used for the live variance display: the locked value when
+  // locked and the caller can't edit; otherwise the entered amount.
+  const expectedForCalc = (setting?.locked && !setting?.canEdit)
+    ? Number(setting.expected)
+    : (f.expectedPettyCash === "" ? null : Number(f.expectedPettyCash));
+  const receiptsForCalc = f.hasReceipts ? (Number(f.receiptsTotal) || 0) : 0;
+  const totals = safeComputeTotals(f.billCounts, f.coinCounts);
+  const variance = expectedForCalc != null
+    ? safeComputeVariance({ countedTotal: totals.countedTotal, receiptsTotal: receiptsForCalc, expected: expectedForCalc })
+    : null;
+
+  const draftBody = () => ({
+    id: auditId, storePC, storeName,
+    reason: f.reason, safeCode: f.safeCode, codeLastChanged: f.codeLastChanged,
+    storeManagerName: f.storeManagerName, district: f.district,
+    expectedPettyCash: f.expectedPettyCash === "" ? null : Number(f.expectedPettyCash),
+    hasReceipts: f.hasReceipts, receiptsTotal: f.receiptsTotal === "" ? null : Number(f.receiptsTotal),
+    receiptPhotoKeys: f.receiptPhotoKeys, billCounts: f.billCounts, coinCounts: f.coinCounts,
+    hasCounterfeit: f.hasCounterfeit, counterfeitTotal: f.counterfeitTotal === "" ? null : Number(f.counterfeitTotal),
+    counterfeitPhotoKeys: f.counterfeitPhotoKeys, conductorSigKey: f.conductorSigKey,
+    managerSigKey: f.managerSigKey, managerAckName: f.managerAckName, notes: f.notes,
+  });
+
+  // Autosave: 1.5s debounce → localStorage immediately + saveDraft (fire-and-forget).
+  useEffect(() => {
+    if (loading || submitted) return;
+    if (!didHydrate.current) { didHydrate.current = true; return; }
+    const t = setTimeout(() => {
+      try { localStorage.setItem(localKey, JSON.stringify({ storePC, f, savedAt: Date.now() })); } catch {}
+      safeAuditsApi("saveDraft", draftBody()).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [f, loading, submitted]);
+
+  const setCount = (group, key, val) => set({ [group]: { ...f[group], [key]: val } });
+
+  const uploadPhotos = async (group, fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const keys = [...(f[group] || [])];
+    const batchTs = Date.now();
+    const prefix = group === "receiptPhotoKeys" ? "receipt" : "counterfeit";
+    for (let i = 0; i < files.length; i++) {
+      const key = `safe_${auditId}_${prefix}_${keys.length}_${batchTs}_${i}`;
+      try { await cloudSaveFile(key, files[i], user?.name || ""); keys.push(key); }
+      catch { showAlert?.("error", "A photo failed to upload — try again."); }
+    }
+    set({ [group]: keys });
+  };
+
+  const captureSig = async (which, dataUrl) => {
+    const field = which === "conductor" ? "conductorSigKey" : "managerSigKey";
+    if (!dataUrl) { set({ [field]: null }); return; }
+    const key = `safe_${auditId}_sig_${which}`;
+    try {
+      const file = safeDataUrlToFile(dataUrl, `${key}.png`);
+      await cloudSaveFile(key, file, user?.name || "");
+      set({ [field]: key });
+      showAlert?.("success", `${which === "conductor" ? "Conductor" : "Manager"} signature saved.`);
+    } catch { showAlert?.("error", "Signature failed to save — try again."); }
+  };
+
+  const saveExpected = async () => {
+    const v = Number(f.expectedPettyCash);
+    if (!Number.isFinite(v)) { showAlert?.("warning", "Enter a valid expected amount."); return; }
+    setSavingExpected(true);
+    try {
+      await safeAuditsApi("setSafeExpected", { storePC, expected: v });
+      const s = await safeAuditsApi("safeSetting", { storePC });
+      setSetting(s);
+      showAlert?.("success", "Expected petty cash saved for this store.");
+    } catch (e) { showAlert?.("error", "Could not save expected: " + e.message); }
+    finally { setSavingExpected(false); }
+  };
+
+  const canSubmit = !!f.conductorSigKey && !submitting;
+  const doSubmit = async () => {
+    if (!f.conductorSigKey) { showAlert?.("warning", "Capture the conductor signature first."); return; }
+    if (!window.confirm(`Submit this safe audit for ${storeName}?\n\nSubmitting locks the audit — it can't be edited afterward.`)) return;
+    setSubmitting(true);
+    try {
+      try { await safeAuditsApi("saveDraft", draftBody()); }
+      catch { showAlert?.("error", "Couldn't sync — check connection and try again"); return; }
+      const resp = await safeAuditsApi("submit", { id: auditId });
+      try { localStorage.removeItem(localKey); } catch {}
+      setSubmitted(resp);
+    } catch (e) {
+      showAlert?.("error", "Submit failed: " + e.message);
+    } finally { setSubmitting(false); }
+  };
+
+  if (loading) return <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" }}>Loading safe audit…</div>;
+  if (loadErr) return (
+    <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" }}>
+      Couldn't load the safe audit.
+      <div style={{ marginTop: "1rem" }}><button onClick={onExit} style={{ ...btn(th), minHeight: 44 }}>Back</button></div>
+    </div>
+  );
+
+  // ── Result screen ──
+  if (submitted) {
+    const a = submitted.audit || {};
+    return (
+      <div style={{ maxWidth: 560, margin: "2rem auto", textAlign: "center" }}>
+        <div style={{ ...card(th), padding: "2rem 1.5rem" }}>
+          <div style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" }}>{storeName} — safe audit submitted</div>
+          <div style={{ marginBottom: "0.75rem" }}><SafeVarBadge status={a.varianceStatus} variance={a.variance} th={th} /></div>
+          <div style={{ fontSize: "0.9rem", color: th.text }}>Expected {fmtSafeMoney(a.expectedPettyCash)} · Accounted {fmtSafeMoney(a.accountedTotal)}</div>
+          {a.hasCounterfeit && <div style={{ fontSize: "0.82rem", color: "#ef4444", marginTop: "0.5rem" }}>🚩 Counterfeit reported ({fmtSafeMoney(a.counterfeitTotal)})</div>}
+          {submitted.alerted && <div style={{ fontSize: "0.78rem", color: th.muted, marginTop: "0.5rem" }}>DM + executives were notified of this discrepancy.</div>}
+          <div style={{ display: "flex", gap: "0.6rem", justifyContent: "center", flexWrap: "wrap", marginTop: "1.5rem" }}>
+            <button onClick={onViewReport} style={{ ...btn(th), minHeight: 44 }}>View report</button>
+            <button onClick={onExit} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 }}>Back to safe audits</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", paddingBottom: "2rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem" }}>
+        <button onClick={onExit} style={{ ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) }}>← Exit</button>
+        <div style={{ fontSize: "0.9rem", fontWeight: 800, color: th.text }}>{storeName} — Safe Audit</div>
+      </div>
+
+      <SafeSection th={th} title="General">
+        <SafeField th={th} label="Reason for audit">
+          <select value={f.reason} onChange={e => set({ reason: e.target.value })} style={{ ...inp(th), width: "100%", minHeight: 44 }}>
+            <option value="">Select…</option>
+            {SAFE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </SafeField>
+        <SafeField th={th} label="Current safe code">
+          <input value={f.safeCode} onChange={e => set({ safeCode: e.target.value })} style={{ ...inp(th), width: "100%", minHeight: 44 }} />
+        </SafeField>
+        <SafeField th={th} label="Approx. date code last changed">
+          <input type="date" value={f.codeLastChanged} onChange={e => set({ codeLastChanged: e.target.value })} style={{ ...inp(th), width: "100%", minHeight: 44 }} />
+        </SafeField>
+      </SafeSection>
+
+      <SafeSection th={th} title="Store">
+        <SafeField th={th} label="Store manager name">
+          <input value={f.storeManagerName} onChange={e => set({ storeManagerName: e.target.value })} style={{ ...inp(th), width: "100%", minHeight: 44 }} />
+        </SafeField>
+        <SafeField th={th} label="District">
+          <input value={districtLabel(f.district) || "—"} readOnly style={{ ...inp(th), width: "100%", minHeight: 44, opacity: 0.7 }} />
+        </SafeField>
+      </SafeSection>
+
+      <SafeSection th={th} title="Petty cash">
+        {setting?.locked && !setting?.canEdit ? (
+          <SafeField th={th} label="Expected petty cash amount">
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", ...inp(th), minHeight: 44, opacity: 0.85 }}>
+              <span>🔒</span><span style={{ fontWeight: 700 }}>{fmtSafeMoney(setting.expected)}</span>
+            </div>
+            <div style={{ fontSize: "0.72rem", color: th.muted, marginTop: 4 }}>
+              Locked{setting.setByName ? ` — set by ${setting.setByName}` : ""}{setting.setAt ? ` on ${new Date(setting.setAt).toLocaleDateString()}` : ""}.
+            </div>
+          </SafeField>
+        ) : (
+          <SafeField th={th} label="Expected petty cash amount">
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+              <input type="number" inputMode="decimal" step="0.01" value={f.expectedPettyCash}
+                onChange={e => set({ expectedPettyCash: e.target.value })}
+                style={{ ...inp(th), minHeight: 44, width: 160 }} placeholder="0.00" />
+              {setting?.canEdit && (
+                <button type="button" onClick={saveExpected} disabled={savingExpected}
+                  style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44, opacity: savingExpected ? 0.6 : 1 }}>
+                  {savingExpected ? "Saving…" : "Save expected"}</button>
+              )}
+            </div>
+            <div style={{ fontSize: "0.72rem", color: th.muted, marginTop: 4 }}>
+              {setting?.locked
+                ? (setting?.canEdit ? "You (exec/IT) can change the locked expected for this store." : "")
+                : "This becomes the locked expected for this store on first submit."}
+            </div>
+          </SafeField>
+        )}
+      </SafeSection>
+
+      <SafeSection th={th} title="Receipts">
+        <SafeField th={th} label="Are there receipts in the safe?">
+          <SafeYesNo th={th} value={f.hasReceipts} onChange={v => set({ hasReceipts: v })} />
+        </SafeField>
+        {f.hasReceipts && (
+          <>
+            <SafeField th={th} label="Total amount in receipts">
+              <input type="number" inputMode="decimal" step="0.01" value={f.receiptsTotal}
+                onChange={e => set({ receiptsTotal: e.target.value })} style={{ ...inp(th), width: 160, minHeight: 44 }} placeholder="0.00" />
+            </SafeField>
+            <SafeField th={th} label={`Receipt photos (${f.receiptPhotoKeys.length})`}>
+              <input type="file" accept="image/*" multiple onChange={e => { uploadPhotos("receiptPhotoKeys", e.target.files); e.target.value = ""; }} style={{ fontSize: "0.85rem", color: th.text }} />
+            </SafeField>
+          </>
+        )}
+      </SafeSection>
+
+      <SafeSection th={th} title="Cash count">
+        <div style={{ fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" }}>Enter the count of each denomination — the app computes each line and all totals.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.9rem" }}>
+          {[["Bills", SAFE_BILLS, "billCounts"], ["Coins", SAFE_COINS, "coinCounts"]].map(([grpLabel, defs, group]) => (
+            <div key={group}>
+              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: th.text, marginBottom: "0.4rem", textTransform: "uppercase", letterSpacing: 0.4 }}>{grpLabel}</div>
+              {defs.map(d => {
+                const cnt = safeToCount(f[group]?.[d.key]);
+                return (
+                  <div key={d.key} style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.35rem" }}>
+                    <span style={{ fontSize: "0.78rem", color: th.muted, width: 92 }}>{d.label}</span>
+                    <input type="number" inputMode="numeric" min="0" value={f[group]?.[d.key] ?? ""}
+                      onChange={e => setCount(group, d.key, e.target.value)}
+                      style={{ ...inp(th), minHeight: 40, width: 70 }} placeholder="0" />
+                    <span style={{ fontSize: "0.78rem", color: th.text, marginLeft: "auto", fontWeight: 600 }}>{fmtSafeMoney(cnt * d.value)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        <div style={{ borderTop: `1px solid ${th.cardBorder}`, marginTop: "0.75rem", paddingTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.85rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", color: th.muted }}><span>Bills total</span><span>{fmtSafeMoney(totals.billsTotal)}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", color: th.muted }}><span>Coins total</span><span>{fmtSafeMoney(totals.coinsTotal)}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", color: th.text, fontWeight: 800 }}><span>Counted total</span><span>{fmtSafeMoney(totals.countedTotal)}</span></div>
+          {variance && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.35rem" }}>
+              <span style={{ color: th.muted }}>Variance vs expected ({fmtSafeMoney(expectedForCalc)})</span>
+              <SafeVarBadge status={variance.status} variance={variance.variance} th={th} />
+            </div>
+          )}
+        </div>
+      </SafeSection>
+
+      <SafeSection th={th} title="Counterfeit">
+        <SafeField th={th} label="Any fake bills?">
+          <SafeYesNo th={th} value={f.hasCounterfeit} onChange={v => set({ hasCounterfeit: v })} />
+        </SafeField>
+        {f.hasCounterfeit && (
+          <>
+            <SafeField th={th} label="Total counterfeit amount">
+              <input type="number" inputMode="decimal" step="0.01" value={f.counterfeitTotal}
+                onChange={e => set({ counterfeitTotal: e.target.value })} style={{ ...inp(th), width: 160, minHeight: 44 }} placeholder="0.00" />
+            </SafeField>
+            <SafeField th={th} label={`Counterfeit photos (${f.counterfeitPhotoKeys.length})`}>
+              <input type="file" accept="image/*" multiple onChange={e => { uploadPhotos("counterfeitPhotoKeys", e.target.files); e.target.value = ""; }} style={{ fontSize: "0.85rem", color: th.text }} />
+            </SafeField>
+            <div style={{ fontSize: "0.72rem", color: th.muted }}>Counterfeit cash is not counted toward the legitimate total.</div>
+          </>
+        )}
+      </SafeSection>
+
+      <SafeSection th={th} title="Signatures">
+        <div style={{ marginBottom: "0.9rem" }}>
+          <SignaturePad th={th} label={`Conductor signature (required) — ${f.conductorSigKey ? "✓ captured" : "not captured"}`} onCapture={(d) => captureSig("conductor", d)} />
+        </div>
+        <div style={{ marginBottom: "0.9rem" }}>
+          <SignaturePad th={th} label={`Store manager / witness signature (optional) — ${f.managerSigKey ? "✓ captured" : "not captured"}`} onCapture={(d) => captureSig("manager", d)} />
+        </div>
+        <SafeField th={th} label="Manager / witness printed name">
+          <input value={f.managerAckName} onChange={e => set({ managerAckName: e.target.value })} style={{ ...inp(th), width: "100%", minHeight: 44 }} />
+        </SafeField>
+      </SafeSection>
+
+      <SafeSection th={th} title="Notes">
+        <textarea value={f.notes} onChange={e => set({ notes: e.target.value })} rows={3} style={{ ...inp(th), width: "100%", resize: "vertical" }} placeholder="Optional notes…" />
+      </SafeSection>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1rem" }}>
+        <button onClick={onExit} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 }}>Save & exit</button>
+        <button onClick={doSubmit} disabled={!canSubmit} title={!f.conductorSigKey ? "Conductor signature required" : ""}
+          style={{ ...btn(th), minHeight: 44, opacity: canSubmit ? 1 : 0.55 }}>{submitting ? "Submitting…" : "Submit safe audit"}</button>
+      </div>
+    </div>
+  );
+}
+
+// Report stub — Task 5 delivers the full report. Shows a summary + back.
+function SafeReportStub({ user, th, stores, auditId, storePC, onBack }) {
+  const storeName = stores?.find(s => String(s.pc) === String(storePC))?.name || storePC;
+  const [audit, setAudit] = useState(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    safeAuditsApi("get", { id: auditId })
+      .then(j => { if (!cancelled) setAudit(j.audit || null); })
+      .catch(() => { if (!cancelled) setErr(true); });
+    return () => { cancelled = true; };
+  }, [auditId]);
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto" }}>
+      <button onClick={onBack} style={{ ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }), marginBottom: "0.5rem" }}>← Back</button>
+      <div style={{ ...card(th), padding: "1.5rem" }}>
+        <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>{storeName} — Safe Audit</div>
+        {err ? (
+          <div style={{ color: "#ef4444" }}>Couldn't load this audit.</div>
+        ) : !audit ? (
+          <div style={{ color: th.muted }}>Loading…</div>
+        ) : (
+          <>
+            <div style={{ marginBottom: "0.75rem" }}><SafeVarBadge status={audit.varianceStatus} variance={audit.variance} th={th} /></div>
+            <div style={{ fontSize: "0.9rem", color: th.text }}>Conductor: {audit.auditorName || "—"}</div>
+            <div style={{ fontSize: "0.9rem", color: th.text }}>Expected {fmtSafeMoney(audit.expectedPettyCash)} · Counted {fmtSafeMoney(audit.countedTotal)} · Accounted {fmtSafeMoney(audit.accountedTotal)}</div>
+            {audit.hasCounterfeit && <div style={{ fontSize: "0.85rem", color: "#ef4444", marginTop: "0.4rem" }}>🚩 Counterfeit {fmtSafeMoney(audit.counterfeitTotal)}</div>}
+            <div style={{ marginTop: "1rem", padding: "0.75rem", borderRadius: 8, background: th.card2, color: th.muted, fontSize: "0.82rem" }}>
+              The full printable safe-audit report (denomination breakdown, photos, signatures) arrives in the next update.
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Audits tab shell — chooses Field Ops vs Safe mode (segmented control when both
+// are available; managers get Safe only; auditors/exec/it/dm get both).
+function AuditsTab({ user, th, stores, showAlert, setTab }) {
+  const canFieldOps = auditCanView(user);
+  const canSafe = safeCanView(user);
+  const [mode, setMode] = useState(canFieldOps ? "field" : "safe");
+  const both = canFieldOps && canSafe;
+  const effectiveMode = canFieldOps ? mode : "safe";
+
+  const seg = both ? (
+    <div style={{ maxWidth: 1100, margin: "0 auto 1rem" }}>
+      <div style={{ display: "inline-flex", padding: 3, gap: 3, borderRadius: 999, background: th.card2, border: `1px solid ${th.cardBorder}` }}>
+        {[["field", "Field Ops"], ["safe", "Safe"]].map(([m, lbl]) => (
+          <button key={m} onClick={() => setMode(m)}
+            style={{ ...btn(th, effectiveMode === m ? {} : { background: "transparent", color: th.muted, border: "none" }), minHeight: 38, borderRadius: 999, padding: "0.35rem 1.1rem", fontSize: "0.82rem" }}>{lbl}</button>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <>
+      {seg}
+      {effectiveMode === "safe"
+        ? <SafeAuditsPane user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />
+        : <FieldOpsAudits user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
+    </>
+  );
+}
+
 // Container: owns the view state (list / conduct / report) shared by all three
 // internal screens. Roles that reach this tab: auditor, executive, it (conduct)
 // and dm/office_staff (read), plus any user granted `auditsAccess`.
-function AuditsTab({ user, th, stores, showAlert, setTab }) {
+function FieldOpsAudits({ user, th, stores, showAlert, setTab }) {
   // 'list' | 'conduct' | 'report' | 'caps' | 'dashboard'; null while the default
   // landing view is still being decided (see the effect below).
   const [view, setView] = useState(null);
@@ -21066,6 +21785,7 @@ const computeRoleTabs = (user) => {
     { id: "labor",     label: "My Labor",     icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
+    { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
   ];
   // Construction & Development → base + locations + projects (no analytics/pulse)
@@ -22276,7 +22996,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.43";
+const APP_VERSION = "v18.44";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -42165,7 +42885,7 @@ function PCGPortal() {
           {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {tab === "expenses"  && isFullAdmin(user) && <ExpenseLogSection th={th} user={user} standalone />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
-          {tab === "audits" && auditCanView(user) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
+          {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
