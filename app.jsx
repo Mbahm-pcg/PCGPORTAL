@@ -5672,7 +5672,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
               {!isDM && (
                 <div style={{ minWidth:0 }}>
                   <div style={{ fontSize:"0.85rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.dmName||"—"}</div>
-                  <div style={{ fontSize:"0.75rem", color:th.muted }}>District {s.district}</div>
+                  <div style={{ fontSize:"0.75rem", color:th.muted }}>{districtLabel(s.district)}</div>
                 </div>
               )}
               {isDM && (
@@ -6468,7 +6468,7 @@ function AdminAnalytics({ stores, users, districts, th, salesWeeks, setSalesWeek
                     onClick={() => { setDistFilter(d.district); setTimeout(() => detailTableRef.current?.scrollIntoView({ behavior:'smooth', block:'start' }), 100); }}
                     onMouseEnter={e=>e.currentTarget.style.background=O+'15'}
                     onMouseLeave={e=>e.currentTarget.style.background=i%2?th.card2+'30':'transparent'}>
-                    <td style={{ ...tdS, fontWeight: 700, color: O }}>District {d.district}</td>
+                    <td style={{ ...tdS, fontWeight: 700, color: O }}>{districtLabel(d.district)}</td>
                     <td style={{ ...tdS, color: th.text }}>{d.dmName || '—'}</td>
                     <td style={{ ...tdS, color: th.muted, textAlign: 'center' }}>{d.count}</td>
                     <td style={{ ...tdS, fontWeight: 700, color: th.text, textAlign: 'center' }}>{fmtSales(d.lwSale)}</td>
@@ -6511,7 +6511,7 @@ function AdminAnalytics({ stores, users, districts, th, salesWeeks, setSalesWeek
             {!isDMViewer && (
               <select style={{ ...inp(th), width: 'auto', padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} value={distFilter} onChange={e => setDistFilter(+e.target.value)}>
                 <option value={0}>All Districts</option>
-                {distList.map(d => <option key={d.district} value={d.district}>District {d.district}</option>)}
+                {distList.map(d => <option key={d.district} value={d.district}>{districtLabel(d.district)}</option>)}
               </select>
             )}
           </div>
@@ -10298,7 +10298,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
       {weatherForecast?.[distNum] && (
         <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1rem 1.25rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder }}>
           <div style={{ fontSize: '0.8rem', fontWeight: 700, color: th.text, marginBottom: '0.5rem' }}>
-            7-Day Weather Forecast — District {distNum}
+            7-Day Weather Forecast — {districtLabel(distNum)}
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto' }}>
             {(weatherForecast[distNum]?.days || []).map(day => {
@@ -10749,7 +10749,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
       {/* Store Performance Grid */}
       <div style={{ height:1, background:`linear-gradient(90deg, ${G}44, transparent)`, margin:'0 0 1rem' }} />
       <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1.25rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder }}>
-        <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1rem', color:th.text, marginBottom:'1rem' }}>Stores in District {distNum}</div>
+        <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1rem', color:th.text, marginBottom:'1rem' }}>Stores in {districtLabel(distNum)}</div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:'0.75rem' }}>
           {[...distStores].sort((a,b) => (liveForStore(b.pc)?.data?.netSales||0) - (liveForStore(a.pc)?.data?.netSales||0)).map(s => {
             const live = liveForStore(s.pc);
@@ -11451,7 +11451,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
               </select>
             )}
             {isDMUser && (
-              <span style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, background:th.card2, borderRadius:6, padding:'3px 10px' }}>District {dmDistrict}</span>
+              <span style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, background:th.card2, borderRadius:6, padding:'3px 10px' }}>{districtLabel(dmDistrict)}</span>
             )}
           </div>
           <div style={{ overflowX:'auto' }}>
@@ -17426,7 +17426,7 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
           <div style={{ maxHeight: 300, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "0.75rem" }}>
             {Object.keys(byDistrict).sort().map((d) => (
               <div key={d} style={{ ...card(th), padding: "0.6rem" }}>
-                <div style={{ fontSize: "0.72rem", fontWeight: 800, color: th.muted, marginBottom: "0.35rem" }}>District {d}</div>
+                <div style={{ fontSize: "0.72rem", fontWeight: 800, color: th.muted, marginBottom: "0.35rem" }}>{districtLabel(d)}</div>
                 {byDistrict[d].map((s) => {
                   const pc = String(s.pc); const on = locPcs.includes(pc);
                   return (
@@ -21339,7 +21339,7 @@ function CapBoard({ user, th, stores, showAlert, onBack }) {
           <label style={microLabel(th)}>District</label>
           <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} style={{ ...inp(th), minHeight: 40, minWidth: 140 }}>
             <option value="all">All</option>
-            {districtOptions.map(d => <option key={d} value={String(d)}>District {d}</option>)}
+            {districtOptions.map(d => <option key={d} value={String(d)}>{districtLabel(d)}</option>)}
           </select>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
@@ -21524,7 +21524,7 @@ function DashboardHeatmap({ th, stores, latestByStore, onOpenReport }) {
         <div style={{ color: th.muted, fontSize: "0.85rem" }}>No stores in scope.</div>
       ) : byDistrict.map(([d, list]) => (
         <div key={d} style={{ marginBottom: "1rem" }}>
-          <div style={{ ...microLabel(th), marginBottom: "0.4rem" }}>District {d}</div>
+          <div style={{ ...microLabel(th), marginBottom: "0.4rem" }}>{districtLabel(d)}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.6rem" }}>
             {list.map(s => {
               const info = latestByStore[s.pc];
@@ -23184,7 +23184,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.45";
+const APP_VERSION = "v18.46";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -28336,7 +28336,7 @@ function CashManagement({ user, th, stores, districts, cashDeposits, setCashDepo
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.75rem', flexWrap:'wrap', gap:'0.5rem' }}>
                     <div>
                       <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1rem', color:th.text }}>
-                        District {dist.district}
+                        {districtLabel(dist.district)}
                       </div>
                       <div style={{ fontSize:'0.72rem', color:th.muted, marginTop:'0.15rem' }}>
                         DM: <strong style={{ color:th.text }}>{dist.dmName || 'Unassigned'}</strong>
@@ -30242,7 +30242,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
         {!isDM && !isManager && (
           <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} style={{ ...inp(th, { width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.8125rem' }) }}>
             <option value="all">All Districts</option>
-            {[1,2,3,4,5,6,7,8].map(d => <option key={d} value={String(d)}>District {d}</option>)}
+            {[1,2,3,4,5,6,7,8].map(d => <option key={d} value={String(d)}>{districtLabel(d)}</option>)}
           </select>
         )}
         {summary.overtimeCount > 0 && (

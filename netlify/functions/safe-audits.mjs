@@ -473,9 +473,12 @@ export default async (req) => {
 
         // A4 shortage/counterfeit notification — guarded behind shouldAlert(). Recipients: the
         // store's district DM(s) + all executive users. Sent inline (few recipients, well under 26s).
+        // `alerted` reflects ACTUAL send success (email or push), not just that the condition
+        // triggered — the client shows "DM + executives were notified" off this flag, so it
+        // must be honest even though the sends themselves stay best-effort (a failure here must
+        // never fail the submit; the row is already saved).
         let alerted = false;
         if (shouldAlert({ variance, hasCounterfeit })) {
-          alerted = true;
           try {
             const district = DISTRICT_BY_PC.get(storePC) ?? (row.district != null ? Number(row.district) : null);
             const dms = district != null
@@ -501,14 +504,16 @@ export default async (req) => {
                 <tr><td style="padding:4px 10px"><b>Variance</b></td><td style="padding:4px 10px;color:${variance < 0 ? '#ef4444' : '#111'}">${esc(fmtMoney(variance))} (${esc(varianceStatus)})</td></tr>
                 <tr><td style="padding:4px 10px"><b>Counterfeit</b></td><td style="padding:4px 10px">${hasCounterfeit ? esc(fmtMoney(row.counterfeit_total || 0)) : 'none'}</td></tr>
               </table>`;
+            let emailOk = false, pushSent = 0;
             if (emails.length) {
-              try { await sendEmail(emails, subject, html); }
+              try { emailOk = await sendEmail(emails, subject, html); }
               catch (e) { console.warn('[safe-audits] alert email failed:', e.message); }
             }
             if (pushIds.length) {
-              try { await sendPush(pushIds, 'Safe Audit alert', `${storeLabel}: ${flags.join(' + ')}`, 'safe_audit_alert'); }
+              try { ({ sent: pushSent } = await sendPush(pushIds, 'Safe Audit alert', `${storeLabel}: ${flags.join(' + ')}`, 'safe_audit_alert')); }
               catch (e) { console.warn('[safe-audits] alert push failed:', e.message); }
             }
+            alerted = emailOk || pushSent > 0;
           } catch (e) {
             // Notification failure must never fail the submit itself (row is already saved).
             console.warn('[safe-audits] alert dispatch failed:', e.message);
@@ -523,6 +528,6 @@ export default async (req) => {
     }
   } catch (err) {
     console.error('safe-audits.mjs error:', err);
-    return json(500, { ok: false, error: err.message });
+    return json(500, { ok: false, error: 'server error' });
   }
 };
