@@ -19478,10 +19478,10 @@ async function safeAuditsApi(action, body = {}) {
 }
 
 // Who gets the Safe-mode UI (toggle / pane) — per Task-4 brief §4. The backend
-// (safeCanView in safe-audits.mjs) additionally permits office_staff read, but the
-// UI surfaces Safe mode only to these roles/grants.
+// Mirrors safeCanView in safe-audits.mjs — office_staff gets read-only Safe view
+// (they can't conduct; that's gated by safeCanConduct).
 const safeCanView = (u) =>
-  ["manager", "dm", "auditor", "executive", "it"].includes(u?.userType) || !!u?.auditsAccess;
+  ["manager", "dm", "auditor", "executive", "it", "office_staff"].includes(u?.userType) || !!u?.auditsAccess;
 // Who can conduct/submit a Safe audit — mirrors CONDUCT_ROLES ∪ grant==='full'.
 const safeCanConduct = (u) =>
   ["manager", "dm", "auditor", "executive", "it"].includes(u?.userType) || u?.auditsAccess === "full";

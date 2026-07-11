@@ -15642,7 +15642,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return json || {};
   }
-  var safeCanView = (u) => ["manager", "dm", "auditor", "executive", "it"].includes(u?.userType) || !!u?.auditsAccess;
+  var safeCanView = (u) => ["manager", "dm", "auditor", "executive", "it", "office_staff"].includes(u?.userType) || !!u?.auditsAccess;
   var safeCanConduct = (u) => ["manager", "dm", "auditor", "executive", "it"].includes(u?.userType) || u?.auditsAccess === "full";
   var SAFE_BILLS = [
     { key: "hundreds", label: "$100", value: 100 },
