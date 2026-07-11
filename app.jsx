@@ -3803,6 +3803,20 @@ function dmFirstName(districts, num) {
   return d.name.split(" ")[0];
 }
 
+// Module-level districts source for districtLabel(), kept in sync by the root
+// PCGPortal component (see setDistrictsRef call). Lets any render site label a
+// district as "District N - <DM first name>" without threading the districts prop.
+let _districtsRef = DISTRICTS_SEED;
+function setDistrictsRef(d) { if (d && typeof d === 'object') _districtsRef = d; }
+// num → "District N - First" (short: "DN - First"); no DM name → "District N" / "DN".
+function districtLabel(num, { short = false } = {}) {
+  if (num === null || num === undefined || num === '') return '';
+  const d = _districtsRef[num];
+  const first = d && d.name ? String(d.name).trim().split(/\s+/)[0] : '';
+  const base = short ? `D${num}` : `District ${num}`;
+  return first ? `${base} - ${first}` : base;
+}
+
 function StoreMap({ stores, th, setTab }) {
   const O = '#FF671F';
   const [selectedStore,    setSelectedStore]    = React.useState(null);
@@ -5083,7 +5097,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
             <input style={inp(th)} placeholder="Store Email" value={newStore.email} onChange={e=>setNewStore(s=>({...s,email:e.target.value}))} />
             <select style={inp(th)} value={newStore.district||""} onChange={e=>setNewStore(s=>({...s,district:+e.target.value}))}>
               <option value="">— District —</option>
-              {Object.values(districts||DISTRICTS_SEED).sort((a,b)=>a.num-b.num).map(d=>(<option key={d.num} value={d.num}>District {d.num} — {d.name.split(' ')[0]}</option>))}
+              {Object.values(districts||DISTRICTS_SEED).sort((a,b)=>a.num-b.num).map(d=>(<option key={d.num} value={d.num}>{districtLabel(d.num)}</option>))}
             </select>
             <select style={inp(th)} value={newStore.status} onChange={e=>setNewStore(s=>({...s,status:e.target.value}))}>
               <option>Coming Soon</option><option>Open</option><option>Remodel</option><option>Temp Closed</option>
@@ -5143,7 +5157,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
                     </select>)}
                     {fld("District", <select style={inp(th)} value={editStore.district||""} onChange={e=>setEditStore(s=>({...s,district:+e.target.value}))}>
                       <option value="">— Unassigned —</option>
-                      {Object.values(districts||DISTRICTS_SEED).sort((a,b)=>a.num-b.num).map(d=>(<option key={d.num} value={d.num}>District {d.num} — {d.name}</option>))}
+                      {Object.values(districts||DISTRICTS_SEED).sort((a,b)=>a.num-b.num).map(d=>(<option key={d.num} value={d.num}>{districtLabel(d.num)}</option>))}
                     </select>)}
                   </div>
 
@@ -5300,7 +5314,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
                 </div>
                 <div>
                   <div style={{ fontSize:"0.625rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.188rem" }}>District</div>
-                  <div style={{ fontSize:"0.8125rem", color:th.text }}>{s.district ? `District ${s.district} — ${s.dmName}` : "—"}</div>
+                  <div style={{ fontSize:"0.8125rem", color:th.text }}>{s.district ? districtLabel(s.district) : "—"}</div>
                 </div>
 
                 {/* Manager */}
@@ -5566,7 +5580,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
               </a>
               {/* Meta */}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.55rem 0.85rem", paddingTop:"0.55rem", borderTop:`1px solid ${th.cardBorder}` }}>
-                {meta("District", `${s.dmName ? s.dmName+" · " : ""}D${s.district||"—"}`)}
+                {meta("District", s.district ? districtLabel(s.district, { short:true }) : "—")}
                 {meta("Manager", s.mgrPhone
                   ? <a href={`tel:${s.mgrPhone.replace(/\D/g,"")}`} style={{ color:"#69db7c", textDecoration:"none" }}>📞 {s.mgr||"—"}</a>
                   : (s.mgr||"—"))}
@@ -5747,7 +5761,7 @@ function AdminDistricts({ districts, setDistricts, stores, setStores, users, th 
   };
 
   const removeDistrict = (num) => {
-    if (!confirm(`Remove District ${num}? Stores will be unassigned.`)) return;
+    if (!confirm(`Remove ${districtLabel(num)}? Stores will be unassigned.`)) return;
     setDistricts(ds => { const n = {...ds}; delete n[num]; return n; });
     setStores(ss => ss.map(s => s.district === num ? { ...s, district: null, dmName: "" } : s));
   };
@@ -6351,7 +6365,7 @@ function AdminAnalytics({ stores, users, districts, th, salesWeeks, setSalesWeek
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.1rem', color: th.text }}>
-            📊 {isDMViewer ? `District ${dmDistrict} Analytics` : 'Weekly Analytics'}
+            📊 {isDMViewer ? `${districtLabel(dmDistrict)} Analytics` : 'Weekly Analytics'}
           </div>
           {cloudStatus === 'loading' && <span style={{ fontSize:'0.68rem', color:th.muted }}>☁️ Loading…</span>}
           {cloudStatus === 'saving'  && <span style={{ fontSize:'0.68rem', color:'#74c0fc' }}>☁️ Saving…</span>}
@@ -6492,7 +6506,7 @@ function AdminAnalytics({ stores, users, districts, th, salesWeeks, setSalesWeek
         <div ref={detailTableRef} style={{ ...card(th), padding: '1.125rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.875rem', flexWrap: 'wrap' }}>
             <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, flex: 1 }}>
-              📍 {isDMViewer ? `Your District ${dmDistrict} Stores` : `Store Performance — ${filtered.length} stores`}
+              📍 {isDMViewer ? `Your ${districtLabel(dmDistrict)} Stores` : `Store Performance — ${filtered.length} stores`}
             </div>
             {!isDMViewer && (
               <select style={{ ...inp(th), width: 'auto', padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} value={distFilter} onChange={e => setDistFilter(+e.target.value)}>
@@ -6550,7 +6564,7 @@ function AdminAnalytics({ stores, users, districts, th, salesWeeks, setSalesWeek
         <div style={{ ...card(th), padding: '1.25rem', marginTop: '1.125rem', borderTop: `3px solid ${O}` }}>
           <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1rem', color: th.text, marginBottom: '1rem' }}>
             {distFilter
-              ? `👤 District ${distFilter} — ${Object.values(districts||{}).find(x=>x.num===distFilter)?.name || ''} · Week #${week.weekNum} · ${week.weekEnd}`
+              ? `👤 ${districtLabel(distFilter)} · Week #${week.weekNum} · ${week.weekEnd}`
               : `🏢 Total Network Performance — Week #${week.weekNum} · ${week.weekEnd}`}
           </div>
           {(() => {
@@ -6907,7 +6921,7 @@ function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, cur
                     <div style={{ display:"flex", gap:"0.25rem", marginBottom:"0.375rem" }}>
                       {c.districts.map(d => (
                         <span key={d} style={{ fontSize:"0.6rem", fontWeight:700, padding:"0.125rem 0.4rem", borderRadius:"0.5rem", background:O+"22", color:O }}>
-                          {d === "all" ? "All Districts" : `D${d}`}
+                          {d === "all" ? "All Districts" : districtLabel(d, { short:true })}
                         </span>
                       ))}
                     </div>
@@ -9653,10 +9667,6 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
 // ─── District Detail ─────────────────────────────────────────────────────────
 function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView }) {
   const distStores = stores.filter(s => s.district === distNum);
-  const dmName = (() => {
-    const found = Object.values(districts || {}).find(x => x.num === distNum);
-    return (found?.name || '').split(' ')[0] || ('D' + distNum);
-  })();
 
   const fmtUSD = v => '$' + Math.round(v).toLocaleString();
   const fmtNum = v => Math.round(v).toLocaleString();
@@ -9994,7 +10004,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
   // For per-store cards: use override perStore if week mode or date differs, otherwise live storeData
   const liveForStore = (pc) => ((viewMode === 'week' || localDate !== busDt) && overrideAgg) ? overrideAgg.perStore[pc] : storeData[pc];
 
-  const distLabel = 'District ' + distNum + (dmName ? ' \u2014 ' + dmName : '');
+  const distLabel = districtLabel(distNum);
 
   if (!d) return (
     <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1.5rem', border:'1px solid ' + th.cardBorder }}>
@@ -11103,7 +11113,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
 
   // Group by district
   const distNums = [...new Set(allRows.map(s => s.district))].filter(Boolean).sort((a,b)=>a-b);
-  const dmName   = d => (Object.values(districts||{}).find(x=>x.num===d)?.name || '').split(' ')[0] || `D${d}`;
+  const dmName   = d => (Object.values(districts||{}).find(x=>x.num===d)?.name || '').split(' ')[0] || districtLabel(d, { short:true });
 
   const fmtUSD  = v => '$' + Math.round(v).toLocaleString();
   const fmtNum  = v => Math.round(v).toLocaleString();
@@ -11377,7 +11387,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
           <div style={{ fontSize:'3rem', marginBottom:'0.75rem', animation:'pulseRing 2s ease-out infinite' }}>💚</div>
           <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1.1rem', color:G, marginBottom:'0.25rem' }}>Loading Pulse Data...</div>
           <div style={{ fontSize:'0.75rem', color:`${G}66`, marginBottom:'1.25rem' }}>
-            {isDMUser ? `Connecting to ${dmStoreCount} stores in District ${dmDistrict}` : `Connecting to ${activePCs.length} stores across 8 districts`}
+            {isDMUser ? `Connecting to ${dmStoreCount} stores in ${districtLabel(dmDistrict)}` : `Connecting to ${activePCs.length} stores across 8 districts`}
           </div>
           <div style={{ maxWidth:300, margin:'0 auto' }}>
             {/* Store count row above bar */}
@@ -15009,7 +15019,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginTop: "0.65rem", paddingTop: "0.6rem", borderTop: `1px solid ${th.cardBorder}` }}>
                   <div>
                     <div style={{ fontSize: "0.55rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>District</div>
-                    <div style={{ fontSize: "0.78rem", color: th.text, fontWeight: 600, marginTop: 2 }}>{p.district ? `D${p.district}` : "—"}{p.dmName ? ` · ${p.dmName}` : ""}</div>
+                    <div style={{ fontSize: "0.78rem", color: th.text, fontWeight: 600, marginTop: 2 }}>{p.district ? districtLabel(p.district, { short:true }) : "—"}</div>
                   </div>
                   <div>
                     <div style={{ fontSize: "0.55rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Due Date</div>
@@ -17849,7 +17859,7 @@ function AuditLogSection({ th, user, users, accent }) {
                   userName(e.userId),
                   e.userRole || '',
                   e.action || '',
-                  e.district ? `D${e.district}` : 'Network',
+                  e.district ? districtLabel(e.district, { short:true }) : 'Network',
                   e.statusCode || '',
                   e.error || (e.meta?.from != null && e.meta?.to != null ? `${e.meta.from} → ${e.meta.to}` : e.meta?.targetName || e.meta?.filename || (e.meta?.backed != null ? `${e.meta.backed} reports` : (e.meta?.synced != null ? `${e.meta.synced} synced` : ''))) || '',
                   e.latencyMs != null ? e.latencyMs : '',
@@ -17919,7 +17929,7 @@ function AuditLogSection({ th, user, users, accent }) {
                             </span>
                           </td>
                           <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>
-                            {e.district ? `D${e.district}` : 'Network'}
+                            {e.district ? districtLabel(e.district, { short:true }) : 'Network'}
                           </td>
                           <td style={{ padding: '0.4rem 0.6rem' }}>
                             <span style={{ fontSize: '0.65rem', fontWeight: 700, color: isErr ? '#f44336' : '#4caf50', background: isErr ? '#f4433618' : '#4caf5018', padding: '0.15rem 0.4rem', borderRadius: '0.2rem' }}>
@@ -20557,7 +20567,7 @@ function AuditDashboard({ user, th, stores, showAlert, onOpenReport, onGoList, o
             {ICONS.audits(O)} Audits Dashboard
           </div>
           <div style={{ color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" }}>
-            {isDm ? `District ${user?.district} — ` : ""}Portfolio scorecard, trend, coverage and open corrective action.
+            {isDm ? `${districtLabel(user?.district)} — ` : ""}Portfolio scorecard, trend, coverage and open corrective action.
           </div>
         </div>
         <div style={{ display: "flex", gap: "0.6rem" }}>
@@ -20658,13 +20668,13 @@ function DashboardTrend({ th, isFull, isDm, trend, portfolioTrend, user }) {
     if (!canvasRef.current || typeof Chart === "undefined" || !trend.length) return;
     const labels = trend.map(m => m.month);
     const datasets = [{
-      label: isDm ? `District ${user?.district}` : "Portfolio avg",
+      label: isDm ? districtLabel(user?.district) : "Portfolio avg",
       data: trend.map(m => m.avgScore), borderColor: O, borderWidth: 3, tension: 0.3, fill: false, pointRadius: 2,
     }];
     if (isFull) {
       districts.forEach((d, i) => {
         datasets.push({
-          label: `District ${d}`, data: trend.map(m => (m.byDistrict && m.byDistrict[d] != null) ? m.byDistrict[d] : null),
+          label: districtLabel(d), data: trend.map(m => (m.byDistrict && m.byDistrict[d] != null) ? m.byDistrict[d] : null),
           borderColor: DISTRICT_TREND_COLORS[i % DISTRICT_TREND_COLORS.length], borderWidth: 1.5, tension: 0.3, fill: false, pointRadius: 0, borderDash: [4, 3],
         });
       });
@@ -22218,7 +22228,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
               <InfoCell label="PC Number" value={store.pc} color={O} th={th} />
               <InfoCell label="Paycor Client ID" value={store.paycor || "—"} th={th} />
               <InfoCell label="Asset Type" value={assetLabel} color="#8b5cf6" th={th} />
-              <InfoCell label="District" value={`District ${store.district || "—"}${store.dmName ? " - " + store.dmName : ""}`} th={th} />
+              <InfoCell label="District" value={store.district ? districtLabel(store.district) : "—"} th={th} />
             </div>
             <InfoCell label="Address" value={`${store.address || ""}${store.city ? ", " + store.city : ""}${store.state ? ", " + store.state : ""}${store.zip ? " " + store.zip : ""}`} th={th} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginTop: "1rem" }}>
@@ -22266,7 +22276,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.41";
+const APP_VERSION = "v18.42";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -22513,7 +22523,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
               action: "send",
               userId: m.userId,
               title: "Orion mentioned you",
-              body: `Orion flagged something in ${m.role === "dm" ? `District ${m.identifier}` : `Store ${m.identifier}`} for your review`,
+              body: `Orion flagged something in ${m.role === "dm" ? districtLabel(m.identifier) : `Store ${m.identifier}`} for your review`,
               url: "/",
             }),
           }).catch(() => {});
@@ -22624,7 +22634,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
         const role = parts[i + 1];
         const identifier = parts[i + 2];
         const resolved = resolveMention({ role, identifier, raw: `@[${role}:${identifier}]` });
-        const label = resolved.name ? `@${resolved.name}` : (role === "dm" ? `@DM District ${identifier}` : `@GM Store ${identifier}`);
+        const label = resolved.name ? `@${resolved.name}` : (role === "dm" ? `@DM ${districtLabel(identifier)}` : `@GM Store ${identifier}`);
         result.push(React.createElement("span", {
           key: `mention-${i}`,
           style: {
@@ -24143,11 +24153,11 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
   const delegate = async (item) => {
     if (delegating[item.key]) return;
     const dm = (users || []).find(u => u.userType === 'dm' && String(u.district) === String(item.store.district));
-    if (!dm) { showAlert && showAlert('error', `No DM found for District ${item.store.district}`); return; }
+    if (!dm) { showAlert && showAlert('error', `No DM found for ${districtLabel(item.store.district)}`); return; }
     setDelegating(d => ({ ...d, [item.key]: true }));
     try {
       await sendPushNotification([dm.id], `Action Required: ${item.store.name}`, item.msg, '/', `aq_${item.key}`);
-      showAlert && showAlert('success', `Delegated to ${dm.name} (D${item.store.district})`);
+      showAlert && showAlert('success', `Delegated to ${dm.name} (${districtLabel(item.store.district, { short:true })})`);
     } catch {
       showAlert && showAlert('error', 'Could not send notification');
     }
@@ -24286,7 +24296,7 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
                   style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:'#f9731618', color:'#f97316', border:'1px solid #f9731633', cursor:'pointer' }}>🔧</button>
               )}
               {isExec && (
-                <button onClick={() => delegate(item)} title={`Notify DM for District ${item.store.district}`}
+                <button onClick={() => delegate(item)} title={`Notify DM for ${districtLabel(item.store.district)}`}
                   disabled={!!delegating[item.key]}
                   style={{ fontSize:'0.72rem', padding:'0.28rem 0.55rem', borderRadius:'0.35rem', background:'#8b5cf618', color:'#8b5cf6', border:'1px solid #8b5cf633', cursor:'pointer', opacity: delegating[item.key] ? 0.6 : 1 }}>
                   {delegating[item.key] ? '⏳' : '📤'}
@@ -24428,7 +24438,7 @@ function DmScorecardTab({ th, users, districts, stores, salesWeeks }) {
 
   const getDMName = (district) => {
     const dm = (users || []).find(u => u.userType === 'dm' && String(u.district) === String(district));
-    return dm?.name || `District ${district}`;
+    return dm?.name || districtLabel(district);
   };
 
   const scoreColor = (score) => {
@@ -28925,7 +28935,7 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
                   return (
                     <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
                       <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.75rem' }}>
-                        🏆 {isDM ? `District ${userDistrict} Comparison` : 'Network Comparison'}
+                        🏆 {isDM ? `${districtLabel(userDistrict)} Comparison` : 'Network Comparison'}
                         <span style={{ fontSize: '0.7rem', fontWeight: 400, color: th.muted }}> WTD labor % across {ranked.length} stores</span>
                       </div>
 
@@ -30480,7 +30490,7 @@ function OpsTasks({ stores, th, user }) {
       {/* ── Stores roll-up (DM / Exec) ── */}
       {view === "stores" && rollup && !loading && (
         <div>
-          <div style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" }}>{rollup.stores.length} stores · {date}{isDM ? ` · District ${user?.district}` : ""}</div>
+          <div style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" }}>{rollup.stores.length} stores · {date}{isDM ? ` · ${districtLabel(user?.district)}` : ""}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "0.6rem" }}>
           {rollup.stores.map((s) => (
             <div key={s.pc} onClick={() => { setStorePc(String(s.pc)); setView("tasks"); }}
@@ -30489,7 +30499,7 @@ function OpsTasks({ stores, th, user }) {
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{s.name} <span style={{ color: th.muted, fontWeight: 400, fontSize: "0.78rem" }}>· {s.pc}</span></div>
                 <div style={{ fontSize: "0.75rem", color: th.muted }}>
-                  {s.open} open · <span style={{ color: "#e03131" }}>{s.overdue} overdue</span> · {s.completed}/{s.all} done{!isDM ? ` · D${s.district}` : ""}
+                  {s.open} open · <span style={{ color: "#e03131" }}>{s.overdue} overdue</span> · {s.completed}/{s.all} done{!isDM ? ` · ${districtLabel(s.district, { short:true })}` : ""}
                   {s.open_cas > 0 && <span style={{ color: "#e03131", marginLeft: "0.4rem" }}>· {s.open_cas} CA{s.open_cas !== 1 ? "s" : ""}</span>}
                 </div>
               </div>
@@ -30719,7 +30729,7 @@ function OpsTasks({ stores, th, user }) {
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.85rem" }}>
             <div style={{ fontSize: "0.8rem", color: th.muted }}>
-              Donut case & merchandising photos · {isManager ? (myStore ? `${myStore.pc} — ${myStore.name}` : "your store") : isDM ? `District ${user?.district}` : "all stores"}
+              Donut case & merchandising photos · {isManager ? (myStore ? `${myStore.pc} — ${myStore.name}` : "your store") : isDM ? districtLabel(user?.district) : "all stores"}
               {merch ? ` · ${merch.total} photo${merch.total !== 1 ? "s" : ""}` : ""}
             </div>
             {/* Day filter — keeps one day's photos separate from another's */}
@@ -30795,7 +30805,7 @@ function OpsTasks({ stores, th, user }) {
         return (
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.95rem" }}>
-            <div style={{ fontSize: "0.8rem", color: th.muted }}>Task compliance · last {rangeDays} days · {isManager ? (myStore ? myStore.name : "your store") : isDM ? `District ${user?.district}` : "all stores"}</div>
+            <div style={{ fontSize: "0.8rem", color: th.muted }}>Task compliance · last {rangeDays} days · {isManager ? (myStore ? myStore.name : "your store") : isDM ? districtLabel(user?.district) : "all stores"}</div>
             {rangePills}
           </div>
           {reportLoading && <div style={{ textAlign: "center", padding: "2.5rem", color: th.muted }}>Loading report…</div>}
@@ -31535,7 +31545,7 @@ function AdminNdcp({ th, user }) {
                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.1rem', cursor: 'pointer' }}>
                       <span style={{ color: th.text, fontWeight: 700 }}>
                         <span style={{ color: th.muted, marginRight: 6 }}>{open ? '▾' : '▸'}</span>
-                        D{d} · {dist.dmName || `District ${d}`}
+                        {districtLabel(d)}
                       </span>
                       <span style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
                         <span style={{ color: th.muted, fontSize: '0.82rem' }}>{dist.orders} orders</span>
@@ -33717,7 +33727,7 @@ function exportCasesPDF(cases, totalOpp, scope, user) {
     }
 
     // Meta line
-    const meta = [c.storeName && `Store: ${c.storeName}`, c.district && `D${c.district}`, c.createdAt && new Date(c.createdAt).toLocaleDateString()].filter(Boolean).join('  ·  ');
+    const meta = [c.storeName && `Store: ${c.storeName}`, c.district && districtLabel(c.district, { short:true }), c.createdAt && new Date(c.createdAt).toLocaleDateString()].filter(Boolean).join('  ·  ');
     if (meta) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
@@ -33890,7 +33900,7 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
           {Object.entries(byStatus).map(([s, n]) => (
             <span key={s} style={{ fontSize: '0.58rem', fontWeight: 700, color: statusColors[s] || th.muted, background: (statusColors[s] || '#888') + '18', padding: '0.15rem 0.4rem', borderRadius: '0.25rem' }}>{n} {s}</span>
           ))}
-          <button onClick={() => exportCasesPDF(cases, totalOpp, user.userType === 'dm' ? `District ${user.district}` : 'Network', user)}
+          <button onClick={() => exportCasesPDF(cases, totalOpp, user.userType === 'dm' ? districtLabel(user.district) : 'Network', user)}
             style={{ background: 'none', border: `1px solid ${O}44`, borderRadius: '0.375rem', padding: '0.15rem 0.45rem', color: O, fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
             ↓ PDF
           </button>
@@ -33961,7 +33971,7 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
                         const html = `<div style="font-family:Arial,sans-serif;max-width:600px">
                           <div style="background:${BRAND_CONFIG.primary};padding:16px 24px;border-radius:8px 8px 0 0">
                             <div style="color:#fff;font-size:18px;font-weight:800">${c.title}</div>
-                            <div style="color:rgba(255,255,255,0.8);font-size:12px;margin-top:4px">${c.storeName || store.name} · District ${c.district}</div>
+                            <div style="color:rgba(255,255,255,0.8);font-size:12px;margin-top:4px">${c.storeName || store.name} · ${districtLabel(c.district)}</div>
                           </div>
                           <div style="padding:20px 24px;border:1px solid #eee;border-top:none;border-radius:0 0 8px 8px">
                             <p style="font-size:14px;color:#333">${c.summary || ''}</p>
@@ -34017,7 +34027,7 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
                       {d.reason && <div style={{ fontSize: '0.65rem', color: th.muted, marginTop: '0.15rem', fontStyle: 'italic' }}>"{d.reason}"</div>}
                       <div style={{ fontSize: '0.58rem', color: th.muted, marginTop: '0.1rem' }}>
                         {d.decidedBy ? `by ${d.decidedBy} · ` : ''}{d.ts ? new Date(d.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
-                        {d.district ? ` · District ${d.district}` : ''}
+                        {d.district ? ` · ${districtLabel(d.district)}` : ''}
                       </div>
                     </div>
                   </div>
@@ -36058,7 +36068,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
                         <div style={{ fontSize: 12, color: th.muted, marginTop: 3 }}>{todayLabel}</div>
                       </div>
                       <div style={{ background: `${O}20`, border: `1px solid ${O}44`, borderRadius: 999, padding: '3px 12px', fontSize: 11, fontWeight: 800, color: O, textTransform: 'uppercase', letterSpacing: 0.8, flexShrink: 0 }}>
-                        {isExec ? 'Network' : `District ${district}`}
+                        {isExec ? 'Network' : districtLabel(district)}
                       </div>
                     </div>
                     {/* KPI pair */}
@@ -36089,7 +36099,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
               <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <span style={{ fontSize: 11, color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                  <span style={{ background: O + '22', color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: '2px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8 }}>{isExec ? 'Network' : `District ${district}`}</span>
+                  <span style={{ background: O + '22', color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: '2px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8 }}>{isExec ? 'Network' : districtLabel(district)}</span>
                 </div>
                 <div style={{ fontSize: 13, color: th.text, lineHeight: 1.6 }}>{renderAnalystMarkdown(brief.content, th)}</div>
                 <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${th.cardBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -36126,7 +36136,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
             {taskAlerts?.alerts?.length > 0 && (() => {
               const grouped = {};
               taskAlerts.alerts.forEach(a => {
-                const key = isExec ? `District ${a.district}` : 'Missed Yesterday';
+                const key = isExec ? districtLabel(a.district) : 'Missed Yesterday';
                 if (!grouped[key]) grouped[key] = [];
                 grouped[key].push(a);
               });
@@ -36211,7 +36221,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
                   <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: 14, color: th.text, flex: 1, paddingRight: 8, lineHeight: 1.3 }}>{c.title}</div>
                   <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: severityColor(c.severity) + '22', color: severityColor(c.severity), whiteSpace: 'nowrap' }}>{c.severity}</span>
                 </div>
-                <div style={{ fontSize: 11, color: th.muted, marginBottom: 7 }}>{c.storeName}{c.district ? ` · D${c.district}` : ''}</div>
+                <div style={{ fontSize: 11, color: th.muted, marginBottom: 7 }}>{c.storeName}{c.district ? ` · ${districtLabel(c.district, { short:true })}` : ''}</div>
                 {c.description && <div style={{ fontSize: 12.5, color: '#999', lineHeight: 1.5, marginBottom: 10 }}>{c.description}</div>}
                 {caseStatusMatch(c) && caseFilter === 'open' && (
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -36683,7 +36693,7 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', marginBottom: storeData.mgr ? '0.65rem' : 0 }}>
                   {[
                     storeData.address && { icon: '🏪', label: 'Address', value: `${storeData.address}, ${storeData.city}, ${storeData.state} ${storeData.zip}` },
-                    storeData.district && { icon: '🗂️', label: 'District', value: `District ${storeData.district}` },
+                    storeData.district && { icon: '🗂️', label: 'District', value: districtLabel(storeData.district) },
                     storeData.baseAsset && { icon: '🏗️', label: 'Type', value: storeData.baseAsset === 'DT' ? 'Drive-Thru' : storeData.baseAsset === 'IL' ? 'Inline' : storeData.baseAsset === 'FS' ? 'Freestanding' : storeData.baseAsset },
                     storeData.dmName && { icon: '👤', label: 'District Manager', value: storeData.dmName },
                   ].filter(Boolean).map((item, i) => (
@@ -37653,7 +37663,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                     {p.priority>0 && <span style={{background:O,color:'#fff',borderRadius:6,padding:'1px 7px',fontSize:11,fontWeight:800,flexShrink:0}}>#{p.priority}</span>}
                     <div style={{fontSize:16,fontWeight:800,color:th.text}}>{p.nickname||p.address}</div>
                   </div>
-                  <div style={{fontSize:12,color:th.muted,marginTop:2}}>{p.address}{p.district?` - District ${p.district}`:''}</div>
+                  <div style={{fontSize:12,color:th.muted,marginTop:2}}>{p.address}{p.district?` - ${districtLabel(p.district)}`:''}</div>
                 </div>
                 <div style={{background:phase.color+'22',color:phase.color,border:`1px solid ${phase.color}44`,borderRadius:8,padding:'3px 8px',fontSize:11,fontWeight:700,whiteSpace:'nowrap',marginLeft:8}}>{phase.label}</div>
               </div>
@@ -38321,7 +38331,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     <div className="fade-in">
       <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'1.25rem', color:th.text, marginBottom:'0.2rem' }}>📅 Calendar</div>
       <div style={{ fontSize:'0.78rem', color:th.muted, marginBottom:'1.25rem' }}>
-        {isManager ? 'Your store' : isDM ? `District ${user?.district}` : 'Network'} · tickets · equipment · projects · tasks
+        {isManager ? 'Your store' : isDM ? districtLabel(user?.district) : 'Network'} · tickets · equipment · projects · tasks
       </div>
       <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', gap:'1rem', height: isMobile ? 'auto' : 'calc(100vh - 175px)', minHeight: isMobile ? 0 : 480 }}>
         {/* Grid */}
@@ -39291,6 +39301,8 @@ function PCGPortal() {
   const [users, setUsers]       = useState([]);
   const [stores, setStores]     = useState(() => { const s=loadFromStorage(); return s?.stores   || STORES_SEED; });
   const [districts, setDistricts] = useState(() => { const s=loadFromStorage(); return s?.districts || DISTRICTS_SEED; });
+  setDistrictsRef(districts);
+  React.useEffect(() => { setDistrictsRef(districts); }, [districts]);
   const [contacts, setContacts] = useState(() => { const s=loadFromStorage(); return s?.contacts || CONTACTS_SEED; });
   const [vendors, setVendors]   = useState(() => { const s=loadFromStorage(); return s?.vendors  || VENDORS_SEED; });
   const [dark, setDark]         = useState(() => { try { const v=localStorage.getItem('pcg_dark_mode'); if(v!==null) return JSON.parse(v); } catch {} const s=loadFromStorage(); return s?.dark??false; });
