@@ -19578,7 +19578,7 @@ function SignaturePad({ th, onCapture, label }) {
   </div>);
 }
 
-// Container for Safe mode — list / conduct / report (report is a Task-5 stub).
+// Container for Safe mode — list / conduct / report.
 function SafeAuditsPane({ user, th, stores, showAlert, setTab }) {
   const [view, setView] = useState("list");   // 'list' | 'conduct' | 'report'
   const [sel, setSel] = useState(null);        // { id, storePC }
@@ -19591,7 +19591,7 @@ function SafeAuditsPane({ user, th, stores, showAlert, setTab }) {
       auditId={sel.id} storePC={sel.storePC} onExit={back} onViewReport={() => openReport(sel.id, sel.storePC)} />;
   }
   if (view === "report" && sel) {
-    return <SafeReportStub user={user} th={th} stores={stores} auditId={sel.id} storePC={sel.storePC} onBack={back} />;
+    return <SafeAuditReport user={user} th={th} stores={stores} showAlert={showAlert} auditId={sel.id} storePC={sel.storePC} onBack={back} />;
   }
   return <SafeAuditList user={user} th={th} stores={stores} showAlert={showAlert}
     onConduct={openConduct} onViewReport={openReport} />;
@@ -20107,39 +20107,227 @@ function SafeAuditConduct({ user, th, stores, showAlert, auditId, storePC, onExi
   );
 }
 
-// Report stub — Task 5 delivers the full report. Shows a summary + back.
-function SafeReportStub({ user, th, stores, auditId, storePC, onBack }) {
-  const storeName = stores?.find(s => String(s.pc) === String(storePC))?.name || storePC;
-  const [audit, setAudit] = useState(null);
-  const [err, setErr] = useState(false);
+// Signature image — resolves a blob key (conductorSigKey/managerSigKey) to the
+// captured PNG data URL via cloudLoadFile. Mirrors AuditPhotoThumb's load pattern.
+function SafeSigImage({ sigKey, th, label }) {
+  const [src, setSrc] = useState(null);
+  const [loading, setLoading] = useState(!!sigKey);
   useEffect(() => {
     let cancelled = false;
+    if (!sigKey) { setSrc(null); setLoading(false); return; }
+    setLoading(true);
+    cloudLoadFile(sigKey)
+      .then(f => { if (!cancelled) { setSrc(f?.data || null); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [sigKey]);
+  return (
+    <div>
+      <div style={{ fontSize: "0.72rem", color: th.muted, marginBottom: 4 }}>{label}</div>
+      <div style={{ width: 260, maxWidth: "100%", height: 100, borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        {!sigKey ? <span style={{ fontSize: "0.75rem", color: th.muted }}>Not captured</span>
+          : loading ? <span style={{ fontSize: "0.72rem", color: th.muted }}>Loading…</span>
+          : src ? <img src={src} alt={label} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+          : <span style={{ fontSize: "0.72rem", color: th.muted }}>Unavailable</span>}
+      </div>
+    </div>
+  );
+}
+
+// Full printable Safe Audit report — mirrors the sample-PDF layout: header
+// (store/auditor/dates), General/Store/Petty-Cash sections, denomination
+// breakdown table, prominent variance badge, counterfeit block, photos
+// (receipt/counterfeit → lightbox), signatures (rendered from blob keys), notes.
+// PDF export mirrors AuditReport's html2pdf pattern.
+function SafeAuditReport({ user, th, stores, showAlert, auditId, storePC, onBack }) {
+  const store = stores?.find(s => String(s.pc) === String(storePC));
+  const storeName = store?.name || storePC;
+  const storeAddress = store ? [store.address, store.city, store.state, store.zip].filter(Boolean).join(", ") : "";
+
+  const [audit, setAudit] = useState(null);
+  const [err, setErr] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const printRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAudit(null); setErr(false);
     safeAuditsApi("get", { id: auditId })
       .then(j => { if (!cancelled) setAudit(j.audit || null); })
       .catch(() => { if (!cancelled) setErr(true); });
     return () => { cancelled = true; };
   }, [auditId]);
+
+  if (err) return (
+    <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" }}>
+      Couldn't load this safe audit report.
+      <div style={{ marginTop: "1rem" }}><button onClick={onBack} style={{ ...btn(th), minHeight: 44 }}>Back to safe audits</button></div>
+    </div>
+  );
+  if (!audit) return <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 720, margin: "1rem auto" }}>Loading report…</div>;
+
+  // Duration: started_at is set on the first draft save, so this is present for
+  // every submitted audit; guard anyway in case of legacy/partial rows.
+  const durationLabel = (() => {
+    if (!audit.startedAt || !audit.submittedAt) return null;
+    const ms = new Date(audit.submittedAt) - new Date(audit.startedAt);
+    if (!Number.isFinite(ms) || ms < 0) return null;
+    const mins = Math.round(ms / 60000);
+    if (mins < 60) return `${mins} min`;
+    return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  })();
+
+  const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const exportPdf = async () => {
+    if (typeof html2pdf === "undefined") { showAlert?.("error", "PDF export isn't available right now — the export library didn't load."); return; }
+    if (!printRef.current) return;
+    setExporting(true);
+    try {
+      const dateStr = audit.submittedAt ? isoDate(new Date(audit.submittedAt)) : isoDate(new Date());
+      const fname = `safe_audit_${storePC}_${dateStr}.pdf`;
+      await html2pdf().set({ margin: 0.4, filename: fname, image: { type: "jpeg", quality: 0.95 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" }, pagebreak: { mode: ["css", "legacy"] } }).from(printRef.current).save();
+    } catch (e) {
+      showAlert?.("error", "PDF export failed: " + e.message);
+    } finally { setExporting(false); }
+  };
+
+  const denomRow = (d, group) => {
+    const cnt = safeToCount((audit[group] || {})[d.key]);
+    return (
+      <tr key={d.key}>
+        <td style={{ ...tdCell(th), color: th.muted }}>{d.label}</td>
+        <td style={{ ...tdCell(th), textAlign: "right" }}>{cnt}</td>
+        <td style={{ ...tdCell(th), textAlign: "right", fontWeight: 600, color: th.text }}>{fmtSafeMoney(cnt * d.value)}</td>
+      </tr>
+    );
+  };
+
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto" }}>
-      <button onClick={onBack} style={{ ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }), marginBottom: "0.5rem" }}>← Back</button>
-      <div style={{ ...card(th), padding: "1.5rem" }}>
-        <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>{storeName} — Safe Audit</div>
-        {err ? (
-          <div style={{ color: "#ef4444" }}>Couldn't load this audit.</div>
-        ) : !audit ? (
-          <div style={{ color: th.muted }}>Loading…</div>
-        ) : (
-          <>
-            <div style={{ marginBottom: "0.75rem" }}><SafeVarBadge status={audit.varianceStatus} variance={audit.variance} th={th} /></div>
-            <div style={{ fontSize: "0.9rem", color: th.text }}>Conductor: {audit.auditorName || "—"}</div>
-            <div style={{ fontSize: "0.9rem", color: th.text }}>Expected {fmtSafeMoney(audit.expectedPettyCash)} · Counted {fmtSafeMoney(audit.countedTotal)} · Accounted {fmtSafeMoney(audit.accountedTotal)}</div>
-            {audit.hasCounterfeit && <div style={{ fontSize: "0.85rem", color: "#ef4444", marginTop: "0.4rem" }}>🚩 Counterfeit {fmtSafeMoney(audit.counterfeitTotal)}</div>}
-            <div style={{ marginTop: "1rem", padding: "0.75rem", borderRadius: 8, background: th.card2, color: th.muted, fontSize: "0.82rem" }}>
-              The full printable safe-audit report (denomination breakdown, photos, signatures) arrives in the next update.
+    <div style={{ maxWidth: 860, margin: "0 auto", paddingBottom: "2rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" }}>
+        <button onClick={onBack} style={{ ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) }}>← Back to safe audits</button>
+        <button onClick={exportPdf} disabled={exporting} style={{ ...btn(th), minHeight: 44, opacity: exporting ? 0.6 : 1 }}>{exporting ? "Exporting…" : "⤓ Export PDF"}</button>
+      </div>
+
+      <div ref={printRef}>
+        {/* Header: store/address, auditor, dates, duration, variance badge */}
+        <div style={{ ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1rem" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <div>
+              <div style={pageTitle(th)}>{storeName} {storePC ? `(${storePC})` : ""}</div>
+              {storeAddress && <div style={{ color: th.muted, fontSize: "0.82rem", marginTop: "0.15rem" }}>{storeAddress}</div>}
+              <div style={{ color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" }}>
+                Auditor: {audit.auditorName || "—"}{audit.auditorRole ? ` (${audit.auditorRole})` : ""}
+              </div>
+              <div style={{ color: th.muted, fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                Started {audit.startedAt ? new Date(audit.startedAt).toLocaleString() : "—"} · Submitted {audit.submittedAt ? new Date(audit.submittedAt).toLocaleString() : "—"}
+                {durationLabel ? ` · Duration ${durationLabel}` : ""}
+              </div>
             </div>
-          </>
+            <div style={{ textAlign: "center" }}>
+              <SafeVarBadge status={audit.varianceStatus} variance={audit.variance} th={th} />
+              <div style={{ fontSize: "0.7rem", color: th.muted, marginTop: "0.4rem" }}>Accounted {fmtSafeMoney(audit.accountedTotal)} vs Expected {fmtSafeMoney(audit.expectedPettyCash)}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* General information */}
+        <div style={{ ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" }}>
+          <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>General Information</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" }}>
+            <InfoCell label="Reason for audit" value={audit.reason || "—"} th={th} />
+            <InfoCell label="Current safe code" value={audit.safeCode || "—"} th={th} />
+            <InfoCell label="Code last changed" value={audit.codeLastChanged || "—"} th={th} />
+          </div>
+        </div>
+
+        {/* Store information */}
+        <div style={{ ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" }}>
+          <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>Store Information</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" }}>
+            <InfoCell label="Store manager" value={audit.storeManagerName || "—"} th={th} />
+            <InfoCell label="District" value={audit.district != null ? districtLabel(audit.district) : "—"} th={th} />
+          </div>
+        </div>
+
+        {/* Petty cash information */}
+        <div style={{ ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" }}>
+          <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>Petty Cash Information</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: "0.9rem" }}>
+            <InfoCell label="Expected petty cash" value={fmtSafeMoney(audit.expectedPettyCash)} th={th} />
+            <InfoCell label="Receipts in safe" value={audit.hasReceipts ? "Yes" : "No"} th={th} />
+            {audit.hasReceipts && <InfoCell label="Receipts total" value={fmtSafeMoney(audit.receiptsTotal)} th={th} />}
+          </div>
+          {audit.hasReceipts && audit.receiptPhotoKeys?.length > 0 && (
+            <div style={{ marginBottom: "0.9rem" }}>
+              <div style={{ fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" }}>Receipt photos ({audit.receiptPhotoKeys.length})</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                {audit.receiptPhotoKeys.map(k => <AuditPhotoThumb key={k} photoKey={k} th={th} onZoom={setLightbox} />)}
+              </div>
+            </div>
+          )}
+
+          {/* Denomination breakdown */}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thCell(th), textAlign: "left" }}>Denomination</th>
+                  <th style={{ ...thCell(th), textAlign: "right" }}>Count</th>
+                  <th style={{ ...thCell(th), textAlign: "right" }}>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {SAFE_BILLS.map(d => denomRow(d, "billCounts"))}
+                <tr><td colSpan={2} style={{ ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` }}>Total of Bills</td><td style={{ ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` }}>{fmtSafeMoney(audit.billsTotal)}</td></tr>
+                {SAFE_COINS.map(d => denomRow(d, "coinCounts"))}
+                <tr><td colSpan={2} style={{ ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` }}>Total of Coins</td><td style={{ ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` }}>{fmtSafeMoney(audit.coinsTotal)}</td></tr>
+                <tr><td colSpan={2} style={{ ...tdCell(th), fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" }}>Counted Total</td><td style={{ ...tdCell(th), textAlign: "right", fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" }}>{fmtSafeMoney(audit.countedTotal)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center", justifyContent: "space-between", marginTop: "0.9rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` }}>
+            <div style={{ fontSize: "0.85rem", color: th.text, fontWeight: 700 }}>Accounted total (counted + receipts): {fmtSafeMoney(audit.accountedTotal)}</div>
+            <SafeVarBadge status={audit.varianceStatus} variance={audit.variance} th={th} />
+          </div>
+
+          <div style={{ marginTop: "1rem", paddingTop: "0.9rem", borderTop: `1px solid ${th.cardBorder}` }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: audit.hasCounterfeit ? "0.75rem" : 0 }}>
+              <InfoCell label="Counterfeit cash found" value={audit.hasCounterfeit ? "Yes" : "No"} color={audit.hasCounterfeit ? "#ef4444" : undefined} th={th} />
+              {audit.hasCounterfeit && <InfoCell label="Counterfeit total" value={fmtSafeMoney(audit.counterfeitTotal)} color="#ef4444" th={th} />}
+            </div>
+            {audit.hasCounterfeit && audit.counterfeitPhotoKeys?.length > 0 && (
+              <div>
+                <div style={{ fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" }}>Counterfeit photos ({audit.counterfeitPhotoKeys.length})</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                  {audit.counterfeitPhotoKeys.map(k => <AuditPhotoThumb key={k} photoKey={k} th={th} onZoom={setLightbox} />)}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Signatures */}
+        <div style={{ ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" }}>
+          <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>Signatures</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem" }}>
+            <SafeSigImage sigKey={audit.conductorSigKey} th={th} label={`Conductor — ${audit.auditorName || "—"}`} />
+            <SafeSigImage sigKey={audit.managerSigKey} th={th} label={`Store manager / witness${audit.managerAckName ? ` — ${audit.managerAckName}` : ""}`} />
+          </div>
+        </div>
+
+        {/* Notes */}
+        {audit.notes && (
+          <div style={{ ...card(th), padding: "1.1rem 1.25rem" }}>
+            <div style={{ ...sectionTitle(th), marginBottom: "0.5rem" }}>Notes</div>
+            <div style={{ fontSize: "0.85rem", color: th.text, whiteSpace: "pre-wrap" }}>{audit.notes}</div>
+          </div>
         )}
       </div>
+
+      {lightbox && <SimpleLightbox src={lightbox} onClose={() => setLightbox(null)} />}
     </div>
   );
 }
@@ -22996,7 +23184,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.44";
+const APP_VERSION = "v18.45";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
