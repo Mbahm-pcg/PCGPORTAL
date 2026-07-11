@@ -12,6 +12,18 @@ const cors = {
 };
 const reply = (code, obj) => new Response(JSON.stringify(obj), { status: code, headers: cors });
 const lc = s => (s == null ? '' : String(s).trim().toLowerCase());
+const AUDITS_ACCESS_VALUES = new Set([null, 'view', 'full']);
+
+// Idempotent column add — matches the codebase's self-managing-schema pattern
+// (see audits.mjs ensureTables). Module-level once-flag so a warm lambda only
+// issues the ALTER once. Belt-and-suspenders with the same ALTER in audits.mjs's
+// ensureTables(), since a fresh deploy could hit either function first.
+let _auditsColumnEnsured = false;
+async function ensureAuditsColumn(db) {
+  if (_auditsColumnEnsured) return;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS audits_access text`;
+  _auditsColumnEnsured = true;
+}
 
 // Map a DB row (snake_case) to a client-safe object (camelCase). Never includes
 // password_hash or two_factor_secret.
@@ -42,6 +54,7 @@ function toClient(row) {
     mustChange:         row.must_change,
     locked:             row.locked,
     failedAttempts:     row.failed_attempts,
+    auditsAccess:       row.audits_access ?? null,
   };
 }
 
@@ -60,6 +73,10 @@ export default async (request) => {
   const eventShim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
 
   const db = sql();
+  // Ensure the audits_access column exists before any SELECT/INSERT/UPDATE below
+  // names it — belt-and-suspenders with the identical ALTER in audits.mjs's
+  // ensureTables(), since a fresh deploy could hit either function first.
+  await ensureAuditsColumn(db);
   const url = new URL(request.url);
   // requireActiveUser (not plain requireUser) so a revoked/deactivated session can't perform
   // user CRUD until its token expires. null = unauthenticated (the public `list` is still allowed).
@@ -81,7 +98,8 @@ export default async (request) => {
         SELECT id, username, name, email, phone, role, user_type, district, store_pc,
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
-               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
+               audits_access
         FROM users ORDER BY id
       `;
       return reply(200, rows.map(toClient));
@@ -96,6 +114,14 @@ export default async (request) => {
       const u = body.user || {};
       if (!u.username || !u.name || !u.userType) return reply(400, { error: 'username, name, userType required' });
       if (!canManage(claims, u.userType)) return reply(403, { error: 'cannot create users of this role' });
+
+      // audits_access grant: validate the value, and only executive/it may hand out a
+      // non-null grant. A create payload that omits the field, or explicitly sends
+      // null (the default), needs no elevated permission.
+      if (Object.prototype.hasOwnProperty.call(u, 'auditsAccess')) {
+        if (!AUDITS_ACCESS_VALUES.has(u.auditsAccess)) return reply(400, { error: 'invalid auditsAccess' });
+        if (u.auditsAccess !== null && !isFullAdmin(claims)) return reply(403, { error: 'only executive/IT can change audits access' });
+      }
 
       const username = lc(u.username);
       // Enforce password complexity on create — except for shared devices (store tablets/kiosks).
@@ -112,7 +138,7 @@ export default async (request) => {
         INSERT INTO users (
           username, name, email, phone, role, user_type, district, store_pc,
           active, dark_mode, initials, is_admin, must_setup, region,
-          password_hash, must_change, two_factor_required, created_at, updated_at
+          password_hash, must_change, two_factor_required, audits_access, created_at, updated_at
         ) VALUES (
           ${username}, ${u.name}, ${lc(u.email) || null}, ${u.phone || null},
           ${u.role || null}, ${u.userType}, ${u.district ?? null},
@@ -120,7 +146,7 @@ export default async (request) => {
           ${u.active !== false}, ${u.darkMode || false},
           ${u.initials || null}, ${u.isAdmin || false}, ${forceSetup},
           ${u.region || 'PA'}, ${passwordHash}, ${forceSetup},
-          ${u.twoFactorRequired || false}, now(), now()
+          ${u.twoFactorRequired || false}, ${u.auditsAccess ?? null}, now(), now()
         )
         ON CONFLICT (username) DO NOTHING
         RETURNING id
@@ -131,7 +157,8 @@ export default async (request) => {
         SELECT id, username, name, email, phone, role, user_type, district, store_pc,
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
-               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
+               audits_access
         FROM users WHERE id = ${row.id}
       `;
       return reply(201, { user: toClient(created) });
@@ -142,10 +169,22 @@ export default async (request) => {
       const { id, patch } = body;
       if (!id || !patch) return reply(400, { error: 'id and patch required' });
 
-      const [target] = await db`SELECT id, user_type FROM users WHERE id = ${id}`;
+      const [target] = await db`SELECT id, user_type, audits_access FROM users WHERE id = ${id}`;
       if (!target) return reply(404, { error: 'user not found' });
       if (!canManage(claims, target.user_type)) return reply(403, { error: 'forbidden' });
       if (patch.userType && !canManage(claims, patch.userType)) return reply(403, { error: 'cannot assign this role' });
+
+      // audits_access grant: validate the value; only executive/it may change it. A
+      // patch that omits the field entirely (office_staff editing unrelated fields)
+      // must keep working, so this only rejects when the payload actually changes
+      // the stored value — comparing against target.audits_access, not just presence.
+      const auditsAccessProvided = Object.prototype.hasOwnProperty.call(patch, 'auditsAccess');
+      if (auditsAccessProvided) {
+        if (!AUDITS_ACCESS_VALUES.has(patch.auditsAccess)) return reply(400, { error: 'invalid auditsAccess' });
+        if (patch.auditsAccess !== (target.audits_access ?? null) && !isFullAdmin(claims)) {
+          return reply(403, { error: 'only executive/IT can change audits access' });
+        }
+      }
 
       // Hash and apply password change separately. Complexity is enforced unless the
       // user is (or is becoming) a shared device (store tablet/kiosk).
@@ -156,6 +195,13 @@ export default async (request) => {
           if (!v.ok) return reply(400, { error: v.message });
         }
         await db`UPDATE users SET password_hash = ${hashPassword(String(patch.password))}, must_change = true, updated_at = now() WHERE id = ${id}`;
+      }
+
+      // Applied separately from the COALESCE block below because COALESCE can't
+      // distinguish "not provided" from "explicitly set to null" — and an explicit
+      // null here means "revoke the grant," which must actually take effect.
+      if (auditsAccessProvided) {
+        await db`UPDATE users SET audits_access = ${patch.auditsAccess ?? null}, updated_at = now() WHERE id = ${id}`;
       }
 
       await db`
@@ -182,7 +228,8 @@ export default async (request) => {
         SELECT id, username, name, email, phone, role, user_type, district, store_pc,
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
-               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
+               audits_access
         FROM users WHERE id = ${id}
       `;
       return reply(200, { user: toClient(updated) });
@@ -200,7 +247,8 @@ export default async (request) => {
         SELECT id, username, name, email, phone, role, user_type, district, store_pc,
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
-               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
+               audits_access
         FROM users WHERE id = ${id}
       `;
       return reply(200, { user: toClient(updated) });
@@ -218,7 +266,8 @@ export default async (request) => {
         SELECT id, username, name, email, phone, role, user_type, district, store_pc,
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
-               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
+               audits_access
         FROM users WHERE id = ${id}
       `;
       return reply(200, { user: toClient(updated) });

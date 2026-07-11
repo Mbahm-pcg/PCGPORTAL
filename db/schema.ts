@@ -34,6 +34,11 @@ export const users = pgTable("users", {
   locked: boolean("locked").notNull().default(false),
   // Sign-out-everywhere: tokens issued before this instant are rejected (iat < this).
   sessionsValidFrom: timestamp("sessions_valid_from"),
+  // Per-user Audits module grant: null (role default) | 'view' | 'full'. Only
+  // executive/it may set it. Self-created via ALTER TABLE IF NOT EXISTS in
+  // users.mjs / audits.mjs (not migrated from here) — see audit-lib/access.js
+  // (effectiveAudits) and docs/superpowers/specs/2026-07-11-audits-access-grant-design.md.
+  auditsAccess: text("audits_access"),
 });
 
 // ── Tickets ───────────────────────────────────────────────────────────────────

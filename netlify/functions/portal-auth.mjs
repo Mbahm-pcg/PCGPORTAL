@@ -61,6 +61,7 @@ function issue(row, mustChange) {
     isAdmin: row.is_admin || row.isAdmin || false,
     storePC: row.store_pc || row.storePC || null,
     region: row.region || null,
+    auditsAccess: row.audits_access ?? row.auditsAccess ?? null,
   };
   const token = signToken(claims, secret, { ttlSeconds: TTL });
   const user = {
@@ -73,6 +74,7 @@ function issue(row, mustChange) {
     isAdmin: claims.isAdmin,
     storePC: claims.storePC,
     region: claims.region,
+    auditsAccess: claims.auditsAccess,
     twoFactorRequired: row.two_factor_required || row.twoFactorRequired || false,
     twoFactorEnabled: row.two_factor_enabled || row.twoFactorEnabled || false,
     mustSetup: row.must_setup || row.mustSetup || false,
@@ -136,7 +138,8 @@ export default async (request, context) => {
         let [row] = await db`
           SELECT id, username, name, email, user_type, district, store_pc, active,
                  is_admin, region, initials, must_setup, dark_mode,
-                 must_change, two_factor_required, two_factor_enabled, two_factor_secret
+                 must_change, two_factor_required, two_factor_enabled, two_factor_secret,
+                 audits_access
           FROM users WHERE lower(email) = ${email} AND active = true LIMIT 1
         `;
 
@@ -175,7 +178,7 @@ export default async (request, context) => {
         SELECT id, username, name, email, user_type, district, store_pc, active,
                is_admin, region, initials, must_setup, dark_mode,
                password_hash, must_change, two_factor_required, two_factor_enabled, two_factor_secret,
-               failed_attempts, locked
+               failed_attempts, locked, audits_access
         FROM users WHERE username = ${username}
       `;
 

@@ -10,11 +10,11 @@
 //   template  → { ok, template }
 //   list      { storePC? } → { ok, audits:[…] }              role-scoped
 //   get       { id } → { ok, audit, items, caps }             role-scoped
-//   saveDraft { id?, storePC, results, notes, photos } → { ok, id }     CAN_AUDIT
-//   submit    { id, lat, lng } → { ok, audit, capsCreated }    CAN_AUDIT
-//   unlock    { id } → { ok }                                  CAN_UNLOCK
+//   saveDraft { id?, storePC, results, notes, photos } → { ok, id }     eff.canAudit
+//   submit    { id, lat, lng } → { ok, audit, capsCreated }    eff.canAudit
+//   unlock    { id } → { ok }                                  CAN_UNLOCK (never grantable)
 //   capUpdate { id, to, note?, photoKeys?, ownerUserId?, deadline? } → { ok, cap }
-//   dashboard → { ok, latestByStore, trend, coverage, repeats, capBoard }  full/dm
+//   dashboard → { ok, latestByStore, trend, coverage, repeats, capBoard }  eff.canView
 import { neon } from '@neondatabase/serverless';
 // Direct ESM named imports of these CommonJS libs — same pattern as tasks.mjs /
 // portal-auth.mjs (`import { requireActiveUser } from './auth-lib/require-user.js'`).
@@ -28,6 +28,7 @@ import { requireActiveUser } from './auth-lib/require-user.js';
 import { TEMPLATE_V1, validateTemplate } from './audit-lib/template.js';
 import { computeScore, bandFor } from './audit-lib/scoring.js';
 import { canTransition, defaultDeadline, isOverdue } from './audit-lib/caps.js';
+import { effectiveAudits } from './audit-lib/access.js';
 
 const cors = {
   'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -36,9 +37,12 @@ const cors = {
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: cors });
 let _sql = null; const db = () => (_sql ||= neon(process.env.NEON_DATABASE_URL));
 
+// Baseline (role-only) view scope, used by visibleStores(). Per-request elevation
+// on top of these baselines (dm/office_staff-equivalent view, auditor-equivalent
+// audit powers) comes from effectiveAudits() in audit-lib/access.js, computed
+// once per request as `eff` below — see spec §1-2.
 const FULL_VIEW = new Set(['auditor', 'executive', 'it', 'office_staff']);
-const CAN_AUDIT = new Set(['auditor', 'executive', 'it']); // exec/it can audit in a pinch
-const CAN_UNLOCK = new Set(['executive', 'it']);
+const CAN_UNLOCK = new Set(['executive', 'it']); // unlock is never grantable — exec/it only
 
 // pc → { district, mgr, email } for all 45 stores. Copied from app.jsx's
 // STORES_SEED (search `const STORES_SEED`) rather than imported, because the
@@ -108,6 +112,10 @@ let _ready = false;
 async function ensureTables() {
   if (_ready) return;
   const sql = db();
+  // Belt-and-suspenders with the identical idempotent ALTER in users.mjs's
+  // ensureAuditsColumn() — a fresh deploy could hit either function first, and
+  // requireActiveUser() below needs the column to already exist.
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS audits_access text`;
   await sql`CREATE TABLE IF NOT EXISTS audit_templates (
     id          serial PRIMARY KEY,
     version     int NOT NULL,
@@ -177,13 +185,27 @@ async function ensureTables() {
 }
 
 // Role-scoped store visibility: returns { storePCs:[..] } | 'all' | 'none'.
+// Grants only ever widen scope, never narrow it (spec §1: "grants only elevate").
+// dm district-scoping stays keyed on the real userType (not eff.effUserType,
+// which can become 'auditor' on a full grant) — a granted dm still isn't an
+// auditor for anything except the widened view scope itself.
 function visibleStores(user) {
   if (FULL_VIEW.has(user.userType)) return 'all';
+  const hasGrant = user.auditsAccess === 'view' || user.auditsAccess === 'full';
   if (user.userType === 'dm') {
+    // Baseline dm scope is district-limited; a grant elevates to full-portfolio
+    // view, matching the 'view' grant's "treated like office_staff" behavior.
+    if (hasGrant) return 'all';
     const storePCs = AUDIT_STORES.filter((s) => String(s.district) === String(user.district)).map((s) => s.pc);
     return { storePCs };
   }
-  if (user.userType === 'manager') return { storePCs: [String(user.storePC || '')] };
+  if (user.userType === 'manager') {
+    // A grant elevates a manager past their own store to full-portfolio
+    // read-only, same as any other non-baseline role (spec §2).
+    if (hasGrant) return 'all';
+    return { storePCs: [String(user.storePC || '')] };
+  }
+  if (hasGrant) return 'all'; // e.g. construction/maintenance/vendor + grant
   return 'none';
 }
 
@@ -297,6 +319,9 @@ export default async (req) => {
     const event = { headers: Object.fromEntries(req.headers.entries()) };
     const user = await requireActiveUser(event, sql);
     if (!user) return json(401, { ok: false, error: 'auth required' });
+    // Computed once per request (not baked into the token) so a grant/revoke by
+    // executive/it takes effect immediately, per spec §1. See audit-lib/access.js.
+    const eff = effectiveAudits(user.userType, user.auditsAccess);
     const body = await req.json().catch(() => ({}));
 
     switch (body.action) {
@@ -351,7 +376,7 @@ export default async (req) => {
       }
 
       case 'saveDraft': {
-        if (!CAN_AUDIT.has(user.userType)) return json(403, { ok: false, error: 'forbidden' });
+        if (!eff.canAudit) return json(403, { ok: false, error: 'forbidden' });
         const storePC = String(body.storePC || '');
         if (!storePC) return json(400, { ok: false, error: 'storePC required' });
         const id = body.id != null ? toBigInt(body.id) : Date.now();
@@ -382,7 +407,7 @@ export default async (req) => {
       }
 
       case 'submit': {
-        if (!CAN_AUDIT.has(user.userType)) return json(403, { ok: false, error: 'forbidden' });
+        if (!eff.canAudit) return json(403, { ok: false, error: 'forbidden' });
         const id = toBigInt(body.id);
         if (id == null) return json(400, { ok: false, error: 'id required' });
         const rows = await sql`SELECT * FROM audits WHERE id = ${id}`;
@@ -467,15 +492,15 @@ export default async (req) => {
         const isOwner = cap.owner_user_id != null && user.sub != null && String(cap.owner_user_id) === String(user.sub);
         const isMetaOnly = to === cap.status; // e.g. an owner/deadline reassignment with no status change
         if (isMetaOnly) {
-          if (!CAN_AUDIT.has(user.userType)) return json(403, { ok: false, error: 'forbidden' });
-        } else if (!canTransition(user.userType, isOwner, cap.status, to)) {
+          if (!eff.canAudit) return json(403, { ok: false, error: 'forbidden' });
+        } else if (!canTransition(eff.effUserType, isOwner, cap.status, to)) {
           return json(403, { ok: false, error: 'transition not allowed' });
         }
 
         // Owner/deadline reassignment is auditor/executive/it only, per the brief,
         // regardless of whether this call is also doing a status transition.
         const wantsOwnerOrDeadlineEdit = body.ownerUserId !== undefined || body.deadline !== undefined;
-        if (wantsOwnerOrDeadlineEdit && !CAN_AUDIT.has(user.userType)) {
+        if (wantsOwnerOrDeadlineEdit && !eff.canAudit) {
           return json(403, { ok: false, error: 'forbidden' });
         }
 
@@ -519,12 +544,13 @@ export default async (req) => {
       }
 
       case 'dashboard': {
-        const isFull = FULL_VIEW.has(user.userType);
-        const isDm = user.userType === 'dm';
-        if (!isFull && !isDm) return json(403, { ok: false, error: 'forbidden' });
-        const pcs = isFull
-          ? AUDIT_STORES.map((s) => s.pc)
-          : AUDIT_STORES.filter((s) => String(s.district) === String(user.district)).map((s) => s.pc);
+        // dm is already a baseline viewer role (see audit-lib/access.js VIEWERS), so
+        // this collapses to eff.canView — full/office_staff/grant/dm all pass, and a
+        // manager/other role without a grant correctly stays forbidden.
+        if (!eff.canView) return json(403, { ok: false, error: 'forbidden' });
+        const isDm = user.userType === 'dm'; // real userType — drives the district-benchmark portfolioTrend branch below, not the elevated view scope
+        const scope = visibleStores(user);
+        const pcs = scope === 'all' ? AUDIT_STORES.map((s) => s.pc) : (scope === 'none' ? [] : scope.storePCs);
         if (!pcs.length) return json(200, { ok: true, latestByStore: {}, trend: [], portfolioTrend: null, coverage: { totalStores: 0, auditedStores: 0, pct: 0, missing: [] }, repeats: { chronic: {}, systemic: [] }, capBoard: [], capSummary: { total: 0, open: 0, overdue: 0, byOwner: [], avgDaysToClose: null } });
 
         // latestByStore — most recent submitted audit per store.

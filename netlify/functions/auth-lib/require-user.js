@@ -54,12 +54,15 @@ async function requireActiveUser(event, db, opts = {}) {
   const claims = requireUser(event, opts);
   if (!claims) return null;
   try {
-    const rows = await db`SELECT sessions_valid_from, active FROM users WHERE id = ${claims.sub}`;
+    const rows = await db`SELECT sessions_valid_from, active, audits_access FROM users WHERE id = ${claims.sub}`;
     // Definitive answers from a successful query fail CLOSED: a deleted or deactivated
     // user, or a token issued before a sign-out-everywhere cutoff, is rejected.
     if (!rows.length) return null;
     if (rows[0].active === false) return null;
     if (!sessionIsValid(claims, rows[0].sessions_valid_from)) return null;
+    // Fresh per-request lookup (not baked into the signed token) so a grant/revoke
+    // by an executive/it admin takes effect immediately, not just at next login.
+    claims.auditsAccess = rows[0].audits_access ?? null;
   } catch { /* only a DB ERROR fails open (token still expires in ≤12h) — not a 0-row result */ }
   return claims;
 }
