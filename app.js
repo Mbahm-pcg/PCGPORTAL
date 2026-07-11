@@ -17436,7 +17436,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.38";
+  var APP_VERSION = "v18.39";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -30934,7 +30934,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       );
     };
     const ADMIN_GROUPS = [
-      { key: "ops", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polyline", { points: "23 6 13.5 15.5 8.5 10.5 1 18" }), /* @__PURE__ */ React.createElement("polyline", { points: "17 6 23 6 23 12" })) }), label: "Operations", color: "#38bdf8", ids: ["tasks", "pulse", "labor", "analytics", "anomalies", "scorecard"] },
+      { key: "ops", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polyline", { points: "23 6 13.5 15.5 8.5 10.5 1 18" }), /* @__PURE__ */ React.createElement("polyline", { points: "17 6 23 6 23 12" })) }), label: "Operations", color: "#38bdf8", ids: ["tasks", "pulse", "labor", "analytics", "anomalies", "scorecard", "audits"] },
       { key: "fin", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "1", x2: "12", y2: "23" }), /* @__PURE__ */ React.createElement("path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" })) }), label: "Finance", color: "#22c55e", ids: ["pnl", "ndcp", "cash", "recon", "expenses"] },
       { key: "team", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 2 7 12 12 22 7 12 2" }), /* @__PURE__ */ React.createElement("polyline", { points: "2 17 12 22 22 17" }), /* @__PURE__ */ React.createElement("polyline", { points: "2 12 12 17 22 12" })) }), label: "Team & Sites", color: "#a78bfa", ids: ["map", "locations", "impact", "projects", "deals", "users"] },
       { key: "system", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "21", x2: "4", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "10", x2: "4", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "21", x2: "12", y2: "12" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "8", x2: "12", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "21", x2: "20", y2: "16" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "12", x2: "20", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "1", y1: "14", x2: "7", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "9", y1: "8", x2: "15", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "17", y1: "16", x2: "23", y2: "16" })) }), label: "System", color: "#94a3b8", ids: ["reports", "email", "admin"] }
@@ -31409,7 +31409,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const dmTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
       const DM_GROUPS = [
         { key: "dm_loc", label: "Locations & Map", color: "#74c0fc", icon: (c) => ICONS.locations(c), ids: ["map", "locations"] },
-        { key: "dm_ops", label: "Operations", color: "#74c0fc", icon: (c) => ICONS.analytics(c), ids: ["tasks", "pulse", "labor", "pnl", "analytics", "anomalies"] },
+        { key: "dm_ops", label: "Operations", color: "#74c0fc", icon: (c) => ICONS.analytics(c), ids: ["tasks", "pulse", "labor", "pnl", "analytics", "anomalies", "audits"] },
         { key: "dm_biz", label: "District", color: "#74c0fc", icon: (c) => ICONS.dollar(c), ids: ["cash", "reports", "projects", "deals", "scorecard"] }
       ];
       const sectionHasActive = dmTabs.some((t) => t.id === tab) && !pinnedNavIds.includes(tab);
@@ -31463,6 +31463,34 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           isActive: tab === t.id,
           collapsed,
           badge: t.id === "reports" && reportsUnreadCount > 0 ? reportsUnreadCount : null,
+          pinned: pinnedNavIds.includes(t.id),
+          onTogglePin: togglePinNav,
+          onClick: () => {
+            setTab(t.id);
+            onNav && onNav();
+          }
+        }
+      )));
+    })(), user?.userType === "auditor" && (() => {
+      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_auditor"] || secTabs.some((t) => t.id === tab);
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        SectionHeader,
+        {
+          label: "Field Operations",
+          accent: "#38bdf8",
+          collapsed,
+          open: sectionOpen,
+          onToggle: () => toggleSidebarSection("sec_auditor")
+        }
+      ), sectionOpen && secTabs.map((t) => /* @__PURE__ */ React.createElement(
+        NavButton,
+        {
+          key: t.id,
+          tabDef: t,
+          accent: "#38bdf8",
+          isActive: tab === t.id,
+          collapsed,
           pinned: pinnedNavIds.includes(t.id),
           onTogglePin: togglePinNav,
           onClick: () => {
