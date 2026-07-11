@@ -15602,7 +15602,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const res = await fetch("/.netlify/functions/audits", {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeader() },
       body: JSON.stringify({ action, ...body })
     });
     let json = null;
@@ -17436,7 +17436,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return false;
   };
-  var APP_VERSION = "v18.39";
+  var APP_VERSION = "v18.40";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
