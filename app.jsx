@@ -20415,6 +20415,269 @@ async function buildSafeAuditPdf(audit, assets) {
   return doc;
 }
 
+// Typeset jsPDF builder for the Field Ops Audit report — mirrors buildSafeAuditPdf's
+// helper style (JsPDFCtor acquisition, letter format/margins, setFill/setText/
+// setDraw, addPageIfNeeded, sectionTitle, kvRow, wrapText, parseDataUrl, imgSize,
+// addImage(...,'FAST'), page-number footer) so the export is crisp selectable
+// text instead of an html2pdf screenshot. `items`/`caps` are the arrays from
+// auditsApi("get",{id}) — already in template/section order. `photoMap` =
+// { [photoKey]: dataUrl } — every finding photoKey pre-resolved by the caller
+// (AuditReport.exportPdf) via cloudLoadFile. Displays server-computed
+// score/band/sectionScores as-is — does not recompute them client-side.
+async function buildFieldOpsAuditPdf(audit, items, caps, photoMap) {
+  const _photos = photoMap || {};
+  const _items = Array.isArray(items) ? items : [];
+  const _caps = Array.isArray(caps) ? caps : [];
+  const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || null;
+  if (!JsPDFCtor) throw new Error('jsPDF not available on the page');
+  const doc = new JsPDFCtor({ unit: 'in', format: 'letter', orientation: 'portrait' });
+  const pageW = 8.5, pageH = 11;
+  const margin = 0.5;
+  const contentW = pageW - margin * 2;
+  const _hex = BRAND_CONFIG.primary.replace('#', '');
+  const brandOrange = [parseInt(_hex.slice(0, 2), 16), parseInt(_hex.slice(2, 4), 16), parseInt(_hex.slice(4, 6), 16)];
+  const textDark = [17, 17, 17];
+  const textMuted = [102, 102, 102];
+  const textFaint = [153, 153, 153];
+  const lineLight = [221, 221, 221];
+  const bgSoft = [249, 249, 249];
+  const red = [239, 68, 68];
+  const white = [255, 255, 255];
+  let y = margin;
+  const setFill = (c) => doc.setFillColor(c[0], c[1], c[2]);
+  const setText = (c) => doc.setTextColor(c[0], c[1], c[2]);
+  const setDraw = (c) => doc.setDrawColor(c[0], c[1], c[2]);
+  const hexToRgb = (hex) => {
+    const h = String(hex || '').replace('#', '');
+    return [parseInt(h.slice(0, 2), 16) || 0, parseInt(h.slice(2, 4), 16) || 0, parseInt(h.slice(4, 6), 16) || 0];
+  };
+  const storeLabel = `${audit.storeName || audit.storePC || ''}${audit.storeName && audit.storePC ? ` (${audit.storePC})` : ''}`.trim();
+  const drawPageHeader = () => {
+    setText(textFaint); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text(`Field Operations Audit — ${storeLabel}`, margin, y);
+    y += 0.25;
+  };
+  const addPageIfNeeded = (needed) => {
+    if (y + needed > pageH - margin) { doc.addPage(); y = margin; drawPageHeader(); return true; }
+    return false;
+  };
+  const sectionTitle = (title) => {
+    y += 0.2; addPageIfNeeded(0.75);
+    setText(textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(title, margin, y); y += 0.08;
+    setDraw(brandOrange); doc.setLineWidth(0.03);
+    doc.line(margin, y, margin + contentW, y); y += 0.3;
+  };
+  const wrapText = (text, maxWidth, fontSize) => { doc.setFontSize(fontSize); return doc.splitTextToSize(text || '', maxWidth); };
+  const parseDataUrl = (dataUrl) => {
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return null;
+    const m = dataUrl.match(/^data:image\/(\w+);/);
+    const fmt = (m ? m[1] : 'jpeg').toUpperCase();
+    return { dataUrl, format: fmt === 'JPG' ? 'JPEG' : fmt };
+  };
+  const imgSize = (dataUrl) => new Promise((resolve) => {
+    const i = new Image();
+    i.onload = () => resolve({ w: i.naturalWidth || i.width || 800, h: i.naturalHeight || i.height || 600 });
+    i.onerror = () => resolve({ w: 800, h: 600 });
+    i.src = dataUrl;
+  });
+  // Scores/percentages are already integers/one-decimal from the server — render
+  // as-is, no rounding beyond trimming float noise.
+  const fmtScore = (n) => {
+    if (n == null || Number.isNaN(Number(n))) return 'N/A';
+    const v = Math.round(Number(n) * 10) / 10;
+    return Number.isInteger(v) ? String(v) : String(v);
+  };
+  const fmtDT = (v) => v ? new Date(v).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+  // Embeds a row-wrapped grid of dataURL photos, page-break aware — mirrors
+  // buildSafeAuditPdf's embedPhotos.
+  const embedPhotos = async (dataUrls) => {
+    if (!dataUrls || dataUrls.length === 0) return;
+    const photoW = 2.1, photoH = 1.55, gap = 0.18;
+    const perRow = Math.max(1, Math.floor((contentW + gap) / (photoW + gap)));
+    for (let i = 0; i < dataUrls.length; i++) {
+      const col = i % perRow;
+      if (col === 0) addPageIfNeeded(photoH + 0.15);
+      const px = margin + col * (photoW + gap);
+      setFill(bgSoft); doc.rect(px, y, photoW, photoH, 'F');
+      setDraw(lineLight); doc.setLineWidth(0.008); doc.rect(px, y, photoW, photoH, 'S');
+      try {
+        const parsed = parseDataUrl(dataUrls[i]);
+        if (parsed) {
+          const sz = await imgSize(dataUrls[i]);
+          const srcRatio = sz.w / sz.h, dstRatio = photoW / photoH;
+          let drawW, drawH;
+          if (srcRatio > dstRatio) { drawW = photoW; drawH = photoW / srcRatio; } else { drawH = photoH; drawW = photoH * srcRatio; }
+          const offX = (photoW - drawW) / 2, offY = (photoH - drawH) / 2;
+          doc.addImage(dataUrls[i], parsed.format, px + offX, y + offY, drawW, drawH, undefined, 'FAST');
+        } else {
+          setText(textFaint); doc.setFontSize(7); doc.text('[photo]', px + photoW / 2, y + photoH / 2, { align: 'center' });
+        }
+      } catch { setText(textFaint); doc.setFontSize(7); doc.text('[photo]', px + photoW / 2, y + photoH / 2, { align: 'center' }); }
+      if (col === perRow - 1 || i === dataUrls.length - 1) y += photoH + gap;
+    }
+    y += 0.05;
+  };
+
+  // ---------- Title ----------
+  setText(textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
+  doc.text('Field Operations Audit', margin + contentW / 2, y + 0.15, { align: 'center' });
+  y += 0.45;
+  setDraw(brandOrange); doc.setLineWidth(0.03);
+  doc.line(margin, y, margin + contentW, y);
+  y += 0.25;
+
+  // ---------- Header block (two columns: Location/Auditor vs Status/Dates/GPS) ----------
+  const leftX = margin, rightX = margin + contentW / 2 + 0.15;
+  setText(textFaint); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+  doc.text('LOCATION', leftX, y);
+  doc.text('STATUS', rightX, y);
+  y += 0.18;
+  setText(textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text(storeLabel || '—', leftX, y);
+  doc.text(String(audit.status || '—').toUpperCase(), rightX, y);
+  y += 0.22;
+  const hasGps = audit.submitLat != null && audit.submitLng != null;
+  setText(textMuted); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+  doc.text(`Auditor: ${audit.auditorName || '—'}`, leftX, y);
+  doc.text(`Started: ${fmtDT(audit.startedAt)}`, rightX, y);
+  y += 0.18;
+  doc.text(hasGps ? `GPS: ${Number(audit.submitLat).toFixed(5)}, ${Number(audit.submitLng).toFixed(5)}` : 'GPS: not recorded', leftX, y);
+  doc.text(`Submitted: ${fmtDT(audit.submittedAt)}`, rightX, y);
+  y += 0.3;
+  setDraw(lineLight); doc.setLineWidth(0.01);
+  doc.line(margin, y, margin + contentW, y);
+  y += 0.2;
+
+  // ---------- Score summary (prominent badge, colored by band; server-computed) ----------
+  addPageIfNeeded(0.55);
+  const band = audit.band || auditBandForScore(audit.score || 0);
+  const bandColor = hexToRgb(auditBandColor(band));
+  const badgeText = `${fmtScore(audit.score)} / 100  —  ${auditBandLabel(band).toUpperCase()}`;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+  const badgeTextW = doc.getTextWidth(badgeText);
+  const badgeW = badgeTextW + 0.6, badgeH = 0.46;
+  setFill(bandColor); doc.roundedRect(margin, y, badgeW, badgeH, 0.08, 0.08, 'F');
+  setText(white); doc.text(badgeText, margin + badgeW / 2, y + badgeH / 2 + 0.05, { align: 'center' });
+  y += badgeH + 0.25;
+
+  // ---------- Capped-by-critical banner (red, only when flagged) ----------
+  if (audit.cappedByCritical) {
+    const criticalItem = _items.find((it) => it.critical && (it.result === 'fail' || it.result == null));
+    const bannerText = `CAPPED — critical failure${criticalItem ? `: ${criticalItem.text}` : ''}`;
+    const lines = wrapText(bannerText, contentW - 0.3, 9.5);
+    const bannerH = 0.14 + lines.length * 0.16;
+    addPageIfNeeded(bannerH + 0.15);
+    setFill([254, 226, 226]); doc.rect(margin, y, contentW, bannerH, 'F');
+    setDraw(red); doc.setLineWidth(0.015); doc.rect(margin, y, contentW, bannerH, 'S');
+    setText(red); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+    let ly = y + 0.18;
+    for (const line of lines) { doc.text(line, margin + 0.15, ly); ly += 0.16; }
+    y += bannerH + 0.25;
+  }
+
+  // ---------- Section Scores ----------
+  // sectionOrder/sectionMeta derived from `items` (already in template order),
+  // sectionScores from the authoritative audit.sectionScores — mirrors the
+  // on-screen AuditReport's derivation exactly, never recomputed here.
+  const sectionOrder = [];
+  const sectionMeta = {};
+  _items.forEach((it) => {
+    if (!(it.sectionId in sectionMeta)) { sectionMeta[it.sectionId] = it.sectionName; sectionOrder.push(it.sectionId); }
+  });
+  const sectionScores = audit.sectionScores || {};
+  if (sectionOrder.length > 0) {
+    sectionTitle('Section Scores');
+    for (const sid of sectionOrder) {
+      const s = sectionScores[sid];
+      const rowH = 0.34;
+      addPageIfNeeded(rowH);
+      const sColor = s == null ? textMuted : hexToRgb(auditBandColor(auditBandForScore(s)));
+      setText(textDark); doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+      doc.text(sectionMeta[sid] || String(sid), margin, y + 0.14);
+      setText(sColor); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+      doc.text(s == null ? 'N/A' : `${fmtScore(s)}%`, margin + contentW, y + 0.14, { align: 'right' });
+      const barY = y + 0.2, barH = 0.06;
+      setFill(bgSoft); doc.rect(margin, barY, contentW, barH, 'F');
+      if (s != null) { setFill(sColor); doc.rect(margin, barY, contentW * Math.max(0, Math.min(100, s)) / 100, barH, 'F'); }
+      y += rowH;
+    }
+    y += 0.1;
+  }
+
+  // ---------- Findings & Corrective Actions ----------
+  // One finding per CAP (CAPs are only ever created for failed/unanswered items
+  // at submit time), enriched with the auditor's original note/photos from the
+  // matching template item — mirrors the on-screen AuditReport's derivation.
+  const findings = _caps.map((cap) => {
+    const it = _items.find((i) => i.id === cap.templateItemId);
+    return { cap, text: it?.text || cap.itemText, note: it?.note, photoKeys: it?.photoKeys || [] };
+  });
+
+  sectionTitle('Findings & Corrective Actions');
+  if (findings.length === 0) {
+    setText(textMuted); doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    doc.text('No findings — all items passed.', margin, y);
+    y += 0.25;
+  } else {
+    for (let idx = 0; idx < findings.length; idx++) {
+      const { cap, text, note, photoKeys } = findings[idx];
+      const sevLabel = String(cap.severity || '—').toUpperCase();
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      const sevW = doc.getTextWidth(sevLabel) + 0.18;
+      const itemLines = wrapText(text || cap.itemText || '—', contentW - sevW - 0.15, 9.5);
+      addPageIfNeeded(itemLines.length * 0.15 + 0.3);
+
+      // Item text (bold, wrapped) + severity pill, right-aligned on the first line
+      setText(textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+      doc.text(itemLines, margin, y + 0.14);
+      const sevColor = hexToRgb(SEVERITY_COLOR[cap.severity] || '#6b7280');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      setFill(sevColor); doc.roundedRect(margin + contentW - sevW, y, sevW, 0.22, 0.05, 0.05, 'F');
+      setText(white); doc.text(sevLabel, margin + contentW - sevW / 2, y + 0.15, { align: 'center' });
+      y += itemLines.length * 0.15 + 0.14;
+
+      // Auditor's note (wrapped, if any)
+      if (note) {
+        const noteLines = wrapText(note, contentW, 8.5);
+        setText(textMuted); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+        for (const line of noteLines) { addPageIfNeeded(0.15); doc.text(line, margin, y + 0.11); y += 0.15; }
+        y += 0.04;
+      }
+
+      // Embedded finding photos (resolved by the caller into photoMap)
+      const dataUrls = (photoKeys || []).map((k) => _photos[k]).filter(Boolean);
+      if (dataUrls.length) await embedPhotos(dataUrls);
+
+      // CAP line
+      addPageIfNeeded(0.2);
+      const capLine = `CAP: owner ${cap.ownerName || 'Unassigned'} · due ${cap.deadline ? new Date(cap.deadline).toLocaleDateString() : '—'} · ${capStatusMeta(cap.status).label}`;
+      setText(textMuted); doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5);
+      doc.text(capLine, margin, y + 0.12);
+      y += 0.28;
+
+      if (idx < findings.length - 1) {
+        addPageIfNeeded(0.15);
+        setDraw(lineLight); doc.setLineWidth(0.008);
+        doc.line(margin, y, margin + contentW, y);
+        y += 0.15;
+      }
+    }
+  }
+
+  // ---------- Footer (page numbers, every page) ----------
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p); setText(textFaint); doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+    doc.text(`Generated ${new Date().toLocaleDateString('en-US')} — ${BRAND_CONFIG.portalName}`, margin, pageH - 0.3);
+    const fw = doc.getTextWidth(`Page ${p} of ${totalPages}`);
+    doc.text(`Page ${p} of ${totalPages}`, margin + contentW - fw, pageH - 0.3);
+  }
+
+  return doc;
+}
+
 // Full printable Safe Audit report — mirrors the sample-PDF layout: header
 // (store/auditor/dates), General/Store/Petty-Cash sections, denomination
 // breakdown table, prominent variance badge, counterfeit block, photos
@@ -21336,13 +21599,27 @@ function AuditReport({ user, th, stores, showAlert, auditId, storePC, onBack }) 
   });
 
   const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  // PDF export builds a typeset document via buildFieldOpsAuditPdf (crisp
+  // selectable text, real layout) — replaces the old html2pdf screenshot of
+  // printRef, which stays below for in-app viewing only.
   const exportPdf = async () => {
-    if (typeof html2pdf === "undefined" || !printRef.current) return;
+    const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || null;
+    if (!JsPDFCtor) { showAlert?.("error", "PDF export isn't available right now — please try again in a moment."); return; }
     setExporting(true);
     try {
+      // Pre-fetch every finding photo's dataURL up front so the builder can
+      // embed images synchronously per-finding without re-querying storage.
+      const photoKeySet = new Set();
+      findings.forEach(f => (f.photoKeys || []).forEach(k => photoKeySet.add(k)));
+      const photoMap = {};
+      await Promise.all([...photoKeySet].map(k =>
+        cloudLoadFile(k).then(f => { if (f?.data) photoMap[k] = f.data; }).catch(() => null)
+      ));
+      const auditForPdf = { ...audit, storeName: store?.name };
+      const doc = await buildFieldOpsAuditPdf(auditForPdf, items, caps, photoMap);
       const dateStr = audit.submittedAt ? isoDate(new Date(audit.submittedAt)) : isoDate(new Date());
       const fname = `audit_${storePC}_${dateStr}.pdf`;
-      await html2pdf().set({ margin: 0.4, filename: fname, image: { type: "jpeg", quality: 0.95 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" }, pagebreak: { mode: ["css", "legacy"] } }).from(printRef.current).save();
+      doc.save(fname);
     } catch (e) {
       showAlert?.("error", "PDF export failed: " + e.message);
     } finally { setExporting(false); }
@@ -23474,7 +23751,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.48";
+const APP_VERSION = "v18.49";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
