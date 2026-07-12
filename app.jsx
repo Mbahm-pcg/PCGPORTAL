@@ -20134,11 +20134,289 @@ function SafeSigImage({ sigKey, th, label }) {
   );
 }
 
+// Typeset jsPDF builder for the Safe Audit report — mirrors buildReportPdf's
+// helper style (JsPDFCtor acquisition, letter format/margins, setFill/setText/
+// setDraw, addPageIfNeeded, sectionTitle, wrapText, parseDataUrl, imgSize) so
+// the export is crisp selectable text + real tables instead of an html2pdf
+// screenshot. `assets` = { conductorSig, managerSig, receiptPhotos:[dataUrl],
+// counterfeitPhotos:[dataUrl] } — dataURLs already resolved by the caller
+// (SafeAuditReport.exportPdf) via cloudLoadFile. Displays server-computed
+// totals (billsTotal/coinsTotal/countedTotal/accountedTotal/variance) as-is —
+// does not recompute them client-side.
+async function buildSafeAuditPdf(audit, assets) {
+  const _assets = assets || {};
+  const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || null;
+  if (!JsPDFCtor) throw new Error('jsPDF not available on the page');
+  const doc = new JsPDFCtor({ unit: 'in', format: 'letter', orientation: 'portrait' });
+  const pageW = 8.5, pageH = 11;
+  const margin = 0.5;
+  const contentW = pageW - margin * 2;
+  const _hex = BRAND_CONFIG.primary.replace('#', '');
+  const brandOrange = [parseInt(_hex.slice(0, 2), 16), parseInt(_hex.slice(2, 4), 16), parseInt(_hex.slice(4, 6), 16)];
+  const textDark = [17, 17, 17];
+  const textMuted = [102, 102, 102];
+  const textFaint = [153, 153, 153];
+  const lineLight = [221, 221, 221];
+  const bgSoft = [249, 249, 249];
+  const green = [34, 197, 94], red = [239, 68, 68], amber = [245, 158, 11];
+  let y = margin;
+  const setFill = (c) => doc.setFillColor(c[0], c[1], c[2]);
+  const setText = (c) => doc.setTextColor(c[0], c[1], c[2]);
+  const setDraw = (c) => doc.setDrawColor(c[0], c[1], c[2]);
+  const storeLabel = `${audit.storeName || audit.storePC || ''}${audit.storePC ? ` (${audit.storePC})` : ''}`.trim();
+  const drawPageHeader = () => {
+    setText(textFaint); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text(`Safe Audit — ${storeLabel}`, margin, y);
+    y += 0.25;
+  };
+  const addPageIfNeeded = (needed) => {
+    if (y + needed > pageH - margin) { doc.addPage(); y = margin; drawPageHeader(); }
+  };
+  const sectionTitle = (title) => {
+    y += 0.2; addPageIfNeeded(0.75);
+    setText(textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(title, margin, y); y += 0.08;
+    setDraw(brandOrange); doc.setLineWidth(0.03);
+    doc.line(margin, y, margin + contentW, y); y += 0.3;
+  };
+  const wrapText = (text, maxWidth, fontSize) => { doc.setFontSize(fontSize); return doc.splitTextToSize(text || '', maxWidth); };
+  const parseDataUrl = (dataUrl) => {
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return null;
+    const m = dataUrl.match(/^data:image\/(\w+);/);
+    const fmt = (m ? m[1] : 'jpeg').toUpperCase();
+    return { dataUrl, format: fmt === 'JPG' ? 'JPEG' : fmt };
+  };
+  const imgSize = (dataUrl) => new Promise((resolve) => {
+    const i = new Image();
+    i.onload = () => resolve({ w: i.naturalWidth || i.width || 800, h: i.naturalHeight || i.height || 600 });
+    i.onerror = () => resolve({ w: 800, h: 600 });
+    i.src = dataUrl;
+  });
+  const fmtMoney = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+  const fmtDT = (v) => v ? new Date(v).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+  // Label/value row — thin-ruled two-column strip, mirrors the sample PDFs'
+  // striped Q/A tables (label left, value right, hairline separator).
+  const kvRow = (label, value, valueColor) => {
+    const rowH = 0.26;
+    addPageIfNeeded(rowH);
+    setText(textMuted); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    doc.text(label, margin, y + 0.18);
+    setText(valueColor || textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+    doc.text(String(value == null || value === '' ? '—' : value), margin + contentW, y + 0.18, { align: 'right' });
+    y += rowH;
+    setDraw(lineLight); doc.setLineWidth(0.008);
+    doc.line(margin, y, margin + contentW, y);
+    y += 0.05;
+  };
+
+  // Embeds a row-wrapped grid of dataURL photos, page-break aware.
+  const embedPhotos = async (dataUrls, caption) => {
+    if (!dataUrls || dataUrls.length === 0) return;
+    if (caption) {
+      addPageIfNeeded(0.2);
+      setText(textMuted); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text(caption, margin, y); y += 0.2;
+    }
+    const photoW = 2.3, photoH = 1.7, gap = 0.2;
+    const perRow = Math.max(1, Math.floor((contentW + gap) / (photoW + gap)));
+    for (let i = 0; i < dataUrls.length; i++) {
+      const col = i % perRow;
+      if (col === 0) addPageIfNeeded(photoH + 0.15);
+      const px = margin + col * (photoW + gap);
+      setFill(bgSoft); doc.rect(px, y, photoW, photoH, 'F');
+      setDraw(lineLight); doc.setLineWidth(0.008); doc.rect(px, y, photoW, photoH, 'S');
+      try {
+        const parsed = parseDataUrl(dataUrls[i]);
+        if (parsed) {
+          const sz = await imgSize(dataUrls[i]);
+          const srcRatio = sz.w / sz.h, dstRatio = photoW / photoH;
+          let drawW, drawH;
+          if (srcRatio > dstRatio) { drawW = photoW; drawH = photoW / srcRatio; } else { drawH = photoH; drawW = photoH * srcRatio; }
+          const offX = (photoW - drawW) / 2, offY = (photoH - drawH) / 2;
+          doc.addImage(dataUrls[i], parsed.format, px + offX, y + offY, drawW, drawH, undefined, 'FAST');
+        } else {
+          setText(textFaint); doc.setFontSize(7); doc.text('[photo]', px + photoW / 2, y + photoH / 2, { align: 'center' });
+        }
+      } catch { setText(textFaint); doc.setFontSize(7); doc.text('[photo]', px + photoW / 2, y + photoH / 2, { align: 'center' }); }
+      if (col === perRow - 1 || i === dataUrls.length - 1) y += photoH + gap;
+    }
+    y += 0.1;
+  };
+
+  // ---------- Title ----------
+  setText(textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
+  doc.text('Safe Audit', margin + contentW / 2, y + 0.15, { align: 'center' });
+  y += 0.45;
+  setDraw(brandOrange); doc.setLineWidth(0.03);
+  doc.line(margin, y, margin + contentW, y);
+  y += 0.25;
+
+  // ---------- Header block (two columns: Location/Auditor vs Dates/Status) ----------
+  const leftX = margin, rightX = margin + contentW / 2 + 0.15;
+  setText(textFaint); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+  doc.text('LOCATION', leftX, y);
+  doc.text('STATUS', rightX, y);
+  y += 0.18;
+  setText(textDark); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text(storeLabel || '—', leftX, y);
+  doc.text((audit.status || 'draft').toUpperCase(), rightX, y);
+  y += 0.22;
+  setText(textMuted); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+  doc.text(`Auditor: ${audit.auditorName || '—'}${audit.auditorRole ? ` (${audit.auditorRole})` : ''}`, leftX, y);
+  doc.text(`Started: ${fmtDT(audit.startedAt)}`, rightX, y);
+  y += 0.18;
+  doc.text(`Submitted: ${fmtDT(audit.submittedAt)}`, rightX, y);
+  y += 0.3;
+  setDraw(lineLight); doc.setLineWidth(0.01);
+  doc.line(margin, y, margin + contentW, y);
+  y += 0.15;
+
+  // ---------- General Information ----------
+  sectionTitle('GENERAL INFORMATION');
+  kvRow('Reason for audit', audit.reason);
+  kvRow('Current safe code', audit.safeCode);
+  kvRow('Code last changed', audit.codeLastChanged);
+  y += 0.15;
+
+  // ---------- Store Information ----------
+  sectionTitle('STORE INFORMATION');
+  kvRow('Store manager name', audit.storeManagerName);
+  kvRow('District', audit.district != null && audit.district !== '' ? districtLabel(audit.district) : '—');
+  y += 0.15;
+
+  // ---------- Petty Cash Information ----------
+  sectionTitle('PETTY CASH INFORMATION');
+  kvRow('Expected petty cash', fmtMoney(audit.expectedPettyCash));
+  kvRow('Receipts in safe?', audit.hasReceipts ? 'Yes' : 'No');
+  if (audit.hasReceipts) kvRow('Receipts total', fmtMoney(audit.receiptsTotal));
+  y += 0.1;
+
+  if (audit.hasReceipts && _assets.receiptPhotos?.length) {
+    await embedPhotos(_assets.receiptPhotos, `Receipt photos (${_assets.receiptPhotos.length})`);
+  }
+
+  // Denomination table — real rects/lines, header row + bill rows + bill
+  // subtotal + coin rows + coin subtotal + Counted/Accounted totals. Values
+  // come straight from the server-computed audit fields (never recomputed).
+  addPageIfNeeded(0.4);
+  const col1W = contentW * 0.5, col2W = contentW * 0.22;
+  const tableRowH = 0.24;
+  const drawTableHeader = () => {
+    setFill(bgSoft); doc.rect(margin, y, contentW, tableRowH, 'F');
+    setText(textMuted); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+    doc.text('Denomination', margin + 0.08, y + tableRowH - 0.08);
+    doc.text('Count', margin + col1W + col2W - 0.08, y + tableRowH - 0.08, { align: 'right' });
+    doc.text('Value', margin + contentW - 0.08, y + tableRowH - 0.08, { align: 'right' });
+    y += tableRowH;
+    setDraw(lineLight); doc.setLineWidth(0.008); doc.line(margin, y, margin + contentW, y);
+  };
+  drawTableHeader();
+  const denomRow = (label, count, value, opts = {}) => {
+    addPageIfNeeded(tableRowH + 0.02);
+    setText(opts.accent ? brandOrange : textDark);
+    doc.setFont('helvetica', opts.bold ? 'bold' : 'normal'); doc.setFontSize(opts.bold ? 9.5 : 9);
+    setText(opts.bold ? textDark : textMuted);
+    doc.text(label, margin + 0.08, y + tableRowH - 0.08);
+    if (count !== null && count !== undefined) {
+      setText(textDark); doc.text(String(count), margin + col1W + col2W - 0.08, y + tableRowH - 0.08, { align: 'right' });
+    }
+    setText(opts.accent ? brandOrange : textDark);
+    doc.text(fmtMoney(value), margin + contentW - 0.08, y + tableRowH - 0.08, { align: 'right' });
+    y += tableRowH;
+    setDraw(lineLight); doc.setLineWidth(0.006); doc.line(margin, y, margin + contentW, y);
+  };
+  for (const d of SAFE_BILLS) {
+    const cnt = safeToCount((audit.billCounts || {})[d.key]);
+    denomRow(d.label, cnt, cnt * d.value);
+  }
+  denomRow('Total of Bills', null, audit.billsTotal, { bold: true });
+  for (const d of SAFE_COINS) {
+    const cnt = safeToCount((audit.coinCounts || {})[d.key]);
+    denomRow(d.label, cnt, cnt * d.value);
+  }
+  denomRow('Total of Coins', null, audit.coinsTotal, { bold: true });
+  denomRow('Counted Total', null, audit.countedTotal, { bold: true, accent: true });
+  denomRow('Accounted Total', null, audit.accountedTotal, { bold: true, accent: true });
+  y += 0.2;
+
+  // ---------- Variance badge ----------
+  addPageIfNeeded(0.55);
+  const varColorMap = { balanced: green, short: red, over: amber };
+  const varColor = varColorMap[audit.varianceStatus] || textMuted;
+  const varLabel = { balanced: 'BALANCED', short: 'SHORT', over: 'OVER' }[audit.varianceStatus] || String(audit.varianceStatus || '').toUpperCase();
+  const badgeText = `${varLabel}  ${fmtMoney(audit.variance)}`;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+  const badgeTextW = doc.getTextWidth(badgeText);
+  const badgeW = badgeTextW + 0.5, badgeH = 0.4;
+  setFill(varColor); doc.roundedRect(margin, y, badgeW, badgeH, 0.08, 0.08, 'F');
+  setText([255, 255, 255]); doc.text(badgeText, margin + badgeW / 2, y + badgeH / 2 + 0.045, { align: 'center' });
+  y += badgeH + 0.3;
+
+  // ---------- Counterfeit (red-accented, only when flagged) ----------
+  if (audit.hasCounterfeit) {
+    sectionTitle('COUNTERFEIT');
+    setText(red); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+    doc.text(`Counterfeit cash found — Total: ${fmtMoney(audit.counterfeitTotal)}`, margin, y);
+    y += 0.28;
+    if (_assets.counterfeitPhotos?.length) {
+      await embedPhotos(_assets.counterfeitPhotos, `Counterfeit photos (${_assets.counterfeitPhotos.length})`);
+    }
+    y += 0.1;
+  }
+
+  // ---------- Signatures ----------
+  sectionTitle('SIGNATURES');
+  const sigW = 2, sigH = 0.8;
+  const drawSig = (dataUrl, label, subLabel) => {
+    addPageIfNeeded(sigH + 0.4);
+    setFill(bgSoft); doc.rect(margin, y, sigW, sigH, 'F');
+    setDraw(lineLight); doc.setLineWidth(0.008); doc.rect(margin, y, sigW, sigH, 'S');
+    if (dataUrl) {
+      try {
+        const parsed = parseDataUrl(dataUrl);
+        if (parsed) doc.addImage(dataUrl, parsed.format, margin + 0.05, y + 0.05, sigW - 0.1, sigH - 0.1, undefined, 'FAST');
+      } catch {}
+    } else {
+      setText(textFaint); doc.setFontSize(8); doc.text('Not captured', margin + sigW / 2, y + sigH / 2, { align: 'center' });
+    }
+    y += sigH + 0.06;
+    setDraw(textDark); doc.setLineWidth(0.01); doc.line(margin, y, margin + sigW, y);
+    y += 0.16;
+    setText(textMuted); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text(label, margin, y);
+    if (subLabel) { y += 0.14; doc.text(subLabel, margin, y); }
+    y += 0.3;
+  };
+  drawSig(_assets.conductorSig, `Auditor — ${audit.auditorName || '—'}`);
+  drawSig(_assets.managerSig, 'Store Manager', audit.managerAckName ? `Ack: ${audit.managerAckName}` : '');
+
+  // ---------- Notes ----------
+  if (audit.notes) {
+    sectionTitle('NOTES');
+    const lines = wrapText(audit.notes, contentW, 9);
+    setText(textDark); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    for (const line of lines) { addPageIfNeeded(0.16); doc.text(line, margin, y); y += 0.15; }
+  }
+
+  // ---------- Footer (page numbers, every page) ----------
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p); setText(textFaint); doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+    doc.text(`Generated ${new Date().toLocaleDateString('en-US')} — ${BRAND_CONFIG.portalName}`, margin, pageH - 0.3);
+    const fw = doc.getTextWidth(`Page ${p} of ${totalPages}`);
+    doc.text(`Page ${p} of ${totalPages}`, margin + contentW - fw, pageH - 0.3);
+  }
+
+  return doc;
+}
+
 // Full printable Safe Audit report — mirrors the sample-PDF layout: header
 // (store/auditor/dates), General/Store/Petty-Cash sections, denomination
 // breakdown table, prominent variance badge, counterfeit block, photos
 // (receipt/counterfeit → lightbox), signatures (rendered from blob keys), notes.
-// PDF export mirrors AuditReport's html2pdf pattern.
+// PDF export builds a typeset document via buildSafeAuditPdf (crisp text/real
+// tables) — the on-screen card layout below stays for in-app viewing.
 function SafeAuditReport({ user, th, stores, showAlert, auditId, storePC, onBack }) {
   const store = stores?.find(s => String(s.pc) === String(storePC));
   const storeName = store?.name || storePC;
@@ -20180,13 +20458,21 @@ function SafeAuditReport({ user, th, stores, showAlert, auditId, storePC, onBack
 
   const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const exportPdf = async () => {
-    if (typeof html2pdf === "undefined") { showAlert?.("error", "PDF export isn't available right now — the export library didn't load."); return; }
-    if (!printRef.current) return;
+    const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || null;
+    if (!JsPDFCtor) { showAlert?.("error", "PDF export isn't available right now — the export library didn't load."); return; }
     setExporting(true);
     try {
+      const [conductorSig, managerSig, receiptPhotos, counterfeitPhotos] = await Promise.all([
+        audit.conductorSigKey ? cloudLoadFile(audit.conductorSigKey).then(f => f?.data || null).catch(() => null) : Promise.resolve(null),
+        audit.managerSigKey ? cloudLoadFile(audit.managerSigKey).then(f => f?.data || null).catch(() => null) : Promise.resolve(null),
+        Promise.all((audit.receiptPhotoKeys || []).map(k => cloudLoadFile(k).then(f => f?.data || null).catch(() => null))).then(arr => arr.filter(Boolean)),
+        Promise.all((audit.counterfeitPhotoKeys || []).map(k => cloudLoadFile(k).then(f => f?.data || null).catch(() => null))).then(arr => arr.filter(Boolean)),
+      ]);
+      const assets = { conductorSig, managerSig, receiptPhotos, counterfeitPhotos };
+      const doc = await buildSafeAuditPdf(audit, assets);
       const dateStr = audit.submittedAt ? isoDate(new Date(audit.submittedAt)) : isoDate(new Date());
       const fname = `safe_audit_${storePC}_${dateStr}.pdf`;
-      await html2pdf().set({ margin: 0.4, filename: fname, image: { type: "jpeg", quality: 0.95 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" }, pagebreak: { mode: ["css", "legacy"] } }).from(printRef.current).save();
+      doc.save(fname);
     } catch (e) {
       showAlert?.("error", "PDF export failed: " + e.message);
     } finally { setExporting(false); }
@@ -23184,7 +23470,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.46";
+const APP_VERSION = "v18.47";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

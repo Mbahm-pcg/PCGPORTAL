@@ -16216,6 +16216,326 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [sigKey]);
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: 4 } }, label), /* @__PURE__ */ React.createElement("div", { style: { width: 260, maxWidth: "100%", height: 100, borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" } }, !sigKey ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "Not captured") : loading ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "Loading\u2026") : src ? /* @__PURE__ */ React.createElement("img", { src, alt: label, style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" } }) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "Unavailable")));
   }
+  async function buildSafeAuditPdf(audit, assets) {
+    const _assets = assets || {};
+    const JsPDFCtor = window.jspdf && window.jspdf.jsPDF || window.jsPDF || null;
+    if (!JsPDFCtor) throw new Error("jsPDF not available on the page");
+    const doc = new JsPDFCtor({ unit: "in", format: "letter", orientation: "portrait" });
+    const pageW = 8.5, pageH = 11;
+    const margin = 0.5;
+    const contentW = pageW - margin * 2;
+    const _hex = BRAND_CONFIG.primary.replace("#", "");
+    const brandOrange = [parseInt(_hex.slice(0, 2), 16), parseInt(_hex.slice(2, 4), 16), parseInt(_hex.slice(4, 6), 16)];
+    const textDark = [17, 17, 17];
+    const textMuted = [102, 102, 102];
+    const textFaint = [153, 153, 153];
+    const lineLight = [221, 221, 221];
+    const bgSoft = [249, 249, 249];
+    const green = [34, 197, 94], red = [239, 68, 68], amber = [245, 158, 11];
+    let y = margin;
+    const setFill = (c) => doc.setFillColor(c[0], c[1], c[2]);
+    const setText = (c) => doc.setTextColor(c[0], c[1], c[2]);
+    const setDraw = (c) => doc.setDrawColor(c[0], c[1], c[2]);
+    const storeLabel = `${audit.storeName || audit.storePC || ""}${audit.storePC ? ` (${audit.storePC})` : ""}`.trim();
+    const drawPageHeader = () => {
+      setText(textFaint);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text(`Safe Audit \u2014 ${storeLabel}`, margin, y);
+      y += 0.25;
+    };
+    const addPageIfNeeded = (needed) => {
+      if (y + needed > pageH - margin) {
+        doc.addPage();
+        y = margin;
+        drawPageHeader();
+      }
+    };
+    const sectionTitle2 = (title) => {
+      y += 0.2;
+      addPageIfNeeded(0.75);
+      setText(textDark);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(title, margin, y);
+      y += 0.08;
+      setDraw(brandOrange);
+      doc.setLineWidth(0.03);
+      doc.line(margin, y, margin + contentW, y);
+      y += 0.3;
+    };
+    const wrapText = (text, maxWidth, fontSize) => {
+      doc.setFontSize(fontSize);
+      return doc.splitTextToSize(text || "", maxWidth);
+    };
+    const parseDataUrl = (dataUrl) => {
+      if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) return null;
+      const m = dataUrl.match(/^data:image\/(\w+);/);
+      const fmt = (m ? m[1] : "jpeg").toUpperCase();
+      return { dataUrl, format: fmt === "JPG" ? "JPEG" : fmt };
+    };
+    const imgSize = (dataUrl) => new Promise((resolve) => {
+      const i = new Image();
+      i.onload = () => resolve({ w: i.naturalWidth || i.width || 800, h: i.naturalHeight || i.height || 600 });
+      i.onerror = () => resolve({ w: 800, h: 600 });
+      i.src = dataUrl;
+    });
+    const fmtMoney = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+    const fmtDT = (v) => v ? new Date(v).toLocaleString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "\u2014";
+    const kvRow = (label, value, valueColor) => {
+      const rowH = 0.26;
+      addPageIfNeeded(rowH);
+      setText(textMuted);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(label, margin, y + 0.18);
+      setText(valueColor || textDark);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.text(String(value == null || value === "" ? "\u2014" : value), margin + contentW, y + 0.18, { align: "right" });
+      y += rowH;
+      setDraw(lineLight);
+      doc.setLineWidth(8e-3);
+      doc.line(margin, y, margin + contentW, y);
+      y += 0.05;
+    };
+    const embedPhotos = async (dataUrls, caption) => {
+      if (!dataUrls || dataUrls.length === 0) return;
+      if (caption) {
+        addPageIfNeeded(0.2);
+        setText(textMuted);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.text(caption, margin, y);
+        y += 0.2;
+      }
+      const photoW = 2.3, photoH = 1.7, gap = 0.2;
+      const perRow = Math.max(1, Math.floor((contentW + gap) / (photoW + gap)));
+      for (let i = 0; i < dataUrls.length; i++) {
+        const col = i % perRow;
+        if (col === 0) addPageIfNeeded(photoH + 0.15);
+        const px = margin + col * (photoW + gap);
+        setFill(bgSoft);
+        doc.rect(px, y, photoW, photoH, "F");
+        setDraw(lineLight);
+        doc.setLineWidth(8e-3);
+        doc.rect(px, y, photoW, photoH, "S");
+        try {
+          const parsed = parseDataUrl(dataUrls[i]);
+          if (parsed) {
+            const sz = await imgSize(dataUrls[i]);
+            const srcRatio = sz.w / sz.h, dstRatio = photoW / photoH;
+            let drawW, drawH;
+            if (srcRatio > dstRatio) {
+              drawW = photoW;
+              drawH = photoW / srcRatio;
+            } else {
+              drawH = photoH;
+              drawW = photoH * srcRatio;
+            }
+            const offX = (photoW - drawW) / 2, offY = (photoH - drawH) / 2;
+            doc.addImage(dataUrls[i], parsed.format, px + offX, y + offY, drawW, drawH, void 0, "FAST");
+          } else {
+            setText(textFaint);
+            doc.setFontSize(7);
+            doc.text("[photo]", px + photoW / 2, y + photoH / 2, { align: "center" });
+          }
+        } catch {
+          setText(textFaint);
+          doc.setFontSize(7);
+          doc.text("[photo]", px + photoW / 2, y + photoH / 2, { align: "center" });
+        }
+        if (col === perRow - 1 || i === dataUrls.length - 1) y += photoH + gap;
+      }
+      y += 0.1;
+    };
+    setText(textDark);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("Safe Audit", margin + contentW / 2, y + 0.15, { align: "center" });
+    y += 0.45;
+    setDraw(brandOrange);
+    doc.setLineWidth(0.03);
+    doc.line(margin, y, margin + contentW, y);
+    y += 0.25;
+    const leftX = margin, rightX = margin + contentW / 2 + 0.15;
+    setText(textFaint);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.text("LOCATION", leftX, y);
+    doc.text("STATUS", rightX, y);
+    y += 0.18;
+    setText(textDark);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text(storeLabel || "\u2014", leftX, y);
+    doc.text((audit.status || "draft").toUpperCase(), rightX, y);
+    y += 0.22;
+    setText(textMuted);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.text(`Auditor: ${audit.auditorName || "\u2014"}${audit.auditorRole ? ` (${audit.auditorRole})` : ""}`, leftX, y);
+    doc.text(`Started: ${fmtDT(audit.startedAt)}`, rightX, y);
+    y += 0.18;
+    doc.text(`Submitted: ${fmtDT(audit.submittedAt)}`, rightX, y);
+    y += 0.3;
+    setDraw(lineLight);
+    doc.setLineWidth(0.01);
+    doc.line(margin, y, margin + contentW, y);
+    y += 0.15;
+    sectionTitle2("GENERAL INFORMATION");
+    kvRow("Reason for audit", audit.reason);
+    kvRow("Current safe code", audit.safeCode);
+    kvRow("Code last changed", audit.codeLastChanged);
+    y += 0.15;
+    sectionTitle2("STORE INFORMATION");
+    kvRow("Store manager name", audit.storeManagerName);
+    kvRow("District", audit.district != null && audit.district !== "" ? districtLabel(audit.district) : "\u2014");
+    y += 0.15;
+    sectionTitle2("PETTY CASH INFORMATION");
+    kvRow("Expected petty cash", fmtMoney(audit.expectedPettyCash));
+    kvRow("Receipts in safe?", audit.hasReceipts ? "Yes" : "No");
+    if (audit.hasReceipts) kvRow("Receipts total", fmtMoney(audit.receiptsTotal));
+    y += 0.1;
+    if (audit.hasReceipts && _assets.receiptPhotos?.length) {
+      await embedPhotos(_assets.receiptPhotos, `Receipt photos (${_assets.receiptPhotos.length})`);
+    }
+    addPageIfNeeded(0.4);
+    const col1W = contentW * 0.5, col2W = contentW * 0.22;
+    const tableRowH = 0.24;
+    const drawTableHeader = () => {
+      setFill(bgSoft);
+      doc.rect(margin, y, contentW, tableRowH, "F");
+      setText(textMuted);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.text("Denomination", margin + 0.08, y + tableRowH - 0.08);
+      doc.text("Count", margin + col1W + col2W - 0.08, y + tableRowH - 0.08, { align: "right" });
+      doc.text("Value", margin + contentW - 0.08, y + tableRowH - 0.08, { align: "right" });
+      y += tableRowH;
+      setDraw(lineLight);
+      doc.setLineWidth(8e-3);
+      doc.line(margin, y, margin + contentW, y);
+    };
+    drawTableHeader();
+    const denomRow = (label, count, value, opts = {}) => {
+      addPageIfNeeded(tableRowH + 0.02);
+      setText(opts.accent ? brandOrange : textDark);
+      doc.setFont("helvetica", opts.bold ? "bold" : "normal");
+      doc.setFontSize(opts.bold ? 9.5 : 9);
+      setText(opts.bold ? textDark : textMuted);
+      doc.text(label, margin + 0.08, y + tableRowH - 0.08);
+      if (count !== null && count !== void 0) {
+        setText(textDark);
+        doc.text(String(count), margin + col1W + col2W - 0.08, y + tableRowH - 0.08, { align: "right" });
+      }
+      setText(opts.accent ? brandOrange : textDark);
+      doc.text(fmtMoney(value), margin + contentW - 0.08, y + tableRowH - 0.08, { align: "right" });
+      y += tableRowH;
+      setDraw(lineLight);
+      doc.setLineWidth(6e-3);
+      doc.line(margin, y, margin + contentW, y);
+    };
+    for (const d of SAFE_BILLS) {
+      const cnt = safeToCount((audit.billCounts || {})[d.key]);
+      denomRow(d.label, cnt, cnt * d.value);
+    }
+    denomRow("Total of Bills", null, audit.billsTotal, { bold: true });
+    for (const d of SAFE_COINS) {
+      const cnt = safeToCount((audit.coinCounts || {})[d.key]);
+      denomRow(d.label, cnt, cnt * d.value);
+    }
+    denomRow("Total of Coins", null, audit.coinsTotal, { bold: true });
+    denomRow("Counted Total", null, audit.countedTotal, { bold: true, accent: true });
+    denomRow("Accounted Total", null, audit.accountedTotal, { bold: true, accent: true });
+    y += 0.2;
+    addPageIfNeeded(0.55);
+    const varColorMap = { balanced: green, short: red, over: amber };
+    const varColor = varColorMap[audit.varianceStatus] || textMuted;
+    const varLabel = { balanced: "BALANCED", short: "SHORT", over: "OVER" }[audit.varianceStatus] || String(audit.varianceStatus || "").toUpperCase();
+    const badgeText = `${varLabel}  ${fmtMoney(audit.variance)}`;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    const badgeTextW = doc.getTextWidth(badgeText);
+    const badgeW = badgeTextW + 0.5, badgeH = 0.4;
+    setFill(varColor);
+    doc.roundedRect(margin, y, badgeW, badgeH, 0.08, 0.08, "F");
+    setText([255, 255, 255]);
+    doc.text(badgeText, margin + badgeW / 2, y + badgeH / 2 + 0.045, { align: "center" });
+    y += badgeH + 0.3;
+    if (audit.hasCounterfeit) {
+      sectionTitle2("COUNTERFEIT");
+      setText(red);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.text(`Counterfeit cash found \u2014 Total: ${fmtMoney(audit.counterfeitTotal)}`, margin, y);
+      y += 0.28;
+      if (_assets.counterfeitPhotos?.length) {
+        await embedPhotos(_assets.counterfeitPhotos, `Counterfeit photos (${_assets.counterfeitPhotos.length})`);
+      }
+      y += 0.1;
+    }
+    sectionTitle2("SIGNATURES");
+    const sigW = 2, sigH = 0.8;
+    const drawSig = (dataUrl, label, subLabel) => {
+      addPageIfNeeded(sigH + 0.4);
+      setFill(bgSoft);
+      doc.rect(margin, y, sigW, sigH, "F");
+      setDraw(lineLight);
+      doc.setLineWidth(8e-3);
+      doc.rect(margin, y, sigW, sigH, "S");
+      if (dataUrl) {
+        try {
+          const parsed = parseDataUrl(dataUrl);
+          if (parsed) doc.addImage(dataUrl, parsed.format, margin + 0.05, y + 0.05, sigW - 0.1, sigH - 0.1, void 0, "FAST");
+        } catch {
+        }
+      } else {
+        setText(textFaint);
+        doc.setFontSize(8);
+        doc.text("Not captured", margin + sigW / 2, y + sigH / 2, { align: "center" });
+      }
+      y += sigH + 0.06;
+      setDraw(textDark);
+      doc.setLineWidth(0.01);
+      doc.line(margin, y, margin + sigW, y);
+      y += 0.16;
+      setText(textMuted);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text(label, margin, y);
+      if (subLabel) {
+        y += 0.14;
+        doc.text(subLabel, margin, y);
+      }
+      y += 0.3;
+    };
+    drawSig(_assets.conductorSig, `Auditor \u2014 ${audit.auditorName || "\u2014"}`);
+    drawSig(_assets.managerSig, "Store Manager", audit.managerAckName ? `Ack: ${audit.managerAckName}` : "");
+    if (audit.notes) {
+      sectionTitle2("NOTES");
+      const lines = wrapText(audit.notes, contentW, 9);
+      setText(textDark);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      for (const line of lines) {
+        addPageIfNeeded(0.16);
+        doc.text(line, margin, y);
+        y += 0.15;
+      }
+    }
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      setText(textFaint);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(`Generated ${(/* @__PURE__ */ new Date()).toLocaleDateString("en-US")} \u2014 ${BRAND_CONFIG.portalName}`, margin, pageH - 0.3);
+      const fw = doc.getTextWidth(`Page ${p} of ${totalPages}`);
+      doc.text(`Page ${p} of ${totalPages}`, margin + contentW - fw, pageH - 0.3);
+    }
+    return doc;
+  }
   function SafeAuditReport({ user, th, stores, showAlert, auditId, storePC, onBack }) {
     const store = stores?.find((s) => String(s.pc) === String(storePC));
     const storeName = store?.name || storePC;
@@ -16250,16 +16570,24 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })();
     const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const exportPdf = async () => {
-      if (typeof html2pdf === "undefined") {
+      const JsPDFCtor = window.jspdf && window.jspdf.jsPDF || window.jsPDF || null;
+      if (!JsPDFCtor) {
         showAlert?.("error", "PDF export isn't available right now \u2014 the export library didn't load.");
         return;
       }
-      if (!printRef.current) return;
       setExporting(true);
       try {
+        const [conductorSig, managerSig, receiptPhotos, counterfeitPhotos] = await Promise.all([
+          audit.conductorSigKey ? cloudLoadFile(audit.conductorSigKey).then((f) => f?.data || null).catch(() => null) : Promise.resolve(null),
+          audit.managerSigKey ? cloudLoadFile(audit.managerSigKey).then((f) => f?.data || null).catch(() => null) : Promise.resolve(null),
+          Promise.all((audit.receiptPhotoKeys || []).map((k) => cloudLoadFile(k).then((f) => f?.data || null).catch(() => null))).then((arr) => arr.filter(Boolean)),
+          Promise.all((audit.counterfeitPhotoKeys || []).map((k) => cloudLoadFile(k).then((f) => f?.data || null).catch(() => null))).then((arr) => arr.filter(Boolean))
+        ]);
+        const assets = { conductorSig, managerSig, receiptPhotos, counterfeitPhotos };
+        const doc = await buildSafeAuditPdf(audit, assets);
         const dateStr = audit.submittedAt ? isoDate(new Date(audit.submittedAt)) : isoDate(/* @__PURE__ */ new Date());
         const fname = `safe_audit_${storePC}_${dateStr}.pdf`;
-        await html2pdf().set({ margin: 0.4, filename: fname, image: { type: "jpeg", quality: 0.95 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" }, pagebreak: { mode: ["css", "legacy"] } }).from(printRef.current).save();
+        doc.save(fname);
       } catch (e) {
         showAlert?.("error", "PDF export failed: " + e.message);
       } finally {
@@ -18109,7 +18437,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v18.46";
+  var APP_VERSION = "v18.47";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
