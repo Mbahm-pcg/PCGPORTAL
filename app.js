@@ -16249,7 +16249,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         doc.addPage();
         y = margin;
         drawPageHeader();
+        return true;
       }
+      return false;
     };
     const sectionTitle2 = (title) => {
       y += 0.2;
@@ -16280,7 +16282,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       i.onerror = () => resolve({ w: 800, h: 600 });
       i.src = dataUrl;
     });
-    const fmtMoney = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+    const fmtMoney = (n) => {
+      const v = Number(n) || 0;
+      const s = Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return (v < 0 ? "-$" : "$") + s;
+    };
     const fmtDT = (v) => v ? new Date(v).toLocaleString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "\u2014";
     const kvRow = (label, value, valueColor) => {
       const rowH = 0.26;
@@ -16419,8 +16425,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     drawTableHeader();
     const denomRow = (label, count, value, opts = {}) => {
-      addPageIfNeeded(tableRowH + 0.02);
-      setText(opts.accent ? brandOrange : textDark);
+      if (addPageIfNeeded(tableRowH + 0.02)) drawTableHeader();
       doc.setFont("helvetica", opts.bold ? "bold" : "normal");
       doc.setFontSize(opts.bold ? 9.5 : 9);
       setText(opts.bold ? textDark : textMuted);
@@ -18437,7 +18442,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v18.47";
+  var APP_VERSION = "v18.48";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

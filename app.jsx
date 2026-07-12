@@ -20170,7 +20170,8 @@ async function buildSafeAuditPdf(audit, assets) {
     y += 0.25;
   };
   const addPageIfNeeded = (needed) => {
-    if (y + needed > pageH - margin) { doc.addPage(); y = margin; drawPageHeader(); }
+    if (y + needed > pageH - margin) { doc.addPage(); y = margin; drawPageHeader(); return true; }
+    return false;
   };
   const sectionTitle = (title) => {
     y += 0.2; addPageIfNeeded(0.75);
@@ -20192,7 +20193,11 @@ async function buildSafeAuditPdf(audit, assets) {
     i.onerror = () => resolve({ w: 800, h: 600 });
     i.src = dataUrl;
   });
-  const fmtMoney = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+  const fmtMoney = (n) => {
+    const v = Number(n) || 0;
+    const s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return (v < 0 ? '-$' : '$') + s;
+  };
   const fmtDT = (v) => v ? new Date(v).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
   // Label/value row — thin-ruled two-column strip, mirrors the sample PDFs'
@@ -20313,8 +20318,7 @@ async function buildSafeAuditPdf(audit, assets) {
   };
   drawTableHeader();
   const denomRow = (label, count, value, opts = {}) => {
-    addPageIfNeeded(tableRowH + 0.02);
-    setText(opts.accent ? brandOrange : textDark);
+    if (addPageIfNeeded(tableRowH + 0.02)) drawTableHeader();
     doc.setFont('helvetica', opts.bold ? 'bold' : 'normal'); doc.setFontSize(opts.bold ? 9.5 : 9);
     setText(opts.bold ? textDark : textMuted);
     doc.text(label, margin + 0.08, y + tableRowH - 0.08);
@@ -23470,7 +23474,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.47";
+const APP_VERSION = "v18.48";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
