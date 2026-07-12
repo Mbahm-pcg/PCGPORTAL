@@ -20485,8 +20485,7 @@ async function buildFieldOpsAuditPdf(audit, items, caps, photoMap) {
   // as-is, no rounding beyond trimming float noise.
   const fmtScore = (n) => {
     if (n == null || Number.isNaN(Number(n))) return 'N/A';
-    const v = Math.round(Number(n) * 10) / 10;
-    return Number.isInteger(v) ? String(v) : String(v);
+    return String(Math.round(Number(n))); // whole number, matches the on-screen report
   };
   const fmtDT = (v) => v ? new Date(v).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
@@ -23751,7 +23750,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.49";
+const APP_VERSION = "v18.50";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

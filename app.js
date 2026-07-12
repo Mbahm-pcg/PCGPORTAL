@@ -16616,8 +16616,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     });
     const fmtScore = (n) => {
       if (n == null || Number.isNaN(Number(n))) return "N/A";
-      const v = Math.round(Number(n) * 10) / 10;
-      return Number.isInteger(v) ? String(v) : String(v);
+      return String(Math.round(Number(n)));
     };
     const fmtDT = (v) => v ? new Date(v).toLocaleString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "\u2014";
     const embedPhotos = async (dataUrls) => {
@@ -18756,7 +18755,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v18.49";
+  var APP_VERSION = "v18.50";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
