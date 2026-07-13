@@ -7992,6 +7992,10 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   // Section 2 (tab rail + content) scrolls \u2014 same pattern as AdminUsers' user-card list.
   const frameRef = React.useRef(null);
   const frameH = useFrameHeight(frameRef);
+  // On phones the fixed-height frame + internal Section-2 scroll gets cramped (the
+  // tab rail eats width beside the content and the chart is squeezed/cut off). When
+  // narrow we flow naturally down the page and turn the rail into a horizontal strip.
+  const isNarrow = useIsMobile();
   // The scrollable content column (right of the tab rail).
   const contentRef = React.useRef(null);
 
@@ -8447,7 +8451,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   }
 
   return (
-    <div className="fade-in" ref={frameRef} style={{ display:'flex', flexDirection:'column', height: frameH || 'calc(100vh - 200px)', minHeight:360 }}>
+    <div className="fade-in" ref={frameRef} style={{ display:'flex', flexDirection:'column', height: isNarrow ? 'auto' : (frameH || 'calc(100vh - 200px)'), minHeight: isNarrow ? 0 : 360 }}>
       {/* ─── Section 1 — header + KPIs (fixed, non-scrolling) ─────────── */}
       <div style={{ flexShrink:0 }}>
       {/* ── Unified PULSE + Store Header ── */}
@@ -8518,11 +8522,13 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       </div>
       </div>{/* ── /Section 1 ── */}
 
-      {/* ─── Section 2 — fixed tab rail + scrollable content ─────────── */}
-      {/* Rail sits OUTSIDE the scroll pane so it stays put with Section 1; only the
-          right content column scrolls. */}
-      <div style={{ flex:1, minHeight:0, display:'flex', gap:'1rem' }}>
-        <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, overflowY:'auto' }}>
+      {/* ─── Section 2 — tab rail + content. Desktop: fixed left rail + scrollable
+           content column. Mobile: horizontal tab strip on top, content flows below
+           (full width, no nested scroll). ─────────── */}
+      <div style={{ flex:1, minHeight:0, display:'flex', flexDirection: isNarrow ? 'column' : 'row', gap: isNarrow ? '0.6rem' : '1rem' }}>
+        <div style={isNarrow
+          ? { display:'flex', flexDirection:'row', gap:'0.4rem', overflowX:'auto', flexShrink:0, paddingBottom:'0.25rem', WebkitOverflowScrolling:'touch' }
+          : { display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, overflowY:'auto' }}>
           {[{id:'sales',label:'📊 Sales'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
             <button key={t.id} onClick={() => {
                 setStoreTab(t.id);
@@ -8531,10 +8537,10 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                 if(t.id==='driveThru' && !dtSchedule){ cloudLoad(`pcg_schedule_${pc}`).then(d => setDtSchedule(d?.shifts || [])).catch(() => setDtSchedule([])); }
                 if(t.id==='foodcost' && !foodCostT && !foodCostLoading){ setFoodCostLoading(true); fetch('/.netlify/functions/food-cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'store',pc,date:localDate})}).then(r=>r.ok?r.json():null).then(j=>{if(j)setFoodCostT(j);}).catch(()=>{}).finally(()=>setFoodCostLoading(false)); }
               }}
-              style={{ display:'flex', alignItems:'center', textAlign:'left', padding:'0.6rem 0.75rem', border:`1px solid ${storeTab===t.id?O:th.cardBorder}`, borderRadius:'0.6rem', background:storeTab===t.id?O:th.card, color:storeTab===t.id?'#fff':th.muted, fontWeight:600, fontSize:'0.78rem', lineHeight:1.2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', cursor:'pointer', transition:'background .15s, color .15s, border-color .15s', boxSizing:'border-box', fontFamily:"'Raleway',sans-serif" }}>{t.label}</button>
+              style={{ display:'flex', alignItems:'center', textAlign:'left', padding:'0.6rem 0.75rem', border:`1px solid ${storeTab===t.id?O:th.cardBorder}`, borderRadius:'0.6rem', background:storeTab===t.id?O:th.card, color:storeTab===t.id?'#fff':th.muted, fontWeight:600, fontSize:'0.78rem', lineHeight:1.2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', cursor:'pointer', transition:'background .15s, color .15s, border-color .15s', boxSizing:'border-box', fontFamily:"'Raleway',sans-serif", flexShrink:0 }}>{t.label}</button>
           ))}
         </div>
-        <div ref={contentRef} style={{ flex:1, minWidth:0, overflowY:'auto', paddingRight:4 }}>
+        <div ref={contentRef} style={{ flex:1, minWidth:0, overflowY: isNarrow ? 'visible' : 'auto', paddingRight: isNarrow ? 0 : 4 }}>
 
       {/* ════ FORECAST TAB ════ */}
       {storeTab === 'forecast' && <>
@@ -23741,7 +23747,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.60";
+const APP_VERSION = "v18.61";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
