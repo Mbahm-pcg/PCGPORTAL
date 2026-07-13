@@ -18753,7 +18753,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v18.58";
+  var APP_VERSION = "v18.60";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29737,11 +29737,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       return open;
     }, [tickets, isManager, isDM, stores, user]);
     const myTodos = React.useMemo(() => {
-      const canSeeAll = isFullAdmin(user) || user?.userType === "office_staff";
       const assigneeIds = (t) => t.assigneeIds || (t.assigneeId !== void 0 ? [t.assigneeId] : []);
       return (todos || []).filter((t) => {
         if (t.done || t.completed || !t.dueDate) return false;
-        if (canSeeAll) return true;
         return assigneeIds(t).includes(user?.id) || t.assignedById === user?.id;
       });
     }, [todos, user]);
@@ -29923,11 +29921,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           addEvent(endStr, { type: "ticket", subtype: "due", id: t.id, title: `Due: ${t.title}`, store: t.storeName, priority: t.priority, status: t.status });
         }
       });
-      const canSeeAllTodos = isFullAdmin(user) || user?.userType === "office_staff";
       const todoAssignees = (t) => t.assigneeIds || (t.assigneeId !== void 0 ? [t.assigneeId] : []);
       (todos || []).filter((t) => {
         if (t.done || t.completed || !t.dueDate) return false;
-        if (canSeeAllTodos) return true;
         return todoAssignees(t).includes(user?.id) || t.assignedById === user?.id;
       }).forEach((t) => {
         addEvent(t.dueDate, { type: "todo", id: t.id, title: t.text || t.title || "Task", store: t.storeName || "" });
@@ -30729,7 +30725,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         if (document.hidden) {
           hiddenAt.t = Date.now();
         } else if (hiddenAt.t && Date.now() - hiddenAt.t > TIMEOUT_MS) {
-          if (user?.userType?.startsWith("kiosk")) return;
+          if (!user || user.userType?.startsWith("kiosk")) return;
           logClientEvent(user?.id, user?.userType, "session_timeout", { reason: "background_tab", name: user?.name });
           try {
             localStorage.removeItem("pcg_prefer_full_portal");
@@ -30743,7 +30739,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       };
       const onPageShow = (e) => {
         if (e.persisted) {
-          if (user?.userType?.startsWith("kiosk")) return;
+          if (!user || user.userType?.startsWith("kiosk")) return;
           logClientEvent(user?.id, user?.userType, "session_timeout", { reason: "bfcache_restore", name: user?.name });
           try {
             localStorage.removeItem("pcg_prefer_full_portal");

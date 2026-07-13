@@ -44,12 +44,21 @@ export default async (request, context) => {
   const { action, userId, userRole, district } = payload;
   const t0 = Date.now();
 
+  // Audit identity — starts from the payload, then gets backfilled from the
+  // server-resolved caller once known (below) so a call that sent a userId but no
+  // role still logs the real role (e.g. case-list). Render-only Orion fetches that
+  // fire automatically on dashboard-card render carry no user identity and aren't
+  // deliberate access events, so they're skipped to keep the log clean (was the
+  // source of the anonymous "—" rows).
+  let auditUserId = userId;
+  let auditRole = userRole;
+  const SKIP_AUDIT = new Set(['audit-log', 'store-brief', 'forecast', 'forecast-plan']);
+
   // Wrap response so every action is audit-logged before returning
   const respond = async (status, body) => {
     const latencyMs = Date.now() - t0;
-    // Don't log the audit-log read itself to avoid noise
-    if (action !== 'audit-log') {
-      logAccessEvent({ userId, userRole, action, district, statusCode: status, latencyMs }).catch(() => {});
+    if (!SKIP_AUDIT.has(action)) {
+      logAccessEvent({ userId: auditUserId, userRole: auditRole, action, district, statusCode: status, latencyMs }).catch(() => {});
     }
     return json(status, body);
   };
@@ -66,6 +75,10 @@ export default async (request, context) => {
   if (await sessionGate(eventShim, sql()) === 'revoked') return respond(401, { error: 'Session ended. Please sign in again.' });
   const caller = await resolveCaller(userId);
   const effRole = caller?.role || userRole;
+  // Backfill audit identity from the resolved caller so the log shows the real
+  // person + role even when the client omitted them (fixes blank-role rows).
+  if (caller?.id != null) auditUserId = caller.id;
+  if (effRole) auditRole = effRole;
   const isExecRole = EXEC_ROLES.has(effRole);
   // exec/IT may target any district (drill-down) or null=network; everyone else is locked to
   // their own district, and managers to their own store — claimed values are ignored for them.
@@ -671,7 +684,16 @@ export default async (request, context) => {
     if (action === 'log-event') {
       const { event, meta } = payload;
       if (!event) return respond(400, { error: 'Missing event' });
-      await logAccessEvent({ userId, userRole, action: event, district, statusCode: meta?.error ? 500 : 200, latencyMs: meta?.latencyMs || null, error: meta?.error || null, meta: meta || null });
+      // Prefer the server-resolved identity; fall back to the payload (and, for
+      // events fired as the session ends, the name carried in meta) so events like
+      // session_timeout still attribute even after the client cleared the user.
+      await logAccessEvent({
+        userId: caller?.id ?? userId ?? null,
+        userRole: effRole || userRole || null,
+        action: event, district,
+        statusCode: meta?.error ? 500 : 200,
+        latencyMs: meta?.latencyMs || null, error: meta?.error || null, meta: meta || null,
+      });
       return json(200, { ok: true });
     }
 

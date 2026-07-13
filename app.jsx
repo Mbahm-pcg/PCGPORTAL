@@ -23741,7 +23741,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.58";
+const APP_VERSION = "v18.60";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -39714,16 +39714,15 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     return open;
   }, [tickets, isManager, isDM, stores, user]);
 
-  // Todos on the calendar must obey the SAME visibility as the To-Do tab: you see a
-  // task only if you're an assignee, you assigned it out, or you're a full admin /
-  // office staff (who have the "All Tasks" view). Previously this showed EVERY task
-  // with a due date, so a task assigned to one person leaked onto everyone's calendar.
+  // Todos on the calendar are PRIVATE to the two people involved — the assignee(s)
+  // and whoever assigned it — with NO admin override. A personal task (e.g. Ahmed
+  // sends Sam a to-do) shows only on Ahmed's and Sam's calendars, never on other
+  // execs'/office-staff's, even though admins can see all tasks in the To-Do tab.
+  // (Operational calendar data — tickets, projects, equipment — stays exec/IT-wide.)
   const myTodos = React.useMemo(() => {
-    const canSeeAll = isFullAdmin(user) || user?.userType === 'office_staff';
     const assigneeIds = t => t.assigneeIds || (t.assigneeId !== undefined ? [t.assigneeId] : []);
     return (todos || []).filter(t => {
       if (t.done || t.completed || !t.dueDate) return false;
-      if (canSeeAll) return true;
       return assigneeIds(t).includes(user?.id) || t.assignedById === user?.id;
     });
   }, [todos, user]);
@@ -40081,14 +40080,11 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
       }
     });
 
-    // Todos/tasks with due dates — same visibility rule as the To-Do tab (assignee,
-    // assigner, or admin) so a task assigned to one person doesn't leak onto the
-    // whole crew's calendar. Maintenance is not a full admin, so it's assignee/assigner only.
-    const canSeeAllTodos = isFullAdmin(user) || user?.userType === 'office_staff';
+    // Todos are PRIVATE to assignee(s) + assigner — no admin override — so a personal
+    // task never leaks onto another user's calendar.
     const todoAssignees = t => t.assigneeIds || (t.assigneeId !== undefined ? [t.assigneeId] : []);
     (todos || []).filter(t => {
       if (t.done || t.completed || !t.dueDate) return false;
-      if (canSeeAllTodos) return true;
       return todoAssignees(t).includes(user?.id) || t.assignedById === user?.id;
     }).forEach(t => {
       addEvent(t.dueDate, { type: 'todo', id: t.id, title: t.text || t.title || 'Task', store: t.storeName || '' });
@@ -41024,7 +41020,8 @@ function PCGPortal() {
       if (document.hidden) {
         hiddenAt.t = Date.now();
       } else if (hiddenAt.t && Date.now() - hiddenAt.t > TIMEOUT_MS) {
-        if (user?.userType?.startsWith('kiosk')) return;
+        // No active session → nothing to time out; skip (avoids anonymous "—" rows).
+        if (!user || user.userType?.startsWith('kiosk')) return;
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'background_tab', name: user?.name });
         try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
         setPreferFullPortal(false);
@@ -41037,7 +41034,8 @@ function PCGPortal() {
     // BFCache restore (browser back/forward) — always reset
     const onPageShow = (e) => {
       if (e.persisted) {
-        if (user?.userType?.startsWith('kiosk')) return;
+        // No active session → nothing to time out; skip (avoids anonymous "—" rows).
+        if (!user || user.userType?.startsWith('kiosk')) return;
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'bfcache_restore', name: user?.name });
         try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
         setPreferFullPortal(false);
