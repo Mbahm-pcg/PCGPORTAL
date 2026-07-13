@@ -23469,34 +23469,25 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         </Card>
 
 
-        {/* Daily essentials — clean metric grid under the hero */}
+        {/* Daily essentials — kept intentionally lean: Labor %, Guests, Avg Check.
+             (WTD Labor, Orion brief, and the forecast game plan were removed to keep
+             the manager view short and simple.) */}
         {(() => {
-          // WTD from the authoritative network blob (pcg_labor_v1 → stores[pc].wtd),
-          // the SAME source as the daily Labor tile and Orion — not the per-store
-          // weekly[0] rollup, which was drifting (showed 0.0% / stale $ vs reality).
-          // WTD is always "current week to date", so it holds across day-cycling.
-          const wtd = labor?.wtd || null;
-          const wtdColor = wtd && wtd.laborPct > 0 ? (wtd.laborPct <= 22.9 ? "#22c55e" : wtd.laborPct <= 25.9 ? "#f59e0b" : "#ef4444") : th.muted;
           const avgCheck = displayGuests > 0 ? "$" + (displaySalesAmt / displayGuests).toFixed(2) : "--";
           const laborVal = (isLive && loading) ? "--" : displayLaborPct != null ? displayLaborPct.toFixed(1) + "%" : "--";
           return (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.7rem" }}>
-              <Card accent={laborColor} onClick={onLabor} ariaLabel="Open Labor detail" style={{ padding: "0.85rem 0.9rem" }}>
-                <div style={{ ...tileLabel, display: "flex", alignItems: "center", justifyContent: "space-between" }}><span>Labor %</span>{ChevR(laborColor)}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.6rem" }}>
+              <Card accent={laborColor} onClick={onLabor} ariaLabel="Open Labor detail" style={{ padding: "0.85rem 0.7rem" }}>
+                <div style={tileLabel}>Labor %</div>
                 <div style={{ ...tileNum, color: laborColor }}>{laborVal}</div>
-                <div style={tileSub}>{displayLaborDollars ? fmt(displayLaborDollars) + " · " + laborLabel : "Target 22.9%"}</div>
+                <div style={tileSub}>{displayLaborDollars ? fmt(displayLaborDollars) : "Target 22.9%"}</div>
               </Card>
-              <Card accent={wtdColor} style={{ padding: "0.85rem 0.9rem" }}>
-                <div style={tileLabel}>WTD Labor</div>
-                <div style={{ ...tileNum, color: wtdColor }}>{wtd && wtd.laborPct > 0 ? wtd.laborPct.toFixed(1) + "%" : "--"}</div>
-                <div style={tileSub}>{wtd && wtd.laborDollars > 0 ? fmt(wtd.laborDollars) + " labor" : "Week to date"}</div>
-              </Card>
-              <Card accent="#74c0fc" style={{ padding: "0.85rem 0.9rem" }}>
+              <Card accent="#74c0fc" style={{ padding: "0.85rem 0.7rem" }}>
                 <div style={tileLabel}>Guests</div>
                 <div style={{ ...tileNum, color: "#74c0fc" }}>{displayGuests != null ? Math.round(displayGuests).toLocaleString() : "--"}</div>
-                <div style={tileSub}>{isLive ? "So far today" : "Total"}</div>
+                <div style={tileSub}>{isLive ? "Today" : "Total"}</div>
               </Card>
-              <Card accent="#eab308" style={{ padding: "0.85rem 0.9rem" }}>
+              <Card accent="#eab308" style={{ padding: "0.85rem 0.7rem" }}>
                 <div style={tileLabel}>Avg Check</div>
                 <div style={{ ...tileNum, color: "#eab308" }}>{avgCheck}</div>
                 <div style={tileSub}>Per guest</div>
@@ -23750,7 +23741,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.50";
+const APP_VERSION = "v18.58";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -37075,6 +37066,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
   const [askInput, setAskInput] = React.useState('');
   const [askAnswer, setAskAnswer] = React.useState(null);
   const [askLoading, setAskLoading] = React.useState(false);
+  const [briefExpanded, setBriefExpanded] = React.useState(true); // brief shows first + expanded (DMs value the full brief); "Show less" tucks it
   const [caseFilter, setCaseFilter] = React.useState('open');
   const [storeRows, setStoreRows] = React.useState([]);
   const [expandedStore, setExpandedStore] = React.useState(null);
@@ -37519,109 +37511,136 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
         })()}
 
         {/* ── BRIEF TAB ── */}
-        {activeTab === 'brief' && (
+        {activeTab === 'brief' && (() => {
+          const hour = new Date().getHours();
+          const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+          const firstName = (user?.name || user?.username || '').split(' ')[0];
+          const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+          const scopeLabel = isExec ? 'Network' : districtLabel(district);
+          // Rank stores worst-first and derive a single health verdict — the screen's thesis.
+          const sev = p => p >= 26 ? 3 : p >= 23 ? 2 : p > 0 ? 1 : 0;
+          const ranked = [...storeRows].sort((a, b) => {
+            const d = sev(b.todayLaborPct) - sev(a.todayLaborPct);
+            return d !== 0 ? d : (b.todayLaborPct || 0) - (a.todayLaborPct || 0);
+          });
+          const overCount = ranked.filter(s => s.todayLaborPct >= 26).length;
+          const watchCount = ranked.filter(s => s.todayLaborPct >= 23 && s.todayLaborPct < 26).length;
+          const healthColor = ranked.length === 0 ? th.muted : overCount > 0 ? '#ef4444' : watchCount > 0 ? '#f59e0b' : '#22c55e';
+          const healthTitle = ranked.length === 0 ? 'Loading your district…'
+            : overCount > 0 ? `${overCount} store${overCount > 1 ? 's' : ''} need attention`
+            : watchCount > 0 ? `${watchCount} store${watchCount > 1 ? 's' : ''} to watch`
+            : `All ${ranked.length} on target`;
+          const healthSub = ranked.length === 0 ? 'Pulling today’s labor + sales'
+            : overCount > 0 ? 'Labor over 26% — tap a red tile to dig in'
+            : watchCount > 0 ? 'Labor creeping toward the 26% line'
+            : 'Labor in range across every store';
+          const briefTeaser = brief?.content ? brief.content.replace(/[#*_>`•\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 150) : '';
+          const sectionLabel = { fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '18px 2px 8px' };
+          return (
           <div>
-            {/* Hero banner */}
-            {(() => {
-              const hour = new Date().getHours();
-              const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-              const firstName = (user?.name || user?.username || '').split(' ')[0];
-              const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-              const lColor = laborColor(kpi?.avgLaborPct);
-              return (
-                <div style={{ marginTop: 14, marginBottom: 12, borderRadius: 18, overflow: 'hidden', background: th.card, border: `1px solid ${th.cardBorder}`, position: 'relative' }}>
-                  {/* Animated orange shimmer stripe */}
-                  <div style={{ height: 4, background: `linear-gradient(90deg, #cc4f12, ${O}, #ffb27a, ${O}, #cc4f12)`, backgroundSize: '300% 100%', animation: 'heroShimmer 2s ease-in-out infinite alternate' }} />
-                  <div style={{ padding: '14px 16px 16px' }}>
-                    {/* Greeting row */}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
-                      <div>
-                        <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 18, color: th.text, lineHeight: 1.15, letterSpacing: -0.3 }}>
-                          {greeting}{firstName ? `, ${firstName}` : ''} 👋
-                        </div>
-                        <div style={{ fontSize: 12, color: th.muted, marginTop: 3 }}>{todayLabel}</div>
-                      </div>
-                      <div style={{ background: `${O}20`, border: `1px solid ${O}44`, borderRadius: 999, padding: '3px 12px', fontSize: 11, fontWeight: 800, color: O, textTransform: 'uppercase', letterSpacing: 0.8, flexShrink: 0 }}>
-                        {isExec ? 'Network' : districtLabel(district)}
-                      </div>
-                    </div>
-                    {/* KPI pair */}
-                    {kpi && (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                        <div style={{ background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 12, padding: '10px 12px' }}>
-                          <div style={{ fontSize: 9, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>WTD Sales</div>
-                          <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 26, color: th.text, lineHeight: 1, letterSpacing: -1 }}>{fmtDollars(kpi.totalSales)}</div>
-                          <div style={{ fontSize: 11, color: th.muted, marginTop: 4 }}>{kpi.storeCount} stores</div>
-                        </div>
-                        <div style={{ background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 12, padding: '10px 12px' }}>
-                          <div style={{ fontSize: 9, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Avg Labor</div>
-                          <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 26, color: lColor, lineHeight: 1, letterSpacing: -1 }}>{kpi.avgLaborPct > 0 ? kpi.avgLaborPct.toFixed(1) + '%' : '—'}</div>
-                          <div style={{ fontSize: 11, color: th.muted, marginTop: 4 }}>WTD avg</div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
+            {/* ── Context header — slim, not a card ── */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginTop: 14, marginBottom: 14 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 21, color: th.text, lineHeight: 1.08, letterSpacing: -0.5 }}>{greeting}{firstName ? `, ${firstName}` : ''}</div>
+                <div style={{ fontSize: 12, color: th.muted, marginTop: 4 }}>{todayLabel}</div>
+              </div>
+              <div style={{ background: `${O}18`, border: `1px solid ${O}40`, borderRadius: 999, padding: '4px 12px', fontSize: 11, fontWeight: 800, color: O, textTransform: 'uppercase', letterSpacing: 0.8, flexShrink: 0, marginTop: 2 }}>{scopeLabel}</div>
+            </div>
 
-            {/* Brief card */}
-            <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '14px 0 8px' }}>Today's Brief</div>
+            {/* ── Today's Brief — FIRST, per DM preference (dense, coaching-grade
+                 info). Expanded by default; "Show less" tucks it above the glance. ── */}
+            <div style={sectionLabel}>Today's Brief</div>
             {loading ? (
-              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 20, textAlign: 'center', color: th.muted, fontSize: 13 }}>Loading brief...</div>
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 18, textAlign: 'center', color: th.muted, fontSize: 13 }}>Loading brief…</div>
             ) : brief?.content ? (
-              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <span style={{ fontSize: 11, color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                  <span style={{ background: O + '22', color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: '2px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8 }}>{isExec ? 'Network' : districtLabel(district)}</span>
-                </div>
-                <div style={{ fontSize: 13, color: th.text, lineHeight: 1.6 }}>{renderAnalystMarkdown(brief.content, th)}</div>
-                <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${th.cardBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— Orion, {brief.generatedAt ? new Date(brief.generatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'today'}</span>
-                  <button onClick={() => sendAsk('Give me a quick recap of today\'s brief')} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '3px 10px', color: th.muted, fontSize: 11, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Ask follow-up</button>
-                </div>
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 16, marginBottom: 4 }}>
+                {briefExpanded ? (
+                  <>
+                    <div style={{ fontSize: 13, color: th.text, lineHeight: 1.6 }}>{renderAnalystMarkdown(brief.content, th)}</div>
+                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${th.cardBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— Orion, {brief.generatedAt ? new Date(brief.generatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'today'}</span>
+                      <button onClick={() => sendAsk('Give me a quick recap of today\'s brief')} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '3px 10px', color: th.muted, fontSize: 11, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Ask follow-up</button>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 13, color: th.muted, lineHeight: 1.55 }}>{briefTeaser}…</div>
+                )}
+                <button onClick={() => setBriefExpanded(v => !v)} style={{ marginTop: 10, width: '100%', background: briefExpanded ? 'none' : `${O}12`, border: `1px solid ${briefExpanded ? th.cardBorder : O + '33'}`, borderRadius: 9, padding: '8px', color: briefExpanded ? th.muted : O, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>
+                  {briefExpanded ? 'Show less' : 'Read full brief'}
+                </button>
               </div>
             ) : (
-              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 20, textAlign: 'center' }}>
-                <div style={{ color: th.muted, fontSize: 13, marginBottom: 10 }}>Brief not yet generated for today.</div>
+              <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 18, textAlign: 'center' }}>
+                <div style={{ color: th.muted, fontSize: 13, marginBottom: 6 }}>Brief not yet generated for today.</div>
                 <div style={{ fontSize: 12, color: th.muted }}>Orion generates the daily brief at 7 AM ET.</div>
               </div>
             )}
 
-            {/* Leaderboard card — only for DM/Exec, only if not acknowledged */}
-            {leaderboard && (user?.userType === 'dm' || user?.userType === 'executive') && !announcementsDismissed?.[`${user?.id}_${leaderboard.id}`] && (
-              <div>
-                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '16px 0 8px' }}>Weekly Leaderboard</div>
-                <div style={{ background: th.card, border: `1px solid ${O}33`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-                    <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 12, color: O, textTransform: 'uppercase', letterSpacing: 0.8 }}>{leaderboard.title}</span>
-                    <button
-                      onClick={() => setAnnouncementsDismissed && setAnnouncementsDismissed(prev => ({ ...prev, [`${user?.id}_${leaderboard.id}`]: true }))}
-                      style={{ background: O, border: 'none', borderRadius: '2rem', color: '#fff', fontSize: 11, fontWeight: 700, padding: '0.2rem 0.65rem', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap', flexShrink: 0 }}
-                    >Got it 👍</button>
-                  </div>
-                  <div style={{ fontSize: 13, color: th.text, lineHeight: 1.65 }}>{leaderboard.message}</div>
-                  <div style={{ marginTop: 10, fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— {leaderboard.createdBy} · {leaderboard.createdAt ? new Date(leaderboard.createdAt).toLocaleDateString() : ''}</div>
+            {/* ── Health headline + store grid — the district glance. DM-scale only:
+                 for network-scope exec/IT this would be all 45 stores (endless scroll),
+                 so they get the brief-led layout instead (KPIs + brief below). ── */}
+            {!isExec && (
+              <div style={{ marginTop: 14, background: th.card, border: `1px solid ${th.cardBorder}`, borderLeft: `4px solid ${healthColor}`, borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ width: 12, height: 12, borderRadius: '50%', background: healthColor, flexShrink: 0, boxShadow: `0 0 0 4px ${healthColor}22` }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 19, color: healthColor, lineHeight: 1.1, letterSpacing: -0.3 }}>{healthTitle}</div>
+                  <div style={{ fontSize: 12, color: th.muted, marginTop: 3 }}>{healthSub}</div>
                 </div>
               </div>
             )}
 
-            {/* Task Compliance — compact by district */}
-            {taskAlerts?.alerts?.length > 0 && (() => {
+            {/* ── Store grid — the star, worst-first. Tap → Pulse detail (DM only) ── */}
+            {!isExec && ranked.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+                {ranked.map(s => {
+                  const c = laborColor(s.todayLaborPct);
+                  return (
+                    <button key={s.pc} onClick={() => setActiveTab('pulse')}
+                      style={{ textAlign: 'left', background: th.card, border: `1px solid ${th.cardBorder}`, borderLeft: `3px solid ${c}`, borderRadius: 12, padding: '10px 11px', cursor: 'pointer', WebkitTapHighlightColor: 'transparent', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: c, flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                        <span style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 18, color: c, lineHeight: 1 }}>{s.todayLaborPct > 0 ? s.todayLaborPct.toFixed(1) + '%' : '—'}</span>
+                        <span style={{ fontSize: 11, color: th.muted }}>{s.todaySales > 0 ? fmtDollars(s.todaySales) : '—'}</span>
+                      </div>
+                      <div style={{ fontSize: 9, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6 }}>labor · sales today</div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ── KPI strip — demoted to reference figures ── */}
+            {kpi && (
+              <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                <div style={{ flex: 1, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, padding: '10px 13px' }}>
+                  <div style={{ fontSize: 9, color: th.muted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8 }}>WTD Sales</div>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 20, color: th.text, lineHeight: 1.1, marginTop: 3 }}>{fmtDollars(kpi.totalSales)}</div>
+                </div>
+                <div style={{ flex: 1, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, padding: '10px 13px' }}>
+                  <div style={{ fontSize: 9, color: th.muted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8 }}>Avg Labor · WTD</div>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 20, color: laborColor(kpi.avgLaborPct), lineHeight: 1.1, marginTop: 3 }}>{kpi.avgLaborPct > 0 ? kpi.avgLaborPct.toFixed(1) + '%' : '—'}</div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Needs Action: task compliance (missed/overdue checks) — DM only.
+                 For exec/IT this spans every district and became a long scroll. ── */}
+            {!isExec && taskAlerts?.alerts?.length > 0 && (() => {
               const grouped = {};
               taskAlerts.alerts.forEach(a => {
                 const key = isExec ? districtLabel(a.district) : 'Missed Yesterday';
                 if (!grouped[key]) grouped[key] = [];
                 grouped[key].push(a);
               });
-
               return (
-                <div style={{ marginTop: 16 }}>
+                <div>
+                  <div style={sectionLabel}>Needs Action{taskAlerts.date ? ` · ${taskAlerts.date}` : ''}</div>
                   {Object.entries(grouped).map(([groupLabel, alerts]) => (
-                    <div key={groupLabel} style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>
-                        {groupLabel}{taskAlerts.date ? ` · ${taskAlerts.date}` : ''}
-                      </div>
+                    <div key={groupLabel} style={{ marginBottom: 10 }}>
+                      {isExec && <div style={{ fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 5, marginLeft: 2 }}>{groupLabel}</div>}
                       <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, overflow: 'hidden' }}>
                         {alerts.map((a, idx) => {
                           const sevColor = a.severity === 'high' ? '#ef4444' : a.severity === 'medium' ? '#f97316' : '#22c55e';
@@ -37638,13 +37657,11 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
                                 <div style={{ fontSize: 12, fontWeight: 700, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.storeName}</div>
                                 <div style={{ fontSize: 11, color: th.muted }}>{a.missedYesterday} missed · {a.openToday > 0 ? `${a.openToday} open today` : 'on track today'}</div>
                               </div>
-                              {/* Push button */}
                               <button onClick={() => sendAlert(a, 'push')} disabled={pushSending || pushSent || pushError}
                                 title="Send push notification to manager & DM"
                                 style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, border: `1px solid ${pushSent ? '#22c55e44' : pushError ? '#ef444444' : '#a855f744'}`, background: pushSent ? '#22c55e18' : pushError ? '#ef444418' : '#a855f718', cursor: pushSending || pushSent || pushError ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
                                 {pushSending ? <span style={{ fontSize: 10, color: '#a855f7' }}>…</span> : pushSent ? <span style={{ fontSize: 12 }}>✓</span> : pushError ? <span style={{ fontSize: 12, color: '#ef4444' }}>✗</span> : '🔔'}
                               </button>
-                              {/* Email button */}
                               <button onClick={() => sendAlert(a, 'email')} disabled={mailSending || mailSent || mailError}
                                 title="Send email to manager & DM"
                                 style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, border: `1px solid ${mailSent ? '#22c55e44' : mailError ? '#ef444444' : O + '44'}`, background: mailSent ? '#22c55e18' : mailError ? '#ef444418' : `${O}18`, cursor: mailSending || mailSent || mailError ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
@@ -37660,22 +37677,34 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
               );
             })()}
 
-            {/* Action Queue — DM only, shown below the brief */}
+            {/* ── Action Queue (DM) ── */}
             {user?.userType === 'dm' && (
               <div>
-                <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, margin: '16px 0 8px' }}>Action Queue</div>
-                <ActionQueue
-                  stores={stores}
-                  th={th}
-                  user={user}
-                  users={users || []}
-                  setTab={() => onSwitchToFull()}
-                  showAlert={() => {}}
-                />
+                <div style={sectionLabel}>Action Queue</div>
+                <ActionQueue stores={stores} th={th} user={user} users={users || []} setTab={() => onSwitchToFull()} showAlert={() => {}} />
+              </div>
+            )}
+
+            {/* Today's Brief renders at the TOP now (see after context header) */}
+
+            {/* ── Weekly Leaderboard — lowest priority, dismissible ── */}
+            {leaderboard && (user?.userType === 'dm' || user?.userType === 'executive') && !announcementsDismissed?.[`${user?.id}_${leaderboard.id}`] && (
+              <div>
+                <div style={sectionLabel}>Weekly Leaderboard</div>
+                <div style={{ background: th.card, border: `1px solid ${O}33`, borderRadius: 16, padding: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: 12, color: O, textTransform: 'uppercase', letterSpacing: 0.8 }}>{leaderboard.title}</span>
+                    <button onClick={() => setAnnouncementsDismissed && setAnnouncementsDismissed(prev => ({ ...prev, [`${user?.id}_${leaderboard.id}`]: true }))}
+                      style={{ background: O, border: 'none', borderRadius: '2rem', color: '#fff', fontSize: 11, fontWeight: 700, padding: '0.2rem 0.65rem', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap', flexShrink: 0 }}>Got it 👍</button>
+                  </div>
+                  <div style={{ fontSize: 13, color: th.text, lineHeight: 1.65 }}>{leaderboard.message}</div>
+                  <div style={{ marginTop: 10, fontSize: 11, color: th.muted, fontStyle: 'italic' }}>— {leaderboard.createdBy} · {leaderboard.createdAt ? new Date(leaderboard.createdAt).toLocaleDateString() : ''}</div>
+                </div>
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* ── CASES TAB ── */}
         {activeTab === 'cases' && (
@@ -39685,9 +39714,19 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     return open;
   }, [tickets, isManager, isDM, stores, user]);
 
-  const myTodos = React.useMemo(() =>
-    (todos || []).filter(t => !t.completed && t.dueDate),
-  [todos]);
+  // Todos on the calendar must obey the SAME visibility as the To-Do tab: you see a
+  // task only if you're an assignee, you assigned it out, or you're a full admin /
+  // office staff (who have the "All Tasks" view). Previously this showed EVERY task
+  // with a due date, so a task assigned to one person leaked onto everyone's calendar.
+  const myTodos = React.useMemo(() => {
+    const canSeeAll = isFullAdmin(user) || user?.userType === 'office_staff';
+    const assigneeIds = t => t.assigneeIds || (t.assigneeId !== undefined ? [t.assigneeId] : []);
+    return (todos || []).filter(t => {
+      if (t.done || t.completed || !t.dueDate) return false;
+      if (canSeeAll) return true;
+      return assigneeIds(t).includes(user?.id) || t.assignedById === user?.id;
+    });
+  }, [todos, user]);
 
   // Enrich projects with district from stores (same fix as AdminProjects)
   const enrichedCalProjects = React.useMemo(() => (projects||[]).map(p => {
@@ -39744,8 +39783,10 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
       if (t.dueDate && t.dueDate !== d) add(t.dueDate, { type:'ticket_due', id:t.id, title:`Due: ${t.title||'Ticket'}`, store:t.storeName, priority:t.priority });
     });
 
-    // Scheduled maintenance (recurring equipment checks — role-filtered)
-    mySchedules.forEach(s => {
+    // Scheduled maintenance (recurring equipment checks) — EXEC/IT ONLY.
+    // DMs, managers, and construction see only tickets, projects, and task/todos;
+    // equipment checks are leadership-only and would just clutter their calendar.
+    if (isFullAdmin(user)) mySchedules.forEach(s => {
       let tmp = new Date(s.startDate + 'T12:00:00');
       while (tmp <= monthEnd) {
         if (tmp >= monthStart) add(tmp.toISOString().slice(0,10), { type:'schedule', id:s.id, title:s.title, store:s.storeName, category:s.category, freq:s.freq });
@@ -39905,7 +39946,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
           <div style={{ ...card(th), padding:'0.75rem 1rem' }}>
             <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.78rem', color:th.text, marginBottom:'0.5rem' }}>Legend</div>
             <div style={{ display:'flex', flexWrap:'wrap', gap: isMobile ? '0.4rem 0.75rem' : 0 }}>
-              {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],['#a855f7','🔧 Equipment check'],['#14b8a6','🏗️ Project'],[O,'📝 Task/Todo']].map(([c,l])=>(
+              {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],...(isFullAdmin(user)?[['#a855f7','🔧 Equipment check']]:[]),['#14b8a6','🏗️ Project'],[O,'📝 Task/Todo']].map(([c,l])=>(
                 <div key={l} style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom: isMobile ? 0 : '0.3rem' }}>
                   <div style={{ width:10, height:10, borderRadius:'50%', background:c, flexShrink:0 }} />
                   <span style={{ fontSize:'0.7rem', color:th.muted }}>{l}</span>
@@ -40040,8 +40081,16 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
       }
     });
 
-    // Todos/tasks with due dates — show on maintenance calendar
-    (todos || []).filter(t => !t.completed && t.dueDate).forEach(t => {
+    // Todos/tasks with due dates — same visibility rule as the To-Do tab (assignee,
+    // assigner, or admin) so a task assigned to one person doesn't leak onto the
+    // whole crew's calendar. Maintenance is not a full admin, so it's assignee/assigner only.
+    const canSeeAllTodos = isFullAdmin(user) || user?.userType === 'office_staff';
+    const todoAssignees = t => t.assigneeIds || (t.assigneeId !== undefined ? [t.assigneeId] : []);
+    (todos || []).filter(t => {
+      if (t.done || t.completed || !t.dueDate) return false;
+      if (canSeeAllTodos) return true;
+      return todoAssignees(t).includes(user?.id) || t.assignedById === user?.id;
+    }).forEach(t => {
       addEvent(t.dueDate, { type: 'todo', id: t.id, title: t.text || t.title || 'Task', store: t.storeName || '' });
     });
 
@@ -42192,14 +42241,24 @@ function PCGPortal() {
   // Announcement gate — compute queue whenever user or announcements change
   useEffect(() => {
     if (!user || annGateDone || isFullAdmin(user) || user.userType?.startsWith('kiosk')) return;
+    // Only RECENT announcements block login. Announcements never auto-expire, so
+    // without this cap the blocking gate re-prompts the entire back-catalog every
+    // time someone opens the app in a storage context that lacks the old local acks
+    // (e.g. the mobile home-screen app) — the "repeating from 3 weeks ago" bug.
+    const GATE_MAX_AGE_DAYS = 14;
+    const cutoff = Date.now() - GATE_MAX_AGE_DAYS * 86400000;
     const queue = announcements.filter(a => {
       if (!a.active) return false;
       if (!announcementTargetsUser(a.targets, user)) return false;
-      try { return !localStorage.getItem(`pcg_ann_ack_${user.id}_${a.id}`); } catch { return false; }
+      if (a.createdAt && new Date(a.createdAt).getTime() < cutoff) return false;
+      // Acked on this device (localStorage) OR dismissed on any device (cloud map) → skip.
+      if (announcementsDismissed?.[`${user.id}_${a.id}`]) return false;
+      try { if (localStorage.getItem(`pcg_ann_ack_${user.id}_${a.id}`)) return false; } catch {}
+      return true;
     }).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     setAnnGateQueue(queue);
     setAnnGateIdx(0);
-  }, [user?.id, user?.userType, announcements, annGateDone]);
+  }, [user?.id, user?.userType, announcements, annGateDone, announcementsDismissed]);
 
   // Central-ack backfill — the gate only fires recordAnnAck the first time a
   // user sees an announcement; anyone who dismissed it before central recording
@@ -42260,18 +42319,16 @@ function PCGPortal() {
 
   // ── Announcement Gate ──────────────────────────────────────────────────────
   if (!annGateDone && annGateQueue.length > 0 && annGateIdx < annGateQueue.length) {
-    const handleAnnNext = () => {
-      const annId = annGateQueue[annGateIdx].id;
+    // Ack in all three places so it never re-prompts: this device (localStorage),
+    // the server audit (recordAnnAck), and the cloud dismissal map used app-wide and
+    // synced across devices (announcementsDismissed).
+    const ackAnn = (annId) => {
       try { localStorage.setItem(`pcg_ann_ack_${user.id}_${annId}`, "1"); } catch {}
       recordAnnAck(annId, user);
-      setAnnGateIdx(i => i + 1);
+      setAnnouncementsDismissed(prev => ({ ...prev, [`${user.id}_${annId}`]: true }));
     };
-    const handleAnnDone = () => {
-      const annId = annGateQueue[annGateIdx].id;
-      try { localStorage.setItem(`pcg_ann_ack_${user.id}_${annId}`, "1"); } catch {}
-      recordAnnAck(annId, user);
-      setAnnGateDone(true);
-    };
+    const handleAnnNext = () => { ackAnn(annGateQueue[annGateIdx].id); setAnnGateIdx(i => i + 1); };
+    const handleAnnDone = () => { ackAnn(annGateQueue[annGateIdx].id); setAnnGateDone(true); };
     return <AnnouncementGate anns={annGateQueue} idx={annGateIdx} onNext={handleAnnNext} onDone={handleAnnDone} th={th} />;
   }
 
