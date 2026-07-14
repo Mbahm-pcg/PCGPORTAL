@@ -15699,37 +15699,6 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       {/* ── Tab: Notifications ── */}
       {settingsTab === 'notifications' && <>
 
-      {/* Info card */}
-      <div style={accentCard(th, O, { marginBottom: "1.25rem" })}>
-        <button onClick={() => setNotifyInfoOpen(o => !o)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", background: "none", border: "none", cursor: "pointer", padding: "1rem 1.25rem", textAlign: "left" }}>
-          <span style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text }}>How Notifications Work</span>
-          <span style={{ fontSize: "0.75rem", color: th.muted, marginLeft: "0.5rem" }}>{notifyInfoOpen ? "▲ Hide" : "▼ Show"}</span>
-        </button>
-        {notifyInfoOpen && (
-          <div style={{ fontSize: "0.8125rem", color: th.muted, lineHeight: 1.7, padding: "0 1.25rem 1.25rem" }}>
-
-            <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem", marginTop: "0.25rem" }}>📂 Project Notifications</div>
-            <div style={{ marginBottom: "0.25rem" }}>📬 <strong>Global list</strong> — everyone in the Global Project Notifications list gets notified on every project update</div>
-            <div style={{ marginBottom: "0.25rem" }}>📋 <strong>Per-project list</strong> — additional emails can be added inside each individual project's settings</div>
-            <div style={{ marginBottom: "0.75rem" }}>🔔 <strong>Triggers:</strong> New project added, phase changes, checklist updates, deadline warnings</div>
-
-            <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>🎫 Ticket Notifications</div>
-            <div style={{ marginBottom: "0.25rem" }}>🎫 <strong>Ticket list</strong> — everyone in the Ticket Notifications list is notified when a new service ticket is created</div>
-            <div style={{ marginBottom: "0.25rem" }}>🔔 <strong>In-app bell</strong> — a bell badge appears in the header for every new ticket; clicking it jumps to the Tickets tab</div>
-            <div style={{ marginBottom: "0.75rem" }}>⚡ <strong>Triggers:</strong> New ticket submitted</div>
-
-            <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>📡 Delivery Channels</div>
-            <div style={{ marginBottom: "0.25rem" }}>📧 <strong>Email</strong> — sent via Resend to all matching recipients (unless disabled in user profile)</div>
-            <div style={{ marginBottom: "0.25rem" }}>📱 <strong>SMS</strong> — sent via Twilio to users with a phone number + SMS enabled in their profile</div>
-            <div style={{ marginBottom: "0.25rem" }}>🔔 <strong>Web Push</strong> — browser/device push notification for users with Push enabled in their profile</div>
-            <div style={{ marginBottom: "0.75rem" }}>⚠️ <strong>Matching:</strong> Your user's <em>email</em> must appear in the relevant notify list to receive SMS or Push</div>
-
-            <div style={{ fontWeight: 700, color: th.text, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.375rem" }}>⚙️ Powered By</div>
-            <div>Resend (email) · Twilio (SMS) · Web Push VAPID — configure API keys in Netlify environment variables</div>
-          </div>
-        )}
-      </div>
-
       {/* Global Notify List */}
       <div style={accentCard(th, "#ffffff", { padding: "1.5rem", marginBottom: "1.25rem" })}>
         <div onClick={() => setGlobalNotifyOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: globalNotifyOpen ? "0.25rem" : 0 }}>
@@ -15805,64 +15774,6 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             <button onClick={addTicketEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
           </div>
         </>}
-      </div>
-
-      {/* User Notification Settings */}
-      <div style={{ ...accentCard(th, "#3b82f6", { padding: "1.5rem", marginBottom: "1.25rem" }) }}>
-        <div onClick={() => setUserNotifsOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: userNotifsOpen ? "1rem" : 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ fontSize: "1.125rem" }}>🔔</span>
-            <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>User Notification Settings</span>
-            <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(users || []).filter(u => u.active !== false && !u.userType?.startsWith('kiosk')).length} users)</span>
-          </div>
-          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{userNotifsOpen ? "▲ Hide" : "▼ Show"}</span>
-        </div>
-        {userNotifsOpen && (() => {
-          const ROLE_COLORS = { executive: "#10b981", it: "#3b82f6", office_staff: "#8b5cf6", auditor: "#e11d48", dm: "#f59e0b", manager: "#9ca3af", construction: "#fb923c", maintenance: "#0891b2", vendor: "#06b6d4" };
-          const ROLE_LABELS = { executive: "Executive", it: "IT Team", office_staff: "Office", auditor: "Auditor", dm: "District Mgr", manager: "Manager", construction: "Construction", maintenance: "Maintenance", vendor: "Vendor" };
-          const ROLE_ORDER = ["executive", "it", "office_staff", "auditor", "dm", "manager", "construction", "maintenance", "vendor"];
-          const activeUsers = (users || []).filter(u => u.active !== false && !u.userType?.startsWith('kiosk')).sort((a, b) => {
-            const ai = ROLE_ORDER.indexOf(a.userType); const bi = ROLE_ORDER.indexOf(b.userType);
-            if (ai !== bi) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
-            return (a.name || "").localeCompare(b.name || "");
-          });
-          const toggleNotif = (userId, field) => {
-            if (!setUsers) return;
-            setUsers(prev => prev.map(u => String(u.id) === String(userId) ? { ...u, [field]: !u[field] } : u));
-          };
-          const Tog = ({ on, onToggle, accent }) => (
-            <button onClick={onToggle} style={{ width: 34, height: 19, borderRadius: 10, border: "none", cursor: "pointer", background: on ? (accent || O) : th.muted + "44", position: "relative", transition: "background .18s", flexShrink: 0, padding: 0 }}>
-              <span style={{ position: "absolute", top: 2, left: on ? 16 : 2, width: 15, height: 15, borderRadius: "50%", background: "#fff", transition: "left .18s", boxShadow: "0 1px 3px rgba(0,0,0,0.25)", display: "block" }} />
-            </button>
-          );
-          return (
-            <div>
-              <p style={{ fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" }}>Control which notification channels each user receives. Changes take effect immediately.</p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 0.75rem", alignItems: "center", marginBottom: "0.4rem", paddingBottom: "0.4rem", borderBottom: `1px solid ${th.cardBorder}` }}>
-                <span style={{ fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>User</span>
-                {["Push", "Email", "SMS"].map(l => <span key={l} style={{ fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "center" }}>{l}</span>)}
-              </div>
-              {activeUsers.map(u => {
-                const rc = ROLE_COLORS[u.userType] || th.muted;
-                const rl = ROLE_LABELS[u.userType] || u.userType;
-                return (
-                  <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 0.75rem", alignItems: "center", padding: "0.55rem 0", borderBottom: `1px solid ${th.cardBorder}22` }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: rc, flexShrink: 0 }} />
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: "0.82rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name || u.username}</div>
-                        <div style={{ fontSize: "0.68rem", color: rc, fontWeight: 600 }}>{rl}</div>
-                      </div>
-                    </div>
-                    <Tog on={!!u.pushNotify} onToggle={() => toggleNotif(u.id, "pushNotify")} accent="#f59e0b" />
-                    <Tog on={u.emailNotify !== false} onToggle={() => toggleNotif(u.id, "emailNotify")} accent="#3b82f6" />
-                    <Tog on={!!u.smsNotify} onToggle={() => toggleNotif(u.id, "smsNotify")} accent="#10b981" />
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
       </div>
 
       {/* Test Notifications */}
@@ -23394,6 +23305,11 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [histHourly, setHistHourly] = useState(null);
   const [liveHistCache, setLiveHistCache] = useState({});
   const [histLoading, setHistLoading] = useState(false);
+  const [storeTickets, setStoreTickets] = useState([]);
+  const [taskSummary, setTaskSummary] = useState(null); // { done, total, nextDue } | null
+  const [mgrCaps, setMgrCaps] = useState(null); // null = loading; [] once loaded — open/overdue Field Ops CAPs for this store
+  const [mgrCapsErr, setMgrCapsErr] = useState(false);
+  const [expandedCap, setExpandedCap] = useState(null);
   const toggleBtnRef = useRef(null);
   // Voice (Orion GM Mode)
   const [voiceState, setVoiceState] = useState('idle'); // idle | listening | thinking | speaking | error
@@ -23606,6 +23522,52 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     return () => { cancelled = true; };
   }, [dayOffset, pc]);
 
+  // ── Real Tickets (localStorage blob) + Tasks (tasks fn) for this store ──
+  useEffect(() => {
+    if (!pc) return;
+    // Tickets — synchronous localStorage read; guard everything.
+    try {
+      const raw = localStorage.getItem('pcg_tickets_v1');
+      const parsed = raw ? JSON.parse(raw) : [];
+      const arr = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.data) ? parsed.data : []);
+      setStoreTickets(arr.filter(t => String(t.storePC) === String(pc) && (t.status === 'Open' || t.status === 'In Progress')));
+    } catch { setStoreTickets([]); }
+    // Tasks — today's task instances for this store via the tasks function.
+    let cancelled = false;
+    (async () => {
+      try {
+        const dET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+        const r = await fetch('/.netlify/functions/tasks', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list', store_pc: pc, date: dET }),
+        });
+        const j = r.ok ? await r.json() : null;
+        if (cancelled) return;
+        const tasks = Array.isArray(j?.tasks) ? j.tasks : [];
+        const total = tasks.length;
+        const done = tasks.filter(t => t.statusComputed === 'completed').length;
+        const next = tasks.find(t => t.statusComputed === 'open') || tasks.find(t => t.statusComputed === 'overdue' || t.statusComputed === 'missed');
+        setTaskSummary({ done, total, nextDue: next ? (next.name || null) : null });
+      } catch { if (!cancelled) setTaskSummary(null); }
+    })();
+    // Open Field Ops CAPs (corrective actions) for this store — same fetch pattern as
+    // ManagerCapCard: list submitted audits, pull each one's CAPs, keep open/overdue.
+    (async () => {
+      setMgrCapsErr(false);
+      try {
+        const j = await auditsApi("list");
+        const submitted = (j.audits || []).filter(a => a.status === "submitted");
+        const results = await Promise.all(submitted.map(a => auditsApi("get", { id: a.id }).catch(() => null)));
+        if (cancelled) return;
+        const open = [];
+        results.forEach(r => { if (r?.caps) open.push(...r.caps.filter(c => c.status === "open" || c.status === "overdue")); });
+        open.sort((a, b) => new Date(a.deadline || 0) - new Date(b.deadline || 0));
+        setMgrCaps(open);
+      } catch { if (!cancelled) { setMgrCaps([]); setMgrCapsErr(true); } }
+    })();
+    return () => { cancelled = true; };
+  }, [pc]);
+
   if (!pc) {
     return <div style={{ minHeight: "100vh", background: th.bg, color: th.muted, display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem", textAlign: "center" }}>No store is assigned to this manager account yet.</div>;
   }
@@ -23639,7 +23601,26 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   // Daily blob entries store the field as `laborDollars` (labor-cron mergeStoreBlob),
   // never `laborCost` — the old name left the past-day labor $ permanently blank.
   const displayLaborDollars = isLive ? storeLabor?.laborDollars : (histEntry?.laborDollars ?? null);
-  const displayPaceTarget = isLive ? lwDaySales : (histPrevEntry?.sales || null);
+  // Daily goal/pace target — real data only, but with a fallback chain so a single gap
+  // in this store's daily-history blob (the old exact "same weekday 7 days back" lookup)
+  // doesn't silently hide the goal bar forever:
+  //   1. lwDaySales — exact same-weekday entry from 7 days back (most accurate)
+  //   2. average of same-weekday entries found anywhere in the last 35 days of history
+  //   3. last completed week's total ÷ 7 — a real average daily pace (weekRow.lwSale)
+  const paceFallback = (() => {
+    if (!isLive) return null;
+    if (lwDaySales) return lwDaySales;
+    const dow = now.getDay();
+    const sameWeekdayEntries = (storeBlob?.daily || []).filter(d => {
+      if (!(d?.sales > 0) || !d.date) return false;
+      const dt = new Date(d.date + 'T12:00:00');
+      return dt.getDay() === dow;
+    });
+    if (sameWeekdayEntries.length) return sameWeekdayEntries.reduce((a, d) => a + d.sales, 0) / sameWeekdayEntries.length;
+    if (weekRow?.lwSale > 0) return weekRow.lwSale / 7;
+    return null;
+  })();
+  const displayPaceTarget = isLive ? paceFallback : (histPrevEntry?.sales || null);
   const laborColor = displayLaborPct == null ? th.muted : displayLaborPct <= 22.9 ? "#22c55e" : displayLaborPct <= 25.9 ? "#f59e0b" : "#ef4444";
   const laborLabel = displayLaborPct == null ? "No Data" : displayLaborPct <= 22.9 ? "On Target" : displayLaborPct <= 25.9 ? "Watch" : "Over";
   const currentHour = now.getHours();
@@ -23683,272 +23664,271 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const userInitials = (user?.initials || (user?.name || "").split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join("") || "U").toUpperCase();
   const StoreSvg = (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></svg>;
 
+  // ── Editorial mobile redesign tokens (Big Shoulders display + Spline mono labels) ──
+  const mDisp = "'Big Shoulders Display', sans-serif";
+  const mMono = "'Spline Sans Mono', monospace";
+  const mCardBg = dark ? th.card : "#ffffff";
+  const mBorder = dark ? th.cardBorder : "#ebe3d8";
+  const mShadow = dark ? "0 12px 28px rgba(0,0,0,0.22)" : "0 2px 8px rgba(41,37,36,0.06)";
+  const mMut = dark ? th.muted : "#a49c92";
+  const mSec = dark ? th.muted : "#57534e";
+  const mTrack = dark ? "rgba(255,255,255,0.08)" : "#f1e9df";
+  const mBarMut = dark ? (th.card2 || "#2a2f3a") : "#f2ddc9";
+  const mBig = { background: mCardBg, border: `1px solid ${mBorder}`, boxShadow: mShadow, borderRadius: 18 };
+  const mSm = { background: mCardBg, border: `1px solid ${mBorder}`, boxShadow: mShadow, borderRadius: 14 };
+  const mPress = {
+    onPointerDown: (e) => { e.currentTarget.style.transform = "scale(0.978)"; },
+    onPointerUp: (e) => { e.currentTarget.style.transform = "scale(1)"; },
+    onPointerLeave: (e) => { e.currentTarget.style.transform = "scale(1)"; },
+  };
+  const mKpiLbl = { fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut, marginBottom: "0.5rem" };
+  const mKpiSub = { fontFamily: mMono, fontSize: "9px", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: mSec, marginTop: "0.4rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+  const mLoadingNow = (isLive && loading) || histLoading;
+  const mSalesLabel = isLive ? "Net Sales · Today" : dayOffset === 1 ? "Net Sales · Yesterday" : "Net Sales · " + viewDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const mPacePct = (displayPaceTarget > 0 && displaySalesAmt != null) ? Math.round((displaySalesAmt / displayPaceTarget - 1) * 100) : null;
+  const mGoalPct = (displayPaceTarget > 0 && displaySalesAmt != null) ? Math.min(100, Math.round((displaySalesAmt / displayPaceTarget) * 100)) : null;
+  const mAvgCheck = (displayGuests > 0 && displaySalesAmt != null) ? "$" + (displaySalesAmt / displayGuests).toFixed(2) : "--";
+  // ── Tickets card data ──
+  const openTickets = storeTickets;
+  const openTicketCount = openTickets.length;
+  const urgentTickets = openTickets.filter(t => t.priority === 'High' || t.priority === 'Urgent');
+  const firstUrgent = urgentTickets[0] || null;
+  const inProgressCount = openTickets.filter(t => t.status === 'In Progress').length;
+  // ── Tasks card data ──
+  const taskDone = taskSummary?.done ?? null;
+  const taskTotal = taskSummary?.total ?? null;
+  const taskPct = (taskTotal > 0) ? Math.min(100, Math.round((taskDone / taskTotal) * 100)) : 0;
+
   return (
-    <div style={{ minHeight: "100vh", background: dark ? "#0b0d13" : "#f1f3f7", color: th.text }}>
-      <div style={{ position: "sticky", top: 0, zIndex: 10 }}>
-        <div style={{ height: 3, background: `linear-gradient(90deg, ${O} 0%, #ff9950 100%)` }} />
-        <div style={{ background: dark ? "rgba(11,13,19,0.97)" : "rgba(255,255,255,0.97)", borderBottom: `1px solid ${th.headerBorder}`, padding: "0.65rem 0.85rem", backdropFilter: "blur(16px)" }}>
-          <div style={{ maxWidth: 380, margin: "0 auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "0.6rem", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", justifySelf: "start" }}>
-              <img src={LOGOS[th.logoSeal]} alt="PCG" style={{ width: 30, height: 30, objectFit: "contain", flexShrink: 0 }} />
-            </div>
-            <button onClick={onFullPortal} title="Open the full portal" style={{ justifySelf: "center", display: "inline-flex", alignItems: "center", gap: 6, height: 34, padding: "0 15px", borderRadius: 999, background: `${O}12`, border: `1px solid ${O}44`, color: O, fontSize: "0.74rem", fontWeight: 800, letterSpacing: 0.2, fontFamily: "'Source Sans 3'", cursor: "pointer", whiteSpace: "nowrap" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={O} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-              Full Portal
-            </button>
-            <div style={{ display: "flex", alignItems: "center", justifySelf: "end", position: "relative" }}>
-              <button onClick={() => setShowUserMenu(v => !v)} title="Account" aria-label="Account menu" style={{ width: 36, height: 36, borderRadius: "50%", background: `linear-gradient(135deg, ${O}, #ff9950)`, border: "none", color: "#fff", fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.8rem", letterSpacing: 0.3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 2px 8px ${O}55` }}>{userInitials}</button>
-              {showUserMenu && (<>
-                <div onClick={() => setShowUserMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-                <div style={{ position: "absolute", top: 44, right: 0, zIndex: 50, minWidth: 196, ...cardBase, padding: "0.4rem" }}>
-                  <div style={{ padding: "0.5rem 0.6rem 0.4rem" }}>
-                    <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.84rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.name || "Manager"}</div>
-                    <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name || `Store #${pc}`} · #{pc}</div>
-                  </div>
-                  <div style={{ height: 1, background: th.cardBorder, margin: "0.15rem 0" }} />
-                  <button onClick={() => { setShowStoreInfo(true); setShowUserMenu(false); }} style={menuItem}>{StoreSvg(th.muted)}<span>Store details</span></button>
-                  <button ref={toggleBtnRef} onClick={() => { setShowUserMenu(false); handleToggle(); }} style={menuItem}>{dark ? ICONS.sun("#f59e0b") : ICONS.moon(th.muted)}<span>{dark ? "Light mode" : "Dark mode"}</span></button>
-                  <button onClick={onLogout} style={menuItem}>{ICONS.logout("#ef4444")}<span style={{ color: "#ef4444" }}>Sign out</span></button>
-                </div>
-              </>)}
-            </div>
+    <div style={{ minHeight: "100vh", background: dark ? "#0b0d13" : "#f7f2ec", color: th.text }}>
+      <div className="fade-in" style={{ maxWidth: 380, margin: "0 auto", padding: "1rem 1rem 5.9rem", display: "grid", gap: "0.75rem" }}>
+        {/* In-content header — greeting + LIVE pill + avatar menu (app chrome removed) */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.1rem" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: mDisp, fontSize: "26px", fontWeight: 700, textTransform: "uppercase", lineHeight: 1.02, color: th.text }}>{greetWord}, <span style={{ color: O }}>{firstName}</span></div>
+            <div style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: mMut, marginTop: "0.4rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(store.name || `Store #${pc}`) + " · " + (isLive ? now : viewDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
           </div>
-          {/* Date navigation strip */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)", borderRadius: 8, padding: "3px 4px", marginTop: "0.38rem" }}>
-            <button onClick={() => setDayOffset(o => Math.min(o + 1, 29))} disabled={dayOffset >= 29} style={{ background: "none", border: "none", color: dayOffset >= 29 ? (dark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)") : (dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.7)"), fontSize: "1.1rem", lineHeight: 1, cursor: dayOffset >= 29 ? "default" : "pointer", padding: "2px 10px", borderRadius: 6 }}>‹</button>
-            <div style={{ textAlign: "center", flex: 1 }}>
-              <span style={{ color: dark ? "#fff" : "#111", fontSize: "0.7rem", fontWeight: 800 }}>
-                {dayOffset === 0 ? "Today" : dayOffset === 1 ? "Yesterday" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0, position: "relative" }}>
+            {isLive && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: dark ? "rgba(255,103,31,0.15)" : "#fdeee3", border: `1px solid ${dark ? "rgba(255,103,31,0.4)" : "#f3d5bd"}`, borderRadius: 999, padding: "3px 8px" }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: O }} />
+                <span style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", color: dark ? "#f2a06b" : "#b8480f" }}>LIVE</span>
               </span>
-            </div>
-            <button onClick={() => setDayOffset(o => Math.max(o - 1, 0))} disabled={dayOffset === 0} style={{ background: "none", border: "none", color: dayOffset === 0 ? (dark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)") : (dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.7)"), fontSize: "1.1rem", lineHeight: 1, cursor: dayOffset === 0 ? "default" : "pointer", padding: "2px 10px", borderRadius: 6 }}>›</button>
-          </div>
+            )}
+            <button onClick={() => setShowUserMenu(v => !v)} title="Account" aria-label="Account menu" style={{ width: 38, height: 38, borderRadius: "50%", background: O, border: "none", color: "#fff", fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.82rem", letterSpacing: 0.3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 2px 8px ${O}55`, flexShrink: 0 }}>{userInitials}</button>
+            {showUserMenu && (<>
+              <div onClick={() => setShowUserMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{ position: "absolute", top: 46, right: 0, zIndex: 50, minWidth: 200, ...cardBase, padding: "0.4rem" }}>
+                <div style={{ padding: "0.5rem 0.6rem 0.4rem" }}>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.84rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.name || "Manager"}</div>
+                  <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name || `Store #${pc}`} · #{pc}</div>
+                </div>
+                <div style={{ height: 1, background: th.cardBorder, margin: "0.15rem 0" }} />
+                <button onClick={() => { setShowUserMenu(false); onFullPortal && onFullPortal(); }} style={menuItem}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={th.muted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                  <span>Full Portal</span>
+                </button>
+                <button onClick={() => setDayOffset(o => Math.min(o + 1, 29))} disabled={dayOffset >= 29} style={{ ...menuItem, opacity: dayOffset >= 29 ? 0.4 : 1, cursor: dayOffset >= 29 ? "default" : "pointer" }}>
+                  <span style={{ width: 15, textAlign: "center", color: th.muted }}>◀</span><span>Previous day</span>
+                </button>
+                <button onClick={() => setDayOffset(o => Math.max(o - 1, 0))} disabled={dayOffset === 0} style={{ ...menuItem, opacity: dayOffset === 0 ? 0.4 : 1, cursor: dayOffset === 0 ? "default" : "pointer" }}>
+                  <span style={{ width: 15, textAlign: "center", color: th.muted }}>▶</span><span>Next day</span>
+                </button>
+                <button onClick={() => { setShowStoreInfo(true); setShowUserMenu(false); }} style={menuItem}>{StoreSvg(th.muted)}<span>Store details</span></button>
+                <button ref={toggleBtnRef} onClick={() => { setShowUserMenu(false); handleToggle(); }} style={menuItem}>{dark ? ICONS.sun("#f59e0b") : ICONS.moon(th.muted)}<span>{dark ? "Light mode" : "Dark mode"}</span></button>
+                <button onClick={onLogout} style={menuItem}>{ICONS.logout("#ef4444")}<span style={{ color: "#ef4444" }}>Sign out</span></button>
+              </div>
+            </>)}
           </div>
         </div>
-      </div>
 
-      <div className="fade-in" style={{ maxWidth: 380, margin: "0 auto", padding: "0.9rem 0.75rem 5.9rem", display: "grid", gap: "0.7rem" }}>
-        {/* Greeting — gradient orange→white wash + elegant display name */}
-        <div style={{ marginBottom: "0.2rem", marginTop: "0.1rem" }}>
-          <div style={{ display: "inline-block", fontFamily: "'Source Sans 3'", fontSize: "0.8rem", fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", backgroundImage: `linear-gradient(90deg, ${O} 0%, #ff9950 45%, ${th.text} 100%)`, WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent" }}>{greetWord},</div>
-          <div className="grad-name" style={{ display: "inline-block", fontFamily: "'Raleway', sans-serif", fontWeight: 900, fontSize: "2.3rem", lineHeight: 1.04, letterSpacing: -0.6, marginTop: "0.05rem", backgroundImage: `linear-gradient(100deg, ${O} 0%, #ff9950 30%, ${th.text} 55%, #ff9950 80%, ${O} 100%)`, WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent", paddingRight: "0.12em", paddingBottom: "0.04em" }}>{firstName}</div>
-          <div style={{ color: th.subtle, fontSize: "0.63rem", marginTop: "0.32rem", fontWeight: 500 }}>{(store.name || `Store #${pc}`) + " · " + (isLive ? now : viewDate).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}</div>
-        </div>
-
-        {displayLaborPct != null && displayLaborPct > 25.9 && (
-          <div style={{ background: dark ? "#f59e0b14" : "#fffbeb", border: `1px solid ${dark ? "#f59e0b55" : "#fcd34d"}`, borderLeft: "3px solid #f59e0b", borderRadius: 10, padding: "0.62rem 0.8rem", display: "flex", alignItems: "center", gap: "0.55rem" }}>
-            <span style={{ fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}>⚠️</span>
-            <div>
-              <div style={{ color: dark ? "#f59e0b" : "#92400e", fontSize: "0.68rem", fontWeight: 900, letterSpacing: 0.3 }}>Action Needed</div>
-              <div style={{ color: dark ? "#fcd34d" : "#b45309", fontSize: "0.62rem", marginTop: "0.1rem" }}>Labor is over target — review staffing.</div>
-            </div>
+        {displayLaborPct != null && displayLaborPct > 22.9 && (
+          <div style={{ background: "#3a332c", borderRadius: 12, padding: "0.7rem 0.9rem", display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            <span style={{ color: "#f2a06b", fontSize: "0.85rem", lineHeight: 1, flexShrink: 0 }}>▲</span>
+            <div style={{ color: "#f5efe7", fontSize: "0.78rem", fontWeight: 500, lineHeight: 1.3 }}>Labor is <b style={{ color: "#f2a06b", fontWeight: 800 }}>{(displayLaborPct - 22.9).toFixed(1)}% over</b> target</div>
           </div>
         )}
 
 
-        <Card onClick={isLive ? onPulse : undefined} ariaLabel="Open Pulse sales detail" style={{ padding: "1rem", borderColor: `${O}55`, background: `linear-gradient(160deg, ${O}18 0%, ${th.card} 46%, ${th.card2} 100%)` }}>
-          <Label right={<span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}><Chip color={isLive ? (loading ? "#f59e0b" : "#22c55e") : "#64748b"}>{isLive ? (loading ? "Syncing" : "Live") : "History"}</Chip>{isLive && ChevR(O)}</span>}>{isLive ? "Net Sales" : (dayOffset === 1 ? "Net Sales · Yesterday" : "Net Sales · " + viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))}</Label>
-          {(isLive && loading) || histLoading ? <div style={{ color: th.muted, fontSize: "0.82rem", textAlign: "center", padding: "0.75rem" }}>Loading...</div> : (
-            <div style={{ color: O, fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.85rem", lineHeight: 1, letterSpacing: -1, fontVariantNumeric: "tabular-nums" }}>{displaySalesAmt != null ? fmt(displaySalesAmt) : "--"}</div>
+        {/* Hero sales card */}
+        <div onClick={isLive ? onPulse : undefined} role={isLive ? "button" : undefined} tabIndex={isLive ? 0 : undefined} aria-label={isLive ? "Open Pulse sales detail" : undefined}
+          onKeyDown={isLive ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPulse && onPulse(e); } } : undefined}
+          {...(isLive ? mPress : {})}
+          style={{ ...mBig, padding: "1.1rem 1.1rem 1rem", cursor: isLive ? "pointer" : undefined, transition: "transform 0.13s ease" }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "0.5rem" }}>
+            <span style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut }}>{mSalesLabel}</span>
+            {isLive && mPacePct != null && <span style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: O }}>Pacing {mPacePct >= 0 ? "+" : ""}{mPacePct}%</span>}
+          </div>
+          {mLoadingNow ? (
+            <div style={{ color: mMut, fontSize: "0.85rem", padding: "0.9rem 0" }}>Loading…</div>
+          ) : (
+            <div style={{ fontFamily: mDisp, fontSize: "64px", fontWeight: 800, color: O, lineHeight: 0.95, letterSpacing: "-0.01em", marginTop: "0.3rem" }}>{displaySalesAmt != null ? fmt(displaySalesAmt) : "--"}</div>
           )}
-          {isLive && (vsLW !== null || salesLastYear) && <>
-            <div style={{ height: 1, background: th.cardBorder, margin: "0.85rem 0 0.65rem" }} />
-            {vsLW !== null && <div style={{ color: th.muted, fontSize: "0.66rem", marginBottom: salesLastYear ? "0.35rem" : 0 }}>vs last week: <span style={{ color: vsLW < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{vsLW < 0 ? "▼" : "▲"} {fmt(Math.abs(vsLW))} ({Math.abs(vsLWPct || 0).toFixed(0)}%)</span></div>}
-            {salesLastYear && displaySalesAmt != null && (() => {
-              const diff = displaySalesAmt - salesLastYear.netSales;
-              const pct = salesLastYear.netSales > 0 ? (diff / salesLastYear.netSales) * 100 : 0;
-              return <div style={{ color: th.muted, fontSize: "0.66rem" }}>vs last year: <span style={{ color: diff < 0 ? "#ef4444" : "#22c55e", fontWeight: 900 }}>{diff < 0 ? "▼" : "▲"} {fmt(Math.abs(diff))} ({Math.abs(pct).toFixed(0)}%)</span></div>;
-            })()}
-          </>}
-          {!loading && displaySalesAmt != null && displayPaceTarget > 0 && (() => {
-            const pct = Math.min(Math.round((displaySalesAmt / displayPaceTarget) * 100), 150);
-            const pc2 = pct >= 100 ? "#22c55e" : pct >= 90 ? "#f59e0b" : "#ef4444";
-            const compareLabel = isLive ? `last ${now.toLocaleDateString("en-US", { weekday: "short" })}` : prevDateStr.slice(5).replace('-', '/');
-            return (
-              <div style={{ marginTop: "0.7rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
-                  <span style={{ color: th.muted, fontSize: "0.58rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Sales Pace</span>
-                  <span style={{ color: pc2, fontSize: "0.62rem", fontWeight: 900 }}>{pct}% of {compareLabel}</span>
-                </div>
-                <div style={{ height: 6, borderRadius: 99, background: dark ? "rgba(255,255,255,0.08)" : "#e5e7eb", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: Math.min(pct, 100) + "%", borderRadius: 99, background: `linear-gradient(90deg, ${pc2}99, ${pc2})`, transition: "width 0.6s ease" }} />
-                </div>
-                <div style={{ color: th.subtle, fontSize: "0.56rem", marginTop: "0.25rem" }}>Prior: {fmt(displayPaceTarget)}</div>
-              </div>
-            );
-          })()}
-        </Card>
-
-
-        {/* Daily essentials — kept intentionally lean: Labor %, Guests, Avg Check.
-             (WTD Labor, Orion brief, and the forecast game plan were removed to keep
-             the manager view short and simple.) */}
-        {(() => {
-          const avgCheck = displayGuests > 0 ? "$" + (displaySalesAmt / displayGuests).toFixed(2) : "--";
-          const laborVal = (isLive && loading) ? "--" : displayLaborPct != null ? displayLaborPct.toFixed(1) + "%" : "--";
-          return (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.6rem" }}>
-              <Card accent={laborColor} onClick={onLabor} ariaLabel="Open Labor detail" style={{ padding: "0.85rem 0.7rem" }}>
-                <div style={tileLabel}>Labor %</div>
-                <div style={{ ...tileNum, color: laborColor }}>{laborVal}</div>
-                <div style={tileSub}>{displayLaborDollars ? fmt(displayLaborDollars) : "Target 22.9%"}</div>
-              </Card>
-              <Card accent="#74c0fc" style={{ padding: "0.85rem 0.7rem" }}>
-                <div style={tileLabel}>Guests</div>
-                <div style={{ ...tileNum, color: "#74c0fc" }}>{displayGuests != null ? Math.round(displayGuests).toLocaleString() : "--"}</div>
-                <div style={tileSub}>{isLive ? "Today" : "Total"}</div>
-              </Card>
-              <Card accent="#eab308" style={{ padding: "0.85rem 0.7rem" }}>
-                <div style={tileLabel}>Avg Check</div>
-                <div style={{ ...tileNum, color: "#eab308" }}>{avgCheck}</div>
-                <div style={tileSub}>Per guest</div>
-              </Card>
+          {!mLoadingNow && isLive && (vsLW !== null || (salesLastYear && displaySalesAmt != null)) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "18px", marginTop: "0.7rem" }}>
+              {vsLW !== null && (
+                <span style={{ fontSize: "12px", color: mSec }}>
+                  <span style={{ color: vsLW < 0 ? "#ef4444" : "#22c55e", fontWeight: 700 }}>{vsLW < 0 ? "▼" : "▲"} {fmt(Math.abs(vsLW))} ({Math.abs(vsLWPct || 0).toFixed(0)}%)</span> vs last week
+                </span>
+              )}
+              {salesLastYear && displaySalesAmt != null && (() => {
+                const diff = displaySalesAmt - salesLastYear.netSales;
+                const pct = salesLastYear.netSales > 0 ? (diff / salesLastYear.netSales) * 100 : 0;
+                return <span style={{ fontSize: "12px", color: mMut }}><span style={{ color: diff < 0 ? "#ef4444" : "#22c55e", fontWeight: 700 }}>{diff < 0 ? "▼" : "▲"} {fmt(Math.abs(diff))} ({Math.abs(pct).toFixed(0)}%)</span> vs last year</span>;
+              })()}
             </div>
-          );
-        })()}
+          )}
+          {!mLoadingNow && mGoalPct != null && (
+            <div style={{ marginTop: "0.85rem" }}>
+              <div style={{ height: 8, borderRadius: 99, background: mTrack, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: mGoalPct + "%", borderRadius: 99, background: O, transition: "width 0.6s ease" }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.4rem" }}>
+                <span style={{ fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: mMut }}>{mGoalPct}% of daily goal</span>
+                <span style={{ fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: mSec }}>Goal {fmt(displayPaceTarget)}</span>
+              </div>
+            </div>
+          )}
+        </div>
 
-        {!loading && visibleHours.length > 0 && (
-          <Card style={{ padding: "0.9rem 0.9rem 0.75rem" }}>
-            <Label right={peakHour && <Chip color={O}>Peak {hourLabel(peakHour.hour)}</Chip>}>Sales By Hour</Label>
-            {/* Chart area */}
-            <div style={{ position: "relative", height: 110, marginTop: 4 }}>
-              {/* Subtle grid lines */}
-              {[33, 66].map(pct => (
-                <div key={pct} style={{ position: "absolute", left: 0, right: 0, bottom: pct + "%", height: 1, background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)", pointerEvents: "none" }} />
-              ))}
-              {/* Bars */}
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 2 }}>
+
+        {/* KPI row — Labor %, Guests, Avg Check */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.6rem" }}>
+          <div onClick={onLabor} role="button" tabIndex={0} aria-label="Open Labor detail"
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLabor && onLabor(e); } }}
+            {...mPress} style={{ ...mSm, padding: "0.8rem 0.6rem", cursor: "pointer", transition: "transform 0.13s ease" }}>
+            <div style={mKpiLbl}>Labor %</div>
+            <div style={{ fontFamily: mDisp, fontSize: "30px", fontWeight: 700, lineHeight: 1, color: laborColor }}>{(isLive && loading) ? "--" : displayLaborPct != null ? displayLaborPct.toFixed(1) + "%" : "--"}</div>
+            <div style={mKpiSub}>{displayLaborDollars ? fmt(displayLaborDollars) : "target 22.9%"}</div>
+          </div>
+          <div style={{ ...mSm, padding: "0.8rem 0.6rem" }}>
+            <div style={mKpiLbl}>Guests</div>
+            <div style={{ fontFamily: mDisp, fontSize: "30px", fontWeight: 700, lineHeight: 1, color: th.text }}>{displayGuests != null ? Math.round(displayGuests).toLocaleString() : "--"}</div>
+            <div style={mKpiSub}>{isLive ? "today" : "total"}</div>
+          </div>
+          <div style={{ ...mSm, padding: "0.8rem 0.6rem" }}>
+            <div style={mKpiLbl}>Avg Check</div>
+            <div style={{ fontFamily: mDisp, fontSize: "30px", fontWeight: 700, lineHeight: 1, color: th.text }}>{mAvgCheck}</div>
+            <div style={mKpiSub}>per guest</div>
+          </div>
+        </div>
+
+        {/* Sales by hour */}
+        {!mLoadingNow && (
+          <div style={{ ...mBig, padding: "1rem 1rem 0.85rem" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.85rem" }}>
+              <span style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut }}>Sales by Hour</span>
+              {peakHour && <span style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: O }}>Peak {hourLabel(peakHour.hour)} · {fmt(peakHour.sales)}</span>}
+            </div>
+            {visibleHours.length === 0 ? (
+              <div style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: mMut, textAlign: "center", padding: "0.9rem 0" }}>No sales yet</div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 210 }}>
                 {visibleHours.map(h => {
-                  const isCurrent = isLive && h.hour === currentHour;
                   const isPeak = peakHour && h.hour === peakHour.hour;
                   const heightPct = Math.max(4, Math.round(h.sales / maxSales * 100));
-                  const barBg = isCurrent
-                    ? `linear-gradient(180deg, ${O} 0%, #c94d0a 100%)`
-                    : isPeak
-                    ? `linear-gradient(180deg, #ff9950 0%, #c94d0a 100%)`
-                    : h.sales > 0
-                    ? dark ? `linear-gradient(180deg, #a0522d88 0%, #6b321855 100%)` : `linear-gradient(180deg, #fdba7488 0%, #f9731644 100%)`
-                    : dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.05)";
                   return (
-                    <div key={h.hour} title={`${hourLabel(h.hour)}: ${fmt(h.sales)}`} style={{ flex: 1, height: heightPct + "%", background: barBg, borderRadius: "4px 4px 0 0", boxShadow: isCurrent ? `0 0 8px ${O}55` : "none", transition: "height 0.4s ease" }} />
+                    <div key={h.hour} title={`${hourLabel(h.hour)}: ${fmt(h.sales)}`} style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end" }}>
+                      <div style={{ width: "100%", height: heightPct + "%", minHeight: 4, background: isPeak ? O : mBarMut, borderRadius: "6px 6px 3px 3px", transition: "height 0.4s ease" }} />
+                      <span style={{ fontFamily: mMono, fontSize: "8px", fontWeight: 600, letterSpacing: "0.01em", color: isPeak ? O : mMut, marginTop: "0.3rem", whiteSpace: "nowrap", overflow: "hidden" }}>{hourLabel(h.hour)}</span>
+                    </div>
                   );
                 })}
               </div>
-            </div>
-            {/* X-axis labels */}
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.3rem", paddingTop: "0.2rem", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"}` }}>
-              <span style={{ color: th.subtle, fontSize: "0.54rem" }}>{hourLabel(visibleHours[0]?.hour ?? 5)}</span>
-              <span style={{ color: th.subtle, fontSize: "0.54rem" }}>{hourLabel(visibleHours[Math.floor(visibleHours.length / 2)]?.hour ?? 5)}</span>
-              <span style={{ color: isLive ? O : th.subtle, fontSize: "0.54rem", fontWeight: 800 }}>{hourLabel(visibleHours[visibleHours.length - 1]?.hour ?? currentHour)}{isLive ? " now" : ""}</span>
-            </div>
-            {/* Peak + summary */}
-            {peakHour && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.5rem" }}>
-                <div style={{ color: th.muted, fontSize: "0.62rem" }}>Peak <span style={{ color: O, fontWeight: 900 }}>{hourLabel(peakHour.hour)} · {fmt(peakHour.sales)}</span></div>
-                {isLive && hourly && hourly[currentHour]?.sales > 0
-                  ? <div style={{ color: th.muted, fontSize: "0.62rem" }}>Now <span style={{ color: O, fontWeight: 900 }}>{fmt(hourly[currentHour].sales)}</span></div>
-                  : !isLive && displaySalesAmt != null && <div style={{ color: th.muted, fontSize: "0.62rem" }}>Total <span style={{ color: O, fontWeight: 900 }}>{fmt(displaySalesAmt)}</span></div>
-                }
-              </div>
             )}
-          </Card>
+          </div>
         )}
 
-        {(() => {
-          const carouselPages = [
-            { id: 'workers', show: isLive && workers.length > 0, content: (
-              <>
-                <div style={{ display: "flex", alignItems: "center", marginBottom: "0.65rem" }}>
-                  <div style={{ color: "#8b5cf6", fontSize: "0.58rem", fontWeight: 900, letterSpacing: 1.6, textTransform: "uppercase" }}>Who's Working <span style={{ color: th.muted, fontWeight: 700 }}>· {workers.length}</span></div>
-                </div>
-                <div style={{ display: "grid", gap: "0.45rem" }}>
-                  {workers.slice(0, 5).map((w, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 }}>
-                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
-                        <span style={{ color: th.text, fontWeight: 600, fontSize: "0.8rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</span>
-                      </div>
-                      <span style={{ color: th.muted, fontSize: "0.65rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>{w.hoursToday.toFixed(1)}h</span>
-                    </div>
-                  ))}
-                  {workers.length > 5 && <div style={{ color: th.muted, fontSize: "0.62rem", textAlign: "center", marginTop: "0.2rem" }}>+{workers.length - 5} more in full portal</div>}
-                </div>
-              </>
-            )},
-            { id: 'announce', show: activeAnnouncements.length > 0, content: (
-              <>
-                <Label right={<span style={{ background: `${O}22`, color: O, border: `1px solid ${O}44`, borderRadius: 999, padding: "0.08rem 0.38rem", fontSize: "0.54rem", fontWeight: 900 }}>{activeAnnouncements.length}</span>}>Announcements</Label>
-                <div style={{ display: "grid", gap: "0.55rem" }}>
-                  {activeAnnouncements.map((a, i) => (
-                    <div key={a.id || i} style={{ paddingLeft: "0.6rem", borderLeft: `2px solid ${O}66` }}>
-                      <div style={{ color: th.text, fontSize: "0.76rem", fontWeight: 700, lineHeight: 1.3 }}>{a.title}</div>
-                      <div style={{ color: th.muted, fontSize: "0.65rem", marginTop: "0.18rem", lineHeight: 1.4 }}>{a.message}</div>
-                    </div>
-                  ))}
-                </div>
-                <button onClick={onFullPortal} style={{ marginTop: "0.65rem", background: "none", border: "none", color: O, fontSize: "0.62rem", fontWeight: 800, cursor: "pointer", padding: 0, fontFamily: "'Source Sans 3'" }}>View all in portal →</button>
-              </>
-            )},
-          ].filter(p => p.show);
-
-          if (carouselPages.length === 0) return null;
-          const page = Math.min(carouselPage, carouselPages.length - 1);
-
-          const onTouchStart = e => { touchStartX.current = e.touches[0].clientX; };
-          const onTouchMove = e => {
-            if (touchStartX.current === null || !carouselInnerRef.current) return;
-            const dx = e.touches[0].clientX - touchStartX.current;
-            carouselInnerRef.current.style.transition = 'none';
-            carouselInnerRef.current.style.transform = `translateX(calc(-${page * 100}% + ${dx}px))`;
-          };
-          const onTouchEnd = e => {
-            if (touchStartX.current === null) return;
-            const dx = e.changedTouches[0].clientX - touchStartX.current;
-            const newPage = Math.abs(dx) > 44
-              ? Math.max(0, Math.min(carouselPages.length - 1, page + (dx < 0 ? 1 : -1)))
-              : page;
-            if (carouselInnerRef.current) {
-              carouselInnerRef.current.style.transition = 'transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)';
-              carouselInnerRef.current.style.transform = `translateX(-${newPage * 100}%)`;
-            }
-            setCarouselPage(newPage);
-            touchStartX.current = null;
-          };
-
-          return (
-            <Card style={{ userSelect: "none", overflow: "hidden", padding: "0.9rem 0.9rem 0.75rem" }}>
-              {/* Sliding strip */}
-              <div style={{ overflow: "hidden" }}>
-                <div ref={carouselInnerRef} style={{ display: "flex", transform: `translateX(-${page * 100}%)`, transition: "transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)", willChange: "transform" }}
-                  onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
-                >
-                  {carouselPages.map(p => (
-                    <div key={p.id} style={{ minWidth: "100%", width: "100%", flexShrink: 0 }}>
-                      {p.content}
-                    </div>
-                  ))}
-                </div>
+        {/* Bottom row — Tasks / Tickets with live counts */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
+          {/* Tasks */}
+          <div onClick={onTasks} role="button" tabIndex={0} aria-label="Open Tasks"
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTasks && onTasks(e); } }}
+            {...mPress} style={{ ...mSm, padding: "0.9rem", cursor: "pointer", transition: "transform 0.13s ease", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+              <span style={{ fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut }}>Tasks</span>
+              <span style={{ fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: O }}>View →</span>
+            </div>
+            {taskSummary == null ? (
+              <div style={{ fontFamily: mDisp, fontSize: "30px", fontWeight: 700, color: th.text, marginTop: "0.5rem", lineHeight: 1 }}>--</div>
+            ) : (
+              <div style={{ fontFamily: mDisp, fontSize: "34px", fontWeight: 800, color: th.text, marginTop: "0.45rem", lineHeight: 1 }}>{taskDone}<span style={{ color: mMut, fontWeight: 700 }}>/{taskTotal}</span></div>
+            )}
+            {taskSummary != null && taskTotal > 0 && (
+              <div style={{ height: 6, borderRadius: 99, background: mTrack, overflow: "hidden", marginTop: "0.55rem" }}>
+                <div style={{ height: "100%", width: taskPct + "%", borderRadius: 99, background: O, transition: "width 0.6s ease" }} />
               </div>
-              {/* Dot indicators */}
-              {carouselPages.length > 1 && (
-                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.35rem", marginTop: "0.85rem", paddingTop: "0.6rem", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"}` }}>
-                  {carouselPages.map((p, i) => (
-                    <button key={p.id} onClick={() => {
-                      if (carouselInnerRef.current) {
-                        carouselInnerRef.current.style.transition = 'transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)';
-                        carouselInnerRef.current.style.transform = `translateX(-${i * 100}%)`;
-                      }
-                      setCarouselPage(i);
-                    }} style={{ width: i === page ? 20 : 7, height: 7, borderRadius: 99, background: i === page ? "#22c55e" : (dark ? "rgba(255,255,255,0.2)" : "#d1d5db"), border: "none", cursor: "pointer", padding: 0, transition: "all 0.25s ease" }} />
-                  ))}
-                </div>
-              )}
-            </Card>
-          );
-        })()}
+            )}
+            <div style={{ ...mKpiSub, marginTop: "0.5rem" }}>
+              {taskSummary == null ? "tap to open" : taskTotal === 0 ? "none scheduled" : taskDone >= taskTotal ? "all done" : taskSummary.nextDue ? ("next · " + taskSummary.nextDue) : (taskTotal - taskDone) + " to do"}
+            </div>
+          </div>
+          {/* Tickets */}
+          <div onClick={onTickets} role="button" tabIndex={0} aria-label="Open Tickets"
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTickets && onTickets(e); } }}
+            {...mPress} style={{ ...mSm, padding: "0.9rem", cursor: "pointer", transition: "transform 0.13s ease", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+              <span style={{ fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut }}>Tickets</span>
+              <span style={{ fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: O }}>View →</span>
+            </div>
+            <div style={{ fontFamily: mDisp, fontSize: "34px", fontWeight: 800, color: th.text, marginTop: "0.45rem", lineHeight: 1 }}>{openTicketCount}<span style={{ color: mMut, fontWeight: 700, fontSize: "18px" }}> open</span></div>
+            {firstUrgent ? (
+              <div style={{ fontFamily: "'Source Sans 3'", fontSize: "11px", fontWeight: 700, color: dark ? "#f2a06b" : "#b8480f", marginTop: "0.5rem", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{urgentTickets.length} urgent — {firstUrgent.title || "Untitled"}</div>
+            ) : (
+              <div style={{ ...mKpiSub, marginTop: "0.5rem" }}>{openTicketCount === 0 ? "all clear" : inProgressCount > 0 ? inProgressCount + " in progress" : "none urgent"}</div>
+            )}
+          </div>
+        </div>
 
-        {lastRefresh && <div style={{ textAlign: "center", fontSize: "0.58rem", color: th.subtle, opacity: 0.7 }}>Updated {lastRefresh.toLocaleTimeString()}</div>}
+        {/* Open CAPs — Field Ops corrective actions still owed on this store */}
+        <div style={{ ...mBig, padding: "1rem 1.05rem" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: mgrCaps == null || mgrCaps.length === 0 ? 0 : "0.7rem" }}>
+            <span style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut }}>Open CAPs{mgrCaps != null ? ` (${mgrCaps.length})` : ""}</span>
+            {mgrCaps != null && mgrCaps.some(c => c.status === "overdue" || c.isOverdue) && (
+              <span style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#ef4444" }}>⚠ Overdue</span>
+            )}
+          </div>
+          {mgrCapsErr ? (
+            <div style={{ fontSize: "0.78rem", color: "#ef4444", padding: "0.5rem 0" }}>
+              Couldn't load corrective actions. <button onClick={() => setMgrCaps(null)} style={{ background: "none", border: "none", color: O, cursor: "pointer", textDecoration: "underline", padding: 0 }}>Retry</button>
+            </div>
+          ) : mgrCaps === null ? (
+            <div style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: mMut, textAlign: "center", padding: "0.7rem 0" }}>Loading…</div>
+          ) : mgrCaps.length === 0 ? (
+            <div style={{ fontSize: "0.78rem", color: mSec, textAlign: "center", padding: "0.4rem 0" }}>No open corrective actions. Nice work!</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              {mgrCaps.map(cap => {
+                const overdue = cap.status === "overdue" || cap.isOverdue;
+                const open = expandedCap === cap.id;
+                return (
+                  <div key={cap.id} style={{ borderRadius: 10, padding: "0.6rem 0.7rem", background: dark ? th.card2 : "#faf6f0", border: overdue ? "1px solid #ef444488" : `1px solid ${mBorder}` }}>
+                    <div onClick={() => setExpandedCap(open ? null : cap.id)} role="button" tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpandedCap(open ? null : cap.id); } }}
+                      style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", gap: "0.5rem", alignItems: "flex-start" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: "0.8rem", fontWeight: 700, color: th.text }}>{cap.itemText}</div>
+                        <div style={{ fontSize: "0.68rem", color: overdue ? "#ef4444" : mMut, fontWeight: overdue ? 700 : 500, marginTop: "0.2rem" }}>
+                          {overdue ? "⚠ Overdue" : "Due"} {cap.deadline ? new Date(cap.deadline).toLocaleDateString() : ""}
+                        </div>
+                      </div>
+                      <span style={pill(SEVERITY_COLOR[cap.severity] || mMut)}>{(cap.severity || "—").toUpperCase()}</span>
+                    </div>
+                    {open && (
+                      <div style={{ marginTop: "0.6rem" }}>
+                        <CapResolveForm th={th} user={user} cap={cap} showAlert={showAlert}
+                          onDone={(updated) => { setMgrCaps(cs => (cs || []).filter(c => c.id !== updated.id)); setExpandedCap(null); }}
+                          onCancel={() => setExpandedCap(null)} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {lastRefresh && <div style={{ textAlign: "center", fontFamily: mMono, fontSize: "9px", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: mMut, opacity: 0.8, marginTop: "0.1rem" }}>Updated {lastRefresh.toLocaleTimeString()}</div>}
       </div>
 
       {/* Voice reply card — floats above nav when active */}
@@ -24053,7 +24033,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.71";
+const APP_VERSION = "v18.76";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
