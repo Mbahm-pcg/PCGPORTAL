@@ -687,6 +687,14 @@ const getManagerStore = (stores, user) => {
   }
   return stores.find(s => isManagersStore(s, user)) || null;
 };
+// Live manager name for a store. User accounts are the source of truth — the manager
+// USER assigned to this store (by storePC) wins; the static store.mgr config is only a
+// fallback for stores with no assigned user (it goes stale when a GM is replaced).
+const storeMgrName = (store, users) => {
+  if (!store) return "";
+  const u = (users || []).find(x => x.userType === "manager" && String(x.storePC) === String(store.pc) && x.active !== false);
+  return u?.name || store.mgr || "";
+};
 const isDistrictManagersStore = (store, user) => {
   if (user?.userType !== "dm") return false;
   if (user?.district !== undefined && user?.district !== null && user?.district !== "") {
@@ -3817,7 +3825,7 @@ function districtLabel(num, { short = false } = {}) {
   return first ? `${base} - ${first}` : base;
 }
 
-function StoreMap({ stores, th, setTab }) {
+function StoreMap({ stores, th, setTab, users }) {
   const O = '#FF671F';
   const [selectedStore,    setSelectedStore]    = React.useState(null);
   const [laborData,        setLaborData]        = React.useState(null);
@@ -4266,7 +4274,7 @@ function StoreMap({ stores, th, setTab }) {
                   <div style={{ fontSize:'0.71rem', color:th.muted, marginTop:'0.2rem', display:'flex', gap:'0.75rem', flexWrap:'wrap' }}>
                     <span>District {selectedStore.district||'—'}</span>
                     <span>PC# {selectedStore.pc}</span>
-                    {selectedStore.mgr && <span>MGR: {selectedStore.mgr}</span>}
+                    {storeMgrName(selectedStore, users) && <span>MGR: {storeMgrName(selectedStore, users)}</span>}
                     {selectedStore.mgrPhone && <span>{selectedStore.mgrPhone}</span>}
                   </div>
                   {detailWeather && (
@@ -4689,7 +4697,9 @@ function ClosestToFinder({ th, onClose }) {
   );
 }
 
-function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
+function AdminLocations({ stores, setStores, districts, user, th, setTab, users }) {
+  // Manager name from the assigned user account (falls back to store.mgr config).
+  const mgrOf = (s) => storeMgrName(s, users);
   const [filterState,  setFilterState]  = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterDistrict, setFilterDistrict] = useState("All");
@@ -5323,13 +5333,13 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
                   {s.mgrPhone ? (
                     <a href={`tel:${s.mgrPhone.replace(/\D/g,"")}`}
                       style={{ fontSize:"0.8125rem", color:"#69db7c", textDecoration:"none", fontWeight:600 }}
-                      title={`Call ${s.mgr}`}
+                      title={`Call ${mgrOf(s)}`}
                       onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"}
                       onMouseLeave={e=>e.currentTarget.style.textDecoration="none"}>
-                      📞 {s.mgr||"—"}
+                      📞 {mgrOf(s)||"—"}
                     </a>
                   ) : (
-                    <div style={{ fontSize:"0.8125rem", color:th.text }}>{s.mgr||"—"}</div>
+                    <div style={{ fontSize:"0.8125rem", color:th.text }}>{mgrOf(s)||"—"}</div>
                   )}
                   {s.mgrPhone && <div style={{ fontSize:"0.6875rem", color:th.muted, marginTop:"0.125rem" }}>{s.mgrPhone}</div>}
                 </div>
@@ -5582,8 +5592,8 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.55rem 0.85rem", paddingTop:"0.55rem", borderTop:`1px solid ${th.cardBorder}` }}>
                 {meta("District", s.district ? districtLabel(s.district, { short:true }) : "—")}
                 {meta("Manager", s.mgrPhone
-                  ? <a href={`tel:${s.mgrPhone.replace(/\D/g,"")}`} style={{ color:"#69db7c", textDecoration:"none" }}>📞 {s.mgr||"—"}</a>
-                  : (s.mgr||"—"))}
+                  ? <a href={`tel:${s.mgrPhone.replace(/\D/g,"")}`} style={{ color:"#69db7c", textDecoration:"none" }}>📞 {mgrOf(s)||"—"}</a>
+                  : (mgrOf(s)||"—"))}
                 {meta("Asset", assetLabel(s.baseAsset))}
               </div>
               {/* Actions */}
@@ -5676,20 +5686,20 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab }) {
                 </div>
               )}
               {isDM && (
-                <span style={{ fontSize:"0.85rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>{s.mgr||"—"}</span>
+                <span style={{ fontSize:"0.85rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>{mgrOf(s)||"—"}</span>
               )}
 
               {/* Store Manager — click to call */}
               {s.mgrPhone ? (
                 <a href={`tel:${s.mgrPhone.replace(/\D/g,"")}`}
                   style={{ fontSize:"0.8rem", color:th.text, textDecoration:"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block", minWidth:0 }}
-                  title={`Call ${s.mgr}: ${s.mgrPhone}`}
+                  title={`Call ${mgrOf(s)}: ${s.mgrPhone}`}
                   onMouseEnter={e=>{e.currentTarget.style.color="#69db7c";e.currentTarget.style.textDecoration="underline";}}
                   onMouseLeave={e=>{e.currentTarget.style.color=th.text;e.currentTarget.style.textDecoration="none";}}>
-                  📞 {s.mgr||"—"}
+                  📞 {mgrOf(s)||"—"}
                 </a>
               ) : (
-                <span style={{ fontSize:"0.8rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block", minWidth:0 }}>{s.mgr||"—"}</span>
+                <span style={{ fontSize:"0.8rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block", minWidth:0 }}>{mgrOf(s)||"—"}</span>
               )}
 
               {/* Asset Type */}
@@ -5898,7 +5908,7 @@ function AdminDistricts({ districts, setDistricts, stores, setStores, users, th 
               </a>
                       <span style={{ fontSize:"0.8125rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.name||s.address}</span>
                       <span style={{ fontSize:"0.75rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.address}</span>
-                      <span style={{ fontSize:"0.75rem", color:th.muted }}>{s.mgr||"—"}</span>
+                      <span style={{ fontSize:"0.75rem", color:th.muted }}>{mgrOf(s)||"—"}</span>
                       {/* Reassign dropdown */}
                       {moveStore?.storeId === s.id ? (
                         <select style={{...inp(th), fontSize:"0.75rem", padding:"0.312rem 0.5rem"}} defaultValue="" onChange={e=>{ if(e.target.value) reassignStore(s.id, +e.target.value); }}>
@@ -19904,6 +19914,21 @@ function SafeAuditList({ user, th, stores, showAlert, onConduct, onViewReport })
 
   const storeName = (pc) => stores?.find(s => String(s.pc) === String(pc))?.name || pc;
 
+  // Store choices scoped to the user — mirrors the server's visibleStoresSafe():
+  // manager → own store, dm → their district, everyone else (auditor/exec/it/office
+  // staff or an audits grant) → all. The server enforces this too; this just keeps
+  // the picker from offering stores that would be rejected with a 403.
+  const pickableStores = (() => {
+    const all = [...(stores || [])].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const grant = user?.auditsAccess;
+    if (grant === "view" || grant === "full") return all;
+    if (user?.userType === "manager") return all.filter(s => String(s.pc) === String(user.storePC) || s.mgr === user.name);
+    if (user?.userType === "dm") return all.filter(s => String(s.district) === String(user.district));
+    return all;
+  })();
+
+  const openPicker = () => { setPickStore(pickableStores.length === 1 ? String(pickableStores[0].pc) : ""); setPicking(true); };
+
   const startAudit = async () => {
     if (!pickStore) { showAlert?.("warning", "Pick a store first."); return; }
     setStarting(true);
@@ -19942,7 +19967,7 @@ function SafeAuditList({ user, th, stores, showAlert, onConduct, onViewReport })
           </div>
         </div>
         {canConduct && (
-          <button onClick={() => setPicking(true)} style={{ ...btn(th), minHeight: 44 }}>+ New Safe Audit</button>
+          <button onClick={openPicker} style={{ ...btn(th), minHeight: 44 }}>+ New Safe Audit</button>
         )}
       </div>
 
@@ -20007,7 +20032,7 @@ function SafeAuditList({ user, th, stores, showAlert, onConduct, onViewReport })
             <div style={{ ...sectionTitle(th), marginBottom: "0.75rem" }}>New Safe Audit — pick a store</div>
             <select value={pickStore} onChange={e => setPickStore(e.target.value)} style={{ ...inp(th), width: "100%", minHeight: 44 }}>
               <option value="">Select a store…</option>
-              {[...(stores || [])].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(s => (
+              {pickableStores.map(s => (
                 <option key={s.pc} value={s.pc}>{s.name} ({s.pc})</option>
               ))}
             </select>
@@ -24028,7 +24053,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.69";
+const APP_VERSION = "v18.71";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -24193,6 +24218,10 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   const sanitizedRef = useRef(false);
   useEffect(() => {
     if (sanitizedRef.current || !channels || channels.length === 0) return;
+    // Wait until users are loaded — the project-channel trim below keeps the overseer
+    // roles (exec/it/construction), and running with an empty user list would wrongly
+    // strip them from every project channel and persist that. (deps include `users`.)
+    if (!users || users.length === 0) return;
     const removedIds = new Set();
     const seen = new Set();
     const cleaned = [];
@@ -24219,7 +24248,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
       setChannels(cleaned);
       if (removedIds.size) setMessages(prev => prev.filter(m => !removedIds.has(m.channelId)));
     }
-  }, [channels]);
+  }, [channels, users]);
 
   // ── Send message to Orion (analyst channel handler) ────────────────
   const sendToOrion = async (question, channelId, threadId) => {
@@ -29958,7 +29987,7 @@ function localDateStr(d) {
 }
 
 // ── LaborDrillDown ───────────────────────────────────────────────────────────
-function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
+function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
   const [activeTab, setActiveTab] = useState('hourly');
   const [punches, setPunches] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -29974,7 +30003,7 @@ function LaborDrillDown({ store, stores, th, user, laborData, onBack }) {
   const [empHourAdj, setEmpHourAdj] = useState({});          // { 'dateStr_empId': adjustedHours }
 
   const storeInfo = stores.find(s => s.pc === store.pc) || {};
-  const mgrName = storeInfo.mgr || '—';
+  const mgrName = storeMgrName(storeInfo, users) || '—';
 
   // Date helpers
   const todayStr = localDateStr(new Date());
@@ -31005,7 +31034,7 @@ function timeAgo(iso) {
   return Math.floor(hrs / 24) + 'd ago';
 }
 
-function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn }) {
+function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn, users }) {
   const [laborData, setLaborData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -31180,6 +31209,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn 
       stores={stores}
       th={th}
       user={user}
+      users={users}
       laborData={laborData}
       onBack={() => setSelectedStore(null)}
     />;
@@ -44262,16 +44292,16 @@ function PCGPortal() {
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
-          {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district)} th={th} setTab={setTab} />}
+          {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district)} th={th} setTab={setTab} users={users} />}
           {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? stores : stores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
           {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={stores} salesWeeks={salesWeeks} />}
-          {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} />}
+          {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} users={users} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} />}
-          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && <AdminNdcp th={th} user={user} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}

@@ -299,7 +299,9 @@ async function postOrionLearningDigest(today) {
 // answer; disagreements flip the `answered` flag so the gap backlog is trustworthy.
 async function regradeRecentQA() {
   try {
-    const rows = await loadQAForRegrade({ days: 10, limit: 40 });
+    // Small batch, sequential LLM calls — capped so it can't blow the function budget.
+    // Runs twice daily on the schedule, so 12/run drains the backlog steadily.
+    const rows = await loadQAForRegrade({ days: 10, limit: 12 });
     if (!rows.length) return 0;
     let flipped = 0;
     for (const r of rows) {
@@ -347,9 +349,6 @@ export default async (request, context) => {
     console.log('[analyst-cron] Running anomaly detection...');
     const anomalies = await detectAnomalies();
     console.log(`[analyst-cron] Found ${anomalies.length} anomalies`);
-
-    // ── Step 1b: Re-grade recent Orion answers (independent miss-detection) ──
-    const regraded = await regradeRecentQA();
 
     // ── Step 2: Create Business Cases from high/medium severity anomalies ──
     let casesCreated = 0;
@@ -578,6 +577,11 @@ export default async (request, context) => {
       // ── Orion Learning weekly digest (Sunday morning) ──
       await postOrionLearningDigest(today);
     }
+
+    // ── Step 5b: Re-grade recent Orion answers (independent miss-detection) ──
+    // Runs LAST and only on the schedule — never on a manual trigger (26s HTTP cap),
+    // and after briefs so its sequential LLM calls can never delay/starve them.
+    const regraded = isManual ? 0 : await regradeRecentQA();
 
     // ── Step 6: Log run summary ─────────────────────────────────────────
     const summary = {

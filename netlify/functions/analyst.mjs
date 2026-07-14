@@ -299,15 +299,17 @@ export default async (request, context) => {
 
       const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
-      // Strip Orion's self-assessment marker off the end and derive answered/gap.
+      // Strip Orion's self-assessment marker and derive answered/gap. Match the marker
+      // ANYWHERE (not just anchored at the end) and strip every occurrence, so a stray
+      // trailing word or a mis-placed marker never leaks "<<META …>>" to the user.
       let answer = result.answer || '';
       let qaAnswered = null, qaGap = null;
-      const metaMatch = answer.match(/<<META\s+a=([YN])\s+r=([a-z-]+)\s*>>\s*$/i);
+      const metaMatch = answer.match(/<<META\s+a=([YN])\s+r=([a-z-]+)\s*>>/i);
       if (metaMatch) {
         qaAnswered = metaMatch[1].toUpperCase() === 'Y';
         qaGap = metaMatch[2].toLowerCase() === 'ok' ? null : metaMatch[2].toLowerCase();
-        answer = answer.slice(0, metaMatch.index).trimEnd();
       }
+      answer = answer.replace(/<<META\s+a=[YN]\s+r=[a-z-]+\s*>>/ig, '').trim();
 
       // Learning Loop — log the Q&A turn (fire-and-forget; never blocks the answer).
       logQA({ userId, userRole: effRole, scope, question, answer, model: result.model, latencyMs: result.latencyMs, answered: qaAnswered, gapReason: qaGap, messageId }).catch(() => {});
