@@ -13724,7 +13724,11 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
             // Auto-create project channel if needed
             const projChId = `proj_${p.id}`;
             if (chatChannels && !chatChannels.find(ch => ch.id === projChId)) {
-              setChatChannels(prev => [...prev, { id: projChId, type: "project", name: p.nickname || p.pc, members: (allUsers || []).filter(u => u.active).map(u => u.id), createdBy: user.id, createdAt: new Date().toISOString(), projectId: p.id }]);
+              // Only people involved in the project — the creator plus exec/IT and the
+              // construction team who oversee projects. Others are added explicitly via
+              // "Members". (Was: every active user, which leaked the chat to everyone.)
+              const seedMembers = [...new Set([user.id, ...(allUsers || []).filter(u => u.active && ['executive', 'it', 'construction'].includes(u.userType)).map(u => u.id)])];
+              setChatChannels(prev => [...prev, { id: projChId, type: "project", name: p.nickname || p.pc, members: seedMembers, createdBy: user.id, createdAt: new Date().toISOString(), projectId: p.id }]);
             }
           }} style={{ background: detailTab === "chat" ? O : th.card, color: detailTab === "chat" ? W : th.muted, border: "none", padding: "0.5rem 1rem", cursor: "pointer", fontSize: "0.8125rem", fontWeight: 600 }}>
             💬 Chat
@@ -17545,6 +17549,264 @@ function AdminTaskManager({ th, user, stores, showAlert }) {
   );
 }
 
+// Friendly labels for the roles that ask Orion questions (matches userType values).
+const ORION_ROLE_LABELS = {
+  executive: 'Exec/VP', it: 'IT/HR', office_staff: 'Office Staff', dm: 'District Mgr',
+  manager: 'Store Mgr', construction: 'Construction', maintenance: 'Maintenance',
+  vendor: 'Vendor', store_tablet: 'Store Tablet',
+};
+const orionRoleLabel = (r) => ORION_ROLE_LABELS[r] || (r ? r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Unknown');
+const orionRoleColor = (r) => ({ executive: '#8b5cf6', it: '#8b5cf6', dm: '#3b82f6', manager: '#22c55e', office_staff: '#f59e0b', maintenance: '#14b8a6', construction: '#f97316' }[r] || '#94a3b8');
+
+// Hand-off channel: OrionLearningPanel stashes an Orion-drafted KB article here,
+// switches to the KB tab, and KnowledgeBase picks it up on mount to pre-fill the editor.
+let PENDING_KB_DRAFT = null;
+const setPendingKbDraft = (d) => { PENDING_KB_DRAFT = d; };
+const takePendingKbDraft = () => { const d = PENDING_KB_DRAFT; PENDING_KB_DRAFT = null; return d; };
+
+// ── Orion Learning Loop — admin review of what users ask Orion + knowledge gaps ──
+function OrionLearningPanel({ th, user, showAlert, setTab }) {
+  const [gaps, setGaps] = React.useState(null);
+  const [gapIds, setGapIds] = React.useState([]);
+  const [recent, setRecent] = React.useState([]);
+  const [trend, setTrend] = React.useState([]);
+  const [features, setFeatures] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [busy, setBusy] = React.useState(false);
+  const [draftingIdx, setDraftingIdx] = React.useState(null);
+  // Filters for the question corpus
+  const [fRole, setFRole] = React.useState('all');
+  const [fStatus, setFStatus] = React.useState('all'); // all | answered | unanswered
+  const [fSearch, setFSearch] = React.useState('');
+
+  const postAction = React.useCallback((action, extra = {}) => fetch('/.netlify/functions/analyst', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, userId: user.id, userRole: user.userType, days: 30, ...extra }),
+  }).then(r => r.ok ? r.json() : null).catch(() => null), [user]);
+
+  const load = React.useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      postAction('qa-gaps'), postAction('qa-log'),
+      postAction('qa-trend', { weeks: 8 }), postAction('qa-feature-list'),
+    ]).then(([g, l, t, f]) => {
+      setGaps(Array.isArray(g?.gaps) ? g.gaps : []);
+      setGapIds(Array.isArray(g?.ids) ? g.ids : []);
+      setRecent(Array.isArray(l?.rows) ? l.rows : []);
+      setTrend(Array.isArray(t?.trend) ? t.trend : []);
+      setFeatures(Array.isArray(f?.requests) ? f.requests.filter(x => x.status !== 'done') : []);
+    }).finally(() => setLoading(false));
+  }, [postAction]);
+  React.useEffect(() => { load(); }, [load]);
+
+  const markReviewed = async () => {
+    if (!gapIds.length) return;
+    setBusy(true);
+    try {
+      await postAction('qa-resolve', { ids: gapIds, themes: (gaps || []).map(g => ({ theme: g.theme, cause: g.cause })) });
+      showAlert && showAlert('success', 'Gaps marked reviewed');
+      load();
+    } catch { showAlert && showAlert('error', 'Could not update'); }
+    setBusy(false);
+  };
+
+  // Orion drafts the KB article, hands it to the KB editor, and jumps there.
+  const writeKB = async (g, idx) => {
+    setDraftingIdx(idx);
+    try {
+      const res = await postAction('qa-draft-kb', { theme: g.theme, exampleQuestions: g.exampleQuestions || [] });
+      const draft = res?.draft;
+      if (!draft) { showAlert && showAlert('error', 'Could not draft article'); setDraftingIdx(null); return; }
+      setPendingKbDraft(draft);
+      setTab && setTab('kb');
+    } catch { showAlert && showAlert('error', 'Could not draft article'); }
+    setDraftingIdx(null);
+  };
+
+  // Log a data gap as a tracked feature request.
+  const logFeature = async (g) => {
+    setBusy(true);
+    try {
+      await postAction('qa-feature-req', { theme: g.theme, suggestedFix: g.suggestedFix, exampleQuestions: g.exampleQuestions || [], roles: g.roles || [], count: g.count });
+      showAlert && showAlert('success', 'Logged as feature request');
+      load();
+    } catch { showAlert && showAlert('error', 'Could not log'); }
+    setBusy(false);
+  };
+
+  // Answered-rate over the loaded window (rows where Orion self-assessed).
+  const assessed = recent.filter(r => r.answered != null);
+  const answeredRate = assessed.length ? Math.round(assessed.filter(r => r.answered).length / assessed.length * 100) : null;
+  const causeColor = c => c === 'data' ? '#f59e0b' : '#a855f7';
+
+  // Who's asking — counts by role, most-active first.
+  const roleCounts = {};
+  recent.forEach(r => { const k = r.userRole || 'unknown'; roleCounts[k] = (roleCounts[k] || 0) + 1; });
+  const roleRows = Object.entries(roleCounts).sort((a, b) => b[1] - a[1]);
+
+  // Filtered question corpus
+  const filtered = recent.filter(r => {
+    if (fRole !== 'all' && (r.userRole || 'unknown') !== fRole) return false;
+    const miss = r.answered === false || r.feedback === 'down';
+    if (fStatus === 'answered' && miss) return false;
+    if (fStatus === 'unanswered' && !miss) return false;
+    if (fSearch && !((r.question || '').toLowerCase().includes(fSearch.toLowerCase()) || (r.userName || '').toLowerCase().includes(fSearch.toLowerCase()))) return false;
+    return true;
+  });
+
+  // Trend sparkline geometry
+  const maxTotal = Math.max(1, ...trend.map(t => t.total));
+
+  return (
+    <div style={{ ...card(th), padding: '1.1rem 1.25rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.9rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <OrionIcon size={20} />
+          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1rem', color: th.text }}>Orion Learning</span>
+          <span style={{ fontSize: '0.7rem', color: th.muted }}>· last 30 days</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          {answeredRate != null && <span style={{ fontSize: '0.72rem', color: th.muted }}>Answered rate <strong style={{ color: answeredRate >= 80 ? '#22c55e' : answeredRate >= 60 ? '#f59e0b' : '#ef4444' }}>{answeredRate}%</strong></span>}
+          <button onClick={() => exportOrionLearningPDF({ gaps: gaps || [], recent, user })} disabled={loading || !recent.length} title="Download the questions + gaps as a PDF" style={{ ...btn(th, { background: O, color: '#fff' }), padding: '0.3rem 0.75rem', fontSize: '0.72rem', opacity: (loading || !recent.length) ? 0.5 : 1 }}>⬇ PDF</button>
+          <button onClick={load} disabled={loading} style={{ ...btn(th, { background: th.card3, color: th.muted }), padding: '0.3rem 0.7rem', fontSize: '0.72rem' }}>{loading ? '…' : '↻ Refresh'}</button>
+        </div>
+      </div>
+
+      {/* Answered-rate trend — proof the loop works */}
+      {trend.length > 1 && (
+        <div style={{ background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: '0.6rem', padding: '0.7rem 0.85rem', marginBottom: '1rem' }}>
+          <div style={{ fontSize: '0.68rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: '0.5rem' }}>Answered-rate trend (weekly)</div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 64 }}>
+            {trend.map((t, i) => (
+              <div key={i} title={`Week of ${t.week}: ${t.answered}/${t.answered + t.misses} answered${t.rate != null ? ` (${t.rate}%)` : ''}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                <span style={{ fontSize: '0.6rem', fontWeight: 700, color: t.rate == null ? th.muted : t.rate >= 80 ? '#22c55e' : t.rate >= 60 ? '#f59e0b' : '#ef4444' }}>{t.rate != null ? `${t.rate}%` : '–'}</span>
+                <div style={{ width: '100%', height: 40, background: th.card3, borderRadius: 3, display: 'flex', alignItems: 'flex-end', overflow: 'hidden' }}>
+                  <div style={{ width: '100%', height: `${Math.round((t.total / maxTotal) * 100)}%`, background: t.rate == null ? th.muted : t.rate >= 80 ? '#22c55e' : t.rate >= 60 ? '#f59e0b' : '#ef4444', opacity: 0.85 }} />
+                </div>
+                <span style={{ fontSize: '0.55rem', color: th.muted }}>{new Date(t.week + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: '0.62rem', color: th.muted, marginTop: 4 }}>Bar height = total questions · label/color = % answered. Rising % after KB articles = the loop working.</div>
+        </div>
+      )}
+
+      {/* Who's asking — role breakdown */}
+      {roleRows.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '1rem' }}>
+          {roleRows.map(([role, n]) => (
+            <span key={role} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: `${orionRoleColor(role)}18`, border: `1px solid ${orionRoleColor(role)}44`, borderRadius: 999, padding: '3px 10px', fontSize: '0.72rem', color: th.text }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: orionRoleColor(role) }} />
+              {orionRoleLabel(role)} <strong>{n}</strong>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Knowledge-gap backlog */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+        <span style={{ fontSize: '0.72rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.8 }}>Knowledge Gaps</span>
+        {gapIds.length > 0 && <button onClick={markReviewed} disabled={busy} style={{ ...btn(th, { background: '#22c55e18', color: '#22c55e', border: '1px solid #22c55e55' }), padding: '0.25rem 0.65rem', fontSize: '0.68rem' }}>{busy ? '…' : `Mark ${gapIds.length} reviewed`}</button>}
+      </div>
+      {loading ? (
+        <div style={{ color: th.muted, fontSize: '0.82rem', padding: '0.5rem 0' }}>Clustering questions Orion couldn't answer…</div>
+      ) : (gaps || []).length === 0 ? (
+        <div style={{ color: th.muted, fontSize: '0.82rem', padding: '0.5rem 0' }}>No unanswered questions in the window — Orion is covering what people ask. 🎉</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.1rem' }}>
+          {gaps.map((g, i) => (
+            <div key={i} style={{ background: th.card2, border: `1px solid ${g.reopened ? '#ef444455' : th.cardBorder}`, borderLeft: `3px solid ${causeColor(g.cause)}`, borderRadius: '0.6rem', padding: '0.7rem 0.85rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                <span style={{ fontWeight: 700, fontSize: '0.85rem', color: th.text }}>
+                  {g.reopened && <span title="This theme was resolved before but the questions came back" style={{ fontSize: '0.6rem', fontWeight: 800, color: '#ef4444', background: '#ef444418', padding: '1px 6px', borderRadius: 999, marginRight: 6 }}>⟳ REOPENED</span>}
+                  {g.theme}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+                  <span style={{ fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', color: causeColor(g.cause), background: `${causeColor(g.cause)}1a`, padding: '2px 7px', borderRadius: 999 }}>{g.cause === 'data' ? 'Needs data' : 'KB'}</span>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: th.text }}>{g.count}×</span>
+                </span>
+              </div>
+              {(g.roles || []).length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: '0.4rem' }}>
+                  <span style={{ fontSize: '0.66rem', color: th.muted, alignSelf: 'center' }}>Asked by:</span>
+                  {g.roles.map((role, k) => (
+                    <span key={k} style={{ fontSize: '0.63rem', fontWeight: 700, color: orionRoleColor(role), background: `${orionRoleColor(role)}1a`, padding: '1px 7px', borderRadius: 999 }}>{orionRoleLabel(role)}</span>
+                  ))}
+                </div>
+              )}
+              {g.suggestedFix && <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: (g.exampleQuestions || []).length ? '0.4rem' : 0 }}>💡 {g.suggestedFix}</div>}
+              {(g.exampleQuestions || []).slice(0, 2).map((q, j) => (
+                <div key={j} style={{ fontSize: '0.72rem', color: th.subtle || th.muted, fontStyle: 'italic' }}>“{q}”</div>
+              ))}
+              <div style={{ display: 'flex', gap: 6, marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                {g.cause !== 'data' ? (
+                  <button onClick={() => writeKB(g, i)} disabled={draftingIdx != null} style={{ ...btn(th, { background: `${O}14`, color: O, border: `1px solid ${O}44` }), padding: '0.25rem 0.7rem', fontSize: '0.68rem', opacity: draftingIdx != null && draftingIdx !== i ? 0.5 : 1 }}>{draftingIdx === i ? 'Orion drafting…' : '✨ Draft KB article →'}</button>
+                ) : (
+                  <button onClick={() => logFeature(g)} disabled={busy} style={{ ...btn(th, { background: '#f59e0b18', color: '#f59e0b', border: '1px solid #f59e0b55' }), padding: '0.25rem 0.7rem', fontSize: '0.68rem' }}>+ Log as feature request</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Feature-request backlog (data gaps that need new wiring) */}
+      {features.length > 0 && (
+        <div style={{ marginBottom: '1.1rem' }}>
+          <div style={{ fontSize: '0.72rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: '0.5rem' }}>Feature Requests ({features.length})</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            {features.slice(0, 12).map(fr => (
+              <div key={fr.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.45rem 0.6rem', borderRadius: '0.4rem', background: th.card2, border: `1px solid ${th.cardBorder}` }}>
+                <span style={{ fontSize: '0.7rem' }}>🛠️</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: '0.78rem', color: th.text }}>{fr.theme}{fr.detail ? <span style={{ color: th.muted }}> — {fr.detail}</span> : null}</span>
+                <span style={{ fontSize: '0.6rem', color: th.muted, whiteSpace: 'nowrap' }}>{new Date(fr.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent questions + filters */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+        <span style={{ fontSize: '0.72rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.8 }}>Questions ({filtered.length}{filtered.length !== recent.length ? ` of ${recent.length}` : ''})</span>
+        <div style={{ flex: 1 }} />
+        <input value={fSearch} onChange={e => setFSearch(e.target.value)} placeholder="Search…" style={{ ...inp(th), padding: '0.2rem 0.5rem', fontSize: '0.7rem', width: 120 }} />
+        <select value={fRole} onChange={e => setFRole(e.target.value)} style={{ ...inp(th), padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}>
+          <option value="all">All roles</option>
+          {roleRows.map(([role]) => <option key={role} value={role}>{orionRoleLabel(role)}</option>)}
+        </select>
+        <select value={fStatus} onChange={e => setFStatus(e.target.value)} style={{ ...inp(th), padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}>
+          <option value="all">All</option>
+          <option value="answered">Answered</option>
+          <option value="unanswered">Unanswered</option>
+        </select>
+      </div>
+      {recent.length === 0 ? (
+        <div style={{ color: th.muted, fontSize: '0.82rem' }}>No questions logged yet.</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ color: th.muted, fontSize: '0.82rem' }}>No questions match these filters.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: 320, overflowY: 'auto' }}>
+          {filtered.slice(0, 80).map(r => {
+            const miss = r.answered === false || r.feedback === 'down';
+            return (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.5rem', borderRadius: '0.4rem', background: miss ? '#ef444410' : 'transparent', borderLeft: `2px solid ${miss ? '#ef4444' : 'transparent'}` }}>
+                <span style={{ flexShrink: 0, fontSize: '0.6rem', color: th.muted, minWidth: 42 }}>{new Date(r.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                <span title={`${r.userName || 'Unknown'} · ${orionRoleLabel(r.userRole)}`} style={{ flexShrink: 0, fontSize: '0.6rem', fontWeight: 700, color: orionRoleColor(r.userRole), background: `${orionRoleColor(r.userRole)}1a`, padding: '1px 6px', borderRadius: 999, minWidth: 62, textAlign: 'center' }}>{orionRoleLabel(r.userRole)}</span>
+                {r.userName && <span style={{ flexShrink: 0, fontSize: '0.66rem', color: th.muted, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.userName.split(' ')[0]}</span>}
+                <span style={{ flex: 1, minWidth: 0, fontSize: '0.78rem', color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.question}</span>
+                {r.feedback === 'down' && <span title="thumbs down" style={{ fontSize: '0.7rem' }}>👎</span>}
+                {r.feedback === 'up' && <span title="thumbs up" style={{ fontSize: '0.7rem' }}>👍</span>}
+                {miss && !r.feedback && <span title={r.gapReason || 'gap'} style={{ fontSize: '0.6rem', fontWeight: 800, color: '#ef4444' }}>{(r.gapReason || 'gap').toUpperCase()}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminConsole(props) {
   const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
   const SUBS = [
@@ -17556,8 +17818,9 @@ function AdminConsole(props) {
     { id: 'vendors',       label: 'Vendors',       icon: '🏗️', accent: '#14b8a6' },
     { id: 'system',        label: 'System & Logs', icon: '🗄️', accent: '#94a3b8' },
   ];
-  // Map our flat tabs onto AdminSettings' internal section ids
-  const SETTINGS_SECTION = { notifications: 'notifications', orion: 'orion', vendors: 'vendors' };
+  // Map our flat tabs onto AdminSettings' internal section ids ('orion' is handled
+  // explicitly below so the Learning panel renders above the Orion settings).
+  const SETTINGS_SECTION = { notifications: 'notifications', vendors: 'vendors' };
 
   const VALID = SUBS.map(s => s.id);
   const [sub, setSub] = React.useState(() => {
@@ -17565,12 +17828,25 @@ function AdminConsole(props) {
   });
   const go = (id) => { setSub(id); try { localStorage.setItem('pcg_admin_sub', id); } catch {} };
 
+  // Unreviewed Orion knowledge-gap count → red badge on the Orion tab, so the
+  // backlog is visible every time an admin is here (not just the weekly email).
+  const [orionGapCount, setOrionGapCount] = React.useState(0);
+  React.useEffect(() => {
+    let alive = true;
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'qa-gap-count', userId: user.id, userRole: user.userType, days: 30 }),
+    }).then(r => r.ok ? r.json() : null).then(d => { if (alive && d) setOrionGapCount(d.count || 0); }).catch(() => {});
+    return () => { alive = false; };
+  }, [sub]);
+
   return (
     <div>
       {/* Single flat tab bar */}
       <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.85rem', borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: '0.55rem' }}>
         {SUBS.map(s => {
           const on = sub === s.id;
+          const badge = s.id === 'orion' && orionGapCount > 0 ? orionGapCount : null;
           return (
             <button key={s.id} onClick={() => go(s.id)} style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
@@ -17582,6 +17858,7 @@ function AdminConsole(props) {
               color: on ? s.accent : th.muted, transition: 'all .15s',
             }}>
               <span>{s.icon}</span>{s.label}
+              {badge != null && <span title={`${badge} unreviewed knowledge gap${badge !== 1 ? 's' : ''}`} style={{ minWidth: 16, height: 16, padding: '0 5px', borderRadius: 999, background: '#ef4444', color: '#fff', fontSize: '0.6rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{badge}</span>}
             </button>
           );
         })}
@@ -17590,6 +17867,10 @@ function AdminConsole(props) {
       {sub === 'tasks' && <AdminTaskManager th={th} user={user} stores={stores} showAlert={showAlert} />}
       {sub === 'users' && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
       {sub === 'access' && <AccessMatrix th={th} user={user} users={users} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} showAlert={showAlert} />}
+      {sub === 'orion' && <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <OrionLearningPanel th={th} user={user} showAlert={showAlert} setTab={props.setTab} />
+        <AdminSettings {...props} embedSection="orion" />
+      </div>}
       {SETTINGS_SECTION[sub] && <AdminSettings {...props} embedSection={SETTINGS_SECTION[sub]} />}
       {sub === 'system' && <>
         <AdminDataPanel th={th} user={user} users={users} stores={stores} districts={districts} version={version} />
@@ -23747,7 +24028,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.61";
+const APP_VERSION = "v18.69";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -23850,6 +24131,18 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   const [orionThinking, setOrionThinking] = useState(false);
   const [replyToThread, setReplyToThread] = useState(null);
   const [expandedThreads, setExpandedThreads] = useState(new Set());
+  const [orionFeedback, setOrionFeedback] = useState({}); // messageId -> 'up' | 'down'
+  const [editMembers, setEditMembers] = useState(null); // { channelId, ids: [] } while managing membership
+
+  // Explicit "did this answer your question?" — the trustworthy miss signal.
+  const sendOrionFeedback = (messageId, rating) => {
+    if (!messageId) return;
+    setOrionFeedback(prev => ({ ...prev, [messageId]: rating }));
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'feedback', userId: user.id, messageId, rating }),
+    }).catch(() => {});
+  };
 
   // ── Handle pending Orion question from KPI tile click ──────────────
   useEffect(() => {
@@ -23876,27 +24169,57 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
     return () => clearTimeout(timer);
   }, [pendingOrionQuestion]);
 
-  // ── Analyst channels — seed on first load ──────────────────────────
+  // ── Analyst channel — each user gets ONE private Orion channel ───────────────
+  // Orion is personal: your questions and its answers stay with you. There are NO
+  // shared analyst rooms (they leaked every user's Q&A to everyone in the room).
   const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm" || user.userType === "manager");
+  const personalAnalystId = `analyst_${user.id}`;
   useEffect(() => {
     if (!isAnalystUser) return;
-    const personalChannel = {
-      id: `analyst_${user.id}`, type: "analyst", name: "Orion — My Analyst",
-      members: [user.id], createdAt: "2026-01-01T00:00:00.000Z"
-    };
-    const sharedChannels = user.userType === "manager" ? [] : [
-      { id: "analyst_exec", type: "analyst", name: "Orion — Executive Room",
-        members: users.filter(u => u.userType === "executive" || u.userType === "it").map(u => u.id),
-        createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "analyst_ops", type: "analyst", name: "Orion — Operations",
-        members: users.filter(u => ["executive", "it", "dm", "office_staff"].includes(u.userType)).map(u => u.id),
-        createdAt: "2026-01-01T00:00:00.000Z" },
-    ];
-    const allAnalystChannels = [personalChannel, ...sharedChannels];
-    const existing = channels.map(c => c.id);
-    const toAdd = allAnalystChannels.filter(ac => !existing.includes(ac.id));
-    if (toAdd.length > 0) setChannels(prev => [...toAdd, ...prev]);
+    // Seed the personal channel if missing — functional update so concurrent seeds
+    // can't create duplicates (the dedup reads the latest state, not a stale closure).
+    setChannels(prev => {
+      if (prev.some(c => c.id === personalAnalystId)) return prev;
+      return [{ id: personalAnalystId, type: "analyst", name: "Orion — My Analyst", members: [user.id], createdAt: "2026-01-01T00:00:00.000Z" }, ...prev];
+    });
   }, [user?.id]);
+
+  // ── One-time sanitize of the shared channel store ────────────────────────────
+  // The chat blob is global (all users share it), filtered per-user by membership.
+  // Two legacy problems to scrub, once, for everyone:
+  //   1. Shared Orion rooms (analyst_exec / analyst_ops, or any analyst channel with
+  //      >1 member) exposed each person's Orion chat to the whole room.
+  //   2. Duplicate channel objects with the same id rendered twice.
+  const sanitizedRef = useRef(false);
+  useEffect(() => {
+    if (sanitizedRef.current || !channels || channels.length === 0) return;
+    const removedIds = new Set();
+    const seen = new Set();
+    const cleaned = [];
+    // Roles that oversee construction projects — always kept on a project channel.
+    const overseerIds = new Set((users || []).filter(u => u.active && ['executive', 'it', 'construction'].includes(u.userType)).map(u => u.id));
+    let changed = false;
+    for (const c of channels) {
+      if (!c || !c.id) continue;
+      // Drop shared analyst rooms (personal channels have exactly one member).
+      if (c.type === "analyst" && Array.isArray(c.members) && c.members.length > 1) { removedIds.add(c.id); changed = true; continue; }
+      if (c.id === "analyst_exec" || c.id === "analyst_ops") { removedIds.add(c.id); changed = true; continue; }
+      if (seen.has(c.id)) { changed = true; continue; } // duplicate id — keep first
+      seen.add(c.id);
+      // De-leak legacy project channels that were seeded with every active user.
+      if (c.type === "project" && Array.isArray(c.members) && c.members.length > overseerIds.size + 2) {
+        const senders = new Set((messages || []).filter(m => m.channelId === c.id).map(m => m.senderId));
+        const trimmed = [...new Set([c.createdBy, ...overseerIds, ...[...senders].filter(id => id && id !== 'orion')])].filter(Boolean);
+        if (trimmed.length !== c.members.length) { cleaned.push({ ...c, members: trimmed }); changed = true; continue; }
+      }
+      cleaned.push(c);
+    }
+    sanitizedRef.current = true;
+    if (changed) {
+      setChannels(cleaned);
+      if (removedIds.size) setMessages(prev => prev.filter(m => !removedIds.has(m.channelId)));
+    }
+  }, [channels]);
 
   // ── Send message to Orion (analyst channel handler) ────────────────
   const sendToOrion = async (question, channelId, threadId) => {
@@ -24147,7 +24470,11 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   };
 
   // User's channels, sorted by latest message
-  const myChannels = channels
+  // De-duplicate by id defensively (the shared blob can carry dup objects until the
+  // sanitize pass persists) so nothing renders twice.
+  const uniqChannels = (() => { const seen = new Set(); return channels.filter(c => c && c.id && !seen.has(c.id) && seen.add(c.id)); })();
+
+  const myChannels = uniqChannels
     .filter(ch => ch.type !== 'analyst' && ch.members && ch.members.includes(user.id))
     .map(ch => {
       const chMsgs = messages.filter(m => m.channelId === ch.id && !m.deleted);
@@ -24158,6 +24485,20 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
     })
     .filter(ch => searchTerm ? getChannelName(ch).toLowerCase().includes(searchTerm.toLowerCase()) || (ch.lastMsg?.text || "").toLowerCase().includes(searchTerm.toLowerCase()) : true)
     .sort((a, b) => b.lastMsgTime.localeCompare(a.lastMsgTime));
+
+  // Orion is personal — only ever show THIS user's own private analyst channel, never
+  // a shared room (any analyst channel with more than one member is a legacy leak).
+  const myAnalystChannels = uniqChannels
+    .filter(ch => ch.type === 'analyst' && ch.id === personalAnalystId && ch.members && ch.members.includes(user.id) && (!Array.isArray(ch.members) || ch.members.length <= 1))
+    .map(ch => {
+      const chMsgs = messages.filter(m => m.channelId === ch.id && !m.deleted);
+      const lastMsg = chMsgs.length > 0 ? chMsgs[chMsgs.length - 1] : null;
+      const lastRead = readState[`${user.id}_${ch.id}`] || "1970-01-01";
+      const unread = chMsgs.filter(m => m.timestamp > lastRead && m.senderId !== user.id).length;
+      return { ...ch, lastMsg, lastMsgTime: lastMsg?.timestamp || ch.createdAt, unread };
+    })
+    .filter(ch => searchTerm ? getChannelName(ch).toLowerCase().includes(searchTerm.toLowerCase()) : true)
+    .sort((a, b) => (a.id === `analyst_${user.id}` ? -1 : b.id === `analyst_${user.id}` ? 1 : b.lastMsgTime.localeCompare(a.lastMsgTime)));
 
   // Open a channel thread
   const openThread = (chId) => {
@@ -24193,6 +24534,17 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
     setGroupName(""); setGroupMembers([]);
     openThread(ch.id);
     showAlert("success", `Group "${ch.name}" created`);
+  };
+
+  // Save edited channel membership (project/group). Creator is always kept.
+  const saveMembers = () => {
+    if (!editMembers) return;
+    const ch = channels.find(c => c.id === editMembers.channelId);
+    if (!ch) { setEditMembers(null); return; }
+    const members = [...new Set([ch.createdBy || user.id, ...editMembers.ids])].filter(Boolean);
+    setChannels(prev => prev.map(c => c.id === ch.id ? { ...c, members } : c));
+    setEditMembers(null);
+    showAlert("success", "Members updated");
   };
 
   // Send message
@@ -24363,6 +24715,36 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
       </div>
       <input placeholder="Search conversations..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
         style={{ ...inp(th), marginBottom: "1rem", width: "100%", boxSizing: "border-box" }} />
+      {myAnalystChannels.length > 0 && (
+        <div style={{ marginBottom: "1rem" }}>
+          <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
+            <OrionIcon size={13} /> Orion Analyst
+          </div>
+          {myAnalystChannels.map(ch => (
+            <div key={ch.id} onClick={() => openThread(ch.id)} style={{
+              ...card(th), padding: "0.75rem 1rem", marginBottom: "0.5rem", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: "0.75rem",
+              border: ch.unread > 0 ? `1px solid ${O}44` : `1px solid #8b5cf644`,
+            }}>
+              <div style={{ width: 40, height: 40, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "#8b5cf622", color: "#8b5cf6" }}>
+                <OrionIcon size={20} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontWeight: ch.unread > 0 ? 700 : 600, fontSize: "0.875rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{getChannelName(ch)}</span>
+                  <span style={{ fontSize: "0.625rem", color: th.muted, whiteSpace: "nowrap", marginLeft: 8 }}>{ch.lastMsg ? new Date(ch.lastMsg.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}</span>
+                </div>
+                <div style={{ fontSize: "0.75rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
+                  {ch.lastMsg ? (ch.lastMsg.deleted ? "[Message deleted]" : `${ch.lastMsg.senderName.split(" ")[0]}: ${ch.lastMsg.text || ""}`) : "Ask about sales, labor, operations…"}
+                </div>
+              </div>
+              {ch.unread > 0 && (
+                <span style={{ minWidth: 22, height: 22, borderRadius: "1rem", background: O, color: "#fff", fontSize: "0.6875rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 6px" }}>{ch.unread}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       {myChannels.length === 0 && (
         <div style={{ ...card(th), padding: "2rem", textAlign: "center", color: th.muted, fontSize: "0.875rem" }}>
           No conversations yet. Start a new message or create a group!
@@ -24549,13 +24931,75 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
             color: activeChannel.type === "analyst" ? "#8b5cf6" : activeChannel.type === "dm" ? O : activeChannel.type === "project" ? "#8b5cf6" : "#3b82f6" }}>
             {getChannelAvatar(activeChannel)}
           </div>
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>{getChannelName(activeChannel)}</div>
             <div style={{ fontSize: "0.6875rem", color: th.muted }}>
-              {activeChannel.type === "analyst" ? "AI Analyst — ask about sales, labor, operations" : activeChannel.type === "dm" ? "Direct Message" : `${activeChannel.members.length} member${activeChannel.members.length !== 1 ? "s" : ""}`}
+              {activeChannel.type === "analyst" ? "AI Analyst — ask about sales, labor, operations" : activeChannel.type === "dm" ? "Direct Message"
+                : <span onClick={() => setEditMembers({ channelId: activeChannel.id, ids: (activeChannel.members || []).filter(id => id !== (activeChannel.createdBy || user.id)) })} style={{ cursor: "pointer", textDecoration: "underline dotted" }}>{activeChannel.members.length} member{activeChannel.members.length !== 1 ? "s" : ""} · view</span>}
             </div>
           </div>
+          {(activeChannel.type === "project" || activeChannel.type === "group") && (
+            <button onClick={() => setEditMembers({ channelId: activeChannel.id, ids: (activeChannel.members || []).filter(id => id !== (activeChannel.createdBy || user.id)) })}
+              style={{ ...btn(th, { padding: "0.35rem 0.7rem", fontSize: "0.75rem", background: "none", color: th.muted }), display: "flex", alignItems: "center", gap: 5 }}>
+              👥 Members
+            </button>
+          )}
         </div>
+
+        {/* Member list / management overlay */}
+        {editMembers && editMembers.channelId === activeChannel.id && (() => {
+          const canEdit = activeChannel.createdBy === user.id || isAdmin;
+          const creatorId = activeChannel.createdBy || user.id;
+          const creatorUser = users.find(u => u.id === creatorId);
+          // Read-only view lists just the current members; edit view lists everyone to toggle.
+          const listUsers = canEdit
+            ? activeUsers.filter(u => u.id !== creatorId).sort((a, b) => a.name.localeCompare(b.name))
+            : (activeChannel.members || []).filter(id => id !== creatorId).map(id => users.find(u => u.id === id)).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+          return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}
+            onClick={e => { if (e.target === e.currentTarget) setEditMembers(null); }}>
+            <div style={{ width: "100%", maxWidth: 460, maxHeight: "80vh", display: "flex", flexDirection: "column", background: th.card, borderRadius: "1rem", border: `1px solid ${th.cardBorder}`, boxShadow: "0 25px 60px rgba(0,0,0,0.3)", overflow: "hidden" }}>
+              <div style={{ padding: "1rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` }}>
+                <div style={{ fontWeight: 800, fontSize: "1rem", color: th.text, fontFamily: "'Raleway'" }}>{canEdit ? "Manage members" : "Members"}</div>
+                <div style={{ fontSize: "0.72rem", color: th.muted, marginTop: 2 }}>{canEdit ? "Only selected people can see and post in this chat." : "People who can see and post in this chat."}</div>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: "0.5rem 0.75rem" }}>
+                {/* Creator row — always a member, pinned */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.45rem 0.5rem", borderRadius: "0.4rem", background: `${O}0f` }}>
+                  <span style={{ width: 26, height: 26, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6rem", fontWeight: 700 }}>{creatorUser?.initials || "?"}</span>
+                  <span style={{ fontSize: "0.85rem", color: th.text, fontWeight: 600 }}>{creatorUser?.name || "Creator"}</span>
+                  <span style={{ fontSize: "0.6rem", color: O, fontWeight: 700, background: `${O}18`, padding: "1px 7px", borderRadius: 999 }}>Owner</span>
+                </div>
+                {listUsers.length === 0 && !canEdit && <div style={{ padding: "0.6rem 0.5rem", fontSize: "0.78rem", color: th.muted }}>No other members yet.</div>}
+                {listUsers.map(u => {
+                  const on = editMembers.ids.includes(u.id);
+                  if (!canEdit) return (
+                    <div key={u.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.45rem 0.5rem" }}>
+                      <span style={{ width: 26, height: 26, borderRadius: "50%", background: th.card2, color: th.muted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6rem", fontWeight: 700 }}>{u.initials}</span>
+                      <span style={{ fontSize: "0.85rem", color: th.text, fontWeight: 600 }}>{u.name}</span>
+                      <span style={{ fontSize: "0.65rem", color: th.muted }}>{orionRoleLabel(u.userType)}</span>
+                    </div>
+                  );
+                  return (
+                    <label key={u.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.45rem 0.5rem", borderRadius: "0.4rem", cursor: "pointer", background: on ? `${O}0f` : "transparent" }}>
+                      <input type="checkbox" checked={on} onChange={e => setEditMembers(em => ({ ...em, ids: e.target.checked ? [...em.ids, u.id] : em.ids.filter(id => id !== u.id) }))} />
+                      <span style={{ fontSize: "0.85rem", color: th.text, fontWeight: 600 }}>{u.name}</span>
+                      <span style={{ fontSize: "0.65rem", color: th.muted }}>{orionRoleLabel(u.userType)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{ padding: "0.75rem 1.25rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.72rem", color: th.muted }}>{(canEdit ? editMembers.ids.length : (activeChannel.members || []).filter(id => id !== creatorId).length) + 1} member{true ? "s" : ""}</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setEditMembers(null)} style={btn(th, { padding: "0.4rem 1rem", fontSize: "0.8rem", background: "none", color: th.muted })}>{canEdit ? "Cancel" : "Close"}</button>
+                  {canEdit && <button onClick={saveMembers} style={btn(th, { padding: "0.4rem 1.25rem", fontSize: "0.8rem" })}>Save</button>}
+                </div>
+              </div>
+            </div>
+          </div>
+          );
+        })()}
 
         {/* Messages */}
         <div style={{ flex: 1, overflow: "auto", paddingRight: 4, minHeight: 0 }}>
@@ -24754,6 +25198,22 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
                       {hasFollowUps && (
                         <span style={{ fontSize: "0.625rem", color: th.muted }}>
                           {followUps.length} follow-up{followUps.length !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                      {/* Did this answer your question? — trustworthy miss signal */}
+                      {orionReply && activeChannel.type === "analyst" && (
+                        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                          {orionFeedback[orionReply.id] ? (
+                            <span style={{ fontSize: "0.625rem", color: orionFeedback[orionReply.id] === "up" ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
+                              {orionFeedback[orionReply.id] === "up" ? "✓ Thanks — glad it helped" : "✓ Logged — the team will improve this"}
+                            </span>
+                          ) : (
+                            <>
+                              <span style={{ fontSize: "0.625rem", color: th.muted }}>Did this answer your question?</span>
+                              <button onClick={() => sendOrionFeedback(orionReply.id, "up")} style={{ background: "#22c55e14", border: "1px solid #22c55e55", borderRadius: 6, padding: "2px 9px", cursor: "pointer", fontSize: "0.68rem", fontWeight: 700, color: "#22c55e" }}>Yes</button>
+                              <button onClick={() => sendOrionFeedback(orionReply.id, "down")} style={{ background: "#ef444414", border: "1px solid #ef444455", borderRadius: 6, padding: "2px 9px", cursor: "pointer", fontSize: "0.68rem", fontWeight: 700, color: "#ef4444" }}>No</button>
+                            </>
+                          )}
                         </span>
                       )}
                     </div>
@@ -35112,6 +35572,88 @@ function exportBriefPDF(brief, user) {
   doc.save(`orion_brief_${brief.date}.pdf`);
 }
 
+// Orion Learning export — the questions users asked + the knowledge gaps, so an
+// admin can download it, hand it to us, and we keep making Orion smarter.
+function exportOrionLearningPDF({ gaps, recent, user }) {
+  const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+  if (!JsPDFCtor) { alert('PDF library not available'); return; }
+  const doc = new JsPDFCtor({ unit: 'in', format: 'letter' });
+  const pageW = 8.5, pageH = 11, margin = 0.6, contentW = pageW - margin * 2;
+  const br = _pdfBrandRGB();
+  const strip = (s) => String(s || '').replace(/\*\*/g, '').replace(/[\u{1F300}-\u{1FFFF}]/gu, '').replace(/<<META[^>]*>>/g, '').trim();
+  const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  _pdfHeader(doc, 'Orion Learning', `What users asked · ${dateStr}`, pageW, margin);
+  let y = 1.55;
+
+  const assessed = (recent || []).filter(r => r.answered != null);
+  const rate = assessed.length ? Math.round(assessed.filter(r => r.answered).length / assessed.length * 100) : null;
+  doc.setFontSize(8); doc.setTextColor(160, 160, 160); doc.setFont('helvetica', 'normal');
+  doc.text(`${(recent || []).length} questions · ${(gaps || []).length} gap themes${rate != null ? ` · ${rate}% answered` : ''} · Generated ${new Date().toLocaleString()}`, margin, y);
+  y += 0.35;
+
+  const sectionTitle = (t) => {
+    if (y > pageH - 1.4) { doc.addPage(); y = margin; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...br);
+    doc.text(t, margin, y); y += 0.28;
+  };
+  const ensure = (h) => { if (y + h > pageH - 0.6) { doc.addPage(); y = margin; } };
+
+  // ── Who's asking (by role) ──
+  const rc = {};
+  (recent || []).forEach(r => { const k = r.userRole || 'unknown'; rc[k] = (rc[k] || 0) + 1; });
+  const rcRows = Object.entries(rc).sort((a, b) => b[1] - a[1]);
+  if (rcRows.length) {
+    sectionTitle('Who Is Asking (by role)');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+    rcRows.forEach(([role, n]) => {
+      ensure(0.2);
+      doc.text(`• ${orionRoleLabel(role)}: ${n} question${n !== 1 ? 's' : ''}`, margin + 0.1, y);
+      y += 0.2;
+    });
+    y += 0.15;
+  }
+
+  // ── Knowledge gaps ──
+  if ((gaps || []).length) {
+    sectionTitle('Knowledge Gaps (things Orion could not answer)');
+    gaps.forEach((g, i) => {
+      const label = `${i + 1}. ${strip(g.theme)}  [${g.cause === 'data' ? 'needs data' : 'KB article'} · ${g.count || 1}x]`;
+      const wrapped = doc.splitTextToSize(label, contentW - 0.1);
+      const rolesLine = (g.roles || []).length ? doc.splitTextToSize('Asked by: ' + g.roles.map(orionRoleLabel).join(', '), contentW - 0.3) : [];
+      const fix = g.suggestedFix ? doc.splitTextToSize('Fix: ' + strip(g.suggestedFix), contentW - 0.3) : [];
+      const exs = (g.exampleQuestions || []).slice(0, 3).map(q => doc.splitTextToSize('• ' + strip(q), contentW - 0.3)).flat();
+      ensure(wrapped.length * 0.17 + rolesLine.length * 0.15 + fix.length * 0.15 + exs.length * 0.15 + 0.25);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+      doc.text(wrapped, margin, y); y += wrapped.length * 0.17 + 0.03;
+      if (rolesLine.length) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(110, 110, 110); doc.text(rolesLine, margin + 0.2, y); y += rolesLine.length * 0.15 + 0.02; }
+      if (fix.length) { doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(...br); doc.text(fix, margin + 0.2, y); y += fix.length * 0.15 + 0.02; }
+      if (exs.length) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 90, 90); doc.text(exs, margin + 0.2, y); y += exs.length * 0.15; }
+      y += 0.12;
+    });
+    y += 0.15;
+  }
+
+  // ── All questions ──
+  sectionTitle('All Questions Asked');
+  (recent || []).forEach((r) => {
+    const when = new Date(r.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const miss = r.answered === false || r.feedback === 'down';
+    const tag = miss ? '  [UNANSWERED]' : '';
+    const meta = `${when} · ${orionRoleLabel(r.userRole)}${r.userName ? ' · ' + r.userName : ''}${r.scope ? ' · ' + r.scope : ''}${tag}`;
+    const qWrapped = doc.splitTextToSize(strip(r.question), contentW - 0.1);
+    ensure(qWrapped.length * 0.17 + 0.28);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(miss ? 200 : 150, miss ? 60 : 150, miss ? 60 : 150);
+    doc.text(meta, margin, y); y += 0.15;
+    doc.setFont('helvetica', miss ? 'bold' : 'normal'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+    doc.text(qWrapped, margin, y); y += qWrapped.length * 0.17 + 0.13;
+  });
+
+  _pdfFooters(doc, `${BRAND_CONFIG.portalName} · Orion Learning · Confidential`, pageW, pageH, margin, contentW);
+  logClientEvent(user?.id, user?.userType, 'pdf_download', { type: 'orion_learning', questions: (recent || []).length, gaps: (gaps || []).length });
+  doc.save(`orion_learning_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
 function exportCasesPDF(cases, totalOpp, scope, user) {
   const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
   if (!JsPDFCtor) { alert('PDF library not available'); return; }
@@ -36419,6 +36961,21 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
     })();
   }, []);
 
+  // Pick up an Orion-drafted article handed off from the Orion Learning panel.
+  useEffect(() => {
+    const draft = takePendingKbDraft();
+    if (draft) {
+      setForm({
+        title: draft.title || '',
+        category: KB_CATEGORIES.includes(draft.category) ? draft.category : 'SOP',
+        description: draft.description || '',
+        content: draft.content || '',
+      });
+      setShowForm(true);
+      if (showAlert) showAlert('success', 'Orion drafted this article — review, fill any [FILL IN] gaps, then publish.');
+    }
+  }, []);
+
   // Load individual article content
   const viewArticle = async (id) => {
     setLoading(true);
@@ -37266,6 +37823,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
     if (!text || askLoading) return;
     setAskInput('');
     setAskAnswer(null);
+    setAskFeedback(null);
     setAskLoading(true);
     setActiveTab('ask');
     try {
@@ -37275,11 +37833,21 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
         body: JSON.stringify({ action: 'ask', question: text, userId: user.id, district: isExec ? undefined : district }),
       });
       const data = await res.json();
-      setAskAnswer({ question: text, answer: data.answer || data.text || 'No answer.' });
+      setAskAnswer({ question: text, answer: data.answer || data.text || 'No answer.', messageId: data.messageId });
     } catch {
       setAskAnswer({ question: text, answer: 'Something went wrong. Try again.' });
     }
     setAskLoading(false);
+  };
+
+  const [askFeedback, setAskFeedback] = React.useState(null); // 'up' | 'down'
+  const sendAskFeedback = (rating) => {
+    if (!askAnswer?.messageId) return;
+    setAskFeedback(rating);
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'feedback', userId: user.id, messageId: askAnswer.messageId, rating }),
+    }).catch(() => {});
   };
 
   const updateCase = async (caseId, status) => {
@@ -37820,7 +38388,20 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
               <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 16, marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: th.muted, fontWeight: 700, marginBottom: 8 }}>{askAnswer.question}</div>
                 <div style={{ fontSize: 13.5, color: th.text, lineHeight: 1.65 }}>{renderAnalystMarkdown(askAnswer.answer, th)}</div>
-                <button onClick={() => { setChatMessages(m => [...m, { role: 'user', content: askAnswer.question, ts: Date.now() }, { role: 'assistant', content: askAnswer.answer, ts: Date.now() }]); setAskAnswer(null); setActiveTab('chat'); }} style={{ marginTop: 12, background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '4px 12px', color: th.muted, fontSize: 11, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Continue in chat</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+                  <button onClick={() => { setChatMessages(m => [...m, { role: 'user', content: askAnswer.question, ts: Date.now() }, { role: 'assistant', content: askAnswer.answer, ts: Date.now() }]); setAskAnswer(null); setActiveTab('chat'); }} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '4px 12px', color: th.muted, fontSize: 11, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Continue in chat</button>
+                  {askAnswer.messageId && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                      {askFeedback ? (
+                        <span style={{ fontSize: 11, color: th.muted }}>Thanks for the feedback {askFeedback === 'up' ? '👍' : '👎'}</span>
+                      ) : (<>
+                        <span style={{ fontSize: 11, color: th.muted }}>Helpful?</span>
+                        <button title="Yes" onClick={() => sendAskFeedback('up')} style={{ background: th.card3, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', fontSize: 12 }}>👍</button>
+                        <button title="No" onClick={() => sendAskFeedback('down')} style={{ background: th.card3, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', fontSize: 12 }}>👎</button>
+                      </>)}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

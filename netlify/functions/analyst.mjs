@@ -10,7 +10,7 @@ import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
 import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
 import { getCases, loadCase, updateCaseStatus, loadDecisionLog } from './analyst-lib/analyst-cases.mjs';
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
-import { logFeedback, logAccessEvent, loadAccessEntries } from './analyst-lib/analyst-audit.mjs';
+import { logFeedback, logAccessEvent, loadAccessEntries, logQA, updateQAFeedback, loadQA, resolveQA, qaTrend, recordResolvedThemes, loadResolvedThemes, countQAGaps } from './analyst-lib/analyst-audit.mjs';
 import { forecastStoreFull, forecastStoreWeek, learnHolidayFactor, tomorrowISO, addDaysISO } from './analyst-lib/forecast.mjs';
 import { holidayInfo } from './analyst-lib/holidays.mjs';
 import { loadKBContent, buildKBContext } from './analyst-lib/analyst-kb.mjs';
@@ -86,6 +86,7 @@ export default async (request, context) => {
   const EXEC_ONLY_ACTIONS = new Set([
     'snapshot', 'report-settings', 'send-report', 'create-report',
     'case-list', 'case-detail', 'case-update', 'decision-log', 'audit-log',
+    'qa-log', 'qa-gaps', 'qa-resolve', 'qa-trend', 'qa-draft-kb', 'qa-feature-req', 'qa-feature-list', 'qa-gap-count',
   ]);
 
   try {
@@ -267,7 +268,11 @@ export default async (request, context) => {
         } catch (e) { console.warn('[analyst] new-products failed:', e.message); }
       }
 
-      const prompt = buildAskPrompt(question, effRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext, extraContext);
+      let prompt = buildAskPrompt(question, effRole || 'executive', scope, new Date().toISOString().slice(0, 10), dataContext, kbContext, ticketsContext, extraContext);
+      // Self-assessment tag for the Learning Loop — Orion appends exactly one hidden
+      // marker as its last line; the app strips it before display and logs it so we
+      // can detect knowledge/data gaps. (a=Y answered, a=N + reason = a miss.)
+      prompt += `\n\nAFTER your answer, append EXACTLY ONE hidden marker as the final line (the app removes it before showing the user): "<<META a=Y r=ok>>" if you fully answered from the data provided; "<<META a=N r=no-data>>" if the answer isn't in the data you were given; "<<META a=N r=scope>>" if it falls outside this user's allowed scope.`;
 
       // Use thread-scoped history key when threadId is provided
       const historyKey = threadId
@@ -294,12 +299,25 @@ export default async (request, context) => {
 
       const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
+      // Strip Orion's self-assessment marker off the end and derive answered/gap.
+      let answer = result.answer || '';
+      let qaAnswered = null, qaGap = null;
+      const metaMatch = answer.match(/<<META\s+a=([YN])\s+r=([a-z-]+)\s*>>\s*$/i);
+      if (metaMatch) {
+        qaAnswered = metaMatch[1].toUpperCase() === 'Y';
+        qaGap = metaMatch[2].toLowerCase() === 'ok' ? null : metaMatch[2].toLowerCase();
+        answer = answer.slice(0, metaMatch.index).trimEnd();
+      }
+
+      // Learning Loop — log the Q&A turn (fire-and-forget; never blocks the answer).
+      logQA({ userId, userRole: effRole, scope, question, answer, model: result.model, latencyMs: result.latencyMs, answered: qaAnswered, gapReason: qaGap, messageId }).catch(() => {});
+
       // Save conversation turn to history blob if channelId provided
       if (channelId) {
         const existing = (await cacheLoad(historyKey)) || [];
         const updated = Array.isArray(existing) ? existing : [];
         updated.push({ role: 'user', content: question, ts: new Date().toISOString() });
-        updated.push({ role: 'assistant', content: result.answer, ts: new Date().toISOString(), messageId });
+        updated.push({ role: 'assistant', content: answer, ts: new Date().toISOString(), messageId });
         // Keep last 20 turns (10 pairs)
         if (updated.length > 20) updated.splice(0, updated.length - 20);
         await cacheSave(historyKey, updated);
@@ -309,12 +327,12 @@ export default async (request, context) => {
       const mentionRegex = /@\[(dm|gm):([^\]]+)\]/g;
       const mentions = [];
       let mentionMatch;
-      while ((mentionMatch = mentionRegex.exec(result.answer)) !== null) {
+      while ((mentionMatch = mentionRegex.exec(answer)) !== null) {
         mentions.push({ role: mentionMatch[1], identifier: mentionMatch[2], raw: mentionMatch[0] });
       }
 
       return respond(200, {
-        answer: result.answer,
+        answer,
         model: result.model,
         tokens: result.tokens,
         latencyMs: result.latencyMs,
@@ -551,7 +569,89 @@ export default async (request, context) => {
       if (!messageId || !rating) return respond(400, { error: 'Missing messageId or rating' });
       if (!['up', 'down'].includes(rating)) return respond(400, { error: 'Rating must be up or down' });
       await logFeedback({ userId, messageId, rating, comment });
+      // Learning Loop — a 👎 marks the Q&A row a miss even if Orion thought it answered.
+      updateQAFeedback({ messageId, feedback: rating === 'up' ? 'up' : 'down' }).catch(() => {});
       return respond(200, { ok: true });
+    }
+
+    // ── Orion Learning Loop — Q&A analytics + knowledge-gap backlog (Exec/IT) ──
+    if (action === 'qa-log' || action === 'qa-gaps') {
+      const rows = await loadQA({ days: payload.days || 30, gapsOnly: action === 'qa-gaps', limit: payload.limit || 500 });
+      if (action === 'qa-log') return respond(200, { rows });
+      // Cluster the raw gap questions into themes with counts + cause, via Orion itself.
+      if (rows.length === 0) return respond(200, { gaps: [] });
+      const list = rows.slice(0, 200).map((r, i) => `${i}. [${r.userRole || '?'} · ${r.scope || '?'}${r.gapReason ? ' · ' + r.gapReason : ''}] ${(r.question || '').slice(0, 200)}`).join('\n');
+      const gapPrompt = `These are questions users asked Orion that it could NOT answer (self-flagged as no-data/out-of-scope, or thumbs-down). Each row is prefixed with [role · scope]. Cluster them into themes. Output ONLY a JSON array, most-asked first:\n[{"theme":"short label","count":<how many rows fit this theme>,"cause":"knowledge"|"data","roles":["which distinct roles asked this, e.g. manager, dm, executive"],"exampleQuestions":["..."],"suggestedFix":"one line — write a KB article about X, or wire data source Y"}]\nRows:\n${list}`;
+      const gr = await generateStructured({ system: 'You cluster support questions into actionable themes. knowledge = answerable with an SOP/policy KB article; data = a metric Orion cannot currently see. Output only JSON.', userPrompt: gapPrompt, action: 'brief', userId });
+      let gaps = [];
+      try { const p = JSON.parse(String(gr.text || '[]').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); if (Array.isArray(p)) gaps = p; } catch (e) { console.warn('[analyst] qa-gaps parse failed:', e.message); }
+      // "Did the fix work?" — flag any theme that closely matches one we already resolved (it came back).
+      const resolvedThemes = await loadResolvedThemes({ days: 120 });
+      const tokens = (s) => new Set(String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(w => w.length > 3));
+      for (const g of gaps) {
+        const gt = tokens(g.theme);
+        g.reopened = resolvedThemes.some(rt => {
+          const rtoks = tokens(rt.theme); if (!rtoks.size || !gt.size) return false;
+          const overlap = [...gt].filter(w => rtoks.has(w)).length;
+          return overlap / Math.min(gt.size, rtoks.size) >= 0.5;
+        });
+      }
+      return respond(200, { gaps, sampled: rows.length, ids: rows.map(r => r.id) });
+    }
+
+    if (action === 'qa-resolve') {
+      await resolveQA({ ids: payload.ids });
+      // Remember the themes so we can detect if they resurface later.
+      if (Array.isArray(payload.themes) && payload.themes.length) await recordResolvedThemes({ themes: payload.themes, userId });
+      return respond(200, { ok: true });
+    }
+
+    if (action === 'qa-trend') {
+      const trend = await qaTrend({ weeks: payload.weeks || 8 });
+      return respond(200, { trend });
+    }
+
+    if (action === 'qa-gap-count') {
+      const count = await countQAGaps({ days: payload.days || 30 });
+      return respond(200, { count });
+    }
+
+    // Orion drafts a KB article for a knowledge gap — admin reviews & publishes.
+    if (action === 'qa-draft-kb') {
+      const theme = String(payload.theme || '').slice(0, 200);
+      const examples = Array.isArray(payload.exampleQuestions) ? payload.exampleQuestions.slice(0, 6) : [];
+      if (!theme) return respond(400, { error: 'theme required' });
+      const draftPrompt = `Users keep asking Orion about "${theme}" and it lacks a knowledge-base article to answer them. Write a concise internal KB article for People Capital Group (a Dunkin' franchise operator) that would let Orion answer these questions.\nExample questions asked:\n${examples.map(q => '- ' + q).join('\n')}\n\nOutput ONLY JSON: {"title":"short article title","category":"SOP"|"Policy"|"Training"|"Reference"|"Setup Guide","description":"one-line summary","content":"the article body as clean HTML using <h3>, <p>, <ul>, <li>, <strong>. Where a company-specific fact is unknown, insert a clearly marked [FILL IN: ...] placeholder rather than guessing."}`;
+      const dr = await generateStructured({ system: 'You write clear, accurate internal knowledge-base articles. Never invent company-specific facts — mark them [FILL IN: ...]. Output only JSON.', userPrompt: draftPrompt, action: 'brief', userId });
+      let draft = null;
+      try { draft = JSON.parse(String(dr.text || '{}').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); } catch (e) { console.warn('[analyst] qa-draft-kb parse failed:', e.message); }
+      if (!draft || !draft.content) return respond(200, { draft: { title: theme, category: 'SOP', description: '', content: `<h3>${theme}</h3><p>[FILL IN: write the answer to "${theme}"]</p>` } });
+      return respond(200, { draft });
+    }
+
+    // Log a data-gap as a tracked feature request (stored in a blob backlog).
+    if (action === 'qa-feature-req') {
+      const list = (await cacheLoad('pcg_orion_feature_requests_v1')) || [];
+      const arr = Array.isArray(list) ? list : [];
+      const item = {
+        id: `fr_${Date.now().toString(36)}`,
+        theme: String(payload.theme || '').slice(0, 200),
+        detail: String(payload.suggestedFix || '').slice(0, 400),
+        exampleQuestions: Array.isArray(payload.exampleQuestions) ? payload.exampleQuestions.slice(0, 5) : [],
+        roles: Array.isArray(payload.roles) ? payload.roles : [],
+        count: payload.count || 1,
+        status: 'open',
+        createdAt: new Date().toISOString(),
+        createdBy: userId ?? null,
+      };
+      await cacheSave('pcg_orion_feature_requests_v1', [item, ...arr].slice(0, 200));
+      if (payload.theme) await recordResolvedThemes({ themes: [{ theme: payload.theme, cause: 'data' }], userId });
+      return respond(200, { ok: true, item });
+    }
+
+    if (action === 'qa-feature-list') {
+      const list = (await cacheLoad('pcg_orion_feature_requests_v1')) || [];
+      return respond(200, { requests: Array.isArray(list) ? list : [] });
     }
 
     // ── KPI Snapshot (raw data for debugging) ────────────────────────────

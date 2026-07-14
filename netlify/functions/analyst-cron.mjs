@@ -10,7 +10,7 @@ import { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentiment
 import { generateStructured } from './analyst-lib/analyst-claude.mjs';
 import { PERSONA, buildBriefPrompt, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
-import { logAudit } from './analyst-lib/analyst-audit.mjs';
+import { logAudit, loadQA, qaTrend, loadQAForRegrade, applyRegrade } from './analyst-lib/analyst-audit.mjs';
 import { sendDMBriefs, sendExecReport, loadReportSettings } from './analyst-lib/analyst-reports.mjs';
 import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
 import { sql } from './_shared/db.mjs';
@@ -234,6 +234,99 @@ async function computeAndSaveDMScores(today) {
   }
 }
 
+// ── Orion Learning weekly digest — top gaps + answered-rate to Exec/IT ───────
+// Clusters last-7-day misses, flags hot themes (≥5 asks), posts an announcement.
+async function postOrionLearningDigest(today) {
+  try {
+    const gapRows = await loadQA({ days: 7, gapsOnly: true, limit: 300 });
+    if (!gapRows.length) { console.log('[analyst-cron] Orion digest: no gaps this week'); return false; }
+
+    const trend = await qaTrend({ weeks: 6 });
+    const latest = trend[trend.length - 1];
+    const prev = trend.length > 1 ? trend[trend.length - 2] : null;
+    const rateLine = latest?.rate != null
+      ? `Answered rate: ${latest.rate}%${prev?.rate != null ? ` (${latest.rate - prev.rate >= 0 ? '+' : ''}${latest.rate - prev.rate} pts WoW)` : ''}.`
+      : '';
+
+    const list = gapRows.slice(0, 150).map((r, i) => `${i}. [${r.userRole || '?'} · ${r.scope || '?'}] ${(r.question || '').slice(0, 180)}`).join('\n');
+    const gr = await generateStructured({
+      system: 'You cluster support questions into actionable themes. knowledge = answerable with an SOP/policy KB article; data = a metric Orion cannot currently see. Output only JSON.',
+      userPrompt: `These are questions Orion could NOT answer in the last 7 days. Cluster into themes. Output ONLY a JSON array, most-asked first: [{"theme":"short label","count":<n>,"cause":"knowledge"|"data"}]\nRows:\n${list}`,
+      action: 'brief', userId: 'system',
+    });
+    let gaps = [];
+    try { const p = JSON.parse(String(gr.text || '[]').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); if (Array.isArray(p)) gaps = p; } catch { /* ignore */ }
+    if (!gaps.length) return false;
+
+    const top = gaps.slice(0, 5);
+    const HOT = 5; // hot-theme threshold
+    const lines = [
+      `${gapRows.length} question${gapRows.length !== 1 ? 's' : ''} Orion couldn't fully answer this week. ${rateLine}`.trim(),
+      '',
+      'Top gaps:',
+      ...top.map((g, i) => `${i + 1}. ${g.theme} — ${g.count || 1}× (${g.cause === 'data' ? 'needs data' : 'KB article'})${(g.count || 0) >= HOT ? '  🔥 HOT' : ''}`),
+      '',
+      'Review + convert to KB articles in Admin · Settings → Orion.',
+    ];
+
+    const existing = await cacheLoad('pcg_announcements_v1') || [];
+    const arr = Array.isArray(existing) ? existing : [];
+    const alreadyPosted = arr.some(a => a.type === 'orion_learning' && a.createdAt?.startsWith(today));
+    if (alreadyPosted) { console.log('[analyst-cron] Orion digest already posted today'); return false; }
+
+    const ann = {
+      id: `ann_${Date.now()}_orionlearn`,
+      title: `Orion Learning — Week of ${today}`,
+      message: lines.join('\n'),
+      createdAt: new Date().toISOString(),
+      createdBy: 'Orion',
+      active: true,
+      type: 'orion_learning',
+      targets: { roles: ['executive', 'it'] },
+    };
+    await cacheSave('pcg_announcements_v1', [ann, ...arr]);
+    console.log('[analyst-cron] Posted Orion Learning digest —', top.length, 'themes');
+    return true;
+  } catch (err) {
+    console.warn('[analyst-cron] Orion Learning digest failed:', err.message);
+    return false;
+  }
+}
+
+// ── Independent answer re-grader — a SECOND source of truth beyond Orion's own
+// self-flag. Orion routinely thinks it answered when it deflected ("I don't have
+// that data"). A fresh judge, blind to the original self-assessment, re-scores each
+// answer; disagreements flip the `answered` flag so the gap backlog is trustworthy.
+async function regradeRecentQA() {
+  try {
+    const rows = await loadQAForRegrade({ days: 10, limit: 40 });
+    if (!rows.length) return 0;
+    let flipped = 0;
+    for (const r of rows) {
+      try {
+        const jr = await generateStructured({
+          system: 'You are a strict grader of whether an AI analyst actually ANSWERED a user question. "answered" is TRUE only if the reply gives the specific information asked for. It is FALSE if the reply deflects, says it lacks the data, asks the user to look elsewhere, or is off-topic — even if it sounds confident. Output only JSON.',
+          userPrompt: `Question: ${String(r.question || '').slice(0, 500)}\n\nAI answer: ${String(r.answer || '').slice(0, 1500)}\n\nDid this actually answer the question? Output JSON: {"answered": true|false, "reason": "ok"|"no-data"|"scope"|"off-topic"}`,
+          action: 'brief', userId: 'system',
+        });
+        let verdict = null;
+        try { verdict = JSON.parse(String(jr.text || '{}').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); } catch { /* ignore */ }
+        if (verdict && typeof verdict.answered === 'boolean') {
+          if (verdict.answered !== r.answered) flipped++;
+          await applyRegrade({ id: r.id, answered: verdict.answered, gapReason: verdict.answered ? null : (verdict.reason || 'no-data') });
+        } else {
+          await applyRegrade({ id: r.id, answered: null }); // mark regraded, leave as-is
+        }
+      } catch { await applyRegrade({ id: r.id, answered: null }); }
+    }
+    console.log(`[analyst-cron] Re-graded ${rows.length} Orion answers — ${flipped} flipped`);
+    return flipped;
+  } catch (err) {
+    console.warn('[analyst-cron] regradeRecentQA failed:', err.message);
+    return 0;
+  }
+}
+
 export default async (request, context) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -254,6 +347,9 @@ export default async (request, context) => {
     console.log('[analyst-cron] Running anomaly detection...');
     const anomalies = await detectAnomalies();
     console.log(`[analyst-cron] Found ${anomalies.length} anomalies`);
+
+    // ── Step 1b: Re-grade recent Orion answers (independent miss-detection) ──
+    const regraded = await regradeRecentQA();
 
     // ── Step 2: Create Business Cases from high/medium severity anomalies ──
     let casesCreated = 0;
@@ -478,6 +574,9 @@ export default async (request, context) => {
 
       // ── DM Scorecard snapshot (7.5) — runs alongside leaderboard every Sunday ──
       await computeAndSaveDMScores(today);
+
+      // ── Orion Learning weekly digest (Sunday morning) ──
+      await postOrionLearningDigest(today);
     }
 
     // ── Step 6: Log run summary ─────────────────────────────────────────
@@ -485,6 +584,7 @@ export default async (request, context) => {
       ok: true,
       completedAt: new Date().toISOString(),
       anomaliesDetected: anomalies.length,
+      qaRegradedFlipped: regraded,
       casesCreated,
       briefsGenerated,
       dmBriefsSent,

@@ -11892,7 +11892,8 @@ ${t2.slice(0, 300)}`);
         setDetailTab("chat");
         const projChId = `proj_${p.id}`;
         if (chatChannels && !chatChannels.find((ch) => ch.id === projChId)) {
-          setChatChannels((prev) => [...prev, { id: projChId, type: "project", name: p.nickname || p.pc, members: (allUsers || []).filter((u) => u.active).map((u) => u.id), createdBy: user.id, createdAt: (/* @__PURE__ */ new Date()).toISOString(), projectId: p.id }]);
+          const seedMembers = [.../* @__PURE__ */ new Set([user.id, ...(allUsers || []).filter((u) => u.active && ["executive", "it", "construction"].includes(u.userType)).map((u) => u.id)])];
+          setChatChannels((prev) => [...prev, { id: projChId, type: "project", name: p.nickname || p.pc, members: seedMembers, createdBy: user.id, createdAt: (/* @__PURE__ */ new Date()).toISOString(), projectId: p.id }]);
         }
       }, style: { background: detailTab === "chat" ? O : th.card, color: detailTab === "chat" ? W : th.muted, border: "none", padding: "0.5rem 1rem", cursor: "pointer", fontSize: "0.8125rem", fontWeight: 600 } }, "\u{1F4AC} Chat"), p.driveFolder && /* @__PURE__ */ React.createElement(
         "a",
@@ -14310,6 +14311,126 @@ ${t2.slice(0, 300)}`);
       "+ Add item"
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: saveItems, disabled: busy, style: { ...btn(th), fontSize: "0.85rem", padding: "0.5rem 1.2rem" } }, busy ? "Saving\u2026" : "Save items"), /* @__PURE__ */ React.createElement("button", { onClick: () => setItemsFor(null), style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.85rem", padding: "0.5rem 1rem" } }, "Cancel")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search tasks\u2026", style: { ...inp(th), flex: 1, minWidth: 160, fontSize: "0.85rem" } }), /* @__PURE__ */ React.createElement("select", { value: catFilter, onChange: (e) => setCatFilter(e.target.value), style: { ...inp(th), width: 180, fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All categories"), categories.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))), /* @__PURE__ */ React.createElement("select", { value: activeFilter, onChange: (e) => setActiveFilter(e.target.value), style: { ...inp(th), width: 130, fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All"), /* @__PURE__ */ React.createElement("option", { value: "active" }, "Active"), /* @__PURE__ */ React.createElement("option", { value: "inactive" }, "Inactive"))), !loading && templates && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.5rem" } }, filtered.length, " of ", templates.length, " tasks")), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, loading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "1.5rem" } }, "Loading\u2026"), !loading && filtered.map((tp) => /* @__PURE__ */ React.createElement("div", { key: tp.id, style: { ...card(th), padding: "0.6rem 0.9rem", marginBottom: "0.4rem", display: "flex", alignItems: "center", gap: "0.75rem", opacity: tp.active ? 1 : 0.55 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.9rem" } }, tp.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, tp.category, " \xB7 ", tp.label, " \xB7 ", tp.input_type, " \xB7 ", tp.task_type, tp.shift_time ? " \xB7 " + tp.shift_time : "", " \xB7 ", tp.frequency, tp.min_val != null ? ` \xB7 ${tp.min_val}\u2013${tp.max_val}${tp.unit || ""}` : "")), /* @__PURE__ */ React.createElement("button", { onClick: () => openLocations(tp), style: { ...pill("#38bdf8", { cursor: "pointer", fontSize: "0.7rem" }) } }, tp.location_count, " stores"), /* @__PURE__ */ React.createElement("button", { onClick: () => openItems(tp), style: { ...pill("#a78bfa", { cursor: "pointer", fontSize: "0.7rem" }) } }, tp.items_count || 0, " items"), tp.allow_signoff && /* @__PURE__ */ React.createElement("span", { style: pill("#2f9e44", { fontSize: "0.66rem" }) }, "sign-off"), /* @__PURE__ */ React.createElement("button", { onClick: () => toggle(tp), style: { ...pill(tp.active ? "#2f9e44" : th.muted, { cursor: "pointer", fontSize: "0.7rem" }) } }, tp.active ? "Active" : "Inactive"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditing({ ...tp }), style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.74rem", padding: "0.3rem 0.7rem" } }, "Edit")))));
   }
+  var ORION_ROLE_LABELS = {
+    executive: "Exec/VP",
+    it: "IT/HR",
+    office_staff: "Office Staff",
+    dm: "District Mgr",
+    manager: "Store Mgr",
+    construction: "Construction",
+    maintenance: "Maintenance",
+    vendor: "Vendor",
+    store_tablet: "Store Tablet"
+  };
+  var orionRoleLabel = (r) => ORION_ROLE_LABELS[r] || (r ? r.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Unknown");
+  var orionRoleColor = (r) => ({ executive: "#8b5cf6", it: "#8b5cf6", dm: "#3b82f6", manager: "#22c55e", office_staff: "#f59e0b", maintenance: "#14b8a6", construction: "#f97316" })[r] || "#94a3b8";
+  var PENDING_KB_DRAFT = null;
+  var setPendingKbDraft = (d) => {
+    PENDING_KB_DRAFT = d;
+  };
+  var takePendingKbDraft = () => {
+    const d = PENDING_KB_DRAFT;
+    PENDING_KB_DRAFT = null;
+    return d;
+  };
+  function OrionLearningPanel({ th, user, showAlert, setTab }) {
+    const [gaps, setGaps] = React.useState(null);
+    const [gapIds, setGapIds] = React.useState([]);
+    const [recent, setRecent] = React.useState([]);
+    const [trend, setTrend] = React.useState([]);
+    const [features, setFeatures] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+    const [busy, setBusy] = React.useState(false);
+    const [draftingIdx, setDraftingIdx] = React.useState(null);
+    const [fRole, setFRole] = React.useState("all");
+    const [fStatus, setFStatus] = React.useState("all");
+    const [fSearch, setFSearch] = React.useState("");
+    const postAction = React.useCallback((action, extra = {}) => fetch("/.netlify/functions/analyst", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, userId: user.id, userRole: user.userType, days: 30, ...extra })
+    }).then((r) => r.ok ? r.json() : null).catch(() => null), [user]);
+    const load = React.useCallback(() => {
+      setLoading(true);
+      Promise.all([
+        postAction("qa-gaps"),
+        postAction("qa-log"),
+        postAction("qa-trend", { weeks: 8 }),
+        postAction("qa-feature-list")
+      ]).then(([g, l, t, f]) => {
+        setGaps(Array.isArray(g?.gaps) ? g.gaps : []);
+        setGapIds(Array.isArray(g?.ids) ? g.ids : []);
+        setRecent(Array.isArray(l?.rows) ? l.rows : []);
+        setTrend(Array.isArray(t?.trend) ? t.trend : []);
+        setFeatures(Array.isArray(f?.requests) ? f.requests.filter((x) => x.status !== "done") : []);
+      }).finally(() => setLoading(false));
+    }, [postAction]);
+    React.useEffect(() => {
+      load();
+    }, [load]);
+    const markReviewed = async () => {
+      if (!gapIds.length) return;
+      setBusy(true);
+      try {
+        await postAction("qa-resolve", { ids: gapIds, themes: (gaps || []).map((g) => ({ theme: g.theme, cause: g.cause })) });
+        showAlert && showAlert("success", "Gaps marked reviewed");
+        load();
+      } catch {
+        showAlert && showAlert("error", "Could not update");
+      }
+      setBusy(false);
+    };
+    const writeKB = async (g, idx) => {
+      setDraftingIdx(idx);
+      try {
+        const res = await postAction("qa-draft-kb", { theme: g.theme, exampleQuestions: g.exampleQuestions || [] });
+        const draft = res?.draft;
+        if (!draft) {
+          showAlert && showAlert("error", "Could not draft article");
+          setDraftingIdx(null);
+          return;
+        }
+        setPendingKbDraft(draft);
+        setTab && setTab("kb");
+      } catch {
+        showAlert && showAlert("error", "Could not draft article");
+      }
+      setDraftingIdx(null);
+    };
+    const logFeature = async (g) => {
+      setBusy(true);
+      try {
+        await postAction("qa-feature-req", { theme: g.theme, suggestedFix: g.suggestedFix, exampleQuestions: g.exampleQuestions || [], roles: g.roles || [], count: g.count });
+        showAlert && showAlert("success", "Logged as feature request");
+        load();
+      } catch {
+        showAlert && showAlert("error", "Could not log");
+      }
+      setBusy(false);
+    };
+    const assessed = recent.filter((r) => r.answered != null);
+    const answeredRate = assessed.length ? Math.round(assessed.filter((r) => r.answered).length / assessed.length * 100) : null;
+    const causeColor = (c) => c === "data" ? "#f59e0b" : "#a855f7";
+    const roleCounts = {};
+    recent.forEach((r) => {
+      const k = r.userRole || "unknown";
+      roleCounts[k] = (roleCounts[k] || 0) + 1;
+    });
+    const roleRows = Object.entries(roleCounts).sort((a, b) => b[1] - a[1]);
+    const filtered = recent.filter((r) => {
+      if (fRole !== "all" && (r.userRole || "unknown") !== fRole) return false;
+      const miss = r.answered === false || r.feedback === "down";
+      if (fStatus === "answered" && miss) return false;
+      if (fStatus === "unanswered" && !miss) return false;
+      if (fSearch && !((r.question || "").toLowerCase().includes(fSearch.toLowerCase()) || (r.userName || "").toLowerCase().includes(fSearch.toLowerCase()))) return false;
+      return true;
+    });
+    const maxTotal = Math.max(1, ...trend.map((t) => t.total));
+    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 20 }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: th.text } }, "Orion Learning"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, "\xB7 last 30 days")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, answeredRate != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "Answered rate ", /* @__PURE__ */ React.createElement("strong", { style: { color: answeredRate >= 80 ? "#22c55e" : answeredRate >= 60 ? "#f59e0b" : "#ef4444" } }, answeredRate, "%")), /* @__PURE__ */ React.createElement("button", { onClick: () => exportOrionLearningPDF({ gaps: gaps || [], recent, user }), disabled: loading || !recent.length, title: "Download the questions + gaps as a PDF", style: { ...btn(th, { background: O, color: "#fff" }), padding: "0.3rem 0.75rem", fontSize: "0.72rem", opacity: loading || !recent.length ? 0.5 : 1 } }, "\u2B07 PDF"), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: loading, style: { ...btn(th, { background: th.card3, color: th.muted }), padding: "0.3rem 0.7rem", fontSize: "0.72rem" } }, loading ? "\u2026" : "\u21BB Refresh"))), trend.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem", padding: "0.7rem 0.85rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.5rem" } }, "Answered-rate trend (weekly)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 6, height: 64 } }, trend.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, title: `Week of ${t.week}: ${t.answered}/${t.answered + t.misses} answered${t.rate != null ? ` (${t.rate}%)` : ""}`, style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, color: t.rate == null ? th.muted : t.rate >= 80 ? "#22c55e" : t.rate >= 60 ? "#f59e0b" : "#ef4444" } }, t.rate != null ? `${t.rate}%` : "\u2013"), /* @__PURE__ */ React.createElement("div", { style: { width: "100%", height: 40, background: th.card3, borderRadius: 3, display: "flex", alignItems: "flex-end", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { width: "100%", height: `${Math.round(t.total / maxTotal * 100)}%`, background: t.rate == null ? th.muted : t.rate >= 80 ? "#22c55e" : t.rate >= 60 ? "#f59e0b" : "#ef4444", opacity: 0.85 } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", color: th.muted } }, (/* @__PURE__ */ new Date(t.week + "T12:00:00")).toLocaleDateString("en-US", { month: "numeric", day: "numeric" }))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, marginTop: 4 } }, "Bar height = total questions \xB7 label/color = % answered. Rising % after KB articles = the loop working.")), roleRows.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "1rem" } }, roleRows.map(([role, n]) => /* @__PURE__ */ React.createElement("span", { key: role, style: { display: "inline-flex", alignItems: "center", gap: 5, background: `${orionRoleColor(role)}18`, border: `1px solid ${orionRoleColor(role)}44`, borderRadius: 999, padding: "3px 10px", fontSize: "0.72rem", color: th.text } }, /* @__PURE__ */ React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: orionRoleColor(role) } }), orionRoleLabel(role), " ", /* @__PURE__ */ React.createElement("strong", null, n)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8 } }, "Knowledge Gaps"), gapIds.length > 0 && /* @__PURE__ */ React.createElement("button", { onClick: markReviewed, disabled: busy, style: { ...btn(th, { background: "#22c55e18", color: "#22c55e", border: "1px solid #22c55e55" }), padding: "0.25rem 0.65rem", fontSize: "0.68rem" } }, busy ? "\u2026" : `Mark ${gapIds.length} reviewed`)), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem", padding: "0.5rem 0" } }, "Clustering questions Orion couldn't answer\u2026") : (gaps || []).length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem", padding: "0.5rem 0" } }, "No unanswered questions in the window \u2014 Orion is covering what people ask. \u{1F389}") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "1.1rem" } }, gaps.map((g, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card2, border: `1px solid ${g.reopened ? "#ef444455" : th.cardBorder}`, borderLeft: `3px solid ${causeColor(g.cause)}`, borderRadius: "0.6rem", padding: "0.7rem 0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.85rem", color: th.text } }, g.reopened && /* @__PURE__ */ React.createElement("span", { title: "This theme was resolved before but the questions came back", style: { fontSize: "0.6rem", fontWeight: 800, color: "#ef4444", background: "#ef444418", padding: "1px 6px", borderRadius: 999, marginRight: 6 } }, "\u27F3 REOPENED"), g.theme), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", color: causeColor(g.cause), background: `${causeColor(g.cause)}1a`, padding: "2px 7px", borderRadius: 999 } }, g.cause === "data" ? "Needs data" : "KB"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 800, color: th.text } }, g.count, "\xD7"))), (g.roles || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 4, marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.66rem", color: th.muted, alignSelf: "center" } }, "Asked by:"), g.roles.map((role, k) => /* @__PURE__ */ React.createElement("span", { key: k, style: { fontSize: "0.63rem", fontWeight: 700, color: orionRoleColor(role), background: `${orionRoleColor(role)}1a`, padding: "1px 7px", borderRadius: 999 } }, orionRoleLabel(role)))), g.suggestedFix && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: (g.exampleQuestions || []).length ? "0.4rem" : 0 } }, "\u{1F4A1} ", g.suggestedFix), (g.exampleQuestions || []).slice(0, 2).map((q, j) => /* @__PURE__ */ React.createElement("div", { key: j, style: { fontSize: "0.72rem", color: th.subtle || th.muted, fontStyle: "italic" } }, "\u201C", q, "\u201D")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, marginTop: "0.5rem", flexWrap: "wrap" } }, g.cause !== "data" ? /* @__PURE__ */ React.createElement("button", { onClick: () => writeKB(g, i), disabled: draftingIdx != null, style: { ...btn(th, { background: `${O}14`, color: O, border: `1px solid ${O}44` }), padding: "0.25rem 0.7rem", fontSize: "0.68rem", opacity: draftingIdx != null && draftingIdx !== i ? 0.5 : 1 } }, draftingIdx === i ? "Orion drafting\u2026" : "\u2728 Draft KB article \u2192") : /* @__PURE__ */ React.createElement("button", { onClick: () => logFeature(g), disabled: busy, style: { ...btn(th, { background: "#f59e0b18", color: "#f59e0b", border: "1px solid #f59e0b55" }), padding: "0.25rem 0.7rem", fontSize: "0.68rem" } }, "+ Log as feature request"))))), features.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.5rem" } }, "Feature Requests (", features.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.35rem" } }, features.slice(0, 12).map((fr) => /* @__PURE__ */ React.createElement("div", { key: fr.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.45rem 0.6rem", borderRadius: "0.4rem", background: th.card2, border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem" } }, "\u{1F6E0}\uFE0F"), /* @__PURE__ */ React.createElement("span", { style: { flex: 1, minWidth: 0, fontSize: "0.78rem", color: th.text } }, fr.theme, fr.detail ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \u2014 ", fr.detail) : null), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted, whiteSpace: "nowrap" } }, new Date(fr.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8 } }, "Questions (", filtered.length, filtered.length !== recent.length ? ` of ${recent.length}` : "", ")"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }), /* @__PURE__ */ React.createElement("input", { value: fSearch, onChange: (e) => setFSearch(e.target.value), placeholder: "Search\u2026", style: { ...inp(th), padding: "0.2rem 0.5rem", fontSize: "0.7rem", width: 120 } }), /* @__PURE__ */ React.createElement("select", { value: fRole, onChange: (e) => setFRole(e.target.value), style: { ...inp(th), padding: "0.2rem 0.4rem", fontSize: "0.7rem" } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All roles"), roleRows.map(([role]) => /* @__PURE__ */ React.createElement("option", { key: role, value: role }, orionRoleLabel(role)))), /* @__PURE__ */ React.createElement("select", { value: fStatus, onChange: (e) => setFStatus(e.target.value), style: { ...inp(th), padding: "0.2rem 0.4rem", fontSize: "0.7rem" } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All"), /* @__PURE__ */ React.createElement("option", { value: "answered" }, "Answered"), /* @__PURE__ */ React.createElement("option", { value: "unanswered" }, "Unanswered"))), recent.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "No questions logged yet.") : filtered.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "No questions match these filters.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.35rem", maxHeight: 320, overflowY: "auto" } }, filtered.slice(0, 80).map((r) => {
+      const miss = r.answered === false || r.feedback === "down";
+      return /* @__PURE__ */ React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.5rem", borderRadius: "0.4rem", background: miss ? "#ef444410" : "transparent", borderLeft: `2px solid ${miss ? "#ef4444" : "transparent"}` } }, /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, fontSize: "0.6rem", color: th.muted, minWidth: 42 } }, new Date(r.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("span", { title: `${r.userName || "Unknown"} \xB7 ${orionRoleLabel(r.userRole)}`, style: { flexShrink: 0, fontSize: "0.6rem", fontWeight: 700, color: orionRoleColor(r.userRole), background: `${orionRoleColor(r.userRole)}1a`, padding: "1px 6px", borderRadius: 999, minWidth: 62, textAlign: "center" } }, orionRoleLabel(r.userRole)), r.userName && /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, fontSize: "0.66rem", color: th.muted, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.userName.split(" ")[0]), /* @__PURE__ */ React.createElement("span", { style: { flex: 1, minWidth: 0, fontSize: "0.78rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.question), r.feedback === "down" && /* @__PURE__ */ React.createElement("span", { title: "thumbs down", style: { fontSize: "0.7rem" } }, "\u{1F44E}"), r.feedback === "up" && /* @__PURE__ */ React.createElement("span", { title: "thumbs up", style: { fontSize: "0.7rem" } }, "\u{1F44D}"), miss && !r.feedback && /* @__PURE__ */ React.createElement("span", { title: r.gapReason || "gap", style: { fontSize: "0.6rem", fontWeight: 800, color: "#ef4444" } }, (r.gapReason || "gap").toUpperCase()));
+    })));
+  }
   function AdminConsole(props) {
     const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
     const SUBS = [
@@ -14321,7 +14442,7 @@ ${t2.slice(0, 300)}`);
       { id: "vendors", label: "Vendors", icon: "\u{1F3D7}\uFE0F", accent: "#14b8a6" },
       { id: "system", label: "System & Logs", icon: "\u{1F5C4}\uFE0F", accent: "#94a3b8" }
     ];
-    const SETTINGS_SECTION = { notifications: "notifications", orion: "orion", vendors: "vendors" };
+    const SETTINGS_SECTION = { notifications: "notifications", vendors: "vendors" };
     const VALID = SUBS.map((s) => s.id);
     const [sub, setSub] = React.useState(() => {
       try {
@@ -14338,8 +14459,24 @@ ${t2.slice(0, 300)}`);
       } catch {
       }
     };
+    const [orionGapCount, setOrionGapCount] = React.useState(0);
+    React.useEffect(() => {
+      let alive = true;
+      fetch("/.netlify/functions/analyst", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "qa-gap-count", userId: user.id, userRole: user.userType, days: 30 })
+      }).then((r) => r.ok ? r.json() : null).then((d) => {
+        if (alive && d) setOrionGapCount(d.count || 0);
+      }).catch(() => {
+      });
+      return () => {
+        alive = false;
+      };
+    }, [sub]);
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "0.85rem", borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: "0.55rem" } }, SUBS.map((s) => {
       const on = sub === s.id;
+      const badge = s.id === "orion" && orionGapCount > 0 ? orionGapCount : null;
       return /* @__PURE__ */ React.createElement("button", { key: s.id, onClick: () => go(s.id), style: {
         display: "inline-flex",
         alignItems: "center",
@@ -14354,8 +14491,8 @@ ${t2.slice(0, 300)}`);
         background: on ? `${s.accent}1a` : "transparent",
         color: on ? s.accent : th.muted,
         transition: "all .15s"
-      } }, /* @__PURE__ */ React.createElement("span", null, s.icon), s.label);
-    })), sub === "tasks" && /* @__PURE__ */ React.createElement(AdminTaskManager, { th, user, stores, showAlert }), sub === "users" && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert, stores }), sub === "access" && /* @__PURE__ */ React.createElement(AccessMatrix, { th, user, users, accessOverrides, setAccessOverrides, showAlert }), SETTINGS_SECTION[sub] && /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: SETTINGS_SECTION[sub] }), sub === "system" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AdminDataPanel, { th, user, users, stores, districts, version }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "admin" }))));
+      } }, /* @__PURE__ */ React.createElement("span", null, s.icon), s.label, badge != null && /* @__PURE__ */ React.createElement("span", { title: `${badge} unreviewed knowledge gap${badge !== 1 ? "s" : ""}`, style: { minWidth: 16, height: 16, padding: "0 5px", borderRadius: 999, background: "#ef4444", color: "#fff", fontSize: "0.6rem", fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" } }, badge));
+    })), sub === "tasks" && /* @__PURE__ */ React.createElement(AdminTaskManager, { th, user, stores, showAlert }), sub === "users" && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert, stores }), sub === "access" && /* @__PURE__ */ React.createElement(AccessMatrix, { th, user, users, accessOverrides, setAccessOverrides, showAlert }), sub === "orion" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "1.25rem" } }, /* @__PURE__ */ React.createElement(OrionLearningPanel, { th, user, showAlert, setTab: props.setTab }), /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "orion" })), SETTINGS_SECTION[sub] && /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: SETTINGS_SECTION[sub] }), sub === "system" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AdminDataPanel, { th, user, users, stores, districts, version }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "admin" }))));
   }
   function AnnouncementAcksSection({ th, users, announcements, accent }) {
     const [open, setOpen] = React.useState(false);
@@ -18754,7 +18891,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v18.61";
+  var APP_VERSION = "v18.69";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -18852,6 +18989,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [orionThinking, setOrionThinking] = useState(false);
     const [replyToThread, setReplyToThread] = useState(null);
     const [expandedThreads, setExpandedThreads] = useState(/* @__PURE__ */ new Set());
+    const [orionFeedback, setOrionFeedback] = useState({});
+    const [editMembers, setEditMembers] = useState(null);
+    const sendOrionFeedback = (messageId, rating) => {
+      if (!messageId) return;
+      setOrionFeedback((prev) => ({ ...prev, [messageId]: rating }));
+      fetch("/.netlify/functions/analyst", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "feedback", userId: user.id, messageId, rating })
+      }).catch(() => {
+      });
+    };
     useEffect(() => {
       if (!pendingOrionQuestion) return;
       const analystChId = `analyst_${user.id}`;
@@ -18880,36 +19029,56 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return () => clearTimeout(timer);
     }, [pendingOrionQuestion]);
     const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm" || user.userType === "manager");
+    const personalAnalystId = `analyst_${user.id}`;
     useEffect(() => {
       if (!isAnalystUser) return;
-      const personalChannel = {
-        id: `analyst_${user.id}`,
-        type: "analyst",
-        name: "Orion \u2014 My Analyst",
-        members: [user.id],
-        createdAt: "2026-01-01T00:00:00.000Z"
-      };
-      const sharedChannels = user.userType === "manager" ? [] : [
-        {
-          id: "analyst_exec",
-          type: "analyst",
-          name: "Orion \u2014 Executive Room",
-          members: users.filter((u) => u.userType === "executive" || u.userType === "it").map((u) => u.id),
-          createdAt: "2026-01-01T00:00:00.000Z"
-        },
-        {
-          id: "analyst_ops",
-          type: "analyst",
-          name: "Orion \u2014 Operations",
-          members: users.filter((u) => ["executive", "it", "dm", "office_staff"].includes(u.userType)).map((u) => u.id),
-          createdAt: "2026-01-01T00:00:00.000Z"
-        }
-      ];
-      const allAnalystChannels = [personalChannel, ...sharedChannels];
-      const existing = channels.map((c) => c.id);
-      const toAdd = allAnalystChannels.filter((ac) => !existing.includes(ac.id));
-      if (toAdd.length > 0) setChannels((prev) => [...toAdd, ...prev]);
+      setChannels((prev) => {
+        if (prev.some((c) => c.id === personalAnalystId)) return prev;
+        return [{ id: personalAnalystId, type: "analyst", name: "Orion \u2014 My Analyst", members: [user.id], createdAt: "2026-01-01T00:00:00.000Z" }, ...prev];
+      });
     }, [user?.id]);
+    const sanitizedRef = useRef(false);
+    useEffect(() => {
+      if (sanitizedRef.current || !channels || channels.length === 0) return;
+      const removedIds = /* @__PURE__ */ new Set();
+      const seen = /* @__PURE__ */ new Set();
+      const cleaned = [];
+      const overseerIds = new Set((users || []).filter((u) => u.active && ["executive", "it", "construction"].includes(u.userType)).map((u) => u.id));
+      let changed = false;
+      for (const c of channels) {
+        if (!c || !c.id) continue;
+        if (c.type === "analyst" && Array.isArray(c.members) && c.members.length > 1) {
+          removedIds.add(c.id);
+          changed = true;
+          continue;
+        }
+        if (c.id === "analyst_exec" || c.id === "analyst_ops") {
+          removedIds.add(c.id);
+          changed = true;
+          continue;
+        }
+        if (seen.has(c.id)) {
+          changed = true;
+          continue;
+        }
+        seen.add(c.id);
+        if (c.type === "project" && Array.isArray(c.members) && c.members.length > overseerIds.size + 2) {
+          const senders = new Set((messages || []).filter((m) => m.channelId === c.id).map((m) => m.senderId));
+          const trimmed = [.../* @__PURE__ */ new Set([c.createdBy, ...overseerIds, ...[...senders].filter((id) => id && id !== "orion")])].filter(Boolean);
+          if (trimmed.length !== c.members.length) {
+            cleaned.push({ ...c, members: trimmed });
+            changed = true;
+            continue;
+          }
+        }
+        cleaned.push(c);
+      }
+      sanitizedRef.current = true;
+      if (changed) {
+        setChannels(cleaned);
+        if (removedIds.size) setMessages((prev) => prev.filter((m) => !removedIds.has(m.channelId)));
+      }
+    }, [channels]);
     const sendToOrion = async (question, channelId, threadId) => {
       setOrionThinking(true);
       try {
@@ -19173,13 +19342,24 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (ch.type === "project") return "\u{1F3D7}\uFE0F";
       return "\u{1F465}";
     };
-    const myChannels = channels.filter((ch) => ch.type !== "analyst" && ch.members && ch.members.includes(user.id)).map((ch) => {
+    const uniqChannels = (() => {
+      const seen = /* @__PURE__ */ new Set();
+      return channels.filter((c) => c && c.id && !seen.has(c.id) && seen.add(c.id));
+    })();
+    const myChannels = uniqChannels.filter((ch) => ch.type !== "analyst" && ch.members && ch.members.includes(user.id)).map((ch) => {
       const chMsgs = messages.filter((m) => m.channelId === ch.id && !m.deleted);
       const lastMsg = chMsgs.length > 0 ? chMsgs[chMsgs.length - 1] : null;
       const lastRead = readState[`${user.id}_${ch.id}`] || "1970-01-01";
       const unread = chMsgs.filter((m) => m.timestamp > lastRead && m.senderId !== user.id).length;
       return { ...ch, lastMsg, lastMsgTime: lastMsg?.timestamp || ch.createdAt, unread };
     }).filter((ch) => searchTerm ? getChannelName(ch).toLowerCase().includes(searchTerm.toLowerCase()) || (ch.lastMsg?.text || "").toLowerCase().includes(searchTerm.toLowerCase()) : true).sort((a, b) => b.lastMsgTime.localeCompare(a.lastMsgTime));
+    const myAnalystChannels = uniqChannels.filter((ch) => ch.type === "analyst" && ch.id === personalAnalystId && ch.members && ch.members.includes(user.id) && (!Array.isArray(ch.members) || ch.members.length <= 1)).map((ch) => {
+      const chMsgs = messages.filter((m) => m.channelId === ch.id && !m.deleted);
+      const lastMsg = chMsgs.length > 0 ? chMsgs[chMsgs.length - 1] : null;
+      const lastRead = readState[`${user.id}_${ch.id}`] || "1970-01-01";
+      const unread = chMsgs.filter((m) => m.timestamp > lastRead && m.senderId !== user.id).length;
+      return { ...ch, lastMsg, lastMsgTime: lastMsg?.timestamp || ch.createdAt, unread };
+    }).filter((ch) => searchTerm ? getChannelName(ch).toLowerCase().includes(searchTerm.toLowerCase()) : true).sort((a, b) => a.id === `analyst_${user.id}` ? -1 : b.id === `analyst_${user.id}` ? 1 : b.lastMsgTime.localeCompare(a.lastMsgTime));
     const openThread = (chId) => {
       setActiveChannelId(chId);
       setChatView("thread");
@@ -19225,6 +19405,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setGroupMembers([]);
       openThread(ch.id);
       showAlert("success", `Group "${ch.name}" created`);
+    };
+    const saveMembers = () => {
+      if (!editMembers) return;
+      const ch = channels.find((c) => c.id === editMembers.channelId);
+      if (!ch) {
+        setEditMembers(null);
+        return;
+      }
+      const members = [.../* @__PURE__ */ new Set([ch.createdBy || user.id, ...editMembers.ids])].filter(Boolean);
+      setChannels((prev) => prev.map((c) => c.id === ch.id ? { ...c, members } : c));
+      setEditMembers(null);
+      showAlert("success", "Members updated");
     };
     const sendMessage = () => {
       if (!msgText.trim() && pendingAttachments.length === 0) return;
@@ -19369,7 +19561,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         onChange: (e) => setSearchTerm(e.target.value),
         style: { ...inp(th), marginBottom: "1rem", width: "100%", boxSizing: "border-box" }
       }
-    ), myChannels.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, fontSize: "0.875rem" } }, "No conversations yet. Start a new message or create a group!"), myChannels.map((ch) => /* @__PURE__ */ React.createElement("div", { key: ch.id, onClick: () => openThread(ch.id), style: {
+    ), myAnalystChannels.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 13 }), " Orion Analyst"), myAnalystChannels.map((ch) => /* @__PURE__ */ React.createElement("div", { key: ch.id, onClick: () => openThread(ch.id), style: {
+      ...card(th),
+      padding: "0.75rem 1rem",
+      marginBottom: "0.5rem",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: "0.75rem",
+      border: ch.unread > 0 ? `1px solid ${O}44` : `1px solid #8b5cf644`
+    } }, /* @__PURE__ */ React.createElement("div", { style: { width: 40, height: 40, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "#8b5cf622", color: "#8b5cf6" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 20 })), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: ch.unread > 0 ? 700 : 600, fontSize: "0.875rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, getChannelName(ch)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.625rem", color: th.muted, whiteSpace: "nowrap", marginLeft: 8 } }, ch.lastMsg ? new Date(ch.lastMsg.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 } }, ch.lastMsg ? ch.lastMsg.deleted ? "[Message deleted]" : `${ch.lastMsg.senderName.split(" ")[0]}: ${ch.lastMsg.text || ""}` : "Ask about sales, labor, operations\u2026")), ch.unread > 0 && /* @__PURE__ */ React.createElement("span", { style: { minWidth: 22, height: 22, borderRadius: "1rem", background: O, color: "#fff", fontSize: "0.6875rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 6px" } }, ch.unread)))), myChannels.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, fontSize: "0.875rem" } }, "No conversations yet. Start a new message or create a group!"), myChannels.map((ch) => /* @__PURE__ */ React.createElement("div", { key: ch.id, onClick: () => openThread(ch.id), style: {
       ...card(th),
       padding: "0.75rem 1rem",
       marginBottom: "0.5rem",
@@ -19474,7 +19675,33 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         fontSize: activeChannel.type === "dm" ? "0.75rem" : "1rem",
         background: activeChannel.type === "analyst" ? "#8b5cf622" : activeChannel.type === "dm" ? O + "22" : activeChannel.type === "project" ? "#8b5cf622" : "#3b82f622",
         color: activeChannel.type === "analyst" ? "#8b5cf6" : activeChannel.type === "dm" ? O : activeChannel.type === "project" ? "#8b5cf6" : "#3b82f6"
-      } }, getChannelAvatar(activeChannel)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, getChannelName(activeChannel)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted } }, activeChannel.type === "analyst" ? "AI Analyst \u2014 ask about sales, labor, operations" : activeChannel.type === "dm" ? "Direct Message" : `${activeChannel.members.length} member${activeChannel.members.length !== 1 ? "s" : ""}`))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflow: "auto", paddingRight: 4, minHeight: 0 } }, threadMessages.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, fontSize: "0.875rem", marginTop: "3rem" } }, activeChannel && activeChannel.type === "analyst" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "\u{1F52E} ", /* @__PURE__ */ React.createElement("strong", { style: { color: "#8b5cf6" } }, "Orion is ready."), " Ask anything about your stores, labor, sales, or operations.", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem" } }, 'Try: "Which stores have the highest labor today?" or "Deep analysis on District 3"')) : "No messages yet. Say hello! \u{1F44B}"), activeChannel.type === "analyst" && (!threadedMessages || threadedMessages.length === 0) && !orionThinking && (() => {
+      } }, getChannelAvatar(activeChannel)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, getChannelName(activeChannel)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted } }, activeChannel.type === "analyst" ? "AI Analyst \u2014 ask about sales, labor, operations" : activeChannel.type === "dm" ? "Direct Message" : /* @__PURE__ */ React.createElement("span", { onClick: () => setEditMembers({ channelId: activeChannel.id, ids: (activeChannel.members || []).filter((id) => id !== (activeChannel.createdBy || user.id)) }), style: { cursor: "pointer", textDecoration: "underline dotted" } }, activeChannel.members.length, " member", activeChannel.members.length !== 1 ? "s" : "", " \xB7 view"))), (activeChannel.type === "project" || activeChannel.type === "group") && /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setEditMembers({ channelId: activeChannel.id, ids: (activeChannel.members || []).filter((id) => id !== (activeChannel.createdBy || user.id)) }),
+          style: { ...btn(th, { padding: "0.35rem 0.7rem", fontSize: "0.75rem", background: "none", color: th.muted }), display: "flex", alignItems: "center", gap: 5 }
+        },
+        "\u{1F465} Members"
+      )), editMembers && editMembers.channelId === activeChannel.id && (() => {
+        const canEdit = activeChannel.createdBy === user.id || isAdmin;
+        const creatorId = activeChannel.createdBy || user.id;
+        const creatorUser = users.find((u) => u.id === creatorId);
+        const listUsers = canEdit ? activeUsers.filter((u) => u.id !== creatorId).sort((a, b) => a.name.localeCompare(b.name)) : (activeChannel.members || []).filter((id) => id !== creatorId).map((id) => users.find((u) => u.id === id)).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+        return /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            style: { position: "fixed", inset: 0, zIndex: 1e4, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
+            onClick: (e) => {
+              if (e.target === e.currentTarget) setEditMembers(null);
+            }
+          },
+          /* @__PURE__ */ React.createElement("div", { style: { width: "100%", maxWidth: 460, maxHeight: "80vh", display: "flex", flexDirection: "column", background: th.card, borderRadius: "1rem", border: `1px solid ${th.cardBorder}`, boxShadow: "0 25px 60px rgba(0,0,0,0.3)", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1rem", color: th.text, fontFamily: "'Raleway'" } }, canEdit ? "Manage members" : "Members"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: 2 } }, canEdit ? "Only selected people can see and post in this chat." : "People who can see and post in this chat.")), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflowY: "auto", padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.45rem 0.5rem", borderRadius: "0.4rem", background: `${O}0f` } }, /* @__PURE__ */ React.createElement("span", { style: { width: 26, height: 26, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6rem", fontWeight: 700 } }, creatorUser?.initials || "?"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", color: th.text, fontWeight: 600 } }, creatorUser?.name || "Creator"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: O, fontWeight: 700, background: `${O}18`, padding: "1px 7px", borderRadius: 999 } }, "Owner")), listUsers.length === 0 && !canEdit && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.6rem 0.5rem", fontSize: "0.78rem", color: th.muted } }, "No other members yet."), listUsers.map((u) => {
+            const on = editMembers.ids.includes(u.id);
+            if (!canEdit) return /* @__PURE__ */ React.createElement("div", { key: u.id, style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.45rem 0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 26, height: 26, borderRadius: "50%", background: th.card2, color: th.muted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6rem", fontWeight: 700 } }, u.initials), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", color: th.text, fontWeight: 600 } }, u.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, orionRoleLabel(u.userType)));
+            return /* @__PURE__ */ React.createElement("label", { key: u.id, style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.45rem 0.5rem", borderRadius: "0.4rem", cursor: "pointer", background: on ? `${O}0f` : "transparent" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: on, onChange: (e) => setEditMembers((em) => ({ ...em, ids: e.target.checked ? [...em.ids, u.id] : em.ids.filter((id) => id !== u.id) })) }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", color: th.text, fontWeight: 600 } }, u.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, orionRoleLabel(u.userType)));
+          })), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 1.25rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, (canEdit ? editMembers.ids.length : (activeChannel.members || []).filter((id) => id !== creatorId).length) + 1, " member", true ? "s" : ""), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setEditMembers(null), style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8rem", background: "none", color: th.muted }) }, canEdit ? "Cancel" : "Close"), canEdit && /* @__PURE__ */ React.createElement("button", { onClick: saveMembers, style: btn(th, { padding: "0.4rem 1.25rem", fontSize: "0.8rem" }) }, "Save"))))
+        );
+      })(), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflow: "auto", paddingRight: 4, minHeight: 0 } }, threadMessages.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, fontSize: "0.875rem", marginTop: "3rem" } }, activeChannel && activeChannel.type === "analyst" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "\u{1F52E} ", /* @__PURE__ */ React.createElement("strong", { style: { color: "#8b5cf6" } }, "Orion is ready."), " Ask anything about your stores, labor, sales, or operations.", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem" } }, 'Try: "Which stores have the highest labor today?" or "Deep analysis on District 3"')) : "No messages yet. Say hello! \u{1F44B}"), activeChannel.type === "analyst" && (!threadedMessages || threadedMessages.length === 0) && !orionThinking && (() => {
         const prompts = user.userType === "dm" ? [
           // Headline: what changed + why + what to do
           "What changed today vs yesterday, and what should I do?",
@@ -19620,7 +19847,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             }
           },
           isActiveReply ? "Cancel reply" : "Reply in thread"
-        ), hasFollowUps && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.625rem", color: th.muted } }, followUps.length, " follow-up", followUps.length !== 1 ? "s" : "")));
+        ), hasFollowUps && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.625rem", color: th.muted } }, followUps.length, " follow-up", followUps.length !== 1 ? "s" : ""), orionReply && activeChannel.type === "analyst" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 } }, orionFeedback[orionReply.id] ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.625rem", color: orionFeedback[orionReply.id] === "up" ? "#22c55e" : "#ef4444", fontWeight: 600 } }, orionFeedback[orionReply.id] === "up" ? "\u2713 Thanks \u2014 glad it helped" : "\u2713 Logged \u2014 the team will improve this") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.625rem", color: th.muted } }, "Did this answer your question?"), /* @__PURE__ */ React.createElement("button", { onClick: () => sendOrionFeedback(orionReply.id, "up"), style: { background: "#22c55e14", border: "1px solid #22c55e55", borderRadius: 6, padding: "2px 9px", cursor: "pointer", fontSize: "0.68rem", fontWeight: 700, color: "#22c55e" } }, "Yes"), /* @__PURE__ */ React.createElement("button", { onClick: () => sendOrionFeedback(orionReply.id, "down"), style: { background: "#ef444414", border: "1px solid #ef444455", borderRadius: 6, padding: "2px 9px", cursor: "pointer", fontSize: "0.68rem", fontWeight: 700, color: "#ef4444" } }, "No")))));
       })), activeChannel.type !== "analyst" && grouped.map(([date, msgs]) => /* @__PURE__ */ React.createElement("div", { key: date }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", margin: "1rem 0 0.5rem", fontSize: "0.625rem", fontWeight: 600, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, date === (/* @__PURE__ */ new Date()).toLocaleDateString() ? "Today" : date), msgs.map((m) => {
         const isMine = m.senderId === user.id;
         const isOrionMsg = m.isOrion || m.senderId === "orion";
@@ -26549,6 +26776,123 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     logClientEvent(user?.id, user?.userType, "pdf_download", { type: "brief", scope: brief.scope, date: brief.date });
     doc.save(`orion_brief_${brief.date}.pdf`);
   }
+  function exportOrionLearningPDF({ gaps, recent, user }) {
+    const JsPDFCtor = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
+    if (!JsPDFCtor) {
+      alert("PDF library not available");
+      return;
+    }
+    const doc = new JsPDFCtor({ unit: "in", format: "letter" });
+    const pageW = 8.5, pageH = 11, margin = 0.6, contentW = pageW - margin * 2;
+    const br = _pdfBrandRGB();
+    const strip = (s) => String(s || "").replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").replace(/<<META[^>]*>>/g, "").trim();
+    const dateStr = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    _pdfHeader(doc, "Orion Learning", `What users asked \xB7 ${dateStr}`, pageW, margin);
+    let y = 1.55;
+    const assessed = (recent || []).filter((r) => r.answered != null);
+    const rate = assessed.length ? Math.round(assessed.filter((r) => r.answered).length / assessed.length * 100) : null;
+    doc.setFontSize(8);
+    doc.setTextColor(160, 160, 160);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${(recent || []).length} questions \xB7 ${(gaps || []).length} gap themes${rate != null ? ` \xB7 ${rate}% answered` : ""} \xB7 Generated ${(/* @__PURE__ */ new Date()).toLocaleString()}`, margin, y);
+    y += 0.35;
+    const sectionTitle2 = (t) => {
+      if (y > pageH - 1.4) {
+        doc.addPage();
+        y = margin;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(...br);
+      doc.text(t, margin, y);
+      y += 0.28;
+    };
+    const ensure = (h) => {
+      if (y + h > pageH - 0.6) {
+        doc.addPage();
+        y = margin;
+      }
+    };
+    const rc = {};
+    (recent || []).forEach((r) => {
+      const k = r.userRole || "unknown";
+      rc[k] = (rc[k] || 0) + 1;
+    });
+    const rcRows = Object.entries(rc).sort((a, b) => b[1] - a[1]);
+    if (rcRows.length) {
+      sectionTitle2("Who Is Asking (by role)");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(30, 30, 30);
+      rcRows.forEach(([role, n]) => {
+        ensure(0.2);
+        doc.text(`\u2022 ${orionRoleLabel(role)}: ${n} question${n !== 1 ? "s" : ""}`, margin + 0.1, y);
+        y += 0.2;
+      });
+      y += 0.15;
+    }
+    if ((gaps || []).length) {
+      sectionTitle2("Knowledge Gaps (things Orion could not answer)");
+      gaps.forEach((g, i) => {
+        const label = `${i + 1}. ${strip(g.theme)}  [${g.cause === "data" ? "needs data" : "KB article"} \xB7 ${g.count || 1}x]`;
+        const wrapped = doc.splitTextToSize(label, contentW - 0.1);
+        const rolesLine = (g.roles || []).length ? doc.splitTextToSize("Asked by: " + g.roles.map(orionRoleLabel).join(", "), contentW - 0.3) : [];
+        const fix = g.suggestedFix ? doc.splitTextToSize("Fix: " + strip(g.suggestedFix), contentW - 0.3) : [];
+        const exs = (g.exampleQuestions || []).slice(0, 3).map((q) => doc.splitTextToSize("\u2022 " + strip(q), contentW - 0.3)).flat();
+        ensure(wrapped.length * 0.17 + rolesLine.length * 0.15 + fix.length * 0.15 + exs.length * 0.15 + 0.25);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(30, 30, 30);
+        doc.text(wrapped, margin, y);
+        y += wrapped.length * 0.17 + 0.03;
+        if (rolesLine.length) {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8.5);
+          doc.setTextColor(110, 110, 110);
+          doc.text(rolesLine, margin + 0.2, y);
+          y += rolesLine.length * 0.15 + 0.02;
+        }
+        if (fix.length) {
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(9);
+          doc.setTextColor(...br);
+          doc.text(fix, margin + 0.2, y);
+          y += fix.length * 0.15 + 0.02;
+        }
+        if (exs.length) {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9);
+          doc.setTextColor(90, 90, 90);
+          doc.text(exs, margin + 0.2, y);
+          y += exs.length * 0.15;
+        }
+        y += 0.12;
+      });
+      y += 0.15;
+    }
+    sectionTitle2("All Questions Asked");
+    (recent || []).forEach((r) => {
+      const when = new Date(r.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const miss = r.answered === false || r.feedback === "down";
+      const tag = miss ? "  [UNANSWERED]" : "";
+      const meta = `${when} \xB7 ${orionRoleLabel(r.userRole)}${r.userName ? " \xB7 " + r.userName : ""}${r.scope ? " \xB7 " + r.scope : ""}${tag}`;
+      const qWrapped = doc.splitTextToSize(strip(r.question), contentW - 0.1);
+      ensure(qWrapped.length * 0.17 + 0.28);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(miss ? 200 : 150, miss ? 60 : 150, miss ? 60 : 150);
+      doc.text(meta, margin, y);
+      y += 0.15;
+      doc.setFont("helvetica", miss ? "bold" : "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(30, 30, 30);
+      doc.text(qWrapped, margin, y);
+      y += qWrapped.length * 0.17 + 0.13;
+    });
+    _pdfFooters(doc, `${BRAND_CONFIG.portalName} \xB7 Orion Learning \xB7 Confidential`, pageW, pageH, margin, contentW);
+    logClientEvent(user?.id, user?.userType, "pdf_download", { type: "orion_learning", questions: (recent || []).length, gaps: (gaps || []).length });
+    doc.save(`orion_learning_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.pdf`);
+  }
   function exportCasesPDF(cases, totalOpp, scope, user) {
     const JsPDFCtor = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
     if (!JsPDFCtor) {
@@ -27540,6 +27884,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setLoading(false);
       })();
     }, []);
+    useEffect(() => {
+      const draft = takePendingKbDraft();
+      if (draft) {
+        setForm({
+          title: draft.title || "",
+          category: KB_CATEGORIES.includes(draft.category) ? draft.category : "SOP",
+          description: draft.description || "",
+          content: draft.content || ""
+        });
+        setShowForm(true);
+        if (showAlert) showAlert("success", "Orion drafted this article \u2014 review, fill any [FILL IN] gaps, then publish.");
+      }
+    }, []);
     const viewArticle = async (id) => {
       setLoading(true);
       const content = await cloudLoad("pcg_kb_article_" + id);
@@ -28376,6 +28733,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (!text || askLoading) return;
       setAskInput("");
       setAskAnswer(null);
+      setAskFeedback(null);
       setAskLoading(true);
       setActiveTab("ask");
       try {
@@ -28385,11 +28743,22 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           body: JSON.stringify({ action: "ask", question: text, userId: user.id, district: isExec ? void 0 : district })
         });
         const data = await res.json();
-        setAskAnswer({ question: text, answer: data.answer || data.text || "No answer." });
+        setAskAnswer({ question: text, answer: data.answer || data.text || "No answer.", messageId: data.messageId });
       } catch {
         setAskAnswer({ question: text, answer: "Something went wrong. Try again." });
       }
       setAskLoading(false);
+    };
+    const [askFeedback, setAskFeedback] = React.useState(null);
+    const sendAskFeedback = (rating) => {
+      if (!askAnswer?.messageId) return;
+      setAskFeedback(rating);
+      fetch("/.netlify/functions/analyst", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "feedback", userId: user.id, messageId: askAnswer.messageId, rating })
+      }).catch(() => {
+      });
     };
     const updateCase = async (caseId, status) => {
       setCases((cs) => cs.map((c) => c.id === caseId ? { ...c, status } : c));
@@ -28644,11 +29013,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         placeholder: "Ask Orion anything...",
         style: { flex: 1, background: "none", border: "none", outline: "none", color: th.text, fontSize: 14, fontFamily: "'Source Sans 3'" }
       }
-    ), askInput.trim() && /* @__PURE__ */ React.createElement("button", { onClick: () => sendAsk(), style: { background: O2, border: "none", borderRadius: 8, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff", fontSize: 14, flexShrink: 0 } }, "\u2191")), askLoading && /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 18, marginBottom: 14, color: th.muted, fontSize: 13 } }, "Thinking..."), askAnswer && !askLoading && /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 16, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, marginBottom: 8 } }, askAnswer.question), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: th.text, lineHeight: 1.65 } }, renderAnalystMarkdown(askAnswer.answer, th)), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    ), askInput.trim() && /* @__PURE__ */ React.createElement("button", { onClick: () => sendAsk(), style: { background: O2, border: "none", borderRadius: 8, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff", fontSize: 14, flexShrink: 0 } }, "\u2191")), askLoading && /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 18, marginBottom: 14, color: th.muted, fontSize: 13 } }, "Thinking..."), askAnswer && !askLoading && /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: 16, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, marginBottom: 8 } }, askAnswer.question), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: th.text, lineHeight: 1.65 } }, renderAnalystMarkdown(askAnswer.answer, th)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 12 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setChatMessages((m) => [...m, { role: "user", content: askAnswer.question, ts: Date.now() }, { role: "assistant", content: askAnswer.answer, ts: Date.now() }]);
       setAskAnswer(null);
       setActiveTab("chat");
-    }, style: { marginTop: 12, background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "4px 12px", color: th.muted, fontSize: 11, cursor: "pointer", fontFamily: "'Source Sans 3'" } }, "Continue in chat")), !askAnswer && !askLoading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 10 } }, "Suggested"), SUGGESTIONS.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, onClick: () => sendAsk(s), style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, padding: "11px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 30, height: 30, borderRadius: 8, background: O2 + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 } }, ["\u{1F4CA}", "\u{1F4B0}", "\u26A0\uFE0F", "\u{1F4C5}", "\u{1F324}\uFE0F"][i] || "\u2726"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#bbb", lineHeight: 1.3 } }, s))))), activeTab === "calendar" && /* @__PURE__ */ React.createElement("div", { style: { padding: "14px 0 0" } }, /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos: todos || [], projects: projects || [] }))), activeTab === "chat" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, padding: "8px 14px 10px", background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement(
+    }, style: { background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "4px 12px", color: th.muted, fontSize: 11, cursor: "pointer", fontFamily: "'Source Sans 3'" } }, "Continue in chat"), askAnswer.messageId && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" } }, askFeedback ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: th.muted } }, "Thanks for the feedback ", askFeedback === "up" ? "\u{1F44D}" : "\u{1F44E}") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: th.muted } }, "Helpful?"), /* @__PURE__ */ React.createElement("button", { title: "Yes", onClick: () => sendAskFeedback("up"), style: { background: th.card3, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "3px 8px", cursor: "pointer", fontSize: 12 } }, "\u{1F44D}"), /* @__PURE__ */ React.createElement("button", { title: "No", onClick: () => sendAskFeedback("down"), style: { background: th.card3, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "3px 8px", cursor: "pointer", fontSize: 12 } }, "\u{1F44E}"))))), !askAnswer && !askLoading && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 10 } }, "Suggested"), SUGGESTIONS.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, onClick: () => sendAsk(s), style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, padding: "11px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 30, height: 30, borderRadius: 8, background: O2 + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 } }, ["\u{1F4CA}", "\u{1F4B0}", "\u26A0\uFE0F", "\u{1F4C5}", "\u{1F324}\uFE0F"][i] || "\u2726"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#bbb", lineHeight: 1.3 } }, s))))), activeTab === "calendar" && /* @__PURE__ */ React.createElement("div", { style: { padding: "14px 0 0" } }, /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos: todos || [], projects: projects || [] }))), activeTab === "chat" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, padding: "8px 14px 10px", background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         value: chatInput,
