@@ -1,5 +1,5 @@
 // competitor-cron.mjs — Roadmap 10.5 Competitive Intelligence (weekly).
-// Runs Wednesday 5 AM ET (09:00 UTC): snapshots competitors near each store via
+// Runs Monday 5 AM ET (09:00 UTC): snapshots competitors near each store via
 // Google Places, diffs vs last week to catch openings/closings, refreshes
 // ImpactRadar-style sales impact, and researches competitor promotions (web search).
 // Sends a weekly digest email. Dedicated cron so it doesn't re-trigger analyst-cron.

@@ -24033,7 +24033,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.76";
+const APP_VERSION = "v18.78";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -38504,10 +38504,17 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
 }
 
 // ── Maintenance Mobile View ───────────────────────────────────────────────────
-function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
+function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout, chatChannels, setChatChannels, chatMessages, setChatMessages }) {
   const O = '#FF671F';
   const PURPLE = '#FF671F';
-  const PRIORITY_COLOR = { Emergency: '#ef4444', High: '#f97316', Medium: '#3b82f6', Low: '#22c55e' };
+  const PRIORITY_COLOR = { Emergency: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#6b7280' };
+  const STATUS_COLOR = { Open: '#6b7280', 'In Progress': '#3b82f6', Pending: '#a855f7', Closed: '#22c55e' };
+  // "9:30a" style compact time from an ISO timestamp — matches hourLabel's convention used elsewhere.
+  const fmtCardTime = (iso) => {
+    if (!iso) return null;
+    try { return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(' ', '').replace('AM', 'a').replace('PM', 'p'); }
+    catch { return null; }
+  };
 
   const [activeTab, setActiveTab] = React.useState('calendar');
   const [tickets, setTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); } catch { return []; } });
@@ -38517,8 +38524,23 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [ticketFilter, setTicketFilter] = React.useState('All');
   const [orionInput, setOrionInput] = React.useState('');
-  const [orionAnswer, setOrionAnswer] = React.useState(null);
   const [orionLoading, setOrionLoading] = React.useState(false);
+  const [orionError, setOrionError] = React.useState(null);
+  // Orion here is the SAME personal analyst channel/message store the full Chat tab
+  // reads (chatChannels/chatMessages, cloud-synced) — not a separate local history —
+  // so a question asked from this mobile view (a) survives switching tabs and
+  // reopening the app, and (b) shows up under Chat → "Orion — My Analyst" too.
+  const orionChannelId = `analyst_${user.id}`;
+  const orionMessages = React.useMemo(() => (chatMessages || [])
+    .filter(m => m.channelId === orionChannelId && !m.deleted)
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)), [chatMessages, orionChannelId]);
+  React.useEffect(() => {
+    if (!setChatChannels) return;
+    setChatChannels(prev => {
+      if ((prev || []).some(c => c.id === orionChannelId)) return prev;
+      return [{ id: orionChannelId, type: 'analyst', name: 'Orion — My Analyst', members: [user.id], createdAt: new Date().toISOString() }, ...(prev || [])];
+    });
+  }, [orionChannelId]);
   const [showMobileExpenseForm, setShowMobileExpenseForm] = React.useState(false);
   const [mobileExpenseForm, setMobileExpenseForm] = React.useState({ description: '', amount: '', category: 'Parts', noExpense: false, receiptBase64: '', receiptLoading: false });
   const [mobileExpenseSaving, setMobileExpenseSaving] = React.useState(false);
@@ -38668,16 +38690,28 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
 
   const askOrion = async (q) => {
     const text = (q || orionInput).trim();
-    if (!text || orionLoading) return;
-    setOrionInput(''); setOrionAnswer(null); setOrionLoading(true);
+    if (!text || orionLoading || !setChatMessages) return;
+    setOrionInput(''); setOrionError(null); setOrionLoading(true);
+    const threadId = `thread_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const userMsg = {
+      id: makeMsgId(), channelId: orionChannelId, senderId: user.id,
+      senderName: user.name, senderInitials: (user.initials || getInitials(user.name || '')),
+      text, mentions: [], attachments: [], timestamp: new Date().toISOString(), deleted: false, threadId,
+    };
+    setChatMessages(prev => [...(prev || []), userMsg]);
     try {
       const res = await fetch('/.netlify/functions/analyst', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ask', question: text, userId: user?.id, userRole: 'maintenance' }),
+        body: JSON.stringify({ action: 'ask', question: text, channelId: orionChannelId, threadId, userId: user?.id, userRole: 'maintenance' }),
       });
       const data = await res.json();
-      setOrionAnswer({ question: text, answer: data.answer || data.text || 'No answer returned.' });
-    } catch { setOrionAnswer({ question: text, answer: 'Something went wrong. Please try again.' }); }
+      const orionMsg = {
+        id: data.messageId || makeMsgId(), channelId: orionChannelId, senderId: 'orion',
+        senderName: 'Orion', senderInitials: 'O', text: data.answer || data.text || 'No answer returned.',
+        mentions: [], attachments: [], timestamp: new Date().toISOString(), deleted: false, isOrion: true, threadId,
+      };
+      setChatMessages(prev => [...(prev || []), orionMsg]);
+    } catch { setOrionError('Something went wrong. Please try again.'); }
     setOrionLoading(false);
   };
 
@@ -38685,43 +38719,40 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
     : ticketFilter === 'Urgent' ? openTickets.filter(t => t.priority === 'Emergency' || t.priority === 'High')
     : openTickets.filter(t => t.status === ticketFilter);
 
-  // ── Initials stack ──
-  const InitialsStack = ({ ticket }) => {
-    const names = [ticket.createdBy, ticket.startedBy && ticket.startedBy !== ticket.createdBy ? ticket.startedBy : null].filter(Boolean);
-    if (!names.length) return null;
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-        {names.slice(0,3).map((n, i) => (
-          <div key={i} style={{ width: 26, height: 26, borderRadius: '50%', background: [O, PURPLE, '#3b82f6'][i % 3], border: '2px solid rgba(0,0,0,0.3)', marginLeft: i > 0 ? -9 : 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.62rem', fontWeight: 800, color: '#fff', position: 'relative', zIndex: 10 - i }}>{getInitials(n)}</div>
-        ))}
-      </div>
-    );
-  };
-
-  // ── Ticket card ──
+  // ── Ticket card — dark card with a priority-colored left border strip ──
   const TicketCard = ({ ticket }) => {
-    const color = ticketColor(ticket);
+    const priorityColor = PRIORITY_COLOR[ticket.priority] || '#6b7280';
+    const statusColor = STATUS_COLOR[ticket.status] || '#6b7280';
+    const timeLabel = fmtCardTime(ticket.createdAt);
     const dueLabel = ticket.dueDate ? new Date(ticket.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+    const Pill = ({ color, children }) => (
+      <span style={{ background: `${color}22`, color, border: `1px solid ${color}55`, padding: '0.16rem 0.55rem', borderRadius: '2rem', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.3, whiteSpace: 'nowrap' }}>{children}</span>
+    );
     return (
-      <div onClick={() => { setSelectedTicket(ticket); setDetailOpen(true); }} style={{ background: color, borderRadius: '1.1rem', padding: '1rem 1.1rem', marginBottom: '0.7rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '0.45rem', boxShadow: `0 4px 18px ${color}55`, position: 'relative', overflow: 'hidden', transition: 'transform 0.15s', WebkitTapHighlightColor: 'transparent' }}
-        onTouchStart={e => e.currentTarget.style.transform = 'scale(0.97)'} onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
-        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'} onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+      <div onClick={() => { setSelectedTicket(ticket); setDetailOpen(true); }}
+        style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderLeft: `4px solid ${priorityColor}`, borderRadius: '0.9rem', padding: '0.85rem 1rem', marginBottom: '0.65rem', cursor: 'pointer', transition: 'transform 0.15s', WebkitTapHighlightColor: 'transparent' }}
+        onTouchStart={e => e.currentTarget.style.transform = 'scale(0.98)'} onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
+        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.98)'} onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
       >
-        <div style={{ position: 'absolute', top: 0, right: 0, width: '35%', height: '100%', background: 'rgba(255,255,255,0.07)', borderRadius: '0 1.1rem 1.1rem 0', pointerEvents: 'none' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ flex: 1, paddingRight: '0.5rem' }}>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff', fontFamily: "'Raleway'", lineHeight: 1.25 }}>{ticket.title}</div>
-            <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.82)', fontWeight: 500, marginTop: '0.15rem' }}>{ticket.storeName || 'Unknown Store'}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: '0.92rem', fontWeight: 700, color: th.text, fontFamily: "'Raleway'", lineHeight: 1.3 }}>
+              {ticket.storeName || 'Unknown Store'}{ticket.category ? ` · ${ticket.category}` : ''}
+            </div>
+            {(ticket.description || ticket.title) && (
+              <div style={{ fontSize: '0.8rem', color: th.muted, marginTop: 3, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                {ticket.description || ticket.title}
+              </div>
+            )}
           </div>
-          <InitialsStack ticket={ticket} />
+          {timeLabel && <span style={{ fontSize: '0.68rem', color: th.muted, flexShrink: 0, marginTop: 2 }}>{timeLabel}</span>}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-            <span style={{ background: 'rgba(0,0,0,0.25)', color: '#fff', padding: '0.18rem 0.55rem', borderRadius: '2rem', fontSize: '0.68rem', fontWeight: 700 }}>{ticket.status}</span>
-            {ticket.priority && <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', padding: '0.18rem 0.55rem', borderRadius: '2rem', fontSize: '0.68rem', fontWeight: 600 }}>{ticket.priority}</span>}
-            {ticket.category && <span style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.88)', padding: '0.18rem 0.55rem', borderRadius: '2rem', fontSize: '0.68rem', fontWeight: 500 }}>{ticket.category}</span>}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {ticket.priority && <Pill color={priorityColor}>{ticket.priority}</Pill>}
+            <Pill color={statusColor}>{ticket.status}</Pill>
           </div>
-          {dueLabel && <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.85)', fontWeight: 700, flexShrink: 0 }}>Due {dueLabel}</span>}
+          {dueLabel && <span style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 700, flexShrink: 0 }}>Due {dueLabel}</span>}
         </div>
       </div>
     );
@@ -39117,11 +39148,13 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
                   const sel = isSelected(d); const tod = isToday(d);
                   const dots = ticketDots(d);
                   return (
-                    <div key={i} onClick={() => setSelectedDay(new Date(d))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, cursor: 'pointer', padding: '6px 2px', borderRadius: '0.75rem', background: sel ? PURPLE : tod && !sel ? `${PURPLE}22` : 'transparent', transition: 'background 0.15s', userSelect: 'none' }}>
-                      <div style={{ fontSize: '0.6rem', fontWeight: 700, color: sel ? '#fff' : th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{DAY_ABBR[i]}</div>
-                      <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1rem', color: sel ? '#fff' : tod ? PURPLE : th.text }}>{d.getDate()}</div>
+                    <div key={i} onClick={() => setSelectedDay(new Date(d))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'pointer', padding: '4px 2px', userSelect: 'none' }}>
+                      <div style={{ fontSize: '0.62rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{DAY_ABBR[i]}</div>
+                      <div style={{ width: 30, height: 30, borderRadius: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center', background: sel ? O : 'transparent', transition: 'background 0.15s' }}>
+                        <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: sel ? '#fff' : tod ? O : th.text }}>{d.getDate()}</span>
+                      </div>
                       <div style={{ display: 'flex', gap: 2, height: 5, alignItems: 'center' }}>
-                        {dots.slice(0,3).map((c, j) => <div key={j} style={{ width: 5, height: 5, borderRadius: '50%', background: sel ? 'rgba(255,255,255,0.7)' : c }} />)}
+                        {dots.slice(0,3).map((c, j) => <div key={j} style={{ width: 5, height: 5, borderRadius: '50%', background: c }} />)}
                       </div>
                     </div>
                   );
@@ -39134,8 +39167,8 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
               <div style={{ fontSize: '0.72rem', color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>
                 {DAYS_FULL[selectedDay.getDay()].toUpperCase()}, {selectedDay.getDate()} {MONTHS[selectedDay.getMonth()].toUpperCase()}
               </div>
-              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2.2rem', color: O, lineHeight: 1, letterSpacing: -1, marginBottom: 3 }}>
-                {dayTickets.length} {dayTickets.length === 1 ? 'TICKET' : 'TICKETS'}
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2.3rem', lineHeight: 1, letterSpacing: -1, marginBottom: 4 }}>
+                <span style={{ color: O }}>{dayTickets.length}</span> <span style={{ color: th.text }}>{dayTickets.length === 1 ? 'Ticket' : 'Tickets'}</span>
               </div>
               <div style={{ fontSize: '0.8rem', color: th.muted }}>{heroSub}</div>
             </div>
@@ -39180,12 +39213,13 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
           </div>
         )}
 
-        {/* ── ORION TAB ── */}
+        {/* ── ORION TAB — persisted conversation (same channel the Chat tab shows) ── */}
         {activeTab === 'orion' && (
           <div style={{ padding: '12px 14px' }}>
             <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 22, color: O, marginBottom: 3 }}>Ask Orion</div>
             <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: 14 }}>Your AI operations assistant</div>
-            {!orionAnswer && !orionLoading && (
+
+            {orionMessages.length === 0 && !orionLoading && (
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>Quick Questions</div>
                 {['What tickets are open right now?','Which stores have the most urgent issues?','What equipment tickets are due this week?','Summarize this week\'s maintenance activity'].map((s, i) => (
@@ -39197,27 +39231,35 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
                 ))}
               </div>
             )}
+
+            {orionMessages.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+                {orionMessages.map(m => m.isOrion ? (
+                  <div key={m.id} style={{ background: th.card, border: `1px solid ${O}33`, borderRadius: '0.875rem', padding: '0.875rem', borderLeft: `3px solid ${O}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <span style={{ color: O }}>🔮</span>
+                      <span style={{ fontSize: '0.68rem', color: O, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>Orion</span>
+                    </div>
+                    <div style={{ fontSize: '0.875rem', color: th.text, lineHeight: 1.65 }}>{renderAnalystMarkdown(m.text, th)}</div>
+                  </div>
+                ) : (
+                  <div key={m.id} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '0.7rem' }}>
+                    <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 700, marginBottom: 3 }}>You asked</div>
+                    <div style={{ fontSize: '0.875rem', color: th.text }}>{m.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {orionLoading && (
               <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '1.25rem', textAlign: 'center', color: th.muted, marginBottom: 12 }}>
                 <span style={{ display: 'inline-block', width: 18, height: 18, border: `3px solid ${O}33`, borderTopColor: O, borderRadius: '50%', animation: 'loginMeshShift 0.8s linear infinite', marginBottom: 8 }} />
                 <div style={{ fontSize: '0.85rem' }}>Orion is thinking...</div>
               </div>
             )}
-            {orionAnswer && !orionLoading && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '0.7rem', marginBottom: '0.55rem' }}>
-                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 700, marginBottom: 3 }}>You asked</div>
-                  <div style={{ fontSize: '0.875rem', color: th.text }}>{orionAnswer.question}</div>
-                </div>
-                <div style={{ background: th.card, border: `1px solid ${O}33`, borderRadius: '0.875rem', padding: '0.875rem', borderLeft: `3px solid ${O}` }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <span style={{ color: O }}>🔮</span>
-                    <span style={{ fontSize: '0.68rem', color: O, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>Orion</span>
-                  </div>
-                  <div style={{ fontSize: '0.875rem', color: th.text, lineHeight: 1.65 }}>{renderAnalystMarkdown(orionAnswer.answer, th)}</div>
-                </div>
-                <button onClick={() => setOrionAnswer(null)} style={{ background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', padding: '0.38rem 0.75rem', color: th.muted, fontSize: '0.77rem', cursor: 'pointer', marginTop: 8, fontFamily: "'Source Sans 3'" }}>Ask another</button>
-              </div>
+
+            {orionError && !orionLoading && (
+              <div style={{ background: '#ef444414', border: '1px solid #ef444444', borderRadius: '0.875rem', padding: '0.75rem', color: '#ef4444', fontSize: '0.82rem', marginBottom: 12 }}>{orionError}</div>
             )}
           </div>
         )}
@@ -42935,6 +42977,10 @@ function PCGPortal() {
         stores={stores}
         onFullPortal={() => togglePortalMode(true)}
         onLogout={handleLogout}
+        chatChannels={chatChannels}
+        setChatChannels={setChatChannels}
+        chatMessages={chatMessages}
+        setChatMessages={setChatMessages}
       />
     );
   }

@@ -19057,7 +19057,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v18.76";
+  var APP_VERSION = "v18.78";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29229,10 +29229,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       })));
     })());
   }
-  function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout }) {
+  function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout, chatChannels, setChatChannels, chatMessages, setChatMessages }) {
     const O2 = "#FF671F";
     const PURPLE = "#FF671F";
-    const PRIORITY_COLOR = { Emergency: "#ef4444", High: "#f97316", Medium: "#3b82f6", Low: "#22c55e" };
+    const PRIORITY_COLOR = { Emergency: "#ef4444", High: "#f97316", Medium: "#eab308", Low: "#6b7280" };
+    const STATUS_COLOR = { Open: "#6b7280", "In Progress": "#3b82f6", Pending: "#a855f7", Closed: "#22c55e" };
+    const fmtCardTime = (iso) => {
+      if (!iso) return null;
+      try {
+        return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).replace(" ", "").replace("AM", "a").replace("PM", "p");
+      } catch {
+        return null;
+      }
+    };
     const [activeTab, setActiveTab] = React.useState("calendar");
     const [tickets, setTickets] = React.useState(() => {
       try {
@@ -29251,8 +29260,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [detailOpen, setDetailOpen] = React.useState(false);
     const [ticketFilter, setTicketFilter] = React.useState("All");
     const [orionInput, setOrionInput] = React.useState("");
-    const [orionAnswer, setOrionAnswer] = React.useState(null);
     const [orionLoading, setOrionLoading] = React.useState(false);
+    const [orionError, setOrionError] = React.useState(null);
+    const orionChannelId = `analyst_${user.id}`;
+    const orionMessages = React.useMemo(() => (chatMessages || []).filter((m) => m.channelId === orionChannelId && !m.deleted).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)), [chatMessages, orionChannelId]);
+    React.useEffect(() => {
+      if (!setChatChannels) return;
+      setChatChannels((prev) => {
+        if ((prev || []).some((c) => c.id === orionChannelId)) return prev;
+        return [{ id: orionChannelId, type: "analyst", name: "Orion \u2014 My Analyst", members: [user.id], createdAt: (/* @__PURE__ */ new Date()).toISOString() }, ...prev || []];
+      });
+    }, [orionChannelId]);
     const [showMobileExpenseForm, setShowMobileExpenseForm] = React.useState(false);
     const [mobileExpenseForm, setMobileExpenseForm] = React.useState({ description: "", amount: "", category: "Parts", noExpense: false, receiptBase64: "", receiptLoading: false });
     const [mobileExpenseSaving, setMobileExpenseSaving] = React.useState(false);
@@ -29415,32 +29433,59 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     };
     const askOrion = async (q) => {
       const text = (q || orionInput).trim();
-      if (!text || orionLoading) return;
+      if (!text || orionLoading || !setChatMessages) return;
       setOrionInput("");
-      setOrionAnswer(null);
+      setOrionError(null);
       setOrionLoading(true);
+      const threadId = `thread_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const userMsg = {
+        id: makeMsgId(),
+        channelId: orionChannelId,
+        senderId: user.id,
+        senderName: user.name,
+        senderInitials: user.initials || getInitials(user.name || ""),
+        text,
+        mentions: [],
+        attachments: [],
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        deleted: false,
+        threadId
+      };
+      setChatMessages((prev) => [...prev || [], userMsg]);
       try {
         const res = await fetch("/.netlify/functions/analyst", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "ask", question: text, userId: user?.id, userRole: "maintenance" })
+          body: JSON.stringify({ action: "ask", question: text, channelId: orionChannelId, threadId, userId: user?.id, userRole: "maintenance" })
         });
         const data = await res.json();
-        setOrionAnswer({ question: text, answer: data.answer || data.text || "No answer returned." });
+        const orionMsg = {
+          id: data.messageId || makeMsgId(),
+          channelId: orionChannelId,
+          senderId: "orion",
+          senderName: "Orion",
+          senderInitials: "O",
+          text: data.answer || data.text || "No answer returned.",
+          mentions: [],
+          attachments: [],
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          deleted: false,
+          isOrion: true,
+          threadId
+        };
+        setChatMessages((prev) => [...prev || [], orionMsg]);
       } catch {
-        setOrionAnswer({ question: text, answer: "Something went wrong. Please try again." });
+        setOrionError("Something went wrong. Please try again.");
       }
       setOrionLoading(false);
     };
     const filteredTickets = ticketFilter === "All" ? openTickets : ticketFilter === "Urgent" ? openTickets.filter((t) => t.priority === "Emergency" || t.priority === "High") : openTickets.filter((t) => t.status === ticketFilter);
-    const InitialsStack = ({ ticket }) => {
-      const names = [ticket.createdBy, ticket.startedBy && ticket.startedBy !== ticket.createdBy ? ticket.startedBy : null].filter(Boolean);
-      if (!names.length) return null;
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", flexShrink: 0 } }, names.slice(0, 3).map((n, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { width: 26, height: 26, borderRadius: "50%", background: [O2, PURPLE, "#3b82f6"][i % 3], border: "2px solid rgba(0,0,0,0.3)", marginLeft: i > 0 ? -9 : 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.62rem", fontWeight: 800, color: "#fff", position: "relative", zIndex: 10 - i } }, getInitials(n))));
-    };
     const TicketCard = ({ ticket }) => {
-      const color = ticketColor(ticket);
+      const priorityColor = PRIORITY_COLOR[ticket.priority] || "#6b7280";
+      const statusColor = STATUS_COLOR[ticket.status] || "#6b7280";
+      const timeLabel = fmtCardTime(ticket.createdAt);
       const dueLabel = ticket.dueDate ? (/* @__PURE__ */ new Date(ticket.dueDate + "T00:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+      const Pill = ({ color, children }) => /* @__PURE__ */ React.createElement("span", { style: { background: `${color}22`, color, border: `1px solid ${color}55`, padding: "0.16rem 0.55rem", borderRadius: "2rem", fontSize: "0.65rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.3, whiteSpace: "nowrap" } }, children);
       return /* @__PURE__ */ React.createElement(
         "div",
         {
@@ -29448,15 +29493,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             setSelectedTicket(ticket);
             setDetailOpen(true);
           },
-          style: { background: color, borderRadius: "1.1rem", padding: "1rem 1.1rem", marginBottom: "0.7rem", cursor: "pointer", display: "flex", flexDirection: "column", gap: "0.45rem", boxShadow: `0 4px 18px ${color}55`, position: "relative", overflow: "hidden", transition: "transform 0.15s", WebkitTapHighlightColor: "transparent" },
-          onTouchStart: (e) => e.currentTarget.style.transform = "scale(0.97)",
+          style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderLeft: `4px solid ${priorityColor}`, borderRadius: "0.9rem", padding: "0.85rem 1rem", marginBottom: "0.65rem", cursor: "pointer", transition: "transform 0.15s", WebkitTapHighlightColor: "transparent" },
+          onTouchStart: (e) => e.currentTarget.style.transform = "scale(0.98)",
           onTouchEnd: (e) => e.currentTarget.style.transform = "scale(1)",
-          onMouseDown: (e) => e.currentTarget.style.transform = "scale(0.97)",
+          onMouseDown: (e) => e.currentTarget.style.transform = "scale(0.98)",
           onMouseUp: (e) => e.currentTarget.style.transform = "scale(1)"
         },
-        /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, right: 0, width: "35%", height: "100%", background: "rgba(255,255,255,0.07)", borderRadius: "0 1.1rem 1.1rem 0", pointerEvents: "none" } }),
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, paddingRight: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.05rem", fontWeight: 800, color: "#fff", fontFamily: "'Raleway'", lineHeight: 1.25 } }, ticket.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "rgba(255,255,255,0.82)", fontWeight: 500, marginTop: "0.15rem" } }, ticket.storeName || "Unknown Store")), /* @__PURE__ */ React.createElement(InitialsStack, { ticket })),
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { background: "rgba(0,0,0,0.25)", color: "#fff", padding: "0.18rem 0.55rem", borderRadius: "2rem", fontSize: "0.68rem", fontWeight: 700 } }, ticket.status), ticket.priority && /* @__PURE__ */ React.createElement("span", { style: { background: "rgba(255,255,255,0.18)", color: "#fff", padding: "0.18rem 0.55rem", borderRadius: "2rem", fontSize: "0.68rem", fontWeight: 600 } }, ticket.priority), ticket.category && /* @__PURE__ */ React.createElement("span", { style: { background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.88)", padding: "0.18rem 0.55rem", borderRadius: "2rem", fontSize: "0.68rem", fontWeight: 500 } }, ticket.category)), dueLabel && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: "rgba(255,255,255,0.85)", fontWeight: 700, flexShrink: 0 } }, "Due ", dueLabel))
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.92rem", fontWeight: 700, color: th.text, fontFamily: "'Raleway'", lineHeight: 1.3 } }, ticket.storeName || "Unknown Store", ticket.category ? ` \xB7 ${ticket.category}` : ""), (ticket.description || ticket.title) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: 3, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } }, ticket.description || ticket.title)), timeLabel && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, flexShrink: 0, marginTop: 2 } }, timeLabel)),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8, gap: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, ticket.priority && /* @__PURE__ */ React.createElement(Pill, { color: priorityColor }, ticket.priority), /* @__PURE__ */ React.createElement(Pill, { color: statusColor }, ticket.status)), dueLabel && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 700, flexShrink: 0 } }, "Due ", dueLabel))
       );
     };
     const renderDetailSheet = () => {
@@ -29600,8 +29644,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const sel = isSelected(d);
       const tod = isToday(d);
       const dots = ticketDots(d);
-      return /* @__PURE__ */ React.createElement("div", { key: i, onClick: () => setSelectedDay(new Date(d)), style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "pointer", padding: "6px 2px", borderRadius: "0.75rem", background: sel ? PURPLE : tod && !sel ? `${PURPLE}22` : "transparent", transition: "background 0.15s", userSelect: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", fontWeight: 700, color: sel ? "#fff" : th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, DAY_ABBR[i]), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: sel ? "#fff" : tod ? PURPLE : th.text } }, d.getDate()), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 2, height: 5, alignItems: "center" } }, dots.slice(0, 3).map((c, j) => /* @__PURE__ */ React.createElement("div", { key: j, style: { width: 5, height: 5, borderRadius: "50%", background: sel ? "rgba(255,255,255,0.7)" : c } }))));
-    }))), /* @__PURE__ */ React.createElement("div", { style: { padding: "16px 16px 10px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 } }, DAYS_FULL[selectedDay.getDay()].toUpperCase(), ", ", selectedDay.getDate(), " ", MONTHS[selectedDay.getMonth()].toUpperCase()), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.2rem", color: O2, lineHeight: 1, letterSpacing: -1, marginBottom: 3 } }, dayTickets.length, " ", dayTickets.length === 1 ? "TICKET" : "TICKETS"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, heroSub)), /* @__PURE__ */ React.createElement("div", { style: { padding: "0 14px" } }, dayTickets.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "2rem 1rem", color: th.muted, fontSize: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.75rem", marginBottom: "0.5rem" } }, "\u2713"), "No tickets for this day") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 } }, isToday(selectedDay) ? "Today's Tickets" : `${MONTHS[selectedDay.getMonth()]} ${selectedDay.getDate()} Tickets`), dayTickets.map((t) => /* @__PURE__ */ React.createElement(TicketCard, { key: t.id, ticket: t }))))), activeTab === "tickets" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { padding: "10px 14px 6px", display: "flex", gap: "0.45rem", overflowX: "auto", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" } }, ["All", "Open", "In Progress", "Pending", "Urgent"].map((f) => /* @__PURE__ */ React.createElement("button", { key: f, onClick: () => setTicketFilter(f), style: { background: ticketFilter === f ? PURPLE : th.card, color: ticketFilter === f ? "#fff" : th.muted, border: ticketFilter === f ? "none" : `1px solid ${th.cardBorder}`, borderRadius: "2rem", padding: "0.32rem 0.8rem", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0, fontFamily: "'Source Sans 3'", transition: "all 0.15s" } }, f, " (", f === "All" ? openTickets.length : f === "Urgent" ? openTickets.filter((t) => t.priority === "Emergency" || t.priority === "High").length : openTickets.filter((t) => t.status === f).length, ")"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "4px 14px" } }, filteredTickets.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "2.5rem 1rem", color: th.muted, fontSize: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.75rem", marginBottom: "0.5rem" } }, "\u2713"), "No ", ticketFilter === "All" ? "" : ticketFilter.toLowerCase(), " tickets") : filteredTickets.map((t) => /* @__PURE__ */ React.createElement(TicketCard, { key: t.id, ticket: t })))), activeTab === "orion" && /* @__PURE__ */ React.createElement("div", { style: { padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: 22, color: O2, marginBottom: 3 } }, "Ask Orion"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: 14 } }, "Your AI operations assistant"), !orionAnswer && !orionLoading && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 } }, "Quick Questions"), ["What tickets are open right now?", "Which stores have the most urgent issues?", "What equipment tickets are due this week?", "Summarize this week's maintenance activity"].map((s, i) => /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement("div", { key: i, onClick: () => setSelectedDay(new Date(d)), style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer", padding: "4px 2px", userSelect: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, DAY_ABBR[i]), /* @__PURE__ */ React.createElement("div", { style: { width: 30, height: 30, borderRadius: "0.6rem", display: "flex", alignItems: "center", justifyContent: "center", background: sel ? O2 : "transparent", transition: "background 0.15s" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: sel ? "#fff" : tod ? O2 : th.text } }, d.getDate())), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 2, height: 5, alignItems: "center" } }, dots.slice(0, 3).map((c, j) => /* @__PURE__ */ React.createElement("div", { key: j, style: { width: 5, height: 5, borderRadius: "50%", background: c } }))));
+    }))), /* @__PURE__ */ React.createElement("div", { style: { padding: "16px 16px 10px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 } }, DAYS_FULL[selectedDay.getDay()].toUpperCase(), ", ", selectedDay.getDate(), " ", MONTHS[selectedDay.getMonth()].toUpperCase()), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2.3rem", lineHeight: 1, letterSpacing: -1, marginBottom: 4 } }, /* @__PURE__ */ React.createElement("span", { style: { color: O2 } }, dayTickets.length), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, dayTickets.length === 1 ? "Ticket" : "Tickets")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, heroSub)), /* @__PURE__ */ React.createElement("div", { style: { padding: "0 14px" } }, dayTickets.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "2rem 1rem", color: th.muted, fontSize: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.75rem", marginBottom: "0.5rem" } }, "\u2713"), "No tickets for this day") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 } }, isToday(selectedDay) ? "Today's Tickets" : `${MONTHS[selectedDay.getMonth()]} ${selectedDay.getDate()} Tickets`), dayTickets.map((t) => /* @__PURE__ */ React.createElement(TicketCard, { key: t.id, ticket: t }))))), activeTab === "tickets" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { padding: "10px 14px 6px", display: "flex", gap: "0.45rem", overflowX: "auto", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" } }, ["All", "Open", "In Progress", "Pending", "Urgent"].map((f) => /* @__PURE__ */ React.createElement("button", { key: f, onClick: () => setTicketFilter(f), style: { background: ticketFilter === f ? PURPLE : th.card, color: ticketFilter === f ? "#fff" : th.muted, border: ticketFilter === f ? "none" : `1px solid ${th.cardBorder}`, borderRadius: "2rem", padding: "0.32rem 0.8rem", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0, fontFamily: "'Source Sans 3'", transition: "all 0.15s" } }, f, " (", f === "All" ? openTickets.length : f === "Urgent" ? openTickets.filter((t) => t.priority === "Emergency" || t.priority === "High").length : openTickets.filter((t) => t.status === f).length, ")"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "4px 14px" } }, filteredTickets.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "2.5rem 1rem", color: th.muted, fontSize: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.75rem", marginBottom: "0.5rem" } }, "\u2713"), "No ", ticketFilter === "All" ? "" : ticketFilter.toLowerCase(), " tickets") : filteredTickets.map((t) => /* @__PURE__ */ React.createElement(TicketCard, { key: t.id, ticket: t })))), activeTab === "orion" && /* @__PURE__ */ React.createElement("div", { style: { padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: 22, color: O2, marginBottom: 3 } }, "Ask Orion"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: 14 } }, "Your AI operations assistant"), orionMessages.length === 0 && !orionLoading && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 } }, "Quick Questions"), ["What tickets are open right now?", "Which stores have the most urgent issues?", "What equipment tickets are due this week?", "Summarize this week's maintenance activity"].map((s, i) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: i,
@@ -29612,7 +29656,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       },
       /* @__PURE__ */ React.createElement("span", { style: { color: O2, flexShrink: 0 } }, "\u{1F52E}"),
       s
-    ))), orionLoading && /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.875rem", padding: "1.25rem", textAlign: "center", color: th.muted, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 18, height: 18, border: `3px solid ${O2}33`, borderTopColor: O2, borderRadius: "50%", animation: "loginMeshShift 0.8s linear infinite", marginBottom: 8 } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem" } }, "Orion is thinking...")), orionAnswer && !orionLoading && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.875rem", padding: "0.7rem", marginBottom: "0.55rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 700, marginBottom: 3 } }, "You asked"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", color: th.text } }, orionAnswer.question)), /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${O2}33`, borderRadius: "0.875rem", padding: "0.875rem", borderLeft: `3px solid ${O2}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("span", { style: { color: O2 } }, "\u{1F52E}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: O2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 } }, "Orion")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", color: th.text, lineHeight: 1.65 } }, renderAnalystMarkdown(orionAnswer.answer, th))), /* @__PURE__ */ React.createElement("button", { onClick: () => setOrionAnswer(null), style: { background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", padding: "0.38rem 0.75rem", color: th.muted, fontSize: "0.77rem", cursor: "pointer", marginTop: 8, fontFamily: "'Source Sans 3'" } }, "Ask another")))), activeTab === "orion" && /* @__PURE__ */ React.createElement("div", { style: { padding: "8px 14px", background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0, paddingBottom: "max(8px, env(safe-area-inset-bottom))", marginBottom: "calc(118px + env(safe-area-inset-bottom))" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.875rem", padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement("input", { value: orionInput, onChange: (e) => setOrionInput(e.target.value), onKeyDown: (e) => e.key === "Enter" && !e.shiftKey && askOrion(), placeholder: "Ask anything about your tickets...", style: { flex: 1, background: "none", border: "none", outline: "none", color: th.text, fontSize: "0.9rem", fontFamily: "'Source Sans 3'" } }), /* @__PURE__ */ React.createElement("button", { onClick: () => askOrion(), disabled: orionLoading || !orionInput.trim(), style: { background: O2, border: "none", borderRadius: "0.5rem", padding: "0.32rem 0.7rem", color: "#fff", fontSize: "0.77rem", fontWeight: 700, cursor: "pointer", opacity: orionLoading || !orionInput.trim() ? 0.5 : 1, fontFamily: "'Source Sans 3'" } }, "Ask"))), (() => {
+    ))), orionMessages.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 } }, orionMessages.map((m) => m.isOrion ? /* @__PURE__ */ React.createElement("div", { key: m.id, style: { background: th.card, border: `1px solid ${O2}33`, borderRadius: "0.875rem", padding: "0.875rem", borderLeft: `3px solid ${O2}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("span", { style: { color: O2 } }, "\u{1F52E}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: O2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 } }, "Orion")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", color: th.text, lineHeight: 1.65 } }, renderAnalystMarkdown(m.text, th))) : /* @__PURE__ */ React.createElement("div", { key: m.id, style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.875rem", padding: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 700, marginBottom: 3 } }, "You asked"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", color: th.text } }, m.text)))), orionLoading && /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.875rem", padding: "1.25rem", textAlign: "center", color: th.muted, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 18, height: 18, border: `3px solid ${O2}33`, borderTopColor: O2, borderRadius: "50%", animation: "loginMeshShift 0.8s linear infinite", marginBottom: 8 } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem" } }, "Orion is thinking...")), orionError && !orionLoading && /* @__PURE__ */ React.createElement("div", { style: { background: "#ef444414", border: "1px solid #ef444444", borderRadius: "0.875rem", padding: "0.75rem", color: "#ef4444", fontSize: "0.82rem", marginBottom: 12 } }, orionError))), activeTab === "orion" && /* @__PURE__ */ React.createElement("div", { style: { padding: "8px 14px", background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`, flexShrink: 0, paddingBottom: "max(8px, env(safe-area-inset-bottom))", marginBottom: "calc(118px + env(safe-area-inset-bottom))" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.875rem", padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement("input", { value: orionInput, onChange: (e) => setOrionInput(e.target.value), onKeyDown: (e) => e.key === "Enter" && !e.shiftKey && askOrion(), placeholder: "Ask anything about your tickets...", style: { flex: 1, background: "none", border: "none", outline: "none", color: th.text, fontSize: "0.9rem", fontFamily: "'Source Sans 3'" } }), /* @__PURE__ */ React.createElement("button", { onClick: () => askOrion(), disabled: orionLoading || !orionInput.trim(), style: { background: O2, border: "none", borderRadius: "0.5rem", padding: "0.32rem 0.7rem", color: "#fff", fontSize: "0.77rem", fontWeight: 700, cursor: "pointer", opacity: orionLoading || !orionInput.trim() ? 0.5 : 1, fontFamily: "'Source Sans 3'" } }, "Ask"))), (() => {
       const activeIdx = NAV.findIndex((n) => n.id === activeTab);
       const safeIdx = activeIdx >= 0 ? activeIdx : 0;
       const circleLeft = `calc(${(safeIdx + 0.5) * 25}% - 28px)`;
@@ -32530,7 +32574,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           user,
           stores,
           onFullPortal: () => togglePortalMode(true),
-          onLogout: handleLogout
+          onLogout: handleLogout,
+          chatChannels,
+          setChatChannels,
+          chatMessages,
+          setChatMessages
         }
       );
     }

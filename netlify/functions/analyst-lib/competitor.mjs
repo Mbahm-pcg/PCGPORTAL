@@ -12,6 +12,8 @@ import { sendEmail, wrapEmail, loadReportSettings } from './analyst-reports.mjs'
 import { haversineMiles, beforeAfter, pickControls } from './impact-math.mjs';
 import { callClaudeWithWebSearch } from './analyst-claude.mjs';
 import { saveReport } from './analyst-reports-gen.mjs';
+import { createCaseFromAnomaly } from './analyst-cases.mjs';
+import { weekStart as weekOfMonday } from '../labor-cron.mjs';
 
 const PROMOS_KEY = 'competitor/promos_v1';
 // Known competitor brands we can meaningfully research promotions for (national/regional
@@ -35,7 +37,17 @@ const promoKey = (p) => `${p.brand}|${p.offer}`.toLowerCase().replace(/\s+/g, ' 
 
 const EVENTS_KEY = 'competitor/events_v1';
 const SNAP_KEY = (pc) => `competitor/snap_${pc}`;
+const DM_SNAP_KEY = (pc) => `competitor/dm_snap_${pc}`; // wider-radius snapshot, separate from the exec trade-area one
 const MARKET_SHARE_KEY = 'competitor/market_share_v1';
+const METERS_PER_MILE = 1609.34;
+
+// Competitor type → the sales-mix category group(s) it plausibly competes with
+// (group names match classifyItem()/pcg_item_history_{pc}.categories keys).
+const TYPE_TO_CATEGORY = {
+  coffee_shop: ['hot_beverages', 'cold_beverages'],
+  cafe: ['hot_beverages', 'cold_beverages'],
+  bakery: ['bakery'],
+};
 
 // Competitor types relevant to a Dunkin' (coffee + bakery/donut). Google Places v1 types.
 const COMPETITOR_TYPES = ['coffee_shop', 'cafe', 'bakery'];
@@ -47,13 +59,21 @@ function defaultSettings() {
     enabled: true,
     testMode: true,                              // route ALL email to testEmails while validating
     testEmails: ['ahmed@peoplecapitalgroup.com', 'mike@peoplecapitalgroup.com'],
-    radiusMeters: 1600,                          // ~1 mile trade area
+    radiusMeters: 1600,                          // ~1 mile trade area (exec digest)
     weeksBefore: 8,
     minWeeksAfter: 3,                            // need this many post-event weeks before first analyzing
     weeksAfterCap: 8,                            // keep refreshing impact until this many post-event weeks, then finalize
     promosEnabled: true,
+    independentPromoCap: 5,                      // max per-run web-search lookups for non-branded (local/independent) new competitors
     marketShareEnabled: true,                    // estimate local market share from Places review data (10.5 bullet 3)
     emailOnlyWhenNew: false,                     // weekly cadence → send the digest every run; set true to suppress quiet weeks
+    driveTimeEnabled: true,                      // attach real drive-time (not just straight-line) to newly-detected events
+    caseThreshold: 5000,                         // |adjustedAnnual| $ that files a Business Case for follow-up
+    // ── DM digest — separate, wider-radius, district-scoped email (not the exec one) ──
+    dmDigestEnabled: true,
+    dmRadiusMeters: Math.round(5 * METERS_PER_MILE), // 5 miles — DMs want the broader territory view
+    dmTestMode: true,                             // validate DM-formatted emails before they go to real DMs
+    dmTestEmails: ['ahmed@peoplecapitalgroup.com', 'mike@peoplecapitalgroup.com'],
   };
 }
 async function loadSettings() {
@@ -113,6 +133,7 @@ async function snapshotStore(store, radiusMeters) {
         ratingCount: p.userRatingCount || 0,
         rating: p.rating || 0,
         distanceMi: loc ? Math.round(haversineMiles(coords, loc) * 100) / 100 : null,
+        lat: loc?.lat ?? null, lng: loc?.lng ?? null,
       };
     })
     .filter((c) => c.placeId && c.name && !OWN_BRAND.test(c.name));
@@ -140,6 +161,23 @@ function diffSnapshots(prev, curr) {
   return events;
 }
 
+// Real driving distance/time via the portal's own drive-time function (OSRM-backed,
+// no API key). Only ever called for the small number of newly-detected events, never
+// per-place-per-store, to keep this cheap. Fails soft (returns null) — the caller falls
+// back to the straight-line haversine distance already computed.
+const SITE_BASE_URL = process.env.URL || process.env.DEPLOY_PRIME_URL || 'https://pcg-ops.netlify.app';
+async function driveTimeMiles(from, to) {
+  try {
+    const res = await fetch(`${SITE_BASE_URL}/.netlify/functions/drive-time`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!data || data.error || typeof data.minutes !== 'number') return null;
+    return { miles: data.miles, minutes: data.minutes };
+  } catch { return null; }
+}
+
 // ── Detection pass across all stores with coordinates ────────────────────────
 async function runDetection(today, settings) {
   const newEvents = [];
@@ -165,13 +203,22 @@ async function runDetection(today, settings) {
           competitor: ev.name, type: ev.type, eventType: ev.eventType,
           distanceMi: ev.distanceMi, ratingCount: ev.ratingCount, rating: ev.rating,
           detectedDate: today, status: 'monitoring', impact: null, analyzedAt: null,
+          driveMinutes: null, driveMiles: null,
         };
+        // Real drive-time for the handful of brand-new events (never for the whole sweep).
+        if (settings.driveTimeEnabled !== false && ev.lat != null && ev.lng != null) {
+          const dt = await driveTimeMiles(STORE_COORDS[store.pc], { lat: ev.lat, lng: ev.lng });
+          if (dt) { event.driveMinutes = dt.minutes; event.driveMiles = dt.miles; }
+        }
         log.push(event);
         newEvents.push(event);
         existingIds.add(id);
       }
     }
-    await cacheSave(SNAP_KEY(store.pc), { asOf: today, items: curr });
+    // Rolling competitor-density history (date + count), capped ~1yr of weekly runs, so
+    // "competitor pressure" can be reported as a trend, not just this week's snapshot.
+    const history = [...(Array.isArray(prevWrap?.history) ? prevWrap.history : []), { date: today, count: curr.length }].slice(-52);
+    await cacheSave(SNAP_KEY(store.pc), { asOf: today, items: curr, history });
   }
   await cacheSave(EVENTS_KEY, log);
   return { newEvents, log };
@@ -185,6 +232,54 @@ function weeklyFromLaborBlob(blob) {
     .filter((w) => w.weekOf && Number.isFinite(w.sales) && w.sales > 0);
 }
 
+// weekOfMonday = labor-cron.mjs's weekStart(), imported above — same Monday-rollback
+// convention, so the guest-count series lines up with the $ sales weekOf keys used by
+// beforeAfter() without maintaining a second copy of the same date math.
+
+// Best-effort weekly GUEST COUNT series from the daily hourly-history blob (guests aren't
+// in the weekly labor blob at all). Lets impact analysis say whether a competitor cost
+// traffic (fewer guests) vs. ticket size (same guests, less spend) — reuses beforeAfter()
+// by relabeling the guest total as its "sales" field (that function only reads .sales).
+function weeklyGuestsFromHourlyHistory(blob) {
+  const days = Array.isArray(blob) ? blob : [];
+  const byWeek = new Map();
+  for (const d of days) {
+    if (!d?.date || !Array.isArray(d.hours)) continue;
+    const checks = d.hours.reduce((s, h) => s + (Number(h?.checks) || 0), 0);
+    if (!checks) continue;
+    const wk = weekOfMonday(d.date);
+    byWeek.set(wk, (byWeek.get(wk) || 0) + checks);
+  }
+  return [...byWeek.entries()].map(([weekOf, sales]) => ({ weekOf, sales }));
+}
+
+// Best-effort sales-mix category cross-reference: is the competitor's own category (coffee,
+// bakery) hit harder than the store's overall sales? Directional only — pcg_item_history_{pc}
+// retains just 90 days, so this silently returns null once an event is older than that.
+async function categoryImpactNote(pc, competitorType, eventDate, weeksBefore, weeksAfterUsed) {
+  const categories = TYPE_TO_CATEGORY[competitorType];
+  if (!categories || !weeksAfterUsed) return null;
+  const history = await cacheLoad(`pcg_item_history_${pc}`);
+  if (!Array.isArray(history) || !history.length) return null;
+
+  const sum = (e) => categories.reduce((s, c) => s + (Number(e?.categories?.[c]?.sales) || 0), 0);
+  // `history` is newest-first. For "before" that's already right — filtering to <=eventDate
+  // then taking the first N gives the N days closest to (and before) the event. For "after"
+  // the filtered subset is STILL newest-first, so slice(0,N) would grab the N most-recent
+  // calendar days (closest to today) rather than the N days right after the event — wrong
+  // once an event is more than a few weeks old. slice(-N) takes the tail of that descending
+  // subset, i.e. the oldest entries within it — the days immediately following the event.
+  const before = history.filter((e) => e?.date && e.date <= eventDate).slice(0, weeksBefore * 7).map(sum).filter((v) => v > 0);
+  const after = history.filter((e) => e?.date && e.date > eventDate).slice(-(weeksAfterUsed * 7)).map(sum).filter((v) => v > 0);
+  if (before.length < 5 || after.length < 5) return null; // not enough same-window coverage to be meaningful
+
+  const avgBefore = before.reduce((a, b) => a + b, 0) / before.length;
+  const avgAfter = after.reduce((a, b) => a + b, 0) / after.length;
+  if (avgBefore <= 0) return null;
+  const deltaPct = Math.round(((avgAfter - avgBefore) / avgBefore) * 1000) / 10;
+  return { category: categories.join('/'), deltaPct };
+}
+
 // ── Impact analysis ──────────────────────────────────────────────────────────
 // Analyzes events that have enough post-event data, and KEEPS refreshing each
 // event's impact every run (as more post-event weeks accrue) until the window
@@ -192,6 +287,7 @@ function weeklyFromLaborBlob(blob) {
 // Returns the events whose figure is new or changed this run (for the email).
 async function analyzeEvents(log, settings) {
   const updated = [];
+  let caseFiledThisRun = false; // must independently force the log save below — see the case-filing block
   const cap = settings.weeksAfterCap ?? 8;
   const ripe = log.filter((e) =>
     e.status === 'monitoring' ||
@@ -221,12 +317,31 @@ async function analyzeEvents(log, settings) {
     // Annualized $ impact attributable to the event = control-adjusted weekly change × 52.
     const adjustedAnnual = Math.round((ba.avgBefore * (adjustedDeltaPct / 100)) * 52);
 
+    // Traffic vs. ticket-size split — best-effort, from the daily hourly-history blob
+    // (guests aren't in the weekly labor blob). Tells a DM whether the hit is fewer
+    // visits or smaller tickets, not just a blended $ delta.
+    let guests = null;
+    try {
+      const hourlyBlob = await cacheLoad(`pcg_hourly_history_${ev.pc}`);
+      const guestWeekly = weeklyGuestsFromHourlyHistory(hourlyBlob);
+      const gba = beforeAfter(guestWeekly, ev.detectedDate, settings.weeksBefore, null);
+      if (gba.weeksBeforeUsed > 0 && gba.weeksAfterUsed > 0) {
+        guests = { avgBefore: gba.avgBefore, avgAfter: gba.avgAfter, deltaPct: gba.deltaPct };
+      }
+    } catch (e) { console.warn(`[competitor] guest delta failed ${ev.pc}:`, e.message); }
+
+    // Sales-mix cross-reference — is the competitor's own category (coffee/bakery) hit
+    // harder than the store overall? Silently null once outside the 90-day item-history window.
+    let categoryNote = null;
+    try { categoryNote = await categoryImpactNote(ev.pc, ev.type, ev.detectedDate, settings.weeksBefore, ba.weeksAfterUsed); }
+    catch (e) { console.warn(`[competitor] category cross-ref failed ${ev.pc}:`, e.message); }
+
     const prev = ev.impact;
     ev.impact = {
       avgBefore: ba.avgBefore, avgAfter: ba.avgAfter, storeDeltaPct: ba.deltaPct,
       controlAvgDeltaPct: Math.round(controlAvgDeltaPct * 100) / 100, adjustedDeltaPct,
       adjustedAnnual, weeksBeforeUsed: ba.weeksBeforeUsed, weeksAfterUsed: ba.weeksAfterUsed,
-      controls: controls.map((c) => c.pc),
+      controls: controls.map((c) => c.pc), guests, categoryNote,
     };
     ev.analyzedAt = new Date().toISOString();
     // Finalize once the post-event window matures; otherwise keep it open to refine.
@@ -234,8 +349,30 @@ async function analyzeEvents(log, settings) {
     // Email on first analysis or whenever the figure actually moved.
     const changed = !prev || prev.adjustedAnnual !== ev.impact.adjustedAnnual || prev.weeksAfterUsed !== ev.impact.weeksAfterUsed;
     if (changed) updated.push(ev);
+
+    // File a Business Case once a material impact first crosses the threshold — not on
+    // every subsequent refinement (would spam duplicate follow-ups as the estimate matures).
+    const threshold = settings.caseThreshold ?? 5000;
+    if (!ev.caseFiledAt && Math.abs(adjustedAnnual) >= threshold) {
+      try {
+        const verb = adjustedAnnual < 0 ? 'pressuring sales down' : 'boosting sales up';
+        const anomaly = {
+          type: 'competitor_impact',
+          description: `${ev.competitor} (${labelType(ev.type)}) ${ev.eventType === 'open' ? 'opened' : 'closed'} ~${ev.distanceMi ?? '?'} mi from ${ev.storeName} — ${verb} by an estimated ${fmt$(Math.abs(adjustedAnnual))}/yr (control-adjusted, ${ba.weeksAfterUsed} wks post-event).`,
+          storeName: ev.storeName, storePC: ev.pc, pc: ev.pc, district: ev.district,
+          severity: Math.abs(adjustedAnnual) >= threshold * 2 ? 'high' : 'medium',
+          metric: 'competitor_sales_impact_annual', value: adjustedAnnual,
+        };
+        const created = await createCaseFromAnomaly(anomaly, JSON.stringify({ event: ev, impact: ev.impact }));
+        // caseFiledAt gates re-filing (line above), so it MUST be persisted this run —
+        // `updated`/`changed` above tracks a different thing (whether to email the impact
+        // figure) and can be false here (e.g. caseThreshold lowered while impact is otherwise
+        // unchanged), which would silently drop this write and cause a duplicate case next run.
+        if (created) { ev.caseFiledAt = new Date().toISOString(); caseFiledThisRun = true; }
+      } catch (e) { console.warn(`[competitor] case creation failed ${ev.pc}:`, e.message); }
+    }
   }
-  if (updated.length) await cacheSave(EVENTS_KEY, log);
+  if (updated.length || caseFiledThisRun) await cacheSave(EVENTS_KEY, log);
   return updated;
 }
 
@@ -280,6 +417,33 @@ Only include deals you found actual evidence for.`;
   const marked = promos.map((p) => ({ ...p, isNew: !prevKeys.has(promoKey(p)) }));
   await cacheSave(PROMOS_KEY, { week: today, promos });
   return marked;
+}
+
+// Independent/local competitors (a brand-new corner cafe, not a national chain) get ZERO
+// coverage from fetchPromos — it only researches the fixed BRAND_PATTERNS list. But those
+// are exactly the businesses "New competitor activity" just flagged, so do a small, capped,
+// per-competitor web-search lookup for the newest non-branded events only (never for the
+// whole historical log — that would be an unbounded number of searches).
+async function fetchIndependentPromos(newEvents, today, cap = 5) {
+  const independents = newEvents.filter((e) => e.eventType === 'open' && !brandOf(e.competitor)).slice(0, cap);
+  if (!independents.length) return [];
+  const results = [];
+  for (const ev of independents) {
+    try {
+      const prompt = `A new local business, "${ev.competitor}" (${labelType(ev.type)}), just opened near ${ev.storeName} in the Philadelphia / PA-NJ area, as of ${today}.
+Research whether this specific business has any published opening promotions, loyalty program, or notable menu/pricing angle (check its website, Google Business listing, Instagram/Facebook if findable).
+Output ONLY a JSON object (no prose): {"offer": "short description, or empty string if nothing found", "source": "URL if found, else empty string"}.
+If you find no real evidence of anything, return {"offer":"","source":""}.`;
+      const { text } = await callClaudeWithWebSearch({
+        system: 'You are a competitive-intelligence researcher for a Dunkin\' franchise operator. Only report what you find real evidence for — an empty result is fine and expected for small local businesses.',
+        userPrompt: prompt, maxUses: 4, maxTokens: 1200, userId: 'system',
+      });
+      let parsed = null;
+      try { const m = text.match(/\{[\s\S]*\}/); if (m) parsed = JSON.parse(m[0]); } catch { parsed = null; }
+      if (parsed?.offer) results.push({ brand: ev.competitor, offer: parsed.offer, ends: 'unknown', source: parsed.source || '', isNew: true, independent: true });
+    } catch (e) { console.warn(`[competitor] independent promo lookup failed for ${ev.competitor}:`, e.message); }
+  }
+  return results;
 }
 
 // ── Market share estimation (data proxy) ────────────────────────────────────
@@ -362,15 +526,25 @@ const safeHref = (u) => {
 
 function eventRow(ev) {
   const verb = ev.eventType === 'open' ? 'opened' : 'closed';
-  const head = `<strong>${esc(ev.competitor)}</strong> (${esc(labelType(ev.type))}) ${verb} ~${esc(ev.distanceMi ?? '?')} mi from <strong>${esc(ev.storeName)}</strong> (PC ${esc(ev.pc)}, District ${esc(ev.district)})`;
+  const driveNote = ev.driveMinutes != null ? ` (~${esc(ev.driveMinutes)} min drive)` : '';
+  const head = `<strong>${esc(ev.competitor)}</strong> (${esc(labelType(ev.type))}) ${verb} ~${esc(ev.distanceMi ?? '?')} mi from <strong>${esc(ev.storeName)}</strong> (PC ${esc(ev.pc)}, District ${esc(ev.district)})${driveNote}`;
   let impactHtml = `<div style="color:#888;font-size:13px;margin-top:4px;">Detected ${ev.detectedDate} · auto-detected candidate — please verify. Impact analysis pending (${'monitoring'}).</div>`;
   if (ev.impact) {
     const i = ev.impact;
     const dir = i.adjustedDeltaPct < 0 ? 'down' : 'up';
+    let extra = '';
+    if (i.guests) {
+      const gdir = i.guests.deltaPct < 0 ? 'down' : 'up';
+      extra += `<br/>Guest count ${gdir} <strong>${i.guests.deltaPct}%</strong> over the same window — ${Math.abs(i.guests.deltaPct) >= Math.abs(i.storeDeltaPct) ? 'looks like a traffic hit, not just ticket size' : 'traffic held up better than $ sales — likely a ticket-size effect'}.`;
+    }
+    if (i.categoryNote) {
+      const cdir = i.categoryNote.deltaPct < 0 ? 'down' : 'up';
+      extra += `<br/><span style="color:#888;">${esc(i.categoryNote.category)} category specifically ${cdir} ${i.categoryNote.deltaPct}% vs its own baseline.</span>`;
+    }
     impactHtml = `<div style="font-size:13px;margin-top:6px;line-height:1.5;">
       Sales <strong style="color:${i.adjustedDeltaPct < 0 ? '#c0392b' : '#27ae60'}">${i.adjustedDeltaPct}%</strong> ${dir} vs the ${i.weeksBeforeUsed}-wk pre-event baseline
       (store ${i.storeDeltaPct}% vs control stores ${i.controlAvgDeltaPct}% — control-adjusted).<br/>
-      Est. annualized impact: <strong>${fmt$(i.adjustedAnnual)}</strong> over ${i.weeksAfterUsed} post-event weeks. Controls: ${i.controls.join(', ')}.
+      Est. annualized impact: <strong>${fmt$(i.adjustedAnnual)}</strong> over ${i.weeksAfterUsed} post-event weeks. Controls: ${i.controls.join(', ')}.${extra}
     </div>`;
   }
   return `<li style="margin-bottom:14px;">${head}${impactHtml}</li>`;
@@ -524,7 +698,9 @@ function buildEmailHtml(newEvents, analyzed, promos, marketShare) {
 
 // Resolve recipients. testMode → single test inbox. Otherwise Exec list + the
 // affected districts' DMs (from the portal users blob, with a graceful fallback).
-async function resolveRecipients(events, settings) {
+// `users` may be pre-loaded by the caller (runCompetitorIntel loads it once and shares
+// it with runDmDigests) to avoid fetching the same blob twice in one run.
+async function resolveRecipients(events, settings, users = null) {
   if (settings.testMode) {
     // Accept either testEmails (array) or a legacy testEmail (string).
     const test = Array.isArray(settings.testEmails) ? settings.testEmails : (settings.testEmail ? [settings.testEmail] : []);
@@ -532,7 +708,7 @@ async function resolveRecipients(events, settings) {
   }
   const report = await loadReportSettings();
   const exec = Array.isArray(report.execReportCC) ? report.execReportCC : [];
-  const users = (await cacheLoad('pcg_portal_users')) || [];
+  if (!users) users = (await cacheLoad('pcg_portal_users')) || [];
   const districts = [...new Set(events.map((e) => Number(e.district)).filter(Boolean))];
   const dmEmails = [];
   for (const d of districts) {
@@ -547,6 +723,10 @@ async function resolveRecipients(events, settings) {
 async function runCompetitorIntel({ today, doDetection }) {
   const settings = await loadSettings();
   if (!settings.enabled) return { skipped: 'disabled' };
+
+  // Loaded once and shared with resolveRecipients + runDmDigests below, rather than
+  // each independently re-fetching the same portal-users blob.
+  const portalUsers = (await cacheLoad('pcg_portal_users')) || [];
 
   let newEvents = [];
   let log;
@@ -568,6 +748,13 @@ async function runCompetitorIntel({ today, doDetection }) {
       promos = await fetchPromos(brands, today);
     } catch (e) {
       console.warn('[competitor] promo fetch failed (web search may be unavailable):', e.message);
+    }
+    // Independent/local competitors (not in the fixed brand list) — capped, per new event only.
+    try {
+      const indie = await fetchIndependentPromos(newEvents, today, settings.independentPromoCap ?? 5);
+      if (indie.length) promos = [...promos, ...indie];
+    } catch (e) {
+      console.warn('[competitor] independent promo fetch failed:', e.message);
     }
   }
 
@@ -592,7 +779,7 @@ async function runCompetitorIntel({ today, doDetection }) {
 
   let emailed = false;
   if (shouldEmail) {
-    const { to, cc } = await resolveRecipients([...newEvents, ...analyzed], settings);
+    const { to, cc } = await resolveRecipients([...newEvents, ...analyzed], settings, portalUsers);
     if (to.length) {
       const shareNote = marketShare?.avgShare != null ? ` · ~${marketShare.avgShare}% avg share` : '';
       const subject = `🏪 Competitor Intel — ${newEvents.length} new, ${analyzed.length} analyzed, ${promos.length} promos (${today})`;
@@ -617,7 +804,99 @@ async function runCompetitorIntel({ today, doDetection }) {
     }
   }
 
-  return { newEvents: newEvents.length, analyzed: analyzed.length, promos: promos.length, marketShare: marketShare ? marketShare.storesAnalyzed : 0, emailed, reportId, testMode: settings.testMode };
+  // District-scoped, wider-radius digest for DMs — separate from the exec email above
+  // (different content, different recipients). Only on the weekly detection run.
+  let dmDigests = 0;
+  if (doDetection && settings.dmDigestEnabled !== false) {
+    try { dmDigests = await runDmDigests(today, settings, portalUsers); }
+    catch (e) { console.warn('[competitor] DM digest run failed:', e.message); }
+  }
+
+  return { newEvents: newEvents.length, analyzed: analyzed.length, promos: promos.length, marketShare: marketShare ? marketShare.storesAnalyzed : 0, emailed, dmDigests, reportId, testMode: settings.testMode };
 }
 
-export { runCompetitorIntel, runDetection, analyzeEvents, snapshotStore, diffSnapshots, deriveBrands, fetchPromos, estimateMarketShare, buildEmailHtml, buildReportArtifact };
+// ── DM digest — wider radius (default 5 mi), scoped to just that DM's district ──────
+// Exec/IT get the tight ~1mi trade-area digest with $ impact modeling above; DMs asked
+// for a broader "what's happening in my territory" view instead, so this runs a SEPARATE
+// snapshot (its own blob key/history — never mixed with the exec trade-area snapshot) at
+// settings.dmRadiusMeters for each store in the DM's district, and emails just that DM.
+async function snapshotAndDiffForDigest(store, radiusMeters, snapKeyFn, today) {
+  const curr = await snapshotStore(store, radiusMeters);
+  if (!curr) return { events: [], curr: null };
+  const prevWrap = await cacheLoad(snapKeyFn(store.pc));
+  const prev = prevWrap?.items || null;
+  const events = prev ? diffSnapshots(prev, curr) : []; // first run per store: baseline only
+  // Same shape as the exec-path SNAP_KEY blob (asOf/items/history) so any future generic
+  // reader of a competitor snapshot (e.g. a density-trend view) works for both radii, not
+  // just the exec one. Same `today` the exec-path snapshot uses (not a fresh new Date())
+  // so both blobs from the same weekly pass agree, even across a UTC midnight.
+  const history = [...(Array.isArray(prevWrap?.history) ? prevWrap.history : []), { date: today, count: curr.length }].slice(-52);
+  await cacheSave(snapKeyFn(store.pc), { asOf: today, items: curr, history });
+  return { events, curr };
+}
+
+function dmEventRow(ev, storeName) {
+  const verb = ev.eventType === 'open' ? 'opened' : 'closed';
+  const driveNote = ev.driveMinutes != null ? ` (~${esc(ev.driveMinutes)} min drive)` : '';
+  return `<li style="margin-bottom:10px;"><strong>${esc(ev.name)}</strong> (${esc(labelType(ev.type))}) ${verb} ~${esc(ev.distanceMi ?? '?')} mi from <strong>${esc(storeName)}</strong>${driveNote}</li>`;
+}
+
+// `users` may be pre-loaded by the caller (see resolveRecipients' same param) to avoid
+// fetching the pcg_portal_users blob twice in one runCompetitorIntel execution.
+async function runDmDigests(today, settings, users = null) {
+  if (!users) users = (await cacheLoad('pcg_portal_users')) || [];
+  const dms = (Array.isArray(users) ? users : []).filter((u) => u.userType === 'dm' && u.active);
+  if (!dms.length) return 0;
+
+  const radiusMi = Math.round((settings.dmRadiusMeters / METERS_PER_MILE) * 10) / 10;
+  let sent = 0;
+
+  for (const dm of dms) {
+    const district = Number(dm.district);
+    if (!district) continue;
+    const myStores = STORES.filter((s) => Number(s.district) === district && STORE_COORDS[s.pc]);
+    if (!myStores.length) continue;
+
+    const byStore = [];
+    for (const store of myStores) {
+      let res;
+      try { res = await snapshotAndDiffForDigest(store, settings.dmRadiusMeters, DM_SNAP_KEY, today); }
+      catch (e) { console.warn(`[competitor] DM snapshot failed ${store.pc}:`, e.message); continue; }
+      if (res.events.length) {
+        for (const ev of res.events) {
+          if (settings.driveTimeEnabled !== false && ev.lat != null && ev.lng != null) {
+            const dt = await driveTimeMiles(STORE_COORDS[store.pc], { lat: ev.lat, lng: ev.lng });
+            if (dt) ev.driveMinutes = dt.minutes;
+          }
+          byStore.push({ ev, storeName: store.name });
+        }
+      }
+    }
+    if (!byStore.length) continue; // quiet week for this DM — no email
+
+    const opens = byStore.filter((r) => r.ev.eventType === 'open');
+    const closes = byStore.filter((r) => r.ev.eventType === 'close');
+    const bodyParts = [];
+    if (opens.length) bodyParts.push(`<h3 style="margin:0 0 8px;">🆕 New competitor activity (${opens.length})</h3><ul style="padding-left:18px;margin:0 0 18px;">${opens.map((r) => dmEventRow(r.ev, r.storeName)).join('')}</ul>`);
+    if (closes.length) bodyParts.push(`<h3 style="margin:0 0 8px;">📉 Competitor closures (${closes.length})</h3><ul style="padding-left:18px;margin:0 0 18px;">${closes.map((r) => dmEventRow(r.ev, r.storeName)).join('')}</ul>`);
+    bodyParts.push(`<div style="color:#888;font-size:12px;margin-top:8px;">Scanned within ~${radiusMi} mi of each of your ${myStores.length} store(s) — wider than the network trade-area radius, so this may include competitors too far out to move your numbers. Verify before acting.</div>`);
+
+    const to = settings.dmTestMode !== false
+      ? (Array.isArray(settings.dmTestEmails) ? settings.dmTestEmails : [])
+      : [dm.email].filter(Boolean);
+    if (!to.length) continue;
+
+    const subject = `🏪 Competitor Intel — District ${district} (~${radiusMi} mi radius) — ${opens.length} new, ${closes.length} closed (${today})`;
+    const html = wrapEmail(
+      `Competitive Intelligence — District ${district}`,
+      `${opens.length} new competitor(s) · ${closes.length} closure(s) across ${myStores.length} store(s) within ~${radiusMi} mi`,
+      bodyParts.join(''),
+      settings.dmTestMode !== false ? `TEST MODE — routed to test inbox (would go to ${dm.name || dm.email || 'the district DM'}). Auto-detected — verify before acting.` : 'Auto-detected — verify before acting.',
+    );
+    try { await sendEmail({ to, cc: [], subject, html }); sent++; }
+    catch (e) { console.warn(`[competitor] DM digest send failed (district ${district}):`, e.message); }
+  }
+  return sent;
+}
+
+export { runCompetitorIntel, runDetection, analyzeEvents, snapshotStore, diffSnapshots, deriveBrands, fetchPromos, fetchIndependentPromos, estimateMarketShare, buildEmailHtml, buildReportArtifact, runDmDigests, driveTimeMiles, categoryImpactNote, weeklyGuestsFromHourlyHistory };

@@ -294,8 +294,10 @@ function todayET() {
   return `${et.getFullYear()}-${String(et.getMonth()+1).padStart(2,'0')}-${String(et.getDate()).padStart(2,'0')}`;
 }
 
-/** Returns ISO string for the Monday of the current week (Paycor week starts Mon). */
-function weekStart(dateStr) {
+/** Returns ISO string for the Monday of the current week (Paycor week starts Mon).
+ *  Exported so other modules needing the same weekOf convention (e.g. competitor.mjs's
+ *  guest-count weekly bucketing) can reuse this instead of re-deriving the same math. */
+export function weekStart(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
   const day = d.getDay(); // 0=Sun
   const diff = day === 0 ? -6 : 1 - day; // roll back to Monday
