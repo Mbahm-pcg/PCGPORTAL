@@ -19057,7 +19057,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v18.78";
+  var APP_VERSION = "v18.79";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -30918,7 +30918,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     });
     const togglePortalMode = (full) => {
       const onMobile = window.innerWidth <= 768;
-      const mobileShellUser = user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it";
+      const mobileShellUser = user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it" || user?.userType === "manager" || user?.userType === "maintenance";
       if (user?.userType !== "construction" && !(onMobile && mobileShellUser)) {
         try {
           localStorage.setItem("pcg_prefer_full_portal", full ? "true" : "false");
@@ -30932,6 +30932,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setPreferFullPortal(full);
     };
+    useEffect(() => {
+      if (!user) return;
+      const onMobile = window.innerWidth <= 768;
+      if (onMobile && (user.userType === "manager" || user.userType === "maintenance") && preferFullPortal) {
+        try {
+          localStorage.removeItem("pcg_prefer_full_portal");
+        } catch {
+        }
+        setPreferFullPortal(false);
+      }
+    }, [user?.id, user?.userType]);
     const handleLogout = () => {
       try {
         window.google?.accounts?.id?.disableAutoSelect();

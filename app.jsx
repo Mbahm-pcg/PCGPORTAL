@@ -24033,7 +24033,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.78";
+const APP_VERSION = "v18.79";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -41336,10 +41336,13 @@ function PCGPortal() {
   const [managerMode, setManagerMode] = useState(null);
   const [preferFullPortal, setPreferFullPortal] = useState(() => { try { return localStorage.getItem('pcg_prefer_full_portal') === 'true'; } catch { return false; } });
   const togglePortalMode = (full) => {
-    // Mobile DM/exec/IT users: never persist — next login on mobile should always start in the mobile shell.
-    // Construction users: same (session-only). Desktop users: persist normally.
+    // Mobile DM/exec/IT/manager/maintenance users: never persist — next login on mobile
+    // should always start in the mobile shell. Construction users: same (session-only).
+    // Desktop users: persist normally. (Manager/maintenance tap-through cards — Tasks,
+    // Tickets, Pulse, Labor, Open CAPs — all call togglePortalMode(true); without this
+    // exemption the very first tap permanently locked that device into full-portal mode.)
     const onMobile = window.innerWidth <= 768;
-    const mobileShellUser = user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it';
+    const mobileShellUser = user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it' || user?.userType === 'manager' || user?.userType === 'maintenance';
     if (user?.userType !== 'construction' && !(onMobile && mobileShellUser)) {
       try { localStorage.setItem('pcg_prefer_full_portal', full ? 'true' : 'false'); } catch {}
     } else {
@@ -41347,6 +41350,19 @@ function PCGPortal() {
     }
     setPreferFullPortal(full);
   };
+  // One-time self-heal: managers/maintenance who tapped a mobile-dashboard card (Tasks,
+  // Tickets, Pulse, Labor, Open CAPs) before manager/maintenance were added to the
+  // never-persist allowlist above got permanently locked into full-portal mode on that
+  // device. Clear the stale flag for them so they land back in their mobile shell —
+  // without this they'd need IT to manually clear browser storage per device.
+  useEffect(() => {
+    if (!user) return;
+    const onMobile = window.innerWidth <= 768;
+    if (onMobile && (user.userType === 'manager' || user.userType === 'maintenance') && preferFullPortal) {
+      try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
+      setPreferFullPortal(false);
+    }
+  }, [user?.id, user?.userType]);
   const handleLogout = () => {
     try { window.google?.accounts?.id?.disableAutoSelect(); } catch {}
     logClientEvent(user?.id, user?.userType, 'logout', { name: user?.name });
