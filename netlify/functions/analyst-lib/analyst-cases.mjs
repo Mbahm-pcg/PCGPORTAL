@@ -124,6 +124,14 @@ async function createCaseFromAnomaly(anomaly, dataContext) {
     anomalyType: anomaly.type,
     severity: anomaly.severity,
     district: anomaly.district,
+    // Structured (non-prose) copies of the triggering anomaly — the LLM's citations are
+    // freeform and not reliable enough to re-measure against later. These are what
+    // case-outcomes.mjs uses to check "did this recommendation actually work?".
+    storeName: anomaly.storeName || null,
+    storePC: anomaly.storePC || anomaly.pc || null,
+    baselineMetric: anomaly.metric || null,
+    baselineValue: typeof anomaly.value === 'number' ? anomaly.value : null,
+    baselineThreshold: anomaly.threshold ?? null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     createdBy: 'Orion',
@@ -207,4 +215,26 @@ async function getCases({ status, district, severity, limit } = {}) {
   return index;
 }
 
-export { createCaseFromAnomaly, updateCaseStatus, getCases, loadCase, loadCasesIndex, loadDecisionLog };
+/** Attach a measured outcome to a case (does not change status) — used by the weekly
+ *  case-outcomes.mjs job to record whether Orion's recommendation actually worked. */
+async function recordCaseOutcome(id, outcome) {
+  const c = await loadCase(id);
+  if (!c) return null;
+  c.outcome = outcome;
+  c.updatedAt = new Date().toISOString();
+  await saveCase(id, c);
+
+  // Also patch the lightweight index entry (verdict only) so the case-list view can show
+  // an outcome badge without a full case-detail fetch per case.
+  const index = await loadCasesIndex();
+  const entry = index.find((e) => e.id === id);
+  if (entry) {
+    entry.outcomeVerdict = outcome.verdict;
+    entry.outcomeDeltaPct = outcome.deltaPct;
+    await saveCasesIndex(index);
+  }
+
+  return c;
+}
+
+export { createCaseFromAnomaly, updateCaseStatus, getCases, loadCase, loadCasesIndex, loadDecisionLog, recordCaseOutcome };

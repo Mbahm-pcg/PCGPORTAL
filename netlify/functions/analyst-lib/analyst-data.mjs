@@ -184,6 +184,7 @@ async function buildKPISnapshot({ district } = {}) {
     const today = sd.today || {};
     const wtd = sd.wtd || {};
     filteredStores.push({
+      pc: s.pc,
       name: s.name,
       district: s.district,
       today: {

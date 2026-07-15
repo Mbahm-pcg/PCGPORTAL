@@ -324,8 +324,15 @@ function weekDatesThrough(todayStr) {
 async function fetchLatestBusDt(pc) {
   try {
     const cfg = APIS[apiRoute(pc)];
-    const j = await postPOS(cfg, 'getLatestBusDt', { locRef: pc });
-    return j.busDt || j.businessDate || null;
+    // 'getLatestBusDt' is not a real Pulse endpoint — it HARD-500s. The correct endpoint
+    // is 'getLatestBusinessDate', and the date comes back under `latestBusDt` (not
+    // busDt/businessDate). Because postPOS's error was silently swallowed by the outer
+    // catch below, this returned null on every call — meaning the scoped single-store
+    // "Refresh" button (manager/DM mobile) always fell back to `todayET()` in its own
+    // .catch(), or (worse, as seen live) resolved to null and got passed straight into
+    // processStore, making every manual refresh look like "zero data from Paycor".
+    const j = await postPOS(cfg, 'getLatestBusinessDate', { locRef: pc });
+    return j.latestBusDt || null;
   } catch { return null; }
 }
 
@@ -855,7 +862,14 @@ function mergeStoreBlob(existing, todayEntry, weeklyEntry) {
   const MAX_DAILY  = 30;
   const MAX_WEEKLY = 13;
 
-  const daily = Array.isArray(existing?.daily) ? [...existing.daily] : [];
+  // A single malformed historical entry (missing/null date, e.g. from a past bad write)
+  // used to permanently brick this function: .sort() called .localeCompare() on a
+  // non-string date and threw, the exception was swallowed by the caller's per-store
+  // try/catch, and the blob was silently never written again — sometimes for weeks.
+  // Drop anything that isn't a real date string BEFORE dedup/sort so one bad record
+  // can never again freeze a whole store's labor history.
+  const validDaily = (Array.isArray(existing?.daily) ? existing.daily : []).filter(d => typeof d?.date === 'string' && d.date);
+  const daily = [...validDaily];
   // Replace or append today
   const todayIdx = daily.findIndex(d => d.date === todayEntry.date);
   if (todayIdx >= 0) {
@@ -867,7 +881,8 @@ function mergeStoreBlob(existing, todayEntry, weeklyEntry) {
   daily.sort((a, b) => b.date.localeCompare(a.date));
   const trimmedDaily = daily.slice(0, MAX_DAILY);
 
-  const weekly = Array.isArray(existing?.weekly) ? [...existing.weekly] : [];
+  const validWeekly = (Array.isArray(existing?.weekly) ? existing.weekly : []).filter(w => typeof w?.weekOf === 'string' && w.weekOf);
+  const weekly = [...validWeekly];
   const weekIdx = weekly.findIndex(w => w.weekOf === weeklyEntry.weekOf);
   if (weekIdx >= 0) {
     weekly[weekIdx] = weeklyEntry;
@@ -928,6 +943,36 @@ export default async (request, context) => {
   const scheduled = request.headers.get('x-pcg-invocation') === 'scheduled' || !!body?.next_run;
   const isManual = request.method === 'POST' && !scheduled;
   const startedAt = new Date().toISOString();
+
+  // ── TEMPORARY: one-off historical backfill for a single store's daily history ──
+  // Added 2026-07-15 to repair Bustleton (332941) after a corrupt blob entry silently
+  // froze its per-store daily history June 5 – July 14 (see mergeStoreBlob fix above).
+  // POST { storePC, backfillDates: ["2026-06-05", ...] } — small batches only (26s cap).
+  // REMOVE this branch once the backfill is done; it's not meant to ship long-term.
+  if (isManual && Array.isArray(body?.backfillDates) && body.backfillDates.length) {
+    const storeConfig = STORES.find(s => String(s.pc) === String(body.storePC));
+    if (!storeConfig) return new Response(JSON.stringify({ error: `Store ${body.storePC} not found` }), { status: 404, headers });
+    const blobStore = getLaborStore();
+    const key = `pcg_labor_store_${body.storePC}`;
+    const results = [];
+    for (const busDt of body.backfillDates) {
+      try {
+        const result = await processStore(storeConfig, busDt, { skipSchedules: true });
+        if (result.error) { results.push({ busDt, error: result.error }); continue; }
+        let existing = null;
+        try { const raw = await blobStore.get(key, { type: 'json' }); existing = raw?.data || raw; } catch {}
+        const weekOfStr = weekStart(busDt);
+        const dailyEntry = { date: busDt, laborDollars: result.today.laborDollars, sales: result.today.sales, laborPct: result.today.laborPct, hoursWorked: result.today.hoursWorked, employees: result.employeeDetails };
+        const weeklyEntry = { weekOf: weekOfStr, laborDollars: result.wtd.laborDollars, sales: result.wtd.sales, laborPct: result.wtd.laborPct, avgDailyEmployees: result.today.employees };
+        const merged = mergeStoreBlob(existing, dailyEntry, weeklyEntry);
+        await blobStore.setJSON(key, { savedAt: new Date().toISOString(), data: merged });
+        results.push({ busDt, laborPct: result.today.laborPct, sales: result.today.sales });
+      } catch (e) {
+        results.push({ busDt, error: e.message });
+      }
+    }
+    return new Response(JSON.stringify({ ok: true, store: body.storePC, results }), { status: 200, headers });
+  }
 
   // ── Scoped single-store refresh (for manager/DM mobile Refresh button) ──────
   // When POST body contains { storePC: "332941" }, only process that one store.

@@ -23291,7 +23291,6 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [hourly, setHourly] = useState(null);
   const [workers, setWorkers] = useState([]);
   const [lwDaySales, setLwDaySales] = useState(null);
-  const [activeAnnouncements, setActiveAnnouncements] = useState([]);
   const [carouselPage, setCarouselPage] = useState(0);
   const touchStartX = useRef(null);
   const carouselInnerRef = useRef(null);
@@ -23402,19 +23401,22 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
         body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra }),
       }).then(r => r.ok ? r.json() : null).catch(() => null);
 
-      const [opsRes, laborBlob, checkRes, storeBlobData, announceBlob, opsYestRes, opsLYRes] = await Promise.all([
+      // Critical path only — today's sales, labor, hourly chart, store history. These
+      // are the only numbers the screen shows on first paint, so they're the only ones
+      // that gate `loading`. "vs last year" and yesterday's total (only needed if the
+      // manager taps into day-cycling) are fetched separately below, AFTER first paint —
+      // never shown wrong, just filled in a beat later. (The old 7th call here loaded
+      // announcements into state that nothing in this redesign actually renders anymore
+      // — removed outright rather than deferred, since fetching data nobody reads isn't
+      // worth even a background request.)
+      const [opsRes, laborBlob, checkRes, storeBlobData] = await Promise.all([
         fetchOpsTotals(pc, todayStr).catch(() => null),
         cloudLoad('pcg_labor_v1').catch(() => null),
         pulsePost('getGuestChecks', { include: 'guestChecks' }),
         cloudLoad(`pcg_labor_store_${pc}`).catch(() => null),
-        cloudLoad('pcg_announcements_v1').catch(() => null),
-        fetchOpsTotals(pc, yesterdayStr).catch(() => null),
-        fetchOpsTotals(pc, lastYearStr).catch(() => null),
       ]);
 
       if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
-      if (opsYestRes?.revenueCenters) setSalesYesterday(sumRVC(opsYestRes.revenueCenters));
-      if (opsLYRes?.revenueCenters) setSalesLastYear(sumRVC(opsLYRes.revenueCenters));
       if (laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
 
       if (checkRes?.guestChecks) {
@@ -23446,18 +23448,6 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       // Save store blob for day-cycling
       setStoreBlob(storeBlobData);
 
-      // Active announcements — separate leaderboard from regular, filter by targets
-      const allAnnounce = Array.isArray(announceBlob) ? announceBlob : [];
-      const myStoreDist = Number(store?.district || 0);
-      const isTargeted = (a) => {
-        if (!a.targets) return true;
-        const { roles, districts } = a.targets;
-        if (roles?.includes('manager')) return true;
-        if (myStoreDist && districts?.includes(myStoreDist)) return true;
-        return false;
-      };
-      setActiveAnnouncements(allAnnounce.filter(a => a.active && a.type !== 'leaderboard' && isTargeted(a)).slice(0, 3));
-
       const empList = storeBlobData?.daily?.[0]?.employees || [];
       if (empList.length > 0) {
         setWorkers(empList.filter(e => e.hoursToday > 0).map(e => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
@@ -23466,6 +23456,18 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     setLoading(false);
     setRefreshing(false);
     setLastRefresh(new Date());
+
+    // Deferred, non-blocking — "vs last year" and yesterday's total (only needed if the
+    // manager taps into day-cycling). Fetched AFTER the screen is already showing today's
+    // real numbers, so nothing wrong is ever displayed — these two just fill in a beat
+    // later instead of holding up first paint.
+    Promise.all([
+      fetchOpsTotals(pc, yesterdayStr).catch(() => null),
+      fetchOpsTotals(pc, lastYearStr).catch(() => null),
+    ]).then(([opsYestRes, opsLYRes]) => {
+      if (opsYestRes?.revenueCenters) setSalesYesterday(sumRVC(opsYestRes.revenueCenters));
+      if (opsLYRes?.revenueCenters) setSalesLastYear(sumRVC(opsLYRes.revenueCenters));
+    }).catch(() => {});
   }, [pc, todayStr]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -23473,9 +23475,12 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     const t = setInterval(fetchAll, 10 * 60 * 1000);
     return () => clearInterval(t);
   }, [fetchAll]);
-  // Fetch live data for historical days on demand (days 2–30)
+  // Fetch live data for historical days on demand (days 1–30, i.e. Yesterday and back).
+  // Was `dayOffset <= 1`, which also skipped Yesterday specifically — Pulse retains guest-
+  // check history same as any other past day, so Yesterday can (and should) re-fetch it
+  // exactly like day 2+ already do; only day 0 (live/today) has its own separate path.
   useEffect(() => {
-    if (dayOffset <= 1) { setHistHourly(null); return; }
+    if (dayOffset === 0) { setHistHourly(null); return; }
     const d = new Date(); d.setDate(d.getDate() - dayOffset);
     const dStr = ymd(d);
 
@@ -24033,7 +24038,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.79";
+const APP_VERSION = "v18.81";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -35905,6 +35910,13 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
     'New': '#2196f3', 'In Review': '#ff9800', 'Accepted': '#4caf50',
     'In Progress': '#9c27b0', 'Done': '#607d8b',
   };
+  // "Did this actually work?" — measured ~2 weeks after a case is accepted (case-outcomes.mjs).
+  const OUTCOME_META = {
+    improved: { icon: '✓', label: 'Improved', color: '#4caf50' },
+    worsened: { icon: '✕', label: 'Worsened', color: '#f44336' },
+    unchanged: { icon: '≈', label: 'No change', color: th.muted },
+    unmeasurable: null, // not worth a badge — nothing concrete to show
+  };
 
   if (loading) return null;
   if (cases.length === 0) return null;
@@ -35935,9 +35947,15 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer' }}
             onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
             <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '0.55rem', fontWeight: 700, color: statusColors[c.status] || th.muted, background: (statusColors[c.status] || '#888') + '20', padding: '0.1rem 0.4rem', borderRadius: '0.2rem' }}>{c.status}</span>
                 <span style={{ fontSize: '0.55rem', fontWeight: 700, color: c.severity === 'high' ? '#f44336' : c.severity === 'medium' ? '#ff9800' : '#4caf50', textTransform: 'uppercase' }}>{c.severity}</span>
+                {c.outcomeVerdict && OUTCOME_META[c.outcomeVerdict] && (
+                  <span title="Measured ~2 weeks after this case was accepted — did the metric that triggered it actually improve?"
+                    style={{ fontSize: '0.55rem', fontWeight: 700, color: OUTCOME_META[c.outcomeVerdict].color, background: OUTCOME_META[c.outcomeVerdict].color + '18', padding: '0.1rem 0.4rem', borderRadius: '0.2rem' }}>
+                    {OUTCOME_META[c.outcomeVerdict].icon} {OUTCOME_META[c.outcomeVerdict].label}
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: '0.8rem', fontWeight: 600, color: th.text, marginTop: '0.25rem' }}>{c.title}</div>
               <div style={{ fontSize: '0.7rem', color: th.muted }}>{c.summary}</div>
@@ -35978,6 +35996,11 @@ function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnounceme
               <div style={{ color: th.muted, lineHeight: 1.6 }}>
                 <strong>Store:</strong> {c.storeName || '—'} · <strong>District:</strong> {c.district || '—'} · <strong>Created:</strong> {timeAgo(c.createdAt)}
               </div>
+              {c.outcomeVerdict && OUTCOME_META[c.outcomeVerdict] && (
+                <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: OUTCOME_META[c.outcomeVerdict].color, fontWeight: 600 }}>
+                  {OUTCOME_META[c.outcomeVerdict].icon} {c.outcomeVerdict === 'unchanged' ? 'No clear change since this was accepted' : `${OUTCOME_META[c.outcomeVerdict].label} ${c.outcomeDeltaPct != null ? Math.abs(c.outcomeDeltaPct) + '%' : ''} since this was accepted`}
+                </div>
+              )}
 
               {/* One-click actions */}
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem', flexWrap: 'wrap' }}>

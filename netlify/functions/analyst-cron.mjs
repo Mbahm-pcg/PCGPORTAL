@@ -6,6 +6,7 @@
 
 import { detectAnomalies } from './analyst-lib/analyst-anomaly.mjs';
 import { createCaseFromAnomaly, getCases } from './analyst-lib/analyst-cases.mjs';
+import { measurePendingOutcomes } from './analyst-lib/case-outcomes.mjs';
 import { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentimentContext, buildEmailContext, loadAllTickets } from './analyst-lib/analyst-data.mjs';
 import { generateStructured } from './analyst-lib/analyst-claude.mjs';
 import { PERSONA, buildBriefPrompt, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
@@ -541,6 +542,7 @@ export default async (request, context) => {
 
     // ── Step 5: Weekly leaderboard shout-out (Sunday morning only) ────────
     let leaderboardPosted = false;
+    let outcomesMeasured = 0;
     if (dayET === 0 && (isMorningRun || isManual)) {
       try {
         const existing = await cacheLoad('pcg_announcements_v1') || [];
@@ -576,6 +578,12 @@ export default async (request, context) => {
 
       // ── Orion Learning weekly digest (Sunday morning) ──
       await postOrionLearningDigest(today);
+
+      // ── Case outcome tracking — "did Orion's recommendation actually work?" ──
+      // Re-measures cases that were Accepted/In Progress/Done at least 14 days ago
+      // against the same metric that triggered them. Bounded (30/run), fail-soft.
+      try { outcomesMeasured = await measurePendingOutcomes({ limit: 30 }); }
+      catch (err) { console.warn('[analyst-cron] case outcome measurement failed:', err.message); }
     }
 
     // ── Step 5b: Re-grade recent Orion answers (independent miss-detection) ──
@@ -594,6 +602,7 @@ export default async (request, context) => {
       dmBriefsSent,
       execReportSent,
       leaderboardPosted,
+      outcomesMeasured,
       isManual,
     };
 

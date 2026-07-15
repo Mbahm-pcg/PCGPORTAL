@@ -18468,7 +18468,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [hourly, setHourly] = useState(null);
     const [workers, setWorkers] = useState([]);
     const [lwDaySales, setLwDaySales] = useState(null);
-    const [activeAnnouncements, setActiveAnnouncements] = useState([]);
     const [carouselPage, setCarouselPage] = useState(0);
     const touchStartX = useRef(null);
     const carouselInnerRef = useRef(null);
@@ -18601,18 +18600,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra })
         }).then((r) => r.ok ? r.json() : null).catch(() => null);
-        const [opsRes, laborBlob, checkRes, storeBlobData, announceBlob, opsYestRes, opsLYRes] = await Promise.all([
+        const [opsRes, laborBlob, checkRes, storeBlobData] = await Promise.all([
           fetchOpsTotals(pc, todayStr).catch(() => null),
           cloudLoad("pcg_labor_v1").catch(() => null),
           pulsePost("getGuestChecks", { include: "guestChecks" }),
-          cloudLoad(`pcg_labor_store_${pc}`).catch(() => null),
-          cloudLoad("pcg_announcements_v1").catch(() => null),
-          fetchOpsTotals(pc, yesterdayStr).catch(() => null),
-          fetchOpsTotals(pc, lastYearStr).catch(() => null)
+          cloudLoad(`pcg_labor_store_${pc}`).catch(() => null)
         ]);
         if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
-        if (opsYestRes?.revenueCenters) setSalesYesterday(sumRVC(opsYestRes.revenueCenters));
-        if (opsLYRes?.revenueCenters) setSalesLastYear(sumRVC(opsLYRes.revenueCenters));
         if (laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
         if (checkRes?.guestChecks) {
           const h = Array.from({ length: 24 }, (_, i) => ({ hour: i, sales: 0 }));
@@ -18640,16 +18634,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const lwEntry = daily.find((d) => d.date === lwStr);
         if (lwEntry?.sales > 0) setLwDaySales(lwEntry.sales);
         setStoreBlob(storeBlobData);
-        const allAnnounce = Array.isArray(announceBlob) ? announceBlob : [];
-        const myStoreDist = Number(store?.district || 0);
-        const isTargeted = (a) => {
-          if (!a.targets) return true;
-          const { roles, districts } = a.targets;
-          if (roles?.includes("manager")) return true;
-          if (myStoreDist && districts?.includes(myStoreDist)) return true;
-          return false;
-        };
-        setActiveAnnouncements(allAnnounce.filter((a) => a.active && a.type !== "leaderboard" && isTargeted(a)).slice(0, 3));
         const empList = storeBlobData?.daily?.[0]?.employees || [];
         if (empList.length > 0) {
           setWorkers(empList.filter((e) => e.hoursToday > 0).map((e) => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
@@ -18659,6 +18643,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setLoading(false);
       setRefreshing(false);
       setLastRefresh(/* @__PURE__ */ new Date());
+      Promise.all([
+        fetchOpsTotals(pc, yesterdayStr).catch(() => null),
+        fetchOpsTotals(pc, lastYearStr).catch(() => null)
+      ]).then(([opsYestRes, opsLYRes]) => {
+        if (opsYestRes?.revenueCenters) setSalesYesterday(sumRVC(opsYestRes.revenueCenters));
+        if (opsLYRes?.revenueCenters) setSalesLastYear(sumRVC(opsLYRes.revenueCenters));
+      }).catch(() => {
+      });
     }, [pc, todayStr]);
     useEffect(() => {
       fetchAll();
@@ -18668,7 +18660,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return () => clearInterval(t);
     }, [fetchAll]);
     useEffect(() => {
-      if (dayOffset <= 1) {
+      if (dayOffset === 0) {
         setHistHourly(null);
         return;
       }
@@ -19057,7 +19049,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v18.79";
+  var APP_VERSION = "v18.81";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -27278,6 +27270,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       "In Progress": "#9c27b0",
       "Done": "#607d8b"
     };
+    const OUTCOME_META = {
+      improved: { icon: "\u2713", label: "Improved", color: "#4caf50" },
+      worsened: { icon: "\u2715", label: "Worsened", color: "#f44336" },
+      unchanged: { icon: "\u2248", label: "No change", color: th.muted },
+      unmeasurable: null
+      // not worth a badge — nothing concrete to show
+    };
     if (loading) return null;
     if (cases.length === 0) return null;
     const inner = /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1rem" } }, "\u{1F4CB}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.85rem", color: th.text } }, "Business Cases"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: "#4caf50", background: "#4caf5020", padding: "0.15rem 0.5rem", borderRadius: "999px" } }, "$", Math.round(totalOpp).toLocaleString(), " opportunity")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, Object.entries(byStatus).map(([s, n]) => /* @__PURE__ */ React.createElement("span", { key: s, style: { fontSize: "0.58rem", fontWeight: 700, color: statusColors[s] || th.muted, background: (statusColors[s] || "#888") + "18", padding: "0.15rem 0.4rem", borderRadius: "0.25rem" } }, n, " ", s)), /* @__PURE__ */ React.createElement(
@@ -27293,7 +27292,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", cursor: "pointer" },
         onClick: () => setExpanded(expanded === c.id ? null : c.id)
       },
-      /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 700, color: statusColors[c.status] || th.muted, background: (statusColors[c.status] || "#888") + "20", padding: "0.1rem 0.4rem", borderRadius: "0.2rem" } }, c.status), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 700, color: c.severity === "high" ? "#f44336" : c.severity === "medium" ? "#ff9800" : "#4caf50", textTransform: "uppercase" } }, c.severity)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.text, marginTop: "0.25rem" } }, c.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, c.summary)),
+      /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 700, color: statusColors[c.status] || th.muted, background: (statusColors[c.status] || "#888") + "20", padding: "0.1rem 0.4rem", borderRadius: "0.2rem" } }, c.status), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 700, color: c.severity === "high" ? "#f44336" : c.severity === "medium" ? "#ff9800" : "#4caf50", textTransform: "uppercase" } }, c.severity), c.outcomeVerdict && OUTCOME_META[c.outcomeVerdict] && /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          title: "Measured ~2 weeks after this case was accepted \u2014 did the metric that triggered it actually improve?",
+          style: { fontSize: "0.55rem", fontWeight: 700, color: OUTCOME_META[c.outcomeVerdict].color, background: OUTCOME_META[c.outcomeVerdict].color + "18", padding: "0.1rem 0.4rem", borderRadius: "0.2rem" }
+        },
+        OUTCOME_META[c.outcomeVerdict].icon,
+        " ",
+        OUTCOME_META[c.outcomeVerdict].label
+      )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.text, marginTop: "0.25rem" } }, c.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, c.summary)),
       /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", fontWeight: 700, color: "#4caf50", whiteSpace: "nowrap", marginLeft: "1rem" } }, c.dollarOpportunity > 0 ? `$${Math.round(c.dollarOpportunity).toLocaleString()}` : "\u2014")
     ), expanded === c.id && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", padding: "0.75rem", background: th.card2, borderRadius: "0.5rem", fontSize: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", marginBottom: "0.5rem", flexWrap: "wrap" } }, ["New", "In Review", "Accepted", "In Progress", "Done"].map((s) => /* @__PURE__ */ React.createElement(
       "button",
@@ -27312,7 +27320,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         rows: 2,
         style: { width: "100%", padding: "0.35rem 0.5rem", fontSize: "0.7rem", borderRadius: "0.3rem", border: `1px solid ${th.cardBorder}`, background: th.inputBg, color: th.text, resize: "none", boxSizing: "border-box" }
       }
-    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", marginTop: "0.35rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setReasonPrompt(null), style: { fontSize: "0.65rem", padding: "0.2rem 0.5rem", borderRadius: "0.3rem", border: `1px solid ${th.cardBorder}`, background: th.card3, color: th.muted, cursor: "pointer" } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: confirmStatus, style: { fontSize: "0.65rem", padding: "0.2rem 0.6rem", borderRadius: "0.3rem", border: "none", background: statusColors[reasonPrompt.status] || O, color: "#fff", fontWeight: 700, cursor: "pointer" } }, "Confirm"))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, lineHeight: 1.6 } }, /* @__PURE__ */ React.createElement("strong", null, "Store:"), " ", c.storeName || "\u2014", " \xB7 ", /* @__PURE__ */ React.createElement("strong", null, "District:"), " ", c.district || "\u2014", " \xB7 ", /* @__PURE__ */ React.createElement("strong", null, "Created:"), " ", timeAgo(c.createdAt)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.6rem", flexWrap: "wrap" } }, (() => {
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", marginTop: "0.35rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setReasonPrompt(null), style: { fontSize: "0.65rem", padding: "0.2rem 0.5rem", borderRadius: "0.3rem", border: `1px solid ${th.cardBorder}`, background: th.card3, color: th.muted, cursor: "pointer" } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: confirmStatus, style: { fontSize: "0.65rem", padding: "0.2rem 0.6rem", borderRadius: "0.3rem", border: "none", background: statusColors[reasonPrompt.status] || O, color: "#fff", fontWeight: 700, cursor: "pointer" } }, "Confirm"))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, lineHeight: 1.6 } }, /* @__PURE__ */ React.createElement("strong", null, "Store:"), " ", c.storeName || "\u2014", " \xB7 ", /* @__PURE__ */ React.createElement("strong", null, "District:"), " ", c.district || "\u2014", " \xB7 ", /* @__PURE__ */ React.createElement("strong", null, "Created:"), " ", timeAgo(c.createdAt)), c.outcomeVerdict && OUTCOME_META[c.outcomeVerdict] && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.4rem", fontSize: "0.72rem", color: OUTCOME_META[c.outcomeVerdict].color, fontWeight: 600 } }, OUTCOME_META[c.outcomeVerdict].icon, " ", c.outcomeVerdict === "unchanged" ? "No clear change since this was accepted" : `${OUTCOME_META[c.outcomeVerdict].label} ${c.outcomeDeltaPct != null ? Math.abs(c.outcomeDeltaPct) + "%" : ""} since this was accepted`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.6rem", flexWrap: "wrap" } }, (() => {
       const store = (stores || []).find((s) => c.storePC && String(s.pc) === String(c.storePC) || c.storeName && s.name?.toLowerCase() === c.storeName.toLowerCase());
       if (!store?.email) return null;
       const st = caseAction[c.id];
