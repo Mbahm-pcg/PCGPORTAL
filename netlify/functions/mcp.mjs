@@ -24,7 +24,7 @@
 //   Authorization: Bearer <PCG_MCP_SECRET>
 
 import { cacheLoad } from './analyst-lib/analyst-cache.mjs';
-import { buildDataContext, buildKPISnapshot } from './analyst-lib/analyst-data.mjs';
+import { buildDataContext, buildKPISnapshot, buildStoreContext, resolveStoreFromText } from './analyst-lib/analyst-data.mjs';
 import { buildAskPrompt, PERSONA } from './analyst-lib/analyst-prompts.mjs';
 import { askAnalyst } from './analyst-lib/analyst-claude.mjs';
 
@@ -128,7 +128,14 @@ async function handleTool(name, args) {
     if (!question) return error('Missing required argument: question');
     const scope = district ? `District ${district}` : 'Network';
     const today = new Date().toISOString().slice(0, 10);
-    const dataContext = await buildDataContext({ district: district || null, includeStoreDetail: true });
+    let dataContext = await buildDataContext({ district: district || null, includeStoreDetail: true });
+    // MCP callers are exec-equivalent (no district restriction), so a mentioned store's
+    // PC# resolves the same way the in-app omnibar chat does — see analyst.mjs's 'ask'.
+    const mentioned = resolveStoreFromText(question);
+    if (mentioned) {
+      try { dataContext += '\n\n' + await buildStoreContext({ storePC: mentioned.pc }); }
+      catch (e) { console.warn('[mcp] mentioned-store context failed:', e.message); }
+    }
     const prompt = buildAskPrompt(question, 'executive', scope, today, dataContext);
     const result = await askAnalyst({ userPrompt: prompt, userId: 'mcp', forceDeep: false });
     return text(result.answer);

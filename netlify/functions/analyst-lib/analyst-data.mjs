@@ -161,6 +161,33 @@ function getStoresByDistrict(districtNum) {
   return STORES.filter(s => s.district === districtNum);
 }
 
+// The shared "does this string identify a store" primitive — matches a PC# exactly, or
+// falls back to an exact (case-insensitive) name match. Used both for free-text scanning
+// (resolveStoreFromText below) and structured tool-call input (maint-actions.mjs's
+// create_followup_ticket), so a future improvement to store matching only has to be made
+// once instead of drifting between the two.
+function findStoreByPcOrName(ref) {
+  const s = String(ref || '').trim();
+  if (!s) return null;
+  return STORES.find(st => st.pc === s) || STORES.find(st => st.name.toLowerCase() === s.toLowerCase()) || null;
+}
+
+// Most users think in store PC# (e.g. "332941"), not the store's name — recognize a bare
+// PC# mentioned anywhere in a chat question so Orion can resolve "labor/tickets/NDCP for
+// 332941" the same as if they'd typed "Bustleton". Every real PC# is exactly 6 digits, so
+// matching that width exactly (not 5-6) keeps the false-positive surface as small as
+// possible against an unrelated number (dollar figure, ticket #) in the question.
+function resolveStoreFromText(text) {
+  if (!text) return null;
+  const nums = String(text).match(/\b\d{6}\b/g);
+  if (!nums) return null;
+  for (const n of nums) {
+    const store = findStoreByPcOrName(n);
+    if (store) return store;
+  }
+  return null;
+}
+
 /**
  * Build a KPI snapshot for the Analyst.
  * Combines network labor data with per-store summaries.
@@ -268,7 +295,7 @@ async function buildDataContext({ district, includeStoreDetail, includeVoids } =
           context += `  ${s.name}: ERROR - ${s.error}\n`;
           continue;
         }
-        context += `  ${s.name}: Sales $${s.today.sales.toLocaleString()}, Labor $${s.today.laborDollars.toLocaleString()} (${s.today.laborPct}%), OT: ${s.today.overtimeCount}`;
+        context += `  ${s.name} (PC ${s.pc}): Sales $${s.today.sales.toLocaleString()}, Labor $${s.today.laborDollars.toLocaleString()} (${s.today.laborPct}%), OT: ${s.today.overtimeCount}`;
         if (s.wtd.sales > 0) context += ` | WTD Sales $${s.wtd.sales.toLocaleString()}, WTD Labor ${s.wtd.laborPct}%`;
         context += `\n`;
       }
@@ -1388,6 +1415,8 @@ export {
   STORES,
   getAllStores,
   getStoresByDistrict,
+  resolveStoreFromText,
+  findStoreByPcOrName,
   getDailyNetSales,
   getNetworkLabor,
   getStoreLabor,

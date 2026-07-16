@@ -9,7 +9,7 @@
 import https from 'node:https';
 import { sql } from '../_shared/db.mjs';
 import { cacheLoad } from './analyst-cache.mjs';
-import { STORES } from './analyst-data.mjs';
+import { findStoreByPcOrName } from './analyst-data.mjs';
 
 // ── Anthropic tool schemas ──────────────────────────────────────────────────
 const MAINT_TOOLS = [
@@ -222,9 +222,7 @@ async function executeMaintTool(name, input, ctx = {}) {
         // persona), so it can pass a store NAME instead of a PC# — resolve either to the
         // real numeric PC here rather than trusting the raw input, or tickets get filed
         // under a nonexistent "store_pc" that never matches any user's assigned store.
-        const rawStore = String(input.store_pc || '').trim();
-        const resolvedStore = STORES.find((s) => String(s.pc) === rawStore)
-          || STORES.find((s) => s.name.toLowerCase() === rawStore.toLowerCase());
+        const resolvedStore = findStoreByPcOrName(input.store_pc);
         if (!resolvedStore) return { ok: false, error: `Could not find a store matching "${input.store_pc}". Use the store's PC# or exact name.` };
         const storePC = resolvedStore.pc;
 

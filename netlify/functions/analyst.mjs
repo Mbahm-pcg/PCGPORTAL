@@ -3,7 +3,7 @@
 
 import { askAnalyst, askAnalystWithTools, generateStructured } from './analyst-lib/analyst-claude.mjs';
 import { MAINT_TOOLS, executeMaintTool } from './analyst-lib/maint-actions.mjs';
-import { buildDataContext, buildKPISnapshot, buildStoreContext, buildStoreRosterContext, buildPulseComparisonContext, buildSentimentContext, buildWeatherContext, buildMaintenanceContext, buildSalesMixContext, buildMixComparisonContext, buildNewProductsContext, STORES, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
+import { buildDataContext, buildKPISnapshot, buildStoreContext, buildStoreRosterContext, buildPulseComparisonContext, buildSentimentContext, buildWeatherContext, buildMaintenanceContext, buildSalesMixContext, buildMixComparisonContext, buildNewProductsContext, STORES, resolveStoreFromText, getWeatherForecast, getDailyNetSales } from './analyst-lib/analyst-data.mjs';
 import { NEW_PRODUCTS_KEY } from './analyst-lib/new-products.mjs';
 import { buildBriefPrompt, buildStoreBriefPrompt, buildPrePlanPrompt, buildAskPrompt, PERSONA, MAINT_ASK_SYSTEM, REPORT_SYSTEM, buildReportPrompt } from './analyst-lib/analyst-prompts.mjs';
 import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
@@ -147,12 +147,29 @@ export default async (request, context) => {
       if (effRole === 'dm' && effDistrict != null) rosterContext = await buildStoreRosterContext({ district: effDistrict });
       else if (effRole === 'manager' && effStorePC) rosterContext = await buildStoreRosterContext({ storePC: effStorePC });
 
+      // Most users think in store PC# ("332941"), not the store name — if one's mentioned
+      // in the question, resolve it once and reuse it everywhere below (base context here,
+      // plus the cause/comparison enrichment blocks further down) so "NDCP orders for
+      // 332941" and "why did 332941 drop" both work the same as if they'd typed "Bustleton".
+      // ONE scope check, reused for every use of the match: exec/it can look up any store;
+      // a DM only one inside their own district (fail closed, same as the roster above);
+      // managers are already locked to their own store and maintenance works ticket-only,
+      // so neither gets this — mentioning another store's PC# must never leak outside
+      // their existing access.
+      const mentionedStore = (isExecRole || effRole === 'dm') ? resolveStoreFromText(question) : null;
+      const canLookupMentionedStore = !!mentionedStore && (isExecRole || (effRole === 'dm' && effDistrict != null && mentionedStore.district === effDistrict));
+      let mentionedStoreContext = '';
+      if (canLookupMentionedStore) {
+        try { mentionedStoreContext = '\n\n' + await buildStoreContext({ storePC: mentionedStore.pc }); }
+        catch (e) { console.warn('[analyst] mentioned-store context failed:', e.message); }
+      }
+
       // Guest sentiment (review themes/ratings) + weather forecast (with historical sales
       // impact) give DMs/execs a fuller picture — coaching grounded in what guests actually
       // complain about, and planning around weather. Both are compact, read-only, and
       // district-scoped. Fail closed for DMs (a null district gets nothing, never network);
       // execs may see network or a drilled-in district.
-      let extraContext = rosterContext;
+      let extraContext = rosterContext + mentionedStoreContext;
       if ((effRole === 'dm' && effDistrict != null) || isExecRole) {
         const distArg = isExecRole ? (effDistrict || null) : effDistrict;
         const [sentiment, weather] = await Promise.all([
@@ -218,7 +235,9 @@ export default async (request, context) => {
         try {
           const mixOpts = (effRole === 'manager' && effStorePC)
             ? { storePC: effStorePC }
-            : { district: isExecRole ? (effDistrict || null) : effDistrict };
+            : canLookupMentionedStore
+              ? { storePC: mentionedStore.pc }
+              : { district: isExecRole ? (effDistrict || null) : effDistrict };
           const mix = await buildSalesMixContext(mixOpts);
           if (mix.storesWithDrops > 0) {
             const lines = mix.stores.slice(0, 8).map(st =>
@@ -239,7 +258,11 @@ export default async (request, context) => {
       const COMPARE_Q = /\b(item mix|product mix|sales mix|mix outlier|category (mix|share|comparison)|vs (the )?district|district average|other stores?|compared to (peers?|other|district)|underperform|over-?index|sells? (fewer|less|more) \w+ than)\b/i;
       if (COMPARE_Q.test(question || '') && (isExecRole || (effRole === 'dm' && effDistrict != null) || (effRole === 'manager' && effStorePC))) {
         try {
-          const cmpOpts = (effRole === 'manager' && effStorePC) ? { storePC: effStorePC } : { district: isExecRole ? (effDistrict || null) : effDistrict };
+          const cmpOpts = (effRole === 'manager' && effStorePC)
+            ? { storePC: effStorePC }
+            : canLookupMentionedStore
+              ? { storePC: mentionedStore.pc }
+              : { district: isExecRole ? (effDistrict || null) : effDistrict };
           const cmp = await buildMixComparisonContext(cmpOpts);
           if (cmp.storesWithOutliers > 0) {
             const lines = cmp.stores.slice(0, 8).map(st =>

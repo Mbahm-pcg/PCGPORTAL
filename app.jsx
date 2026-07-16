@@ -7743,7 +7743,7 @@ function sumRVC(revenueCenters = []) {
 // ─── Heartbeat SVG ───────────────────────────────────────────────────────────
 function HeartbeatLine() {
   return (
-    <svg viewBox="0 0 400 60" style={{ width: '100%', maxWidth: 500, height: 60, display: 'block' }}>
+    <svg viewBox="0 0 400 60" preserveAspectRatio="none" style={{ width: '100%', maxWidth: 500, height: 32, display: 'block' }}>
       <defs>
         <linearGradient id="hbgrad" x1="0%" y1="0%" x2="100%" y2="0%">
           <stop offset="0%"   stopColor="#00d084" stopOpacity="0" />
@@ -7991,7 +7991,7 @@ function DaypartMatrix({ pc, th }) {
   );
 }
 
-function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, standalone = false }) {
+function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null }) {
   const s = stores.find(st => st.pc === pc);
 
   const fmtUSD = v => '$' + Math.round(v).toLocaleString();
@@ -8465,13 +8465,13 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       {/* ─── Section 1 — header + KPIs (fixed, non-scrolling) ─────────── */}
       <div style={{ flexShrink:0 }}>
       {/* ── Unified PULSE + Store Header ── */}
-      <div style={{ position:'relative', overflow:'hidden', borderRadius:'1rem', marginBottom:'1.25rem', padding:'1.25rem 1.5rem', background:'linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)', border:`1px solid ${G}33`, boxShadow:`0 4px 24px ${G}11` }}>
+      <div style={{ position:'relative', overflow:'hidden', borderRadius:'0.85rem', marginBottom:'0.5rem', padding:'0.6rem 1.15rem', background:'linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)', border:`1px solid ${G}33`, boxShadow:`0 4px 24px ${G}11` }}>
         <div style={{ position:'absolute', top:-60, right:-60, width:200, height:200, borderRadius:'50%', background:`${G}15`, pointerEvents:'none' }} />
         <div style={{ position:'absolute', bottom:-40, left:'20%', width:150, height:150, borderRadius:'50%', background:`${G}05`, pointerEvents:'none' }} />
         <div style={{ position:'relative', zIndex:1, display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:'1rem' }}>
           <div>
             <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', marginBottom:'0.2rem' }}>
-              <div style={{ position:'relative', display:'flex', alignItems:'center', justifyContent:'center', width:38, height:38, borderRadius:'50%', background:`${G}22`, border:`2px solid ${G}`, boxShadow:`0 0 14px ${G}66`, flexShrink:0 }}>
+              <div style={{ position:'relative', display:'flex', alignItems:'center', justifyContent:'center', width:30, height:30, borderRadius:'50%', background:`${G}22`, border:`2px solid ${G}`, boxShadow:`0 0 14px ${G}66`, flexShrink:0 }}>
                 <span style={{ fontSize:'1.1rem', filter:`drop-shadow(0 0 6px ${G})` }}>💚</span>
                 <div style={{ position:'absolute', top:0,left:0,right:0,bottom:0, borderRadius:'50%', border:`2px solid ${G}`, animation:'pulseRing 2s ease-out infinite' }} />
               </div>
@@ -8510,7 +8510,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
           </div>
         </div>
         {/* KPI bubbles */}
-        <div style={{ display:'flex', flexWrap:'wrap', gap:'0.4rem', marginTop:'0.8rem', paddingTop:'0.7rem', borderTop:'1px solid rgba(34,197,94,0.15)' }}>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:'0.4rem', marginTop:'0.5rem', paddingTop:'0.45rem', borderTop:'1px solid rgba(34,197,94,0.15)' }}>
           {[
             { label:'Net Sales', value: fmtUSD(d.netSales), color: G },
             { label:'Checks',    value: fmtNum(d.guests),   color: '#74c0fc' },
@@ -8536,10 +8536,15 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
            content column. Mobile: horizontal tab strip on top, content flows below
            (full width, no nested scroll). ─────────── */}
       <div style={{ flex:1, minHeight:0, display:'flex', flexDirection: isNarrow ? 'column' : 'row', gap: isNarrow ? '0.6rem' : '1rem' }}>
+        {/* Labor gets the full content width on desktop — it has its own "← Back" button
+            (wired to setStoreTab('sales')), and its KPI/break-even rows were built for a
+            full-page layout; squeezed beside the rail they wrapped to extra rows for no
+            reason. Every other tab keeps the rail since they don't have that problem. */}
+        {!(storeTab === 'labor' && !isNarrow) && (
         <div style={isNarrow
           ? { display:'flex', flexDirection:'row', gap:'0.4rem', overflowX:'auto', flexShrink:0, paddingBottom:'0.25rem', WebkitOverflowScrolling:'touch' }
           : { display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, overflowY:'auto' }}>
-          {[{id:'sales',label:'📊 Sales'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
+          {[{id:'sales',label:'📊 Sales'},{id:'labor',label:'👷 Labor'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
             <button key={t.id} onClick={() => {
                 setStoreTab(t.id);
                 if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
@@ -8550,7 +8555,16 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
               style={{ display:'flex', alignItems:'center', textAlign:'left', padding:'0.6rem 0.75rem', border:`1px solid ${storeTab===t.id?O:th.cardBorder}`, borderRadius:'0.6rem', background:storeTab===t.id?O:th.card, color:storeTab===t.id?'#fff':th.muted, fontWeight:600, fontSize:'0.78rem', lineHeight:1.2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', cursor:'pointer', transition:'background .15s, color .15s, border-color .15s', boxSizing:'border-box', fontFamily:"'Raleway',sans-serif", flexShrink:0 }}>{t.label}</button>
           ))}
         </div>
+        )}
         <div ref={contentRef} style={{ flex:1, minWidth:0, overflowY: isNarrow ? 'visible' : 'auto', paddingRight: isNarrow ? 0 : 4 }}>
+
+      {/* ════ LABOR TAB — the actual full labor page (punches, who's clocked in, ════
+           schedule/simulator), not a summary — same LaborDrillDown the old standalone
+           Labor tab used, just embedded here as one more rail tab so it never leaves
+           this store's page. */}
+      {storeTab === 'labor' && (
+        <LaborDrillDown store={s} stores={stores} th={th} user={user} users={users} laborData={laborData} onBack={() => setStoreTab('sales')} />
+      )}
 
       {/* ════ FORECAST TAB ════ */}
       {storeTab === 'forecast' && <>
@@ -10800,8 +10814,18 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
 }
 
 // ─── Admin Pulse ─────────────────────────────────────────────────────────────
-function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn }) {
+function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn }) {
   const G = '#00d084';
+  const isMobile = useIsMobile(); // phones get stacked cards instead of the wide table
+  // Labor % lives inline in the Store Breakdown table (between Net Sales and Guests), and
+  // in the per-store detail page (below the Sales section) — there's no separate "Labor"
+  // page anywhere in Pulse anymore, it's just part of the same view.
+  const [laborData, setLaborData] = useState(null);
+  const fetchLaborData = useCallback(async () => {
+    try { const data = await cloudLoad('pcg_labor_v1'); if (data) setLaborData(typeof data === 'string' ? JSON.parse(data) : data); } catch {}
+  }, []);
+  useEffect(() => { fetchLaborData(); }, [fetchLaborData]);
+  useEffect(() => { const id = setInterval(fetchLaborData, 60 * 60 * 1000); return () => clearInterval(id); }, [fetchLaborData]);
   const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
 
   const [busDt,       setBusDt]      = useState(todayStr);
@@ -11150,7 +11174,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
     <div>
       {/* ── Breadcrumb ── */}
       {pulseView !== "network" && (
-        <div style={{ display:'flex', alignItems:'center', gap:'0.375rem', marginBottom:'0.75rem', fontSize:'0.8rem' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'0.375rem', marginBottom:'0.5rem', fontSize:'0.8rem' }}>
           <button onClick={() => setPulseView("network")} style={{ background:'none', border:'none', color:G, cursor:'pointer', fontWeight:600, fontFamily:"'Source Sans 3'", fontSize:'0.8rem' }}>Network</button>
           {pulseView.level === "district" && (
             <>
@@ -11393,7 +11417,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
 
       {/* ── Store Detail View ── */}
       {pulseView?.level === "store" && loaded.length > 0 && (
-        <StoreDetail key={pulseView.pc} pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} />
+        <StoreDetail key={pulseView.pc} pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} users={users} laborData={laborData} />
       )}
 
 
@@ -11470,11 +11494,65 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
               <span style={{ fontSize:'0.75rem', color:th.muted, fontWeight:600, background:th.card2, borderRadius:6, padding:'3px 10px' }}>{districtLabel(dmDistrict)}</span>
             )}
           </div>
+          {isMobile ? (
+            <div>
+              {distNums.map(distNum => {
+                const distRows = allRows.filter(s => s.district === distNum)
+                  .sort((a,b) => (b.live?.data?.netSales||0) - (a.live?.data?.netSales||0));
+                if (!distRows.length) return null;
+                const distOk = distRows.filter(s => s.live?.status === 'ok');
+                const distTotals = distOk.reduce((a,s) => ({
+                  netSales: a.netSales + s.live.data.netSales,
+                  guests:   a.guests   + s.live.data.guests,
+                }), { netSales:0, guests:0 });
+                const isCollapsed = collapsed.has(distNum);
+                return (
+                  <div key={distNum} style={{ marginBottom:'0.75rem' }}>
+                    <div onClick={()=>toggleCollapse(distNum)} style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.6rem 0.7rem', borderRadius:'0.5rem', background:`${G}10`, border:`1px solid ${G}33`, cursor:'pointer' }}>
+                      <span style={{ fontSize:'0.65rem', color:G }}>{isCollapsed ? '▶' : '▼'}</span>
+                      <span style={{ fontWeight:800, color:G, fontSize:'0.78rem', flex:1 }}>{districtLabel(distNum)}</span>
+                      <span style={{ fontSize:'0.68rem', color:G, fontWeight:600 }}>{distOk.length}/{distRows.length} live</span>
+                      <button onClick={e => { e.stopPropagation(); setPulseView({ level:'district', num:distNum }); }}
+                        style={{ background:'none', border:`1px solid ${G}44`, color:G, cursor:'pointer', fontSize:'0.62rem', fontWeight:700, padding:'0.15rem 0.5rem', borderRadius:999 }}>
+                        View →
+                      </button>
+                    </div>
+                    {!isCollapsed && distRows.map(s => {
+                      const live = s.live;
+                      const isOk = live?.status === 'ok';
+                      const lPct = laborData?.stores?.[s.pc]?.today?.laborPct;
+                      return (
+                        <div key={s.pc} onClick={() => isOk && setPulseView({ level:'store', pc:s.pc })}
+                          style={{ padding:'0.7rem 0.8rem', borderBottom:`1px solid ${th.cardBorder}`, cursor: isOk ? 'pointer' : 'default' }}>
+                          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.4rem' }}>
+                            <div>
+                              <span style={{ fontWeight:700, color:th.text, fontSize:'0.85rem' }}>{s.name}</span>
+                              {s.status !== 'Open' && <span style={{ marginLeft:6, fontSize:'0.6rem', padding:'1px 5px', borderRadius:3, fontWeight:700, color:'#fff', background: s.status === 'Remodel' ? '#fd7e14' : s.status === 'Temp Closed' ? '#dc3545' : '#6c757d' }}>{s.status}</span>}
+                              <div style={{ fontSize:'0.65rem', color:th.muted }}>{s.pc} · {s.city}</div>
+                            </div>
+                            {!live && <span style={{ fontSize:'0.68rem', color:th.muted }}>—</span>}
+                            {live?.status === 'error' && <span style={{ fontSize:'0.68rem', color:'#ff6b6b' }}>⚠️ Error</span>}
+                            {isOk && <span style={{ fontSize:'0.65rem', color:G, fontWeight:600 }}>● Live</span>}
+                          </div>
+                          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'0.4rem' }}>
+                            <div><div style={{ fontSize:'0.58rem', color:th.muted, textTransform:'uppercase' }}>Sales</div><div style={{ fontSize:'0.8rem', fontWeight:700, color: isOk ? th.text : th.muted }}>{isOk ? fmtUSD(live.data.netSales) : '—'}</div></div>
+                            <div><div style={{ fontSize:'0.58rem', color:th.muted, textTransform:'uppercase' }}>Labor</div><div style={{ fontSize:'0.8rem', fontWeight:700, color: lPct != null ? laborColor(lPct) : th.muted }}>{lPct != null ? fmtPct(lPct) : '—'}</div></div>
+                            <div><div style={{ fontSize:'0.58rem', color:th.muted, textTransform:'uppercase' }}>Guests</div><div style={{ fontSize:'0.8rem', fontWeight:700, color: isOk ? '#74c0fc' : th.muted }}>{isOk ? fmtNum(live.data.guests) : '—'}</div></div>
+                            <div><div style={{ fontSize:'0.58rem', color:th.muted, textTransform:'uppercase' }}>Avg Chk</div><div style={{ fontSize:'0.8rem', fontWeight:700, color: isOk ? '#ffd43b' : th.muted }}>{isOk ? fmtAvg(live.data.avgCheck) : '—'}</div></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
           <div style={{ overflowX:'auto' }}>
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.78rem' }}>
               <thead style={{ position:'sticky', top:0, zIndex:2 }}>
                 <tr style={{ borderBottom:`2px solid ${th.cardBorder}`, background:th.card }}>
-                  {['Store','City','Status','Net Sales','Guests','Avg Check'].map(h => (
+                  {['Store','City','Status','Net Sales','Labor','Guests','Avg Check'].map(h => (
                     <th key={h} style={{ ...thS, textAlign: h==='Store'||h==='City'||h==='Status' ? 'left' : 'right' }}>{h}</th>
                   ))}
                 </tr>
@@ -11491,6 +11569,11 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                     forecast: a.forecast + (s.live.data.forecast || 0),
                   }), { netSales:0, guests:0, forecast:0 });
                   distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
+                  const distLaborRows = distRows.map(s => laborData?.stores?.[s.pc]?.today).filter(Boolean);
+                  const distLaborSales = distLaborRows.reduce((sum, t) => sum + (t.sales || 0), 0);
+                  const distLaborDollars = distLaborRows.reduce((sum, t) => sum + (t.laborDollars || 0), 0);
+                  const distLaborPct = distLaborSales > 0 ? (distLaborDollars / distLaborSales) * 100 : null;
+                  const distLaborColor = distLaborPct == null ? th.muted : laborColor(distLaborPct);
                   const fcPct = distTotals.forecast > 0 ? (distTotals.netSales / distTotals.forecast * 100) : 0;
                   const fcColor = fcPct <= 0 ? th.muted : fcPct >= 100 ? '#22c55e' : fcPct >= 90 ? '#ff9800' : '#f44336';
                   const todayForecast = (weatherForecast?.[distNum]?.days || []).find(d => d.date === busDt);
@@ -11529,6 +11612,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                           )}
                         </td>
                         <td style={{ ...tdS, textAlign:'right', fontWeight:800, color:G }}>{fmtUSD(distTotals.netSales)}</td>
+                        <td style={{ ...tdS, textAlign:'right', fontWeight:700, color:distLaborColor }}>{distLaborPct != null ? fmtPct(distLaborPct) : '—'}</td>
                         <td style={{ ...tdS, textAlign:'right', color:'#74c0fc', fontWeight:700 }}>{fmtNum(distTotals.guests)}</td>
                         <td style={{ ...tdS, textAlign:'right', color:'#ffd43b', fontWeight:700 }}>{fmtAvg(distTotals.avgCheck)}</td>
                       </tr>
@@ -11562,6 +11646,14 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
                             <td style={{ ...tdS, textAlign:'right', fontWeight:700, color: isOk ? th.text : th.muted }}>
                               {isOk ? fmtUSD(live.data.netSales) : '—'}
                             </td>
+                            <td style={{ ...tdS, textAlign:'right', fontWeight:700 }}>
+                              {(() => {
+                                const lPct = laborData?.stores?.[s.pc]?.today?.laborPct;
+                                if (lPct == null) return <span style={{ color:th.muted }}>—</span>;
+                                const lColor = laborColor(lPct);
+                                return <span style={{ color:lColor }}>{fmtPct(lPct)}</span>;
+                              })()}
+                            </td>
                             <td style={{ ...tdS, textAlign:'right', color: isOk ? '#74c0fc' : th.muted }}>
                               {isOk ? fmtNum(live.data.guests) : '—'}
                             </td>
@@ -11577,6 +11669,7 @@ function AdminPulse({ stores, districts, th, user, drillInStore, onClearDrillIn 
               </tbody>
             </table>
           </div>
+          )}
         </div>
       )}
 
@@ -22693,7 +22786,6 @@ const computeRoleTabs = (user) => {
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
-    { id: "labor",     label: "Labor",          icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "P&L",            icon: (c) => ICONS.dollar(c) },
     { id: "ndcp",      label: "NDCP Orders",    icon: (c) => ICONS.dollar(c) },
     { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.map(c) },
@@ -22717,7 +22809,6 @@ const computeRoleTabs = (user) => {
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
-    { id: "labor",     label: "Labor",        icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "P&L",          icon: (c) => ICONS.dollar(c) },
     { id: "ndcp",      label: "NDCP Orders",  icon: (c) => ICONS.dollar(c) },
     { id: "impact",    label: "Impact Radar", icon: (c) => ICONS.map(c) },
@@ -22745,7 +22836,6 @@ const computeRoleTabs = (user) => {
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "anomalies", label: "Anomalies",      icon: (c) => ICONS.anomalies(c) },
-    { id: "labor",     label: "Labor",          icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "District P&L",   icon: (c) => ICONS.dollar(c) },
     { id: "cash",      label: "Cash",           icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",        icon: (c) => ICONS.reports(c) },
@@ -24038,7 +24128,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.82";
+const APP_VERSION = "v18.92";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -41411,7 +41501,9 @@ function PCGPortal() {
   const isGoingBackRef = useRef(false);          // flag to suppress history push on goBack
   const sidebarNavRef  = useRef(null);           // ref to sidebar nav scroll container
   const sidebarScrollPos = useRef(0);            // persisted scroll position across re-renders
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem('pcg_sidebar_collapsed') === 'true'; } catch { return false; } });
+  // Default to collapsed (icon rail) on first-ever load so every page starts with more
+  // room for content — once a user explicitly expands/collapses it, that choice persists.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { const v = localStorage.getItem('pcg_sidebar_collapsed'); return v === null ? true : v === 'true'; } catch { return true; } });
   // Collapsed-sidebar group flyout: { key, top, left } of the clicked group icon.
   // Without this, group tabs are unreachable while collapsed (icon click had no effect).
   const [navFlyout, setNavFlyout] = useState(null);
@@ -41621,10 +41713,10 @@ function PCGPortal() {
   // ── Sidebar pinning + base-tab grouping ──────────────────────────────
   // Default favorites per role (frequently-used tabs surfaced at top).
   const PINNED_DEFAULTS = {
-    executive: ['pulse', 'labor', 'pnl', 'projects'],
-    it:        ['pulse', 'labor', 'pnl', 'projects'],
-    office_staff: ['pulse', 'labor', 'reports', 'projects'],
-    dm:        ['pulse', 'labor', 'reports'],
+    executive: ['pulse', 'pnl', 'projects'],
+    it:        ['pulse', 'pnl', 'projects'],
+    office_staff: ['pulse', 'reports', 'projects'],
+    dm:        ['pulse', 'reports'],
     manager:   ['labor', 'reports'],
   };
   const pinnedNavIds = (pinnedTabIds ?? (PINNED_DEFAULTS[user?.userType] || []))
@@ -43078,7 +43170,7 @@ function PCGPortal() {
           🔒 Lock
         </button>
         <div style={{ padding:"1.5rem 2rem" }}>
-          <AdminPulse stores={stores} districts={districts} th={th} user={user} />
+          <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} />
         </div>
       </div>
     );
@@ -43266,7 +43358,7 @@ function PCGPortal() {
 
   // ─── Admin groups config ──────────────────────────────────────────────────
   const ADMIN_GROUPS = [
-    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['tasks', 'pulse', 'labor', 'analytics', 'anomalies', 'scorecard', 'audits'] },
+    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['tasks', 'pulse', 'analytics', 'anomalies', 'scorecard', 'audits'] },
     { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon', 'expenses'] },
     { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'impact', 'projects', 'deals', 'users'] },
     { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'admin'] },
@@ -43681,7 +43773,7 @@ function PCGPortal() {
           const dmTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
           const DM_GROUPS = [
             { key:'dm_loc',  label:'Locations & Map', color:'#74c0fc', icon:(c)=>ICONS.locations(c), ids:['map','locations'] },
-            { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['tasks','pulse','labor','pnl','analytics','anomalies','audits'] },
+            { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['tasks','pulse','pnl','analytics','anomalies','audits'] },
             { key:'dm_biz',  label:'District',        color:'#74c0fc', icon:(c)=>ICONS.dollar(c),    ids:['cash','reports','projects','deals','scorecard'] },
           ];
           const sectionHasActive = dmTabs.some(t => t.id === tab) && !pinnedNavIds.includes(tab);
@@ -43973,7 +44065,7 @@ function PCGPortal() {
             overflow:'auto' on the main wrapper meant it never actually pinned; now that
             sticky works in here, 'relative' preserves the scroll-away behavior users know.
             Flip to sticky deliberately if a persistent header is ever wanted. */}
-        <div className="mobile-topbar-padding" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "0.6rem 1rem" : "1.4vw 5vw", minHeight: isMobile ? 52 : "unset", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "relative", zIndex: 10, transition: "background .3s, border .3s" }}>
+        <div className="mobile-topbar-padding" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "0.6rem 1rem" : "0.6rem 5vw", minHeight: isMobile ? 52 : "unset", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "relative", zIndex: 10, transition: "background .3s, border .3s" }}>
           <div style={{ display: "flex", alignItems: "center", gap:"0.75rem" }}>
             {/* Hamburger — mobile only */}
             {isMobile && (
@@ -43986,10 +44078,10 @@ function PCGPortal() {
               </button>
             )}
             <div>
-              <h1 style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: isMobile ? 17 : 20, color: th.text, letterSpacing: -0.5 }}>
+              <h1 style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: isMobile ? 17 : 18, color: th.text, letterSpacing: -0.5, lineHeight: 1.1 }}>
                 {(() => { const ct = TABS.find(t => t.id === tab); return ct ? <>{typeof ct.icon === "function" ? ct.icon(th.text) : ct.icon} {ct.label}</> : null; })()}
               </h1>
-              <p className="hide-mobile" style={{ color: th.muted, fontSize:"0.75rem", marginTop:"0.125rem" }}>
+              <p className="hide-mobile" style={{ color: th.muted, fontSize:"0.7rem", marginTop:"0.1rem", lineHeight: 1.1 }}>
                 {tab === "dashboard" && "Your operations command center."}
                 {tab === "links" && "All your key resources in one place."}
                 {tab === "contacts" && "Team directory and vendor contacts."}
@@ -44347,7 +44439,7 @@ function PCGPortal() {
           document.body
         )}
 
-        <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : (tab === "locations" || tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "1.25rem 5vw 1rem" : "3vw 5vw" }}>
+        <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : (tab === "locations" || tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
           {/* App-wide error boundary: any tab that throws during render shows a fallback
               instead of white-screening the whole app. key={tab} remounts it on tab change
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
@@ -44364,7 +44456,7 @@ function PCGPortal() {
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
-          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
