@@ -6,7 +6,10 @@
 // did and on whose behalf. Every action is reversible (close↔reopen, comments/expenses
 // deletable). Permission is re-checked here as defense-in-depth.
 
+import https from 'node:https';
 import { sql } from '../_shared/db.mjs';
+import { cacheLoad } from './analyst-cache.mjs';
+import { STORES } from './analyst-data.mjs';
 
 // ── Anthropic tool schemas ──────────────────────────────────────────────────
 const MAINT_TOOLS = [
@@ -97,6 +100,51 @@ async function resolveActorName(db, actorId) {
   try { const r = await db`SELECT name FROM users WHERE id = ${actorId}`; return r[0]?.name || null; } catch { return null; }
 }
 
+// ── Ticket-creation email (Resend) ──────────────────────────────────────────
+// The manual UI path (AdminTickets' sendTicketNotification in app.jsx) sends an email
+// on every new ticket; Orion's create_followup_ticket writes straight to Postgres and
+// had no equivalent, so tickets it created never notified anyone. Mirrors the same
+// recipient logic (admin notify list + the store's own email) server-side.
+function sendResendEmail(to, subject, html) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({
+      from: process.env.NOTIFY_FROM || 'PCG Portal <noreply@pcgops.com>',
+      to,
+      subject,
+      html,
+    });
+    const req = https.request({
+      hostname: 'api.resend.com', port: 443, path: '/emails', method: 'POST',
+      headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => { res.resume(); resolve(res.statusCode); });
+    req.on('error', () => resolve(0));
+    req.write(body); req.end();
+  });
+}
+
+async function sendTicketCreatedEmail(ticket, actor) {
+  if (!process.env.RESEND_API_KEY) return;
+  let notifyEmails = [];
+  let stores = [];
+  try { notifyEmails = (await cacheLoad('pcg_ticket_notify_v1')) || []; } catch {}
+  try { stores = (await cacheLoad('pcg_stores_v1')) || []; } catch {}
+  const storeEmail = stores.find((s) => String(s.pc) === String(ticket.storePC))?.email || null;
+  const to = [...notifyEmails.filter((e) => e && e.includes('@')), ...(storeEmail ? [storeEmail] : [])];
+  if (!to.length) return;
+
+  const prioColor = { High: '#ef4444', Medium: '#f59e0b', Low: '#22c55e' }[ticket.priority] || '#aaa';
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;">
+      <p style="font-size:13px;color:#666;">Created by Orion, on behalf of ${actor}.</p>
+      <h2 style="margin:0 0 8px;">${ticket.number} — ${ticket.title}</h2>
+      <span style="display:inline-block;background:${prioColor}18;color:${prioColor};border-radius:20px;padding:4px 13px;font-size:11px;font-weight:700;">${ticket.priority} Priority</span>
+      ${ticket.description ? `<p style="margin:16px 0;color:#374151;">${ticket.description}</p>` : ''}
+      <p style="font-size:13px;color:#666;">Store: ${ticket.storeName || ('PC ' + ticket.storePC)}${ticket.category ? ` &middot; ${ticket.category}` : ''}</p>
+    </div>`;
+  try { await sendResendEmail(to, `[PCG Ticket ${ticket.number}] ${ticket.title} — ${ticket.storeName || ticket.storePC}`, html); }
+  catch { /* best-effort */ }
+}
+
 async function findTicket(db, ref) {
   const s = String(ref || '').trim();
   if (!s) return null;
@@ -170,15 +218,31 @@ async function executeMaintTool(name, input, ctx = {}) {
         return { ok: true, summary: `$${amt.toFixed(2)} expense added to ${tk.number}.` };
       }
       case 'create_followup_ticket': {
+        // The model doesn't always have store roster context (esp. on the maintenance
+        // persona), so it can pass a store NAME instead of a PC# — resolve either to the
+        // real numeric PC here rather than trusting the raw input, or tickets get filed
+        // under a nonexistent "store_pc" that never matches any user's assigned store.
+        const rawStore = String(input.store_pc || '').trim();
+        const resolvedStore = STORES.find((s) => String(s.pc) === rawStore)
+          || STORES.find((s) => s.name.toLowerCase() === rawStore.toLowerCase());
+        if (!resolvedStore) return { ok: false, error: `Could not find a store matching "${input.store_pc}". Use the store's PC# or exact name.` };
+        const storePC = resolvedStore.pc;
+
         const id = Date.now();
         // Next number = highest existing T-#### suffix + 1. count(*) would collide after any
         // deletion (number is not the PK), so derive it from the max numeric suffix instead.
         const [{ maxn }] = await db`SELECT COALESCE(MAX(NULLIF(regexp_replace(number, '[^0-9]', '', 'g'), '')::int), 0) AS maxn FROM maint_tickets`;
         const number = `T-${String((maxn || 0) + 1).padStart(4, '0')}`;
-        const st = await db`SELECT store_name, address FROM maint_tickets WHERE store_pc=${String(input.store_pc)} ORDER BY created_at DESC LIMIT 1`;
+        const st = await db`SELECT store_name, address FROM maint_tickets WHERE store_pc=${storePC} ORDER BY created_at DESC LIMIT 1`;
+        const storeName = st[0]?.store_name || resolvedStore.name;
         await db`INSERT INTO maint_tickets (id, number, title, description, status, priority, category, store_pc, store_name, address, created_by, created_at, updated_at)
-                 VALUES (${id}, ${number}, ${input.title}, ${input.description ?? null}, 'Open', ${input.priority || 'Medium'}, ${input.category ?? null}, ${String(input.store_pc)}, ${st[0]?.store_name ?? null}, ${st[0]?.address ?? null}, ${actor}, ${now}, ${now})`;
-        return { ok: true, summary: `Created ${number} "${input.title}" for ${st[0]?.store_name || ('PC ' + input.store_pc)}.` };
+                 VALUES (${id}, ${number}, ${input.title}, ${input.description ?? null}, 'Open', ${input.priority || 'Medium'}, ${input.category ?? null}, ${storePC}, ${storeName}, ${st[0]?.address ?? null}, ${actor}, ${now}, ${now})`;
+        await sysComment(id, `Ticket created via Orion, by ${actor}`);
+        sendTicketCreatedEmail({
+          number, title: input.title, description: input.description, priority: input.priority || 'Medium',
+          category: input.category, storePC, storeName,
+        }, actor).catch(() => {});
+        return { ok: true, summary: `Created ${number} "${input.title}" for ${storeName}.` };
       }
       default:
         return { ok: false, error: `Unknown tool ${name}.` };
