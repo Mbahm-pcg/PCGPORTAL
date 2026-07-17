@@ -15,12 +15,13 @@ import { findStoreByPcOrName } from './analyst-data.mjs';
 const MAINT_TOOLS = [
   {
     name: 'update_ticket_status',
-    description: "Change a ticket's status. Use 'In Progress' when starting work, 'Closed' when the job is done, 'Open' to reopen a closed ticket.",
+    description: "Change a ticket's status. Use 'In Progress' when starting work, 'Closed' when the job is done, 'Open' to reopen a closed ticket. Closing REQUIRES `note`: a short (1-50 word) summary of what the issue was or how it was fixed — ask the user for one if they haven't given it before calling this with status 'Closed'.",
     input_schema: {
       type: 'object',
       properties: {
         ticket: { type: 'string', description: 'Ticket number (e.g. T-0003) or numeric id exactly as shown on the board.' },
         status: { type: 'string', enum: ['Open', 'In Progress', 'Closed'], description: 'The new status.' },
+        note: { type: 'string', description: "Required when status is 'Closed': a 1-50 word completion note (what was checked or fixed). Not used for other statuses." },
       },
       required: ['ticket', 'status'],
     },
@@ -183,11 +184,19 @@ async function executeMaintTool(name, input, ctx = {}) {
       case 'update_ticket_status': {
         const status = input.status;
         if (status === 'Closed') {
-          await db`UPDATE maint_tickets SET status='Closed', closed_by=${actor}, closed_at=${now}, updated_at=${now} WHERE id=${tk.id}`;
+          // Same rule the Tickets UI enforces via its close modal — required here
+          // too since this is a separate write path straight to Postgres.
+          const note = (input.note || '').trim();
+          const wordCount = note ? note.split(/\s+/).filter(Boolean).length : 0;
+          if (wordCount === 0) return { ok: false, error: "A short completion note (1-50 words: what the issue was or how it got fixed) is required to close a ticket. Ask the user for one, then retry with `note` filled in." };
+          if (wordCount > 50) return { ok: false, error: `That note is ${wordCount} words — ask for something under 50 words and retry.` };
+          await db`UPDATE maint_tickets SET status='Closed', closed_by=${actor}, closed_at=${now}, updated_at=${now}, meta = meta || ${JSON.stringify({ completionNote: note })}::jsonb WHERE id=${tk.id}`;
+          await sysComment(tk.id, `✓ Closed — ${note} (via Orion, by ${actor})`);
+          return { ok: true, summary: `${tk.number} closed.` };
         } else if (status === 'In Progress') {
           await db`UPDATE maint_tickets SET status='In Progress', started_by=COALESCE(started_by, ${actor}), started_at=COALESCE(started_at, ${now}), updated_at=${now} WHERE id=${tk.id}`;
         } else {
-          await db`UPDATE maint_tickets SET status='Open', closed_by=NULL, closed_at=NULL, updated_at=${now} WHERE id=${tk.id}`;
+          await db`UPDATE maint_tickets SET status='Open', closed_by=NULL, closed_at=NULL, updated_at=${now}, meta = meta - 'completionNote' WHERE id=${tk.id}`;
         }
         await sysComment(tk.id, `Status → ${status} (via Orion, by ${actor})`);
         return { ok: true, summary: `${tk.number} set to ${status}.` };

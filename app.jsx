@@ -44,6 +44,23 @@ function useIsMobile() {
   return isMobile;
 }
 
+// Touch has no real "hover" — a tap synthesizes a mouseenter with no matching
+// mouseleave (so a highlight can get stuck), and pressing one element then dragging
+// into another triggers the browser's native text-selection gesture instead of a
+// hover change. Since hovering isn't a real gesture on a touchscreen, hover-driven
+// highlight state (chart-to-list sync, etc.) should just not be tracked there.
+function useNoHoverDevice() {
+  const [noHover, setNoHover] = useState(() => typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(hover: none)').matches);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(hover: none)');
+    const handler = () => setNoHover(mq.matches);
+    mq.addEventListener ? mq.addEventListener('change', handler) : mq.addListener(handler);
+    return () => { mq.removeEventListener ? mq.removeEventListener('change', handler) : mq.removeListener(handler); };
+  }, []);
+  return noHover;
+}
+
 // Fixed-frame height for "Section 1 stays put, Section 2 scrolls" layouts (Users list,
 // Pulse store detail, task manager, locations): the space from the frame's DOCUMENT top
 // (rect.top + scrollY — scroll-invariant, so window scrolling can't feed back into a
@@ -8066,10 +8083,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const [weekTotals, setWeekTotals] = React.useState(null); // { wtdSales, wtdForecast, weekForecast, daysLoaded }
   const [hoveredTender, setHoveredTender] = React.useState(null);
   const [hoveredHour, setHoveredHour] = React.useState(null);
-  // Scrolling (wheel, trackpad, or a dragged scrollbar) moves the hourly rows under the
-  // cursor without firing a new mouseenter/mouseleave pair, so the last-hovered hour was
-  // getting stuck highlighted after the list moved. Any scroll clears it. Capture phase
-  // so it also catches scrolling on an inner container, not just the window.
+  const noHoverDevice = useNoHoverDevice();
+  // Any scroll still clears it too, as a second line of defense on devices that do have hover
+  // (trackpad/mouse wheel moves rows under the cursor without firing enter/leave).
   React.useEffect(() => {
     const clear = () => setHoveredHour(null);
     window.addEventListener('scroll', clear, true);
@@ -8701,7 +8717,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                       const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
                       return (
                         <g key={h.hour}
-                          onMouseEnter={() => setHoveredHour(h.hour)}
+                          onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(h.hour); }}
                           onMouseLeave={() => setHoveredHour(null)}
                           style={{ cursor:'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
                           {/* Invisible hit area for easy hovering */}
@@ -8743,7 +8759,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                       const avg = h.count > 0 ? h.sales / h.count : 0;
                       return (
                         <div key={h.hour}
-                          onMouseEnter={() => setHoveredHour(h.hour)}
+                          onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(h.hour); }}
                           onMouseLeave={() => setHoveredHour(null)}
                           style={{
                             display:'flex', alignItems:'center', gap:'0.5rem',
@@ -8786,7 +8802,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                 <DonutChart
                   data={tenderData.map((t,i) => ({ value: t.ttl, color: CHART_COLORS[i % CHART_COLORS.length], name: t.name }))}
                   hoveredIdx={hoveredTender}
-                  onHover={setHoveredTender} />
+                  onHover={i => { if (!noHoverDevice) setHoveredTender(i); }} />
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:'0.2rem', minWidth:0 }}>
                 {tenderData.slice(0, 8).map((t, i) => {
@@ -8797,7 +8813,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                   const color = CHART_COLORS[i % CHART_COLORS.length];
                   return (
                     <div key={i}
-                      onMouseEnter={() => setHoveredTender(i)}
+                      onMouseEnter={() => { if (!noHoverDevice) setHoveredTender(i); }}
                       onMouseLeave={() => setHoveredTender(null)}
                       style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.72rem',
                         padding:'0.28rem 0.5rem', borderRadius:'0.375rem', cursor:'pointer', minWidth:0,
@@ -8949,7 +8965,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                     const isDimmed = hoveredHour != null && hoveredHour !== p.hour;
                     return (
                       <g key={i}
-                        onMouseEnter={() => setHoveredHour(p.hour)}
+                        onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(p.hour); }}
                         onMouseLeave={() => setHoveredHour(null)}
                         style={{ cursor:'pointer' }}
                         opacity={isDimmed ? 0.35 : 1}>
@@ -8977,7 +8993,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                     const isDimmed = hoveredHour != null && hoveredHour !== p.hour;
                     return (
                       <g key={`c${i}`}
-                        onMouseEnter={() => setHoveredHour(p.hour)}
+                        onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(p.hour); }}
                         onMouseLeave={() => setHoveredHour(null)}
                         opacity={isDimmed ? 0.35 : 1}
                         style={{ cursor:'pointer' }}>
@@ -9728,7 +9744,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
 }
 
 // ─── District Detail ─────────────────────────────────────────────────────────
-function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView }) {
+function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView, laborData }) {
+  const laborColor = pct => pct == null ? th.muted : pct <= 22.9 ? '#22c55e' : pct <= 25.9 ? '#f59e0b' : '#ef4444';
+  const laborLabel = pct => pct == null ? '—' : pct <= 22.9 ? 'On Target' : pct <= 25.9 ? 'Watch' : 'Over';
   const distStores = stores.filter(s => s.district === distNum);
 
   const fmtUSD = v => '$' + Math.round(v).toLocaleString();
@@ -9764,10 +9782,9 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
   const [weekTotals, setWeekTotals] = React.useState(null);
   const [hoveredTender, setHoveredTender] = React.useState(null);
   const [hoveredHour, setHoveredHour] = React.useState(null);
-  // Scrolling (wheel, trackpad, or a dragged scrollbar) moves the hourly rows under the
-  // cursor without firing a new mouseenter/mouseleave pair, so the last-hovered hour was
-  // getting stuck highlighted after the list moved. Any scroll clears it. Capture phase
-  // so it also catches scrolling on an inner container, not just the window.
+  const noHoverDevice = useNoHoverDevice();
+  // Any scroll still clears it too, as a second line of defense on devices that do have hover
+  // (trackpad/mouse wheel moves rows under the cursor without firing enter/leave).
   React.useEffect(() => {
     const clear = () => setHoveredHour(null);
     window.addEventListener('scroll', clear, true);
@@ -10211,10 +10228,18 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
+      {/* Sales hero card */}
+      <div style={{ background:th.card, borderRadius:'0.9rem', padding:'1.25rem 1.4rem', border:`1px solid ${th.cardBorder}`, marginBottom:'0.75rem', transition:'all .2s cubic-bezier(.4,0,.2,1)' }}
+        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = G + '55'; e.currentTarget.style.boxShadow = `0 10px 24px rgba(0,0,0,0.08), 0 0 0 1px ${G}33, 0 0 18px ${G}22`; }}
+        onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = th.cardBorder; e.currentTarget.style.boxShadow = 'none'; }}
+      >
+        <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'2rem', letterSpacing:-1, lineHeight:1, color:G, textShadow:`0 0 18px ${G}44` }}>{fmtUSD(d.netSales)}</div>
+        <div style={{ fontSize:'0.72rem', color:th.muted, fontWeight:600, marginTop:'0.4rem' }}>{'Net Sales · ' + (viewMode === 'week' ? 'This Week' : 'Today')}</div>
+      </div>
+
+      {/* Secondary stats strip */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(170px, 1fr))', gap:'0.75rem', marginBottom:'1.25rem' }}>
         {[
-          { label: 'Net Sales', value: fmtUSD(d.netSales), color: G, glow: true },
           { label: 'Checks', value: fmtNum(d.guests), color: '#74c0fc' },
           { label: 'Avg Check', value: fmtAvg(d.avgCheck), color: '#ffd43b' },
           { label: 'Discounts', value: fmtUSD(d.discounts), color: '#f06595' },
@@ -10245,7 +10270,6 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
             <div style={{
               fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.45rem',
               color: k.color, letterSpacing: -0.5, lineHeight: 1,
-              textShadow: k.glow ? `0 0 18px ${k.color}55` : 'none',
             }}>{k.value}</div>
             <div style={{ fontSize: '0.6rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 800, marginTop: '0.35rem' }}>{k.label}</div>
             {k.sub && <div style={{ fontSize: '0.58rem', color: th.muted, opacity: 0.7, marginTop: '0.2rem', fontWeight: 600 }}>{k.sub}</div>}
@@ -10274,6 +10298,68 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
             <span>{'Forecast: ' + fmtUSD(weekTotals.dayForecast)}</span>
           </div>
         </div>
+        );
+      })()}
+
+      {/* Labor */}
+      {laborData?.stores && (() => {
+        const rows = distStores.map(s => ({ s, ld: laborData.stores[s.pc]?.today })).filter(r => r.ld);
+        if (rows.length === 0) return null;
+        const totalLaborDollars = rows.reduce((a, r) => a + (r.ld.laborDollars || 0), 0);
+        const totalSales = rows.reduce((a, r) => a + (r.ld.sales || 0), 0);
+        const distLaborPct = totalSales > 0 ? (totalLaborDollars / totalSales) * 100 : null;
+        const onClock = rows.reduce((a, r) => a + (r.ld.employeesOnClock || 0), 0);
+        const overtime = rows.reduce((a, r) => a + (r.ld.overtimeCount || 0), 0);
+        const partialCoverage = rows.length < distStores.length;
+        return (
+          <>
+            <div style={{ height:1, background:`linear-gradient(90deg, ${G}44, transparent)`, margin:'0 0 1rem' }} />
+            {partialCoverage && (
+              <div style={{ fontSize:'0.7rem', color:'#f59e0b', fontWeight:600, marginBottom:'0.6rem' }}>
+                ⚠ Only {rows.length} of {distStores.length} stores have labor data right now — totals below don't cover the whole district.
+              </div>
+            )}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:'0.7rem', marginBottom:'0.9rem' }}>
+              {[
+                { v: distLaborPct != null ? distLaborPct.toFixed(1)+'%' : '—', l: 'District Labor %', c: laborColor(distLaborPct), sub: laborLabel(distLaborPct) },
+                { v: fmtUSD(totalLaborDollars), l: 'Labor $ · Today', c: '#4dabf7', sub: 'vs ' + fmtUSD(totalSales) + ' net sales' },
+                { v: onClock, l: 'Employees On Clock', c: '#22c55e', sub: (partialCoverage ? rows.length + ' of ' + distStores.length : 'Across ' + rows.length) + ' stores, right now' },
+                { v: overtime, l: 'Employees In Overtime', c: overtime > 0 ? '#ef4444' : th.muted, sub: overtime > 0 ? 'Flag before end of shift' : 'None right now' },
+              ].map(k => (
+                <div key={k.l} style={{ position:'relative', background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:'0.9rem', padding:'1rem 1.1rem', overflow:'hidden' }}>
+                  <div aria-hidden="true" style={{ position:'absolute', left:0, top:0, bottom:0, width:4, background:k.c }} />
+                  <div style={{ fontSize:'1.4rem', fontWeight:800, color:k.c }}>{k.v}</div>
+                  <div style={{ fontSize:'0.72rem', color:th.muted, fontWeight:600, marginTop:'0.3rem' }}>{k.l}</div>
+                  <div style={{ fontSize:'0.62rem', color:th.muted, opacity:0.75, marginTop:'0.15rem' }}>{k.sub}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:'0.9rem', padding:'0.5rem 1rem 0.2rem', marginBottom:'1.25rem', overflowX:'auto' }}>
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.8rem' }}>
+                <thead>
+                  <tr>
+                    {['Store','Labor %','Labor $','Net Sales','On Clock','OT'].map(h => (
+                      <th key={h} style={{ textAlign:'left', fontSize:'0.6rem', textTransform:'uppercase', letterSpacing:0.5, color:th.muted, fontWeight:800, padding:'0.5rem 0.5rem', borderBottom:`1px solid ${th.cardBorder}` }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(({ s, ld }) => (
+                    <tr key={s.pc}>
+                      <td style={{ padding:'0.55rem 0.5rem', borderBottom:`1px solid ${th.cardBorder}55`, fontWeight:700, color:th.text }}>{s.name}</td>
+                      <td style={{ padding:'0.55rem 0.5rem', borderBottom:`1px solid ${th.cardBorder}55` }}>
+                        <span style={{ display:'inline-block', fontWeight:800, padding:'0.15rem 0.5rem', borderRadius:6, background: laborColor(ld.laborPct) + '22', color: laborColor(ld.laborPct) }}>{ld.laborPct != null ? ld.laborPct.toFixed(1)+'%' : '—'}</span>
+                      </td>
+                      <td style={{ padding:'0.55rem 0.5rem', borderBottom:`1px solid ${th.cardBorder}55`, color:th.text }}>{fmtUSD(ld.laborDollars || 0)}</td>
+                      <td style={{ padding:'0.55rem 0.5rem', borderBottom:`1px solid ${th.cardBorder}55`, color:th.text }}>{fmtUSD(ld.sales || 0)}</td>
+                      <td style={{ padding:'0.55rem 0.5rem', borderBottom:`1px solid ${th.cardBorder}55`, color:th.text }}>{ld.employeesOnClock ?? '—'}</td>
+                      <td style={{ padding:'0.55rem 0.5rem', borderBottom:`1px solid ${th.cardBorder}55`, color: ld.overtimeCount > 0 ? '#ef4444' : th.muted, fontWeight: ld.overtimeCount > 0 ? 800 : 400 }}>{ld.overtimeCount ?? 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         );
       })()}
 
@@ -10481,7 +10567,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                       const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
                       return (
                         <g key={h.hour}
-                          onMouseEnter={() => setHoveredHour(h.hour)}
+                          onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(h.hour); }}
                           onMouseLeave={() => setHoveredHour(null)}
                           style={{ cursor:'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
                           <rect x={x - 2} y={0} width={barW + 4} height={H + 40} fill="transparent" />
@@ -10521,7 +10607,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                       const avg = h.count > 0 ? h.sales / h.count : 0;
                       return (
                         <div key={h.hour}
-                          onMouseEnter={() => setHoveredHour(h.hour)}
+                          onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(h.hour); }}
                           onMouseLeave={() => setHoveredHour(null)}
                           style={{
                             display:'flex', alignItems:'center', gap:'0.5rem',
@@ -10564,7 +10650,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                 <DonutChart
                   data={tenderData.map((t,i) => ({ value: t.ttl, color: CHART_COLORS[i % CHART_COLORS.length], name: t.name }))}
                   hoveredIdx={hoveredTender}
-                  onHover={setHoveredTender} />
+                  onHover={i => { if (!noHoverDevice) setHoveredTender(i); }} />
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:'0.2rem', minWidth:0 }}>
                 {tenderData.slice(0, 8).map((t, i) => {
@@ -10575,7 +10661,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                   const color = CHART_COLORS[i % CHART_COLORS.length];
                   return (
                     <div key={i}
-                      onMouseEnter={() => setHoveredTender(i)}
+                      onMouseEnter={() => { if (!noHoverDevice) setHoveredTender(i); }}
                       onMouseLeave={() => setHoveredTender(null)}
                       style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.72rem',
                         padding:'0.28rem 0.5rem', borderRadius:'0.375rem', cursor:'pointer', minWidth:0,
@@ -10717,7 +10803,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                     const isDimmed = hoveredHour != null && hoveredHour !== p.hour;
                     return (
                       <g key={i}
-                        onMouseEnter={() => setHoveredHour(p.hour)}
+                        onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(p.hour); }}
                         onMouseLeave={() => setHoveredHour(null)}
                         style={{ cursor:'pointer' }}
                         opacity={isDimmed ? 0.35 : 1}>
@@ -10743,7 +10829,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                     const isDimmed = hoveredHour != null && hoveredHour !== p.hour;
                     return (
                       <g key={`c${i}`}
-                        onMouseEnter={() => setHoveredHour(p.hour)}
+                        onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(p.hour); }}
                         onMouseLeave={() => setHoveredHour(null)}
                         opacity={isDimmed ? 0.35 : 1}
                         style={{ cursor:'pointer' }}>
@@ -11276,6 +11362,10 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
             <HeartbeatLine />
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem', alignItems:'flex-end' }}>
+            {/* Week selector + Daily/Week toggle only make sense at the Network level —
+                District Detail has its own date/view controls right below, so showing
+                both here too was pure duplication (confusing, not just redundant). */}
+            {pulseView === "network" && <>
             {/* ─── Week selector: ‹ prev | date | next › ─── */}
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: '#001a0d', border: `1px solid ${G}44`, borderRadius: '0.625rem', padding: '0.25rem' }}>
               <button onClick={() => {
@@ -11331,6 +11421,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                 </div>
               );
             })()}
+            </>}
             <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', justifyContent:'flex-end' }}>
               <button onClick={handleManualRefresh} disabled={loading}
                 title="Also restarts the network-wide labor pull in the background"
@@ -11344,21 +11435,24 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                   fontSize:'0.78rem', padding:'0.4rem 0.75rem' }) }}>
                 {autoRefresh ? `⏱ ${Math.floor(countdown/60)}:${String(countdown%60).padStart(2,'0')}` : '🔄 Auto'}
               </button>
-              {/* Daily | Week (WTD) toggle */}
-              <div style={{ display:'inline-flex', alignItems:'center', gap:6, marginLeft:8 }}>
-                <div style={{ display:'inline-flex', borderRadius:8, overflow:'hidden', border:`1px solid ${th.cardBorder}` }}>
-                  {[['day','Daily'],['week','Week']].map(([m,label]) => (
-                    <button key={m} onClick={() => setViewMode(m)}
-                      style={{ padding:'0.4rem 0.7rem', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', border:'none',
-                        background: viewMode===m ? G : 'transparent', color: viewMode===m ? '#04150d' : th.muted }}>
-                      {label}{m==='week' && weekLoading ? ' ⏳' : ''}
-                    </button>
-                  ))}
+              {/* Daily | Week (WTD) toggle — only meaningful for the Network grid; District
+                  Detail has its own Day/Week state and never reads this one. */}
+              {pulseView === "network" && (
+                <div style={{ display:'inline-flex', alignItems:'center', gap:6, marginLeft:8 }}>
+                  <div style={{ display:'inline-flex', borderRadius:8, overflow:'hidden', border:`1px solid ${th.cardBorder}` }}>
+                    {[['day','Daily'],['week','Week']].map(([m,label]) => (
+                      <button key={m} onClick={() => setViewMode(m)}
+                        style={{ padding:'0.4rem 0.7rem', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', border:'none',
+                          background: viewMode===m ? G : 'transparent', color: viewMode===m ? '#04150d' : th.muted }}>
+                        {label}{m==='week' && weekLoading ? ' ⏳' : ''}
+                      </button>
+                    ))}
+                  </div>
+                  {viewMode==='week' && (
+                    <span style={{ fontSize:'0.6rem', color:th.muted }}>WTD · Sun→today ({getWeekDates(busDt).length}d)</span>
+                  )}
                 </div>
-                {viewMode==='week' && (
-                  <span style={{ fontSize:'0.6rem', color:th.muted }}>WTD · Sun→today ({getWeekDates(busDt).length}d)</span>
-                )}
-              </div>
+              )}
             </div>
             <div style={{ fontSize:'0.68rem', color:`${G}88` }}>
               <span style={{color:G}}>● API connected</span>
@@ -11466,7 +11560,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
 
       {/* ── District Detail View ── */}
       {pulseView?.level === "district" && loaded.length > 0 && (
-        <DistrictDetail distNum={pulseView.num} stores={stores} storeData={storeData} busDt={busDt} districts={districts} th={th} G={G} setPulseView={setPulseView} />
+        <DistrictDetail distNum={pulseView.num} stores={stores} storeData={storeData} busDt={busDt} districts={districts} th={th} G={G} setPulseView={setPulseView} laborData={laborData} />
       )}
 
       {/* ── Store Detail View ── */}
@@ -18756,6 +18850,8 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const [filters, setFilters] = React.useState({ priority: "all", category: "all" });
   const [detailTab, setDetailTab] = React.useState("details");
   const [newComment, setNewComment] = React.useState("");
+  const [closeModalId, setCloseModalId] = React.useState(null); // ticket id pending the required completion note
+  const [closeNoteText, setCloseNoteText] = React.useState("");
   const [showExpenseModal, setShowExpenseModal] = React.useState(false);
   const [expenseForm, setExpenseForm] = React.useState({ description: '', amount: '', category: 'Parts', noExpense: false, receiptBase64: '', receiptLoading: false });
   const [expenseSaving, setExpenseSaving] = React.useState(false);
@@ -19099,18 +19195,33 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     showAlert("success","Ticket created — notification sent");
   };
 
-  const updateStatus = (id, status) => setTickets(ts => ts.map(t => {
+  const updateStatus = (id, status, completionNote) => setTickets(ts => ts.map(t => {
     if (t.id !== id) return t;
     const now = new Date().toISOString();
     const extra = status === 'In Progress' && t.status !== 'In Progress'
       ? { startedBy: user?.name, startedAt: now }
       : status === 'Closed'
-      ? { closedBy: user?.name, closedAt: now }
+      ? { closedBy: user?.name, closedAt: now, completionNote: completionNote || null }
       : status === 'Open'
-      ? { startedBy: null, startedAt: null, closedBy: null, closedAt: null }
+      ? { startedBy: null, startedAt: null, closedBy: null, closedAt: null, completionNote: null }
       : {};
-    return { ...t, status, updatedAt: now, ...extra };
+    const comments = status === 'Closed' && completionNote
+      ? [...(t.comments || []), { id: Date.now(), author: user?.name || "Unknown", initials: user?.initials || "?", text: `✓ Closed — ${completionNote}`, createdAt: now }]
+      : (t.comments || []);
+    return { ...t, status, updatedAt: now, comments, ...extra };
   }));
+  // Closing a ticket requires a short "what was the fix" note first — cycling straight to
+  // Closed (row shortcut or the detail panel button) opens this prompt instead of closing
+  // immediately, everywhere else (Open/In Progress) still transitions instantly.
+  const CLOSE_NOTE_MAX_WORDS = 50;
+  const closeNoteWordCount = closeNoteText.trim() ? closeNoteText.trim().split(/\s+/).length : 0;
+  const requestClose = (id) => { setCloseModalId(id); setCloseNoteText(""); };
+  const confirmClose = () => {
+    if (!closeModalId || closeNoteWordCount === 0 || closeNoteWordCount > CLOSE_NOTE_MAX_WORDS) return;
+    updateStatus(closeModalId, "Closed", closeNoteText.trim());
+    setCloseModalId(null);
+    setCloseNoteText("");
+  };
   const deleteTicket = (id) => { ticketsDbDelete(id); setTickets(ts => ts.filter(t => t.id !== id)); if (selectedId === id) setSelectedId(null); showAlert("success","Ticket deleted"); };
   const addComment = () => {
     if (!newComment.trim() || !selectedId) return;
@@ -19226,7 +19337,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
               <div style={{ fontSize:"0.7rem", color:th.muted, marginBottom:"0.3rem" }}>{t.category}</div>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:"0.4rem" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:"0.3rem" }}>
-                  <button type="button" title="Click to cycle status" onClick={e=>{ e.stopPropagation(); const next=t.status==="Open"?"In Progress":t.status==="In Progress"?"Closed":"Open"; updateStatus(t.id,next); }} style={{ fontSize:"0.68rem", fontWeight:700, color:statusColor(t.status), background:statusBg(t.status), padding:"0.15rem 0.5rem", borderRadius:"0.75rem", border:"none", cursor:"pointer" }}>{t.status} ›</button>
+                  <button type="button" title="Click to cycle status" onClick={e=>{ e.stopPropagation(); const next=t.status==="Open"?"In Progress":t.status==="In Progress"?"Closed":"Open"; if (next === "Closed") requestClose(t.id); else updateStatus(t.id,next); }} style={{ fontSize:"0.68rem", fontWeight:700, color:statusColor(t.status), background:statusBg(t.status), padding:"0.15rem 0.5rem", borderRadius:"0.75rem", border:"none", cursor:"pointer" }}>{t.status} ›</button>
                   {t.dueDate && t.status!=="Closed" && new Date(t.dueDate+"T23:59:59") < new Date() && (
                     <span style={{ fontSize:"0.62rem", fontWeight:700, color:"#ef4444", background:"#ef444418", padding:"0.1rem 0.4rem", borderRadius:"0.75rem" }}>Overdue</span>
                   )}
@@ -19290,7 +19401,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
               <button onClick={()=>setDetailTab("activity")} style={{ ...btn(th,{padding:"0.35rem 0.875rem",fontSize:"0.78rem",background:th.card2,color:th.text,border:`1px solid ${th.cardBorder}`}) }}>💬 Comment</button>
               <button onClick={()=>{ setExpenseForm({ description:'', amount:'', category:'Parts', noExpense:false }); setShowExpenseModal(true); }} style={{ ...btn(th,{padding:"0.35rem 0.875rem",fontSize:"0.78rem",background:"#22c55e18",color:"#16a34a",border:"1px solid #22c55e44"}) }}>💰 Add Expenses</button>
               {selectedTicket.status === "Open" && <button onClick={()=>updateStatus(selectedTicket.id,"In Progress")} style={{ ...btn(th,{padding:"0.35rem 0.875rem",fontSize:"0.78rem"}) }}>▶ Start</button>}
-              {selectedTicket.status !== "Closed" && <button onClick={()=>updateStatus(selectedTicket.id,"Closed")} style={{ ...btn(th,{padding:"0.35rem 0.875rem",fontSize:"0.78rem",background:th.card2,color:th.text,border:`1px solid ${th.cardBorder}`}) }}>✓ Close</button>}
+              {selectedTicket.status !== "Closed" && <button onClick={()=>requestClose(selectedTicket.id)} style={{ ...btn(th,{padding:"0.35rem 0.875rem",fontSize:"0.78rem",background:th.card2,color:th.text,border:`1px solid ${th.cardBorder}`}) }}>✓ Close</button>}
               {selectedTicket.status === "Closed" && <button onClick={()=>updateStatus(selectedTicket.id,"Open")} style={{ ...btn(th,{padding:"0.35rem 0.875rem",fontSize:"0.78rem",background:th.card2,color:th.text,border:`1px solid ${th.cardBorder}`}) }}>↩ Reopen</button>}
               {isAdmin && <button onClick={()=>deleteTicket(selectedTicket.id)} style={{ ...btn(th,{padding:"0.35rem 0.875rem",fontSize:"0.78rem",background:"#ef444422",color:"#ef4444",border:"none"}) }}>🗑 Delete</button>}
             </div>
@@ -19358,6 +19469,12 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
                     <div style={{ display:"flex", justifyContent:"space-between", fontSize:"0.8rem", marginBottom:"0.4rem" }}>
                       <span style={{ color:th.muted }}>Closed by</span>
                       <span style={{ color:th.text, fontWeight:600 }}>{selectedTicket.closedBy}</span>
+                    </div>
+                  )}
+                  {selectedTicket.completionNote && (
+                    <div style={{ marginBottom:"0.6rem", padding:"0.6rem 0.75rem", background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:8 }}>
+                      <div style={{ fontSize:"0.65rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:0.5, marginBottom:"0.25rem" }}>Resolution</div>
+                      <div style={{ fontSize:"0.8rem", color:th.text, lineHeight:1.4 }}>{selectedTicket.completionNote}</div>
                     </div>
                   )}
                   <div style={{ display:"flex", justifyContent:"space-between", fontSize:"0.8rem", marginBottom:"0.4rem" }}>
@@ -19484,6 +19601,37 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
           </div>
         </div>
       )}
+
+      {/* Close Ticket — requires a short completion note before the status can move to Closed */}
+      {closeModalId && (() => {
+        const closingTicket = tickets.find(t => t.id === closeModalId);
+        const overLimit = closeNoteWordCount > CLOSE_NOTE_MAX_WORDS;
+        return (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:1100, display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem" }}>
+            <div style={{ background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:16, padding:"1.5rem", width:"100%", maxWidth:440 }}>
+              <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:"1.05rem", color:th.text, marginBottom:"0.25rem" }}>Close Ticket{closingTicket ? ` — ${closingTicket.number}` : ''}</div>
+              <div style={{ fontSize:"0.78rem", color:th.muted, marginBottom:"1rem" }}>Before this closes, add a quick note on what the issue was or how it got fixed.</div>
+              <div style={{ fontSize:"0.75rem", fontWeight:700, color:th.muted, marginBottom:4 }}>Completion Note *</div>
+              <textarea
+                autoFocus
+                value={closeNoteText}
+                onChange={e => setCloseNoteText(e.target.value)}
+                placeholder="e.g. Replaced the walk-in compressor relay, unit holding temp now."
+                rows={3}
+                style={{ width:"100%", padding:"0.6rem 0.75rem", borderRadius:8, border:`1px solid ${overLimit ? '#ef4444' : th.cardBorder}`, background:th.card2, color:th.text, fontSize:"0.9rem", boxSizing:"border-box", resize:"none" }}
+              />
+              <div style={{ fontSize:"0.68rem", color: overLimit ? '#ef4444' : th.muted, marginTop:4, textAlign:"right" }}>{closeNoteWordCount}/{CLOSE_NOTE_MAX_WORDS} words</div>
+              <div style={{ display:"flex", justifyContent:"flex-end", gap:"0.5rem", marginTop:"1.25rem" }}>
+                <button onClick={() => { setCloseModalId(null); setCloseNoteText(""); }} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:8, color:th.muted, padding:"0.6rem 1rem", cursor:"pointer" }}>Cancel</button>
+                <button onClick={confirmClose} disabled={closeNoteWordCount === 0 || overLimit}
+                  style={{ ...btn(th,{ padding:"0.6rem 1.25rem" }), opacity: (closeNoteWordCount === 0 || overLimit) ? 0.5 : 1, cursor: (closeNoteWordCount === 0 || overLimit) ? "not-allowed" : "pointer" }}>
+                  ✓ Close Ticket
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Expense Modal */}
       {showExpenseModal && selectedTicket && (
@@ -24180,7 +24328,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.1";
+const APP_VERSION = "v19.15";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -35468,7 +35616,7 @@ const TileGrid = ({ title, tiles, color, th, isMobile, onNavigate, pinnedNavIds,
 // to consolidate for them.
 function AdminFinance({ stores, districts, th, user, users, drillInStore, onClearDrillIn, showAlert, isMobile,
   cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl,
-  pinnedNavIds, togglePinNav }) {
+  pinnedNavIds, togglePinNav, cashMissingCount }) {
   const isAdmin = isFullAdmin(user);
   const isOfficeStaff = user?.userType === 'office_staff';
   const isDM = user?.userType === 'dm';
@@ -35518,7 +35666,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
   const tiles = [
     { id: 'pnl', icon: <HubIcon color={FIN} d={<><path d="M3 3v18h18M7 16l4-6 3 3 5-7"/></>} />, name: 'P&L', sub: 'Ranked store table — revenue, labor %, COGS %, contribution, margin.', show: canPnl },
     { id: 'ndcp', icon: <HubIcon color={FIN} d={<><path d="M21 8 12 3 3 8l9 5 9-5Z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></>} />, name: 'NDCP Orders', sub: 'Supply orders, revisions, weekly and district breakdowns.', show: canNdcp },
-    { id: 'cash', icon: <HubIcon color={FIN} d={<><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20M6 15h4"/></>} />, name: 'Cash Management', sub: 'Deposit tracking, alerts, and POS reconciliation.', show: canCash },
+    { id: 'cash', icon: <HubIcon color={FIN} d={<><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20M6 15h4"/></>} />, name: 'Cash Management', sub: 'Deposit tracking, alerts, and POS reconciliation.', badge: cashMissingCount > 0 ? `${cashMissingCount} missing` : null, show: canCash },
     { id: 'recon', icon: <HubIcon color={FIN} d={<><path d="M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3"/></>} />, name: 'Reconciliation', sub: 'Snapshot vs. live sales compare, WTD differences by store.', show: isAdmin },
     { id: 'expenses', icon: <HubIcon color={FIN} d={<><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z"/><path d="M9 10v6M15 10v6"/></>} />, name: 'Expense Log', sub: 'All ticket expenses — filter, approve, reject.', badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin },
   ].filter(t => t.show);
@@ -38897,6 +39045,10 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout, chatC
   }, [orionChannelId]);
   const [showMobileExpenseForm, setShowMobileExpenseForm] = React.useState(false);
   const [mobileExpenseForm, setMobileExpenseForm] = React.useState({ description: '', amount: '', category: 'Parts', noExpense: false, receiptBase64: '', receiptLoading: false });
+  const [closeNoteFor, setCloseNoteFor] = React.useState(null); // ticket id currently showing the required completion-note box
+  const [closeNoteText, setCloseNoteText] = React.useState("");
+  const CLOSE_NOTE_MAX_WORDS = 50;
+  const closeNoteWordCount = closeNoteText.trim() ? closeNoteText.trim().split(/\s+/).length : 0;
   const [mobileExpenseSaving, setMobileExpenseSaving] = React.useState(false);
   const [storeInfoOpen, setStoreInfoOpen] = React.useState(false);
   const [showPhotoUpload, setShowPhotoUpload] = React.useState(false);
@@ -38950,15 +39102,18 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout, chatC
   const getInitials = n => (n || '').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
   const userInitials = getInitials(user?.name || '');
 
-  const updateTicketStatus = (ticketId, newStatus) => {
+  const updateTicketStatus = (ticketId, newStatus, completionNote) => {
     setTickets(ts => {
       const now = new Date().toISOString();
       const updated = ts.map(t => {
         if (t.id !== ticketId) return t;
         const extra = newStatus === 'In Progress' && t.status !== 'In Progress' ? { startedBy: user?.name, startedAt: now }
-          : newStatus === 'Closed' ? { closedBy: user?.name, closedAt: now }
-          : newStatus === 'Open' ? { startedBy: null, startedAt: null, closedBy: null, closedAt: null } : {};
-        const actEntry = { id: `act_${Date.now()}`, type: 'system', text: `${user?.name} changed status to ${newStatus}`, ts: now };
+          : newStatus === 'Closed' ? { closedBy: user?.name, closedAt: now, completionNote: completionNote || null }
+          : newStatus === 'Open' ? { startedBy: null, startedAt: null, closedBy: null, closedAt: null, completionNote: null } : {};
+        const actText = newStatus === 'Closed' && completionNote
+          ? `${user?.name} closed this — ${completionNote}`
+          : `${user?.name} changed status to ${newStatus}`;
+        const actEntry = { id: `act_${Date.now()}`, type: 'system', text: actText, ts: now };
         return { ...t, status: newStatus, updatedAt: now, ...extra, comments: [...(t.comments || []), actEntry] };
       });
       try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(updated)); } catch {}
@@ -38966,6 +39121,15 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout, chatC
       return updated;
     });
     if (selectedTicket?.id === ticketId) setSelectedTicket(prev => ({ ...prev, status: newStatus }));
+  };
+  // Closing requires a short completion note first (same rule as the desktop Tickets
+  // board) — tapping "Close" opens the inline note box instead of closing immediately.
+  const requestMobileClose = (ticketId) => { setCloseNoteFor(ticketId); setCloseNoteText(""); };
+  const confirmMobileClose = () => {
+    if (!closeNoteFor || closeNoteWordCount === 0 || closeNoteWordCount > CLOSE_NOTE_MAX_WORDS) return;
+    updateTicketStatus(closeNoteFor, "Closed", closeNoteText.trim());
+    setCloseNoteFor(null);
+    setCloseNoteText("");
   };
 
   const handleMobileAddExpense = async () => {
@@ -39234,7 +39398,7 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout, chatC
                     const blocked = isClose && !canClose;
                     return (
                       <div key={s} style={{ position: 'relative' }}>
-                        <button onClick={() => !blocked && updateTicketStatus(t.id, s)}
+                        <button onClick={() => { if (blocked) return; if (isClose) requestMobileClose(t.id); else updateTicketStatus(t.id, s); }}
                           title={blocked ? 'Add an expense or mark "No expense" before closing' : undefined}
                           style={{ background: blocked ? `${sColor}0d` : `${sColor}22`, border: `1px solid ${blocked ? sColor+'33' : sColor+'66'}`, color: blocked ? `${sColor}55` : sColor, borderRadius: '2rem', padding: '0.42rem 0.95rem', fontSize: '0.78rem', fontWeight: 700, cursor: blocked ? 'not-allowed' : 'pointer', fontFamily: "'Source Sans 3'", display: 'flex', alignItems: 'center', gap: 5 }}>
                           {blocked && <span style={{ fontSize: '0.8rem' }}>🔒</span>}
@@ -39247,6 +39411,32 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout, chatC
                     );
                   })}
                 </div>
+                {closeNoteFor === t.id && (() => {
+                  const overLimit = closeNoteWordCount > CLOSE_NOTE_MAX_WORDS;
+                  return (
+                    <div style={{ marginTop: '0.65rem', background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '0.75rem 0.875rem' }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.text, marginBottom: 4 }}>What was the issue, or how'd you fix it?</div>
+                      <textarea autoFocus value={closeNoteText} onChange={e => setCloseNoteText(e.target.value)}
+                        placeholder="e.g. Replaced the walk-in compressor relay, unit holding temp now."
+                        rows={3}
+                        style={{ width: '100%', background: th.bg, border: `1px solid ${overLimit ? '#ef4444' : th.cardBorder}`, borderRadius: '0.625rem', padding: '0.6rem 0.75rem', color: th.text, fontSize: '0.85rem', fontFamily: "'Source Sans 3'", outline: 'none', resize: 'none', boxSizing: 'border-box' }} />
+                      <div style={{ fontSize: '0.65rem', color: overLimit ? '#ef4444' : th.muted, marginTop: 4, textAlign: 'right' }}>{closeNoteWordCount}/{CLOSE_NOTE_MAX_WORDS} words</div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <button onClick={() => { setCloseNoteFor(null); setCloseNoteText(""); }} style={{ flex: 1, background: th.bg, border: `1px solid ${th.cardBorder}`, borderRadius: '0.625rem', padding: '0.55rem', color: th.muted, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Cancel</button>
+                        <button onClick={confirmMobileClose} disabled={closeNoteWordCount === 0 || overLimit}
+                          style={{ flex: 1, background: '#6b7280', border: 'none', borderRadius: '0.625rem', padding: '0.55rem', color: '#fff', fontSize: '0.8rem', fontWeight: 700, cursor: (closeNoteWordCount === 0 || overLimit) ? 'not-allowed' : 'pointer', fontFamily: "'Source Sans 3'", opacity: (closeNoteWordCount === 0 || overLimit) ? 0.5 : 1 }}>✓ Close Ticket</button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Resolution — the completion note left when this ticket was closed */}
+            {t.completionNote && (
+              <div style={{ marginBottom: '0.875rem' }}>
+                <SectionLabel>Resolution</SectionLabel>
+                <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.875rem', padding: '0.75rem 0.875rem', fontSize: '0.84rem', color: th.text, lineHeight: 1.5 }}>{t.completionNote}</div>
               </div>
             )}
 
@@ -44527,7 +44717,7 @@ function PCGPortal() {
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
-          {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />}
+          {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
           {tab === "ops-hub" && (() => {
             const OPS = '#2F6FA8';
             const opsTiles = [

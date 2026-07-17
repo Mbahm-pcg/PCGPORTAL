@@ -336,9 +336,43 @@ export default async (request) => {
       // simply hasn't loaded — deletions go through the explicit `delete` action.
       const tickets = Array.isArray(payload.tickets) ? payload.tickets : [];
       const sql = db();
-      const stmts = tickets.flatMap(ticketStatements);
+
+      // A ticket can only become Closed with a short (1-50 word) completion note
+      // attached — the Tickets UI enforces this client-side, but that's only a
+      // modal gate; anything hitting this endpoint directly (another client, a
+      // script, a future automation) must be blocked here too, or the rule is
+      // meaningless. Reject the Closed transition (fall back to the ticket's
+      // current DB status) rather than failing the whole sync, so unrelated
+      // changes in the same batch (comments, expenses, other tickets) still save.
+      const invalidCloseIds = tickets
+        .filter(t => t?.status === 'Closed')
+        .filter(t => {
+          const note = typeof t.completionNote === 'string' ? t.completionNote.trim() : '';
+          const words = note ? note.split(/\s+/).filter(Boolean).length : 0;
+          return words === 0 || words > 50;
+        })
+        .map(t => toBigInt(t.id))
+        .filter(id => id != null);
+
+      let existingStatus = new Map();
+      if (invalidCloseIds.length) {
+        const rows = await sql`SELECT id, status FROM maint_tickets WHERE id = ANY(${invalidCloseIds})`;
+        existingStatus = new Map(rows.map(r => [Number(r.id), r.status]));
+      }
+
+      const patched = invalidCloseIds.length
+        ? tickets.map(t => {
+            const id = toBigInt(t.id);
+            if (id != null && invalidCloseIds.includes(id)) {
+              return { ...t, status: existingStatus.get(id) || 'Open', closedBy: null, closedAt: null, completionNote: null };
+            }
+            return t;
+          })
+        : tickets;
+
+      const stmts = patched.flatMap(ticketStatements);
       if (stmts.length) await sql.transaction(stmts);
-      return json(200, { ok: true, count: tickets.length });
+      return json(200, { ok: true, count: tickets.length, ...(invalidCloseIds.length ? { rejectedCloseCount: invalidCloseIds.length } : {}) });
     }
 
     if (action === 'delete') {
