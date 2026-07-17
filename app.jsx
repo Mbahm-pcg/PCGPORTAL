@@ -3825,7 +3825,7 @@ function districtLabel(num, { short = false } = {}) {
   return first ? `${base} - ${first}` : base;
 }
 
-function StoreMap({ stores, th, setTab, users }) {
+function StoreMap({ stores, th, setTab, users, height }) {
   const O = '#FF671F';
   const [selectedStore,    setSelectedStore]    = React.useState(null);
   const [laborData,        setLaborData]        = React.useState(null);
@@ -4214,7 +4214,7 @@ function StoreMap({ stores, th, setTab, users }) {
   const detailWeather = selectedStore ? weatherData?.[selectedStore.district]?.days?.[0] : null;
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 80px)', overflow:'hidden', borderRadius:'0.875rem', border:`1px solid ${th.cardBorder}`, background:th.card }}>
+    <div style={{ display:'flex', flexDirection:'column', height: height || 'calc(100vh - 80px)', overflow:'hidden', borderRadius:'0.875rem', border:`1px solid ${th.cardBorder}`, background:th.card }}>
 
       {/* ── Legend bar — top ── */}
       <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.6rem 1rem', borderBottom:`1px solid ${th.cardBorder}`, flexShrink:0, flexWrap:'wrap' }}>
@@ -4697,7 +4697,7 @@ function ClosestToFinder({ th, onClose }) {
   );
 }
 
-function AdminLocations({ stores, setStores, districts, user, th, setTab, users }) {
+function AdminLocations({ stores, setStores, districts, user, th, setTab, users, onMapModeChange }) {
   // Manager name from the assigned user account (falls back to store.mgr config).
   const mgrOf = (s) => storeMgrName(s, users);
   const [filterState,  setFilterState]  = useState("All");
@@ -4716,6 +4716,15 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users 
   const [cityLoading,  setCityLoading]  = useState(false);
   const [toolsOpen,    setToolsOpen]    = useState(false);
   const [activeTool,   setActiveTool]   = useState(null);
+  // Map merged in as a view mode (List/Map) instead of its own tab — only for roles that
+  // already had the standalone Map tab (exec/IT/office/DM); manager/construction/maintenance
+  // never had Map access and don't gain it here. Filters above apply to both views since Map
+  // just renders whatever's in `filtered`.
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'map'
+  // Tell the page shell when Map view is active so it can drop back to the full-bleed
+  // padding the standalone Map tab always used — otherwise the embedded map renders
+  // inset inside the wider Locations page margins.
+  useEffect(() => { onMapModeChange?.(viewMode === 'map'); return () => onMapModeChange?.(false); }, [viewMode]);
   // Below this width the 8-column table can't fit — swap it for stacked store cards.
   const [isNarrow,     setIsNarrow]     = useState(() => typeof window !== "undefined" && window.innerWidth < 760);
   // Measure the real space below the frame so Section 1 (KPIs + filters) stays fixed and only
@@ -4919,6 +4928,18 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users 
             onChange={e => setSearch(e.target.value)}
           />
         </div>
+        {/* List/Map view toggle — same roles that used to see the standalone Map tab */}
+        {(isAdmin || isOfficeStaff || isDM) && (
+          <div style={{ display: "inline-flex", background: th.card2, padding: "0.2rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem" }}>
+            {[{ id: 'list', label: '☰ List' }, { id: 'map', label: '🗺 Map' }].map(v => (
+              <button key={v.id} onClick={() => setViewMode(v.id)} style={{
+                padding: "0.45rem 0.85rem", fontSize: "0.72rem", fontWeight: 800, fontFamily: "'Source Sans 3'",
+                background: viewMode === v.id ? `linear-gradient(135deg, ${O}, #ff8040)` : "transparent",
+                color: viewMode === v.id ? "#fff" : th.muted, border: "none", borderRadius: "0.4rem", cursor: "pointer",
+              }}>{v.label}</button>
+            ))}
+          </div>
+        )}
         {/* Tools dropdown (extensible: LOCATION_TOOLS) */}
         <div style={{ position: "relative" }}>
           <button onClick={() => setToolsOpen(o => !o)} style={{
@@ -5554,7 +5575,9 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users 
       })()}
 
       <div className="loc-scroll">
-      {isNarrow ? (
+      {viewMode === 'map' ? (
+        <StoreMap stores={filtered} th={th} setTab={setTab} users={users} height="100%" />
+      ) : isNarrow ? (
       /* ── Mobile: stacked store cards (the wide table is unreadable on phones) ── */
       <div style={{ display:"flex", flexDirection:"column", gap:"0.65rem" }}>
         {filtered.map((s) => {
@@ -8043,6 +8066,15 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const [weekTotals, setWeekTotals] = React.useState(null); // { wtdSales, wtdForecast, weekForecast, daysLoaded }
   const [hoveredTender, setHoveredTender] = React.useState(null);
   const [hoveredHour, setHoveredHour] = React.useState(null);
+  // Scrolling (wheel, trackpad, or a dragged scrollbar) moves the hourly rows under the
+  // cursor without firing a new mouseenter/mouseleave pair, so the last-hovered hour was
+  // getting stuck highlighted after the list moved. Any scroll clears it. Capture phase
+  // so it also catches scrolling on an inner container, not just the window.
+  React.useEffect(() => {
+    const clear = () => setHoveredHour(null);
+    window.addEventListener('scroll', clear, true);
+    return () => window.removeEventListener('scroll', clear, true);
+  }, []);
   const [loading, setLoading] = React.useState(true);
   const [storeReviews, setStoreReviews] = React.useState(null);
   const [foodCostT, setFoodCostT] = React.useState(null);
@@ -8671,7 +8703,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                         <g key={h.hour}
                           onMouseEnter={() => setHoveredHour(h.hour)}
                           onMouseLeave={() => setHoveredHour(null)}
-                          style={{ cursor:'pointer' }}>
+                          style={{ cursor:'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
                           {/* Invisible hit area for easy hovering */}
                           <rect x={x - 2} y={0} width={barW + 4} height={H + 40} fill="transparent" />
                           {barH > 0 && (
@@ -8721,6 +8753,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                             transform: isHovered ? 'translateX(3px)' : 'translateX(0)',
                             transition: 'all .15s ease',
                             borderLeft: isHovered ? `3px solid ${G}` : '3px solid transparent',
+                            userSelect: 'none', WebkitUserSelect: 'none', WebkitTapHighlightColor: 'transparent',
                           }}>
                           <div style={{ fontSize:'0.7rem', fontWeight:700, color: isHovered ? G : th.muted, minWidth:44 }}>{fmtHrLong(h.hour)}</div>
                           <div style={{ flex:1, minWidth:0 }}>
@@ -9731,6 +9764,15 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
   const [weekTotals, setWeekTotals] = React.useState(null);
   const [hoveredTender, setHoveredTender] = React.useState(null);
   const [hoveredHour, setHoveredHour] = React.useState(null);
+  // Scrolling (wheel, trackpad, or a dragged scrollbar) moves the hourly rows under the
+  // cursor without firing a new mouseenter/mouseleave pair, so the last-hovered hour was
+  // getting stuck highlighted after the list moved. Any scroll clears it. Capture phase
+  // so it also catches scrolling on an inner container, not just the window.
+  React.useEffect(() => {
+    const clear = () => setHoveredHour(null);
+    window.addEventListener('scroll', clear, true);
+    return () => window.removeEventListener('scroll', clear, true);
+  }, []);
   const [loading, setLoading] = React.useState(true);
   const [weatherForecast, setWeatherForecast] = React.useState(null);
   const [weatherCorrelations, setWeatherCorrelations] = React.useState(null);
@@ -10441,7 +10483,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                         <g key={h.hour}
                           onMouseEnter={() => setHoveredHour(h.hour)}
                           onMouseLeave={() => setHoveredHour(null)}
-                          style={{ cursor:'pointer' }}>
+                          style={{ cursor:'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
                           <rect x={x - 2} y={0} width={barW + 4} height={H + 40} fill="transparent" />
                           {barH > 0 && (
                             <rect x={x} y={H - barH} width={barW} height={barH}
@@ -10489,6 +10531,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                             transform: isHovered ? 'translateX(3px)' : 'translateX(0)',
                             transition: 'all .15s ease',
                             borderLeft: isHovered ? `3px solid ${G}` : '3px solid transparent',
+                            userSelect: 'none', WebkitUserSelect: 'none', WebkitTapHighlightColor: 'transparent',
                           }}>
                           <div style={{ fontSize:'0.7rem', fontWeight:700, color: isHovered ? G : th.muted, minWidth:44 }}>{fmtHrLong(h.hour)}</div>
                           <div style={{ flex:1, minWidth:0 }}>
@@ -11029,6 +11072,16 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
     setTesting(false);
   }
 
+  // Manual "⚡ Refresh" clicks restart Labor too, not just Sales — fire-and-forget POST to
+  // the background labor-cron wrapper (always runs the full ~45-store scheduled refresh,
+  // 15-min window, ignores any body). Deliberately NOT wired into loadAll() itself, since
+  // that also fires on mount and on the 5-min auto-refresh timer — hammering Paycor that
+  // often for all stores would be wasteful; only an explicit human click restarts labor.
+  const handleManualRefresh = () => {
+    loadAll();
+    fetch('/.netlify/functions/labor-cron-background', { method: 'POST' }).catch(() => {});
+  };
+
   // Auto-load today's data on mount, then auto-load WTD
   const wtdAutoLoaded = useRef(false);
   const lastWtdWeek   = useRef('');
@@ -11279,7 +11332,8 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
               );
             })()}
             <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', justifyContent:'flex-end' }}>
-              <button onClick={loadAll} disabled={loading}
+              <button onClick={handleManualRefresh} disabled={loading}
+                title="Also restarts the network-wide labor pull in the background"
                 style={{ ...btn(th, { background:`${G}22`, color:G, border:`1px solid ${G}55`,
                   fontWeight:700, padding:'0.4rem 1rem', fontSize:'0.78rem' }) }}>
                 {loading ? '⏳ Loading…' : '⚡ Refresh'}
@@ -11471,7 +11525,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
             The full week trend loads automatically afterward.
           </div>
           <div style={{ display:'flex', gap:'0.75rem', justifyContent:'center' }}>
-            <button onClick={loadAll} style={{ ...btn(th, { background:`${G}22`, color:G, border:`1px solid ${G}55`, fontWeight:700, padding:'0.6rem 2rem', fontSize:'0.9rem' }) }}>⚡ Load Today</button>
+            <button onClick={handleManualRefresh} style={{ ...btn(th, { background:`${G}22`, color:G, border:`1px solid ${G}55`, fontWeight:700, padding:'0.6rem 2rem', fontSize:'0.9rem' }) }}>⚡ Load Today</button>
           </div>
         </div>
       )}
@@ -22780,45 +22834,43 @@ const computeRoleTabs = (user) => {
   if (ut === "executive" || ut === "it") return [
     ...BASE_TABS,
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
-    { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
-    { id: "pnl",       label: "P&L",            icon: (c) => ICONS.dollar(c) },
-    { id: "ndcp",      label: "NDCP Orders",    icon: (c) => ICONS.dollar(c) },
+    { id: "finance",   label: "Finance",        icon: (c) => ICONS.dollar(c), cash: true },
     { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.map(c) },
-    { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
-    { id: "recon",     label: "Reconciliation", icon: (c) => ICONS.analytics(c) },
-    { id: "expenses",  label: "Expense Log",    icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",        icon: (c) => ICONS.audits(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
     { id: "email",     label: "Email",        icon: '📧' },
     { id: "admin",     label: "Admin",        icon: (c) => ICONS.settings(c) },
+    { id: "ops-hub",    label: "Operations",   icon: (c) => ICONS.analytics(c), noPinToggle: true },
+    { id: "team-hub",   label: "Team & Sites", icon: (c) => ICONS.locations(c), noPinToggle: true },
+    { id: "system-hub", label: "System",       icon: (c) => ICONS.settings(c), noPinToggle: true },
   ];
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
     ...BASE_TABS,
     { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
-    { id: "map",       label: "Map",       icon: '🗺️' },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
-    { id: "pnl",       label: "P&L",          icon: (c) => ICONS.dollar(c) },
-    { id: "ndcp",      label: "NDCP Orders",  icon: (c) => ICONS.dollar(c) },
+    { id: "finance",   label: "Finance",      icon: (c) => ICONS.dollar(c), cash: true },
     { id: "impact",    label: "Impact Radar", icon: (c) => ICONS.map(c) },
-    { id: "cash",      label: "Cash Management", icon: (c) => ICONS.dollar(c), cash: true },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
     { id: "email",     label: "Email",     icon: '📧' },
+    { id: "ops-hub",    label: "Operations",   icon: (c) => ICONS.analytics(c), noPinToggle: true },
+    { id: "team-hub",   label: "Team & Sites", icon: (c) => ICONS.locations(c), noPinToggle: true },
+    { id: "system-hub", label: "System",       icon: (c) => ICONS.settings(c), noPinToggle: true },
   ];
   // Field Operations Auditor → base workspace + audits (conduct/review) + pulse/map. Tickets is in BASE_TABS.
   if (ut === "auditor") return [
@@ -22831,17 +22883,17 @@ const computeRoleTabs = (user) => {
   if (ut === "dm") return [
     ...BASE_TABS,
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
-    { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "anomalies", label: "Anomalies",      icon: (c) => ICONS.anomalies(c) },
-    { id: "pnl",       label: "District P&L",   icon: (c) => ICONS.dollar(c) },
-    { id: "cash",      label: "Cash",           icon: (c) => ICONS.dollar(c) },
+    { id: "finance",   label: "Finance",        icon: (c) => ICONS.dollar(c), cash: true },
     { id: "reports",   label: "Reports",        icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",         icon: (c) => ICONS.audits(c) },
     { id: "projects",  label: "Projects",       icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline",  icon: (c) => ICONS.projects(c) },
+    { id: "ops-hub",   label: "Operations",     icon: (c) => ICONS.analytics(c), noPinToggle: true },
+    { id: "team-hub",  label: "Team & Sites",   icon: (c) => ICONS.locations(c), noPinToggle: true },
   ];
   // Store managers see only their assigned stores.
   if (ut === "manager") return [
@@ -24128,7 +24180,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v18.92";
+const APP_VERSION = "v19.1";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -35363,6 +35415,195 @@ function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
   );
 }
 
+// ── Hub tile system ──────────────────────────────────────────────────────────
+// Shared by Finance, Operations, Team & Sites, and System: a line-icon badge + a
+// clickable tile, so every category hub reads as one consistent design language
+// instead of each page inventing its own icon/card treatment.
+const HubIcon = ({ d, color, size = 19 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
+);
+const HubTile = ({ th, color, icon, name, sub, badge, onClick, pinned, onTogglePin }) => (
+  <div onClick={onClick} style={{ ...card(th), padding: badge ? '1.15rem 1.2rem 2rem' : '1.15rem 1.2rem 1.25rem', cursor: 'pointer', position: 'relative' }}>
+    {/* Quick Access star — same pin glyph/behavior as the sidebar's NavButton pin toggle,
+        just reachable from the tile itself so a tool doesn't have to be opened once first. */}
+    {onTogglePin && (
+      <button onClick={e => { e.stopPropagation(); onTogglePin(); }} title={pinned ? 'Remove from Quick Access' : 'Add to Quick Access'}
+        style={{ position: 'absolute', top: '0.85rem', right: '0.85rem', width: 26, height: 26, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: pinned ? color : th.muted, opacity: pinned ? 1 : 0.45, transition: 'opacity .15s, color .15s' }}
+        onMouseEnter={e => { e.currentTarget.style.opacity = 1; }}
+        onMouseLeave={e => { e.currentTarget.style.opacity = pinned ? 1 : 0.45; }}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill={pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" />
+        </svg>
+      </button>
+    )}
+    <div style={{ width: 38, height: 38, borderRadius: '0.65rem', background: `${color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.7rem' }}>
+      {icon}
+    </div>
+    <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: th.text }}>{name}</div>
+    <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.3rem', lineHeight: 1.45 }}>{sub}</div>
+    {badge && <span style={{ position: 'absolute', bottom: '1rem', right: '1.2rem', fontSize: '0.65rem', fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: 999, background: '#ef444428', color: '#ef4444' }}>{badge}</span>}
+  </div>
+);
+// A category hub page: title + a grid of HubTiles. Shared by the ops-hub/team-hub/
+// system-hub routes so the three category pages can't drift apart in grid/heading markup.
+const TileGrid = ({ title, tiles, color, th, isMobile, onNavigate, pinnedNavIds, togglePinNav }) => (
+  <div>
+    <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>{title}</h2>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.9rem' }}>
+      {tiles.map(t => (
+        <HubTile key={t.id} th={th} color={color} icon={<HubIcon color={color} d={t.icon} />} name={t.name} sub={t.sub} onClick={() => onNavigate(t.id)}
+          pinned={pinnedNavIds?.includes(t.id)} onTogglePin={togglePinNav ? () => togglePinNav(t.id) : undefined} />
+      ))}
+    </div>
+  </div>
+);
+
+// ── AdminFinance ─────────────────────────────────────────────────────────────
+// Merges P&L, NDCP Orders, Cash Management, Reconciliation, and Expense Log into one
+// page (rail nav + an Overview landing) instead of 5 separate sidebar tabs. Each area
+// keeps its exact existing role gate (P&L's allowlist via canPnl, NDCP/Cash/Recon/
+// Expenses' role checks) — nobody gains or loses access to any of the five, the rail
+// item for an area a user can't see simply isn't rendered. Manager's standalone
+// "My P&L" tab is untouched — they only ever had P&L of these five, so there's nothing
+// to consolidate for them.
+function AdminFinance({ stores, districts, th, user, users, drillInStore, onClearDrillIn, showAlert, isMobile,
+  cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl,
+  pinnedNavIds, togglePinNav }) {
+  const isAdmin = isFullAdmin(user);
+  const isOfficeStaff = user?.userType === 'office_staff';
+  const isDM = user?.userType === 'dm';
+  const canNdcp = isAdmin || isOfficeStaff;
+  const canCash = isAdmin || isOfficeStaff || isDM;
+
+  const [viewMode, setViewMode] = useState('overview');
+
+  // Overview: real numbers only — the same P&L blob AdminPnL reads (for revenue/margin
+  // and the district breakdown), plus a real pending-expense count from the same
+  // ticket data ExpenseLogSection reads. No fabricated trend/alert data.
+  const [pnlOv, setPnlOv] = useState(null);
+  const [expPending, setExpPending] = useState(null);
+  useEffect(() => {
+    if (viewMode !== 'overview') return;
+    if (canPnl && !pnlOv) cloudLoad('pcg_pnl_live_v1').then(d => { if (d?.stores) setPnlOv(d); }).catch(() => {});
+    if (expPending == null) {
+      cloudLoadOrThrow('pcg_tickets_v1').then(data => {
+        if (!Array.isArray(data)) return;
+        let count = 0;
+        data.forEach(t => (t.expenses || []).forEach(ex => {
+          if (!ex.noExpense && (ex.approvalStatus == null || ex.approvalStatus === 'pending')) count++;
+        }));
+        setExpPending(count);
+      }).catch(() => {});
+    }
+  }, [viewMode]);
+
+  const overview = React.useMemo(() => {
+    if (!pnlOv?.stores?.length) return null;
+    const byDist = {};
+    let revenue = 0, contribution = 0;
+    pnlOv.stores.forEach(s => {
+      revenue += s.revenue; contribution += s.contribution;
+      const d = s.district || 0;
+      if (!byDist[d]) byDist[d] = { revenue: 0, contribution: 0 };
+      byDist[d].revenue += s.revenue; byDist[d].contribution += s.contribution;
+    });
+    const marginPct = revenue > 0 ? (contribution / revenue) * 100 : 0;
+    const districtRows = Object.entries(byDist)
+      .map(([d, v]) => ({ district: d, marginPct: v.revenue > 0 ? (v.contribution / v.revenue) * 100 : 0 }))
+      .sort((a, b) => Number(a.district) - Number(b.district));
+    return { revenue, marginPct, districtRows };
+  }, [pnlOv]);
+
+  const FIN = '#1B8F5C';
+  const tiles = [
+    { id: 'pnl', icon: <HubIcon color={FIN} d={<><path d="M3 3v18h18M7 16l4-6 3 3 5-7"/></>} />, name: 'P&L', sub: 'Ranked store table — revenue, labor %, COGS %, contribution, margin.', show: canPnl },
+    { id: 'ndcp', icon: <HubIcon color={FIN} d={<><path d="M21 8 12 3 3 8l9 5 9-5Z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></>} />, name: 'NDCP Orders', sub: 'Supply orders, revisions, weekly and district breakdowns.', show: canNdcp },
+    { id: 'cash', icon: <HubIcon color={FIN} d={<><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20M6 15h4"/></>} />, name: 'Cash Management', sub: 'Deposit tracking, alerts, and POS reconciliation.', show: canCash },
+    { id: 'recon', icon: <HubIcon color={FIN} d={<><path d="M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3"/></>} />, name: 'Reconciliation', sub: 'Snapshot vs. live sales compare, WTD differences by store.', show: isAdmin },
+    { id: 'expenses', icon: <HubIcon color={FIN} d={<><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z"/><path d="M9 10v6M15 10v6"/></>} />, name: 'Expense Log', sub: 'All ticket expenses — filter, approve, reject.', badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin },
+  ].filter(t => t.show);
+
+  return (
+    <div>
+      {viewMode !== 'overview' && (
+        <div onClick={() => setViewMode('overview')} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', fontWeight: 700, color: O, cursor: 'pointer', marginBottom: '1rem' }}>
+          ← Back to Finance
+        </div>
+      )}
+      <div style={{ display: viewMode === 'overview' ? 'block' : 'none' }}>
+        <div>
+            <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>Finance Overview</h2>
+            {canPnl && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                <div style={{ ...card(th), padding: '1rem 1.125rem', borderTop: '3px solid #3b82f6' }}>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: th.text }}>{overview ? fmtDollars(overview.revenue) : '—'}</div>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Revenue (MTD)</div>
+                </div>
+                <div style={{ ...card(th), padding: '1rem 1.125rem', borderTop: `3px solid ${overview && overview.marginPct >= 30 ? '#22c55e' : '#ef4444'}` }}>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: overview && overview.marginPct >= 30 ? '#22c55e' : th.text }}>{overview ? fmtPct(overview.marginPct) : '—'}</div>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Margin %</div>
+                </div>
+                <div style={{ ...card(th), padding: '1rem 1.125rem', borderTop: '3px solid #f59e0b', cursor: 'pointer' }} onClick={() => setViewMode('expenses')}>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: th.text }}>{expPending != null ? expPending : '—'}</div>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Pending Expense Approvals</div>
+                </div>
+              </div>
+            )}
+            {overview && overview.districtRows.length > 0 && (() => {
+              // Real store margins tend to sit in a tight band (e.g. all 52-58%), so a fixed
+              // 0-100% scale saturates every bar at the cap and they all look identical.
+              // Scale relative to this network's own min/max, and color relative to the
+              // network average, so real differences between districts are actually visible
+              // regardless of what "normal" margin looks like for this business.
+              const vals = overview.districtRows.map(d => d.marginPct);
+              const lo = Math.min(...vals), hi = Math.max(...vals);
+              const spread = hi - lo || 1;
+              const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+              return (
+                <div style={{ ...card(th), padding: '1.125rem', marginBottom: '1.25rem' }}>
+                  <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.2rem' }}>Margin by District</div>
+                  <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: '0.875rem' }}>Relative to network average ({fmtPct(avg)})</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {overview.districtRows.map(d => {
+                      const delta = d.marginPct - avg;
+                      const color = delta >= 1 ? '#22c55e' : delta <= -1 ? '#ef4444' : '#f59e0b';
+                      const width = 12 + 88 * ((d.marginPct - lo) / spread);
+                      return (
+                        <div key={d.district} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 60px', alignItems: 'center', gap: '0.6rem', fontSize: '0.8rem' }}>
+                          <span style={{ color: th.text }}>{districtLabel(Number(d.district))}</span>
+                          <div style={{ height: 7, borderRadius: 999, background: th.card3, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${width}%`, background: color, borderRadius: 999 }} />
+                          </div>
+                          <span style={{ textAlign: 'right', fontWeight: 700, color }}>{fmtPct(d.marginPct)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: '0.7rem' }}>Tools</div>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.9rem' }}>
+              {tiles.map(t => (
+                <HubTile key={t.id} th={th} color={FIN} icon={t.icon} name={t.name} sub={t.sub} badge={t.badge} onClick={() => setViewMode(t.id)}
+                  pinned={pinnedNavIds?.includes(t.id)} onTogglePin={togglePinNav ? () => togglePinNav(t.id) : undefined} />
+              ))}
+            </div>
+        </div>
+      </div>
+      {viewMode !== 'overview' && (
+        <div>
+          {viewMode === 'pnl' && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={onClearDrillIn} />}
+          {viewMode === 'ndcp' && canNdcp && <AdminNdcp th={th} user={user} />}
+          {viewMode === 'cash' && canCash && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
+          {viewMode === 'recon' && isAdmin && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
+          {viewMode === 'expenses' && isAdmin && <ExpenseLogSection th={th} user={user} standalone />}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ═══ UOP Analyst Components (Orion) ══════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════════════════════
@@ -41493,6 +41734,7 @@ function PCGPortal() {
   const [orionIntent, setOrionIntent] = useState(false); // FAB click → open Orion analyst channel (no auto-send)
   useEffect(() => { if (tab !== 'chat' && orionIntent) setOrionIntent(false); }, [tab, orionIntent]);
   const [drillInStore, setDrillInStore] = useState(null); // Orion drill-in link → navigate to store in Pulse/Labor
+  const [locationsMapMode, setLocationsMapMode] = useState(false); // Locations tab's embedded Map view is active → use full-bleed page padding
   const handleDrillIn = (storePC, targetTab) => {
     setDrillInStore(storePC);
     setTab(targetTab);
@@ -41504,10 +41746,6 @@ function PCGPortal() {
   // Default to collapsed (icon rail) on first-ever load so every page starts with more
   // room for content — once a user explicitly expands/collapses it, that choice persists.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { const v = localStorage.getItem('pcg_sidebar_collapsed'); return v === null ? true : v === 'true'; } catch { return true; } });
-  // Collapsed-sidebar group flyout: { key, top, left } of the clicked group icon.
-  // Without this, group tabs are unreachable while collapsed (icon click had no effect).
-  const [navFlyout, setNavFlyout] = useState(null);
-  useEffect(() => { if (!sidebarCollapsed) setNavFlyout(null); }, [sidebarCollapsed]);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
   const [showPinEditor, setShowPinEditor] = useState(false);
   const [mobileNavPins, setMobileNavPins] = useState(null); // null = use role default
@@ -41519,12 +41757,6 @@ function PCGPortal() {
       else setMobileNavPins(null);
     } catch { setMobileNavPins(null); }
   }, [user?.id]);
-  const [sidebarGroupsOpen, setSidebarGroupsOpen] = useState(() => {
-    try {
-      const saved = localStorage.getItem('pcg_sidebar_groups');
-      return saved ? JSON.parse(saved) : { ops: true, fin: true, team: false, system: false, workspace: false };
-    } catch { return { ops: true, fin: true, team: false, system: false, workspace: false }; }
-  });
   // Pinned sidebar tabs (user favorites surfaced at the very top). null = use role default.
   // Stored per-user (key suffixed with user.id) so each account keeps its own quick-access
   // set — a shared device no longer leaks one person's pins to the next. Loaded via the
@@ -41713,8 +41945,8 @@ function PCGPortal() {
   // ── Sidebar pinning + base-tab grouping ──────────────────────────────
   // Default favorites per role (frequently-used tabs surfaced at top).
   const PINNED_DEFAULTS = {
-    executive: ['pulse', 'pnl', 'projects'],
-    it:        ['pulse', 'pnl', 'projects'],
+    executive: ['pulse', 'finance', 'projects'],
+    it:        ['pulse', 'finance', 'projects'],
     office_staff: ['pulse', 'reports', 'projects'],
     dm:        ['pulse', 'reports'],
     manager:   ['labor', 'reports'],
@@ -41748,8 +41980,8 @@ function PCGPortal() {
   const navBadge = (t) => {
     if (!t) return null;
     if (t.id === "chat" && chatUnreadCount > 0) return chatUnreadCount;
-    if (t.id === "reports" && reportsUnreadCount > 0) return reportsUnreadCount;
-    if (t.id === "cash" && cashMissingCount > 0) return cashMissingCount;
+    if ((t.id === "reports" || t.id === "system-hub") && reportsUnreadCount > 0) return reportsUnreadCount;
+    if ((t.id === "cash" || t.id === "finance") && cashMissingCount > 0) return cashMissingCount;
     if (t.id === "announcements" && user) {
       const myDist = user.district ? Number(user.district) : null;
       const unread = announcements.filter(a => {
@@ -43357,171 +43589,17 @@ function PCGPortal() {
   };
 
   // ─── Admin groups config ──────────────────────────────────────────────────
+  // Each category is now ONE hub tab (tile-grid landing page), not an accordion of
+  // several sub-tabs — so these render as flat single-click nav rows below, same as
+  // Finance already does. The sub-tab ids each hub covers live entirely inside its
+  // tile grid (see the "ops-hub"/"team-hub"/"system-hub" routes) — this config only
+  // needs the ONE id that actually appears in the sidebar now.
   const ADMIN_GROUPS = [
-    { key: 'ops',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#38bdf8', ids: ['tasks', 'pulse', 'analytics', 'anomalies', 'scorecard', 'audits'] },
-    { key: 'fin',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#22c55e', ids: ['pnl', 'ndcp', 'cash', 'recon', 'expenses'] },
-    { key: 'team',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#a78bfa', ids: ['map', 'locations', 'impact', 'projects', 'deals', 'users'] },
-    { key: 'system', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#94a3b8', ids: ['reports', 'email', 'admin'] },
+    { key: 'ops',    id: 'ops-hub',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#2F6FA8' },
+    { key: 'fin',    id: 'finance',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#1B8F5C' },
+    { key: 'team',   id: 'team-hub',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#7C5CD9' },
+    { key: 'system', id: 'system-hub', icon: (c) => <Icon color={c} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, label: 'System',       color: '#726A5C' },
   ];
-
-  // ─── Collapsible admin group — Doclines-style accordion ──────────────────
-  const AdminGroup = ({ icon: grpIcon, label, color, tabs: grpTabs, flyoutTabs, collapsed, groupKey, onNav: nav }) => {
-    const isOpen = sidebarGroupsOpen[groupKey];
-    // Collapsed flyout shows the FULL group (flyoutTabs, pinned included) — it's the only
-    // labeled menu in that mode. Expanded lists keep excluding pinned (they're in Quick Access).
-    const menuTabs = (collapsed && flyoutTabs) ? flyoutTabs : grpTabs;
-    const hasActiveChild = menuTabs.some(t => t.id === tab);
-    const showChildren = isOpen || hasActiveChild;
-
-    // Any child with a badge → show red dot on the group header (covers chat, reports,
-    // cash, announcements via navBadge — important now that base tabs live in a group).
-    const hasBadge = menuTabs.some(t => navBadge(t) != null);
-
-    const toggle = () => {
-      const next = { ...sidebarGroupsOpen, [groupKey]: !isOpen };
-      setSidebarGroupsOpen(next);
-      try { localStorage.setItem('pcg_sidebar_groups', JSON.stringify(next)); } catch {}
-      // If opening, scroll the sidebar nav to the bottom after React re-renders
-      if (!isOpen && navRef?.current) {
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          navRef.current.scrollTo({ top: navRef.current.scrollHeight, behavior: 'smooth' });
-        }));
-      }
-    };
-
-    const iconColor = hasActiveChild ? color : th.muted;
-
-    // Collapsed: icon only + red dot. Clicking opens a flyout menu beside the sidebar
-    // with the group's tabs (the sidebar itself is overflow:hidden, so the flyout
-    // portals to document.body and positions off the icon's viewport rect).
-    if (collapsed) {
-      const flyOpen = navFlyout?.key === groupKey;
-      return (
-        <>
-        <button
-          title={label}
-          onClick={(e) => {
-            if (flyOpen) { setNavFlyout(null); return; }
-            const r = e.currentTarget.getBoundingClientRect();
-            setNavFlyout({ key: groupKey, top: r.top, left: r.right });
-          }}
-          style={{
-            width: "100%", padding: "0.65rem 0", marginBottom: "0.15rem",
-            display: "flex", justifyContent: "center", alignItems: "center",
-            background: flyOpen ? `${color}22` : hasActiveChild ? `${color}18` : "transparent",
-            border: "none", borderRadius: "0.625rem", cursor: "pointer",
-            transition: "all .2s", position: "relative",
-          }}
-          onMouseEnter={e => { if (!hasActiveChild && !flyOpen) e.currentTarget.style.background = th.card3; }}
-          onMouseLeave={e => { e.currentTarget.style.background = flyOpen ? `${color}22` : hasActiveChild ? `${color}18` : "transparent"; }}
-        >
-          {grpIcon(iconColor)}
-          {hasBadge && (
-            <span style={{ position: "absolute", top: 6, right: 8, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" }} />
-          )}
-          {hasActiveChild && !hasBadge && (
-            <span style={{ position: "absolute", bottom: 3, left: "50%", transform: "translateX(-50%)", width: 16, height: 2, borderRadius: 999, background: color, boxShadow: `0 0 6px ${color}` }} />
-          )}
-        </button>
-        {flyOpen && ReactDOM.createPortal(
-          <>
-            {/* click-away backdrop */}
-            <div onClick={() => setNavFlyout(null)} style={{ position: "fixed", inset: 0, zIndex: 9998, background: "transparent" }} />
-            <div style={{
-              position: "fixed",
-              left: navFlyout.left + 10,
-              top: Math.max(8, Math.min(navFlyout.top - 6, window.innerHeight - (menuTabs.length * 42 + 52))),
-              zIndex: 9999, minWidth: 200,
-              background: th.sidebar,
-              border: `1px solid ${th.sidebarBorder}`,
-              borderRadius: "0.75rem",
-              boxShadow: "0 14px 36px rgba(0,0,0,0.3)",
-              padding: "0.4rem",
-              animation: "fadeIn .12s ease-out",
-            }}>
-              <div style={{ fontSize: "0.6rem", fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color, padding: "0.4rem 0.65rem 0.3rem" }}>{label}</div>
-              {menuTabs.map(t => {
-                const isCash = t.cash;
-                const cashColor = isCash && cashMissingCount > 0 ? "#ef4444" : "#00d084";
-                const C = isCash ? cashColor : (t.green ? "#00d084" : color);
-                return (
-                  <NavButton key={t.id} tabDef={t} accent={C} isActive={tab === t.id} collapsed={false}
-                    badge={navBadge(t)} glow={t.green || isCash} dotColor={C}
-                    pinned={pinnedNavIds.includes(t.id)} onTogglePin={togglePinNav}
-                    onClick={() => { setTab(t.id); setNavFlyout(null); nav && nav(); }} />
-                );
-              })}
-            </div>
-          </>,
-          document.body
-        )}
-        </>
-      );
-    }
-
-    // Expanded: group header + optional indented children
-    return (
-      <>
-        <button
-          onClick={toggle}
-          style={{
-            width: "100%", padding: "0.65rem 0.85rem", marginBottom: "0.1rem",
-            display: "flex", alignItems: "center", gap: "0.55rem",
-            background: "transparent",
-            border: "none", borderRadius: "0.625rem", cursor: "pointer",
-            fontFamily: "'Source Sans 3'", fontSize: "0.8rem", fontWeight: 600,
-            color: iconColor,
-            transition: "all .2s", textAlign: "left",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.color = th.text; }}
-          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = iconColor; }}
-        >
-          {/* SVG icon — same 18px slot as NavButton, red dot overlaid when badges exist */}
-          <span style={{ position: "relative", width: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {grpIcon(iconColor)}
-            {hasBadge && (
-              <span style={{ position: "absolute", top: -3, right: -4, width: 7, height: 7, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" }} />
-            )}
-          </span>
-          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-          {/* Red dot beside chevron when group is open so indicator stays visible */}
-          {hasBadge && showChildren && (
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc", flexShrink: 0, marginRight: "0.35rem" }} />
-          )}
-          <span style={{
-            fontSize: "0.5rem", opacity: 0.4, flexShrink: 0,
-            transition: "transform 0.22s", display: "inline-block",
-            transform: showChildren ? "rotate(90deg)" : "none",
-          }}>▶</span>
-        </button>
-        {showChildren && (
-          <div style={{
-            marginLeft: "0.875rem",
-            paddingLeft: "0.625rem",
-            borderLeft: `1.5px solid ${color}28`,
-            marginBottom: "0.25rem",
-          }}>
-            {grpTabs.map(t => {
-              const isGreen = t.green;
-              const isCash = t.cash;
-              const cashHasMissing = isCash && cashMissingCount > 0;
-              const isActive = tab === t.id;
-              const cashColor = cashHasMissing ? "#ef4444" : "#00d084";
-              const C = isCash ? cashColor : (isGreen ? "#00d084" : color);
-              const glow = isGreen || isCash;
-              const badge = navBadge(t);
-              return (
-                <NavButton key={t.id} tabDef={t} accent={C} isActive={isActive} collapsed={false}
-                  badge={badge} glow={glow} dotColor={C}
-                  pinned={pinnedNavIds.includes(t.id)} onTogglePin={togglePinNav}
-                  onClick={() => { setTab(t.id); nav && nav(); }} />
-              );
-            })}
-          </div>
-        )}
-      </>
-    );
-  };
 
   const SidebarContent = ({ onNav, collapsed, navRef, onNavScroll }) => (
     <>
@@ -43771,10 +43849,14 @@ function PCGPortal() {
         {/* DM section — grouped accordion */}
         {user?.userType === "dm" && (() => {
           const dmTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
+          // Flat single-click rows, same as the exec/office categories — "team-hub" and
+          // "ops-hub" are tile-grid landing pages; Finance and Reports are single tools
+          // and stay direct, no hub wrapper needed for just one destination.
           const DM_GROUPS = [
-            { key:'dm_loc',  label:'Locations & Map', color:'#74c0fc', icon:(c)=>ICONS.locations(c), ids:['map','locations'] },
-            { key:'dm_ops',  label:'Operations',      color:'#74c0fc', icon:(c)=>ICONS.analytics(c), ids:['tasks','pulse','pnl','analytics','anomalies','audits'] },
-            { key:'dm_biz',  label:'District',        color:'#74c0fc', icon:(c)=>ICONS.dollar(c),    ids:['cash','reports','projects','deals','scorecard'] },
+            { key:'dm_team', id:'team-hub', label:'Team & Sites', color:'#7C5CD9', icon:(c)=>ICONS.locations(c) },
+            { key:'dm_ops',  id:'ops-hub',  label:'Operations',   color:'#2F6FA8', icon:(c)=>ICONS.analytics(c) },
+            { key:'dm_fin',  id:'finance',  label:'Finance',      color:'#1B8F5C', icon:(c)=>ICONS.dollar(c) },
+            { key:'dm_rep',  id:'reports',  label:'Reports',      color:'#74c0fc', icon:(c)=>ICONS.reports(c) },
           ];
           const sectionHasActive = dmTabs.some(t => t.id === tab) && !pinnedNavIds.includes(tab);
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_dm'] || sectionHasActive;
@@ -43783,21 +43865,12 @@ function PCGPortal() {
               <SectionHeader label="My District" accent="#74c0fc" collapsed={collapsed}
                 open={sectionOpen} onToggle={() => toggleSidebarSection('sec_dm')} />
               {sectionOpen && DM_GROUPS.map(grp => {
-                const allTabs = grp.ids.map(id => dmTabs.find(t => t.id === id)).filter(Boolean);
-                const grpTabs = allTabs.filter(t => !pinnedNavIds.includes(t.id));
-                if ((collapsed ? allTabs : grpTabs).length === 0) return null;
+                const tabDef = dmTabs.find(t => t.id === grp.id);
+                if (!tabDef || pinnedNavIds.includes(tabDef.id)) return null;
                 return (
-                  <AdminGroup
-                    key={grp.key}
-                    groupKey={grp.key}
-                    icon={grp.icon}
-                    label={grp.label}
-                    color={grp.color}
-                    tabs={grpTabs}
-                    flyoutTabs={allTabs}
-                    collapsed={collapsed}
-                    onNav={onNav}
-                  />
+                  <NavButton key={grp.key} tabDef={tabDef} accent={grp.color} isActive={tab === grp.id}
+                    collapsed={collapsed} badge={navBadge(tabDef)}
+                    onClick={() => { setTab(grp.id); onNav && onNav(); }} />
                 );
               })}
             </>
@@ -43911,22 +43984,15 @@ function PCGPortal() {
             <SectionHeader label={isFullAdmin(user) ? "Admin" : "Operations"} accent={O} collapsed={collapsed}
               open={sectionOpen} onToggle={() => toggleSidebarSection('sec_admin')} />
             {sectionOpen && (() => {
+              // Each category is one hub tab now — a flat, single-click nav row (same
+              // component pinned tabs use), not an accordion. No nested sidebar.
               return ADMIN_GROUPS.map(grp => {
-                const allTabs = grp.ids.map(id => adminTabs.find(t => t.id === id)).filter(Boolean);
-                const grpTabs = allTabs.filter(t => !pinnedNavIds.includes(t.id));
-                if ((collapsed ? allTabs : grpTabs).length === 0) return null;
+                const tabDef = adminTabs.find(t => t.id === grp.id);
+                if (!tabDef || pinnedNavIds.includes(tabDef.id)) return null;
                 return (
-                  <AdminGroup
-                    key={grp.key}
-                    groupKey={grp.key}
-                    icon={grp.icon}
-                    label={grp.label}
-                    color={grp.color}
-                    tabs={grpTabs}
-                    flyoutTabs={allTabs}
-                    collapsed={collapsed}
-                    onNav={onNav}
-                  />
+                  <NavButton key={grp.key} tabDef={tabDef} accent={grp.color} isActive={tab === grp.id}
+                    collapsed={collapsed} badge={navBadge(tabDef)}
+                    onClick={() => { setTab(grp.id); onNav && onNav(); }} />
                 );
               });
             })()}
@@ -44096,13 +44162,15 @@ function PCGPortal() {
                 {tab === "locations" && "Store locations and operational details."}
                 {tab === "analytics" && "Sales data and performance metrics."}
                 {tab === "pulse" && "Live sales monitoring and weekly trends."}
-                {tab === "cash" && "Deposit tracking and missing-deposit alerts."}
+                {tab === "finance" && "P&L, NDCP orders, cash deposits, reconciliation, and expenses in one place."}
+                {tab === "ops-hub" && "Tasks, Pulse, Analytics, Anomalies, DM Scorecard, and Audits in one place."}
+                {tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place."}
+                {tab === "system-hub" && "Admin, Email, and Reports in one place."}
                 {tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion."}
                 {tab === "audits" && "Field operations audits — conduct on-site, scored automatically, critical failures cap the result."}
                 {tab === "projects" && "Track construction, remodels, and new store builds."}
                 {tab === "users" && "User accounts and access management."}
                 {tab === "kb" && "Company guides, SOPs, training materials, and reference articles."}
-                {tab === "expenses" && "All maintenance expenses across tickets — review, filter, and approve."}
                 {tab === "admin" && "Users, configuration, audit log, and system data."}
                 {tab === "email" && "Shared inbox and outbound email from the portal."}
                 {tab === "tickets"  && "Submit and track maintenance & service tickets."}
@@ -44439,7 +44507,7 @@ function PCGPortal() {
           document.body
         )}
 
-        <div className="main-content-padding" style={{ padding: tab === "map" ? "0.75rem 1rem" : (tab === "locations" || tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
+        <div className="main-content-padding" style={{ padding: (tab === "map" || (tab === "locations" && locationsMapMode)) ? "0.75rem 1rem" : (tab === "locations" || tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
           {/* App-wide error boundary: any tab that throws during render shows a fallback
               instead of white-screening the whole app. key={tab} remounts it on tab change
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
@@ -44452,21 +44520,52 @@ function PCGPortal() {
           {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district)} th={th} setTab={setTab} users={users} />}
           {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? stores : stores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
           {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={stores} salesWeeks={salesWeeks} />}
-          {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} users={users} />}
+          {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} users={users} onMapModeChange={setLocationsMapMode} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
+          {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />}
+          {tab === "ops-hub" && (() => {
+            const OPS = '#2F6FA8';
+            const opsTiles = [
+              { id: 'tasks', name: 'Tasks', sub: 'Checklists, GPS-verified completions, DM escalation.', show: isFullAdmin(user) || isOfficeStaff || isDM || isManager, icon: <><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></> },
+              { id: 'pulse', name: 'Pulse', sub: 'Live sales monitoring, Labor tab, weekly trends.', show: isFullAdmin(user) || isOfficeStaff || isDM, icon: <path d="M3 12h4l2-7 4 14 2-7h6"/> },
+              { id: 'analytics', name: 'Analytics', sub: 'Sales data and performance metrics, network-wide.', show: isFullAdmin(user) || isOfficeStaff || isDM, icon: <><path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7"/></> },
+              { id: 'anomalies', name: 'Anomalies', sub: 'Unusual sales or labor patterns vs. day-of-week baseline.', show: isFullAdmin(user) || isOfficeStaff || isDM, icon: <path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/> },
+              { id: 'scorecard', name: 'DM Scorecard', sub: 'Weekly DM ranking — labor, sales growth, ticket health.', show: isFullAdmin(user), icon: <><path d="M12 15a5 5 0 0 0 5-5V5a5 5 0 0 0-10 0v5a5 5 0 0 0 5 5Z"/><path d="M4 10a8 8 0 0 0 16 0M12 18v4"/></> },
+              { id: 'audits', name: 'Audits', sub: 'Field operations audits — conduct, review, score.', show: auditCanView(user) || safeCanView(user), icon: <><path d="M9 11.5 11 13.5 15.5 9"/><rect x="3" y="4" width="18" height="17" rx="2"/></> },
+            ].filter(t => t.show);
+            return <TileGrid title="Operations" tiles={opsTiles} color={OPS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
+          })()}
+          {tab === "team-hub" && (() => {
+            const TEAM = '#7C5CD9';
+            const teamTiles = [
+              { id: 'locations', name: 'Locations', sub: 'Store roster — table, cards, and map, one filter bar.', show: isFullAdmin(user) || isOfficeStaff || isDM, icon: <><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/></> },
+              { id: 'impact', name: 'Impact Radar', sub: 'Competitive intelligence — nearby openings and closures.', show: isFullAdmin(user) || isOfficeStaff, icon: <><circle cx="12" cy="12" r="9"/><path d="M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18M3 12h18"/></> },
+              { id: 'projects', name: 'Projects', sub: 'Construction pipeline, vendors, permits, inspections.', show: canViewProjects(user), icon: <><path d="M3 21h18M6 21V9l6-4 6 4v12M10 21v-6h4v6"/></> },
+              { id: 'deals', name: 'Deal Pipeline', sub: 'Site acquisition deals and critical-date reminders.', show: canDeals, icon: <><path d="M7 12h4l2 3 2-6 2 3h3"/><rect x="2" y="5" width="20" height="14" rx="2"/></> },
+              // Exec/IT manage users via Admin, not a separate tab — only office_staff has a
+              // standalone "users" route/tab entry today, so only show this tile for them.
+              { id: 'users', name: 'Users', sub: 'Accounts, roles, and access management.', show: isOfficeStaff, icon: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6"/></> },
+            ].filter(t => t.show);
+            return <TileGrid title="Team & Sites" tiles={teamTiles} color={TEAM} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
+          })()}
+          {tab === "system-hub" && (() => {
+            const SYS = '#726A5C';
+            const sysTiles = [
+              { id: 'admin', name: 'Admin', sub: 'Users, role access, audit log, system data.', show: isFullAdmin(user), icon: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></>},
+              { id: 'email', name: 'Email', sub: 'Shared inbox and outbound email from the portal.', show: isFullAdmin(user) || isOfficeStaff, icon: <><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/></> },
+              { id: 'reports', name: 'Reports', sub: 'Dashboards, decks, and scheduled reports from Orion.', show: true, icon: <><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></> },
+            ].filter(t => t.show);
+            return <TileGrid title="System" tiles={sysTiles} color={SYS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
+          })()}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
-          {tab === "ndcp" && (isFullAdmin(user) || isOfficeStaff) && <AdminNdcp th={th} user={user} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
           {tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <OpsTasks stores={stores} th={th} user={user} />}
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
-          {tab === "cash"      && (isFullAdmin(user) || isOfficeStaff || isDM) && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
-          {tab === "recon"     && isFullAdmin(user) && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
-          {tab === "expenses"  && isFullAdmin(user) && <ExpenseLogSection th={th} user={user} standalone />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
