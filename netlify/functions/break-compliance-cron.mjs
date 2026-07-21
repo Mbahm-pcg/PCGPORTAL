@@ -220,7 +220,7 @@ async function fetchActiveEmployees(legalEntityId) {
 async function getMinorRoster(store, cache) {
   const cached = cache?.[store.pc];
   if (cached && Date.now() - new Date(cached.updatedAt).getTime() < ROSTER_MAX_AGE_MS) {
-    return cached.minors;
+    return cached;
   }
   const [employees, identifying] = await Promise.all([
     fetchActiveEmployees(store.paycor),
