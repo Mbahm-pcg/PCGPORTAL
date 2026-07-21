@@ -206,7 +206,7 @@ async function fetchIdentifyingData(legalEntityId) {
 
 async function fetchActiveEmployees(legalEntityId) {
   try {
-    const res = await callPaycor(`/legalentities/${legalEntityId}/employees?include=All`);
+    const res = await callPaycor(`/v1/legalentities/${legalEntityId}/employees?include=All`);
     if (res.status !== 200) return [];
     const records = res.data?.records || [];
     return records
@@ -238,7 +238,7 @@ async function getMinorRoster(store, cache) {
 // ── Punch analysis ────────────────────────────────────────────────────────────
 async function fetchEmployeePunchesToday(employeeId, busDt) {
   try {
-    const res = await callPaycor(`/employees/${employeeId}/employeePunches?startDate=${busDt}&endDate=${busDt}`);
+    const res = await callPaycor(`/v1/employees/${employeeId}/employeePunches?startDate=${busDt}&endDate=${busDt}`);
     if (res.status !== 200) return [];
     const punches = res.data?.records || res.data || [];
     return Array.isArray(punches) ? punches : [];
