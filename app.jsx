@@ -15817,9 +15817,10 @@ function PnlAccessPanel({ th, user, users, showAlert }) {
   );
 }
 
-function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
+function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
+  const [newTicketPhone, setNewTicketPhone] = useState("");
   const [notifyLog, setNotifyLog] = useState(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
@@ -15899,6 +15900,26 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const removeTicketEmail = (idx) => {
     setTicketNotifyEmails(prev => prev.filter((_, i) => i !== idx));
     showAlert("success", "Email removed from ticket list");
+  };
+
+  const addTicketPhone = () => {
+    const digits = newTicketPhone.replace(/\D/g, "");
+    // An 11-digit US number is only valid with a leading '1' (country code) —
+    // an 11-digit number starting with anything else is a mistyped/foreign
+    // number, not a US number missing its country code, so it must be rejected
+    // rather than having its first digit silently (and wrongly) stripped.
+    const validLength = digits.length === 10 || (digits.length === 11 && digits[0] === '1');
+    if (!validLength) { showAlert("error", "Enter a valid 10-digit phone number"); return; }
+    const normalized = digits.length === 11 ? digits.slice(1) : digits;
+    if ((ticketNotifyPhones || []).map(p => p.replace(/\D/g, "")).includes(normalized)) { showAlert("error", "Number already in ticket list"); return; }
+    setTicketNotifyPhones(prev => [...(prev || []), normalized]);
+    setNewTicketPhone("");
+    showAlert("success", "Number added to ticket SMS list");
+  };
+
+  const removeTicketPhone = (idx) => {
+    setTicketNotifyPhones(prev => prev.filter((_, i) => i !== idx));
+    showAlert("success", "Number removed from ticket SMS list");
   };
 
   const [innerTab, setInnerTab] = React.useState('notifications');
@@ -16013,6 +16034,37 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newTicketEmail} onChange={e => setNewTicketEmail(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") addTicketEmail(); }} />
             <button onClick={addTicketEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
+          </div>
+
+          {/* Ticket Notify Phone Numbers — SMS alongside the email list above */}
+          <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <span style={{ fontSize: "1.125rem" }}>📱</span>
+              <span style={{ fontWeight: 700, fontSize: "0.95rem", color: th.text }}>Ticket SMS Numbers</span>
+              <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(ticketNotifyPhones || []).length})</span>
+            </div>
+            <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
+              These phone numbers get a text message when a new service ticket is created, same trigger as the email list above.
+            </p>
+            <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+              {(ticketNotifyPhones || []).length === 0 && (
+                <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No ticket SMS numbers configured.</div>
+              )}
+              {(ticketNotifyPhones || []).map((phone, idx) => (
+                <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" }}>📱</span>
+                    <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{formatPhone(phone)}</span>
+                  </div>
+                  <button onClick={() => removeTicketPhone(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <input style={{ ...inp(th), flex: 1 }} placeholder="(555) 123-4567" value={newTicketPhone} onChange={e => setNewTicketPhone(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") addTicketPhone(); }} />
+              <button onClick={addTicketPhone} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
+            </div>
           </div>
         </>}
       </div>
@@ -18718,7 +18770,7 @@ function TicketAttachment({ att, th, onZoom }) {
 }
 
 // ── Tickets ────────────────────────────────────────────────────────────────
-function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, setNotifications, setTab }) {
+function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef }) {
   const isAdmin = user?.userType === "executive" || user?.userType === "it";
   const isDM      = user?.userType === "dm";
   const isManager = user?.userType === "manager";
@@ -18840,6 +18892,18 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     try { localStorage.setItem("pcg_tickets_v1", JSON.stringify(tickets)); } catch {}
     if (!cloudTicketsLoaded.current) return;
     cloudSave('pcg_tickets_v1', tickets);
+  }, [tickets]);
+
+  // Deep-link: ?ticket=T-0123 (from the new-ticket SMS/email link) → open that ticket
+  // once its data has actually loaded. Keyed on `tickets`, not just mount, since the
+  // cloud fetch above is async and tickets may still be [] on first render.
+  React.useEffect(() => {
+    if (!deepLinkRef?.current || tickets.length === 0) return;
+    const found = tickets.find(t => t.number === deepLinkRef.current);
+    if (found) {
+      setSelectedId(found.id);
+      deepLinkRef.current = null;
+    }
   }, [tickets]);
 
   const [statusFilter, setStatusFilter] = React.useState("all");
@@ -19015,6 +19079,9 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const fmtDate = d => { if (!d) return ""; try { return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); } catch { return d; } };
   const fmtRelative = d => { if (!d) return ""; const h = Math.floor((Date.now()-new Date(d))/3600000); if (h<1) return "Just now"; if (h<24) return `${h}h ago`; return `${Math.floor(h/24)}d ago`; };
 
+  // Text message alongside the email notification — same trigger (new ticket created),
+  // same recipient list source (Admin · Notifications · Ticket SMS Numbers), just a
+  // shorter message since SMS has no room for photos/description formatting.
   const sendTicketNotification = (t) => {
     const storeEmail = stores.find(s => String(s.pc) === String(t.storePC))?.email || null;
     const emails = [
@@ -19106,13 +19173,17 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
 
         <!-- CTA -->
         <div style="border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;text-align:center;padding:22px 24px;">
-          <a href="${BRAND_CONFIG.portalUrl}" style="display:inline-block;background:${BRAND_CONFIG.primary};color:#fff;padding:13px 34px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal →</a>
+          <a href="${BRAND_CONFIG.portalUrl}/?ticket=${encodeURIComponent(t.number)}" style="display:inline-block;background:${BRAND_CONFIG.primary};color:#fff;padding:13px 34px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal →</a>
         </div>
       </div>
     `;
 
     const subject = `[PCG Ticket ${t.number}] ${t.title} — ${t.storeName}`;
-    const smsBody = `New ticket ${t.number}: ${t.title} | ${t.storeName} | ${t.priority} priority`;
+    // Full description/photos/video can't fit in a text — the link opens straight
+    // to this ticket in the Portal instead (see the ?ticket= deep-link effect in
+    // PCGPortal + the matching effect in this component).
+    const link = `${BRAND_CONFIG.portalUrl}/?ticket=${encodeURIComponent(t.number)}`;
+    const smsBody = `New ticket ${t.number}: ${t.title} | ${t.storeName} | ${t.priority} priority. Full details: ${link}`;
 
     // Email sent directly so we can pass image attachments; SMS/push go through dispatchNotifications
     const emailRecipients = emails.filter(email => {
@@ -19121,13 +19192,20 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     });
     if (emailRecipients.length > 0) sendNotifyEmail(emailRecipients, subject, html, cidAttachments).catch(() => {});
 
-    // SMS + push (no image attachments needed)
+    // SMS + push (no image attachments needed). Two recipient sources feed the
+    // same list — each per-user account opted into smsNotify, plus the admin-
+    // curated Ticket SMS Numbers list (Admin · Notifications) — deduped by
+    // normalized digits so a number in both places only gets texted once.
     const smsNumbers = [];
     const pushIds = [];
     for (const email of emails) {
       const u = (users || []).find(usr => (usr.email || "").toLowerCase() === email.toLowerCase());
       if (u && u.smsNotify && u.phone) { const d = u.phone.replace(/\D/g,""); if (d.length >= 10) smsNumbers.push(d); }
       if (u && u.pushNotify && u.id) pushIds.push(u.id);
+    }
+    for (const raw of (ticketNotifyPhones || [])) {
+      const d = String(raw || "").replace(/\D/g, "");
+      if (d.length >= 10 && !smsNumbers.includes(d)) smsNumbers.push(d);
     }
     if (smsNumbers.length > 0) sendNotifySMS(smsNumbers, smsBody);
     if (pushIds.length > 0) sendPushNotification(pushIds, subject, smsBody, "/", `ticket_${t.id}`);
@@ -19187,6 +19265,8 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     setVoiceActive(false);
     setForm(EMPTY_FORM);
     // Email embeds the photos, so send the raw dataUrls (the stored refs have no bytes).
+    // SMS is sent from inside sendTicketNotification too — one function, one merged
+    // deduped recipient list, so a number in both sources doesn't get texted twice.
     sendTicketNotification({ ...t, attachments: rawAttachments });
     if (setNotifications) {
       const tStore = stores.find(s => String(s.pc) === String(t.storePC));
@@ -24328,7 +24408,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.15";
+const APP_VERSION = "v19.20";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -24433,6 +24513,8 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   const [expandedThreads, setExpandedThreads] = useState(new Set());
   const [orionFeedback, setOrionFeedback] = useState({}); // messageId -> 'up' | 'down'
   const [editMembers, setEditMembers] = useState(null); // { channelId, ids: [] } while managing membership
+  const [chatMenuOpen, setChatMenuOpen] = useState(false); // "⋮" dropdown on the open conversation's header
+  const [chatConfirm, setChatConfirm] = useState(null); // { title, body, confirmLabel, onConfirm } — in-app confirm for delete/leave/clear
 
   // Explicit "did this answer your question?" — the trustworthy miss signal.
   const sendOrionFeedback = (messageId, rating) => {
@@ -24779,7 +24861,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   const uniqChannels = (() => { const seen = new Set(); return channels.filter(c => c && c.id && !seen.has(c.id) && seen.add(c.id)); })();
 
   const myChannels = uniqChannels
-    .filter(ch => ch.type !== 'analyst' && ch.members && ch.members.includes(user.id))
+    .filter(ch => ch.type !== 'analyst' && ch.members && ch.members.includes(user.id) && !(ch.hiddenFor || []).includes(user.id))
     .map(ch => {
       const chMsgs = messages.filter(m => m.channelId === ch.id && !m.deleted);
       const lastMsg = chMsgs.length > 0 ? chMsgs[chMsgs.length - 1] : null;
@@ -24879,6 +24961,15 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
     setMsgText(""); setPendingAttachments([]);
     // Update own read state
     setReadState(prev => ({ ...prev, [`${user.id}_${activeChannelId}`]: msg.timestamp }));
+    // New activity un-hides the channel for anyone who'd hidden/left it — "delete
+    // conversation" promises "it'll still be there for the other person", not
+    // "gone forever"; without this a hidden DM would never resurface even after
+    // new messages, since hiddenFor is otherwise only ever added to, never cleared.
+    // (For a "left" group this is a no-op in practice — membership removal already
+    // keeps it out of that person's list regardless of hiddenFor.)
+    if (ch?.hiddenFor?.length) {
+      setChannels(prev => prev.map(c => c.id === activeChannelId ? { ...c, hiddenFor: [] } : c));
+    }
 
     // If this is an analyst channel, route to Orion instead of push notifications
     if (ch && ch.type === "analyst") {
@@ -24905,6 +24996,59 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   // Delete message
   const deleteMessage = (msgId) => {
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, deleted: true, deletedBy: user.username } : m));
+  };
+
+  // Delete/leave a whole chat, from the "⋮" menu on an open conversation.
+  //   - DM: always hides it from just this user (channel + messages untouched;
+  //     the other person still sees everything — DMs are 2-way, so one side
+  //     "deleting" can't unilaterally erase the other's history).
+  //   - Group/Project: the creator (or a chat admin) gets a real, shared delete —
+  //     the channel and its messages are gone for every member, not just them.
+  //     Anyone else on the channel only gets "Leave", which hides it for them
+  //     and drops them from `members` so they stop getting notified.
+  //   - Analyst: single-user by construction, so "delete" just clears its
+  //     messages — the channel itself is recreated empty on next visit.
+  const chatDeleteAction = (ch) => {
+    if (!ch) return null;
+    if (ch.type === "analyst") return "clear";
+    if (ch.type === "dm") return "hide";
+    // group / project
+    if (ch.createdBy === user.id || isAdmin) return "delete";
+    return "leave";
+  };
+  // Runs the actual state change once the in-app confirm modal is accepted.
+  const doChatDelete = (ch, action) => {
+    if (action === "clear") {
+      setMessages(prev => prev.filter(m => m.channelId !== ch.id));
+    } else if (action === "hide") {
+      setChannels(prev => prev.map(c => c.id === ch.id ? { ...c, hiddenFor: [...(c.hiddenFor || []), user.id] } : c));
+    } else if (action === "leave") {
+      // Removing from `members` alone is enough — every channel-list/unread-count
+      // site already gates on `members.includes(user.id)`, so a departed member
+      // is excluded without needing `hiddenFor` too. Reserve `hiddenFor` for the
+      // DM "hide" case, where members can't change (it's a fixed 2-person list).
+      setChannels(prev => prev.map(c => c.id === ch.id ? { ...c, members: (c.members || []).filter(id => id !== user.id) } : c));
+    } else if (action === "delete") {
+      setChannels(prev => prev.filter(c => c.id !== ch.id));
+      setMessages(prev => prev.filter(m => m.channelId !== ch.id));
+    }
+    setChatConfirm(null);
+    setChatMenuOpen(false);
+    setChatView("list");
+    setActiveChannelId(null);
+  };
+  // Opens the in-app confirm modal (not the browser's native confirm()) with copy
+  // tailored to the action, then defers the real state change to doChatDelete.
+  const performChatDelete = (ch) => {
+    const action = chatDeleteAction(ch);
+    if (!action) return;
+    const prompts = {
+      clear:  { title: "Clear conversation?", body: "This only clears it for you.", confirmLabel: "Clear" },
+      hide:   { title: "Delete conversation?", body: "It'll still be there for the other person — this only removes it from your view.", confirmLabel: "Delete" },
+      leave:  { title: `Leave "${getChannelName(ch)}"?`, body: "You'll stop seeing messages here unless someone adds you back.", confirmLabel: "Leave" },
+      delete: { title: `Delete "${getChannelName(ch)}" for everyone?`, body: "This removes the whole conversation for every member and can't be undone.", confirmLabel: "Delete for Everyone" },
+    };
+    setChatConfirm({ ...prompts[action], onConfirm: () => doChatDelete(ch, action) });
   };
 
   // Handle attachment
@@ -24976,7 +25120,7 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
   const threadMessages = activeChannelId ? messages.filter(m => m.channelId === activeChannelId).sort((a,b) => a.timestamp.localeCompare(b.timestamp)) : [];
 
   // Clear replyToThread when channel changes
-  useEffect(() => { setReplyToThread(null); }, [activeChannelId]);
+  useEffect(() => { setReplyToThread(null); setChatMenuOpen(false); }, [activeChannelId]);
 
   // Group analyst messages by threadId for threaded view
   const threadedMessages = React.useMemo(() => {
@@ -25248,7 +25392,41 @@ function ChatSection({ user, users, projects, channels, setChannels, messages, s
               👥 Members
             </button>
           )}
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setChatMenuOpen(o => !o)} title="Chat options"
+              style={{ ...btn(th, { padding: "0.35rem 0.6rem", fontSize: "1rem", background: "none", color: th.muted }) }}>⋮</button>
+            {chatMenuOpen && (() => {
+              const action = chatDeleteAction(activeChannel);
+              const label = action === "delete" ? "🗑 Delete for everyone" : action === "leave" ? "🚪 Leave conversation" : action === "clear" ? "🗑 Clear conversation" : "🗑 Delete conversation";
+              return (
+                <>
+                  <div onClick={() => setChatMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />
+                  <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 9999, minWidth: 190, overflow: "hidden" }}>
+                    <button onClick={() => performChatDelete(activeChannel)}
+                      style={{ display: "block", width: "100%", textAlign: "left", padding: "0.6rem 0.85rem", background: "none", border: "none", color: "#ef4444", fontSize: "0.8125rem", fontWeight: 600, cursor: "pointer", fontFamily: "'Source Sans 3'" }}>
+                      {label}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
         </div>
+
+        {/* In-app confirm for delete/leave/clear — replaces the browser's native confirm() */}
+        {chatConfirm && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}
+            onClick={e => { if (e.target === e.currentTarget) setChatConfirm(null); }}>
+            <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: "1.5rem", width: "100%", maxWidth: 400 }}>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.05rem", color: th.text, marginBottom: "0.4rem" }}>{chatConfirm.title}</div>
+              <div style={{ fontSize: "0.85rem", color: th.muted, lineHeight: 1.5, marginBottom: "1.25rem" }}>{chatConfirm.body}</div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+                <button onClick={() => setChatConfirm(null)} style={{ background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 8, color: th.muted, padding: "0.6rem 1rem", cursor: "pointer", fontFamily: "'Source Sans 3'", fontSize: "0.85rem" }}>Cancel</button>
+                <button onClick={chatConfirm.onConfirm} style={{ background: "#ef4444", border: "none", borderRadius: 8, color: "#fff", padding: "0.6rem 1.25rem", cursor: "pointer", fontFamily: "'Source Sans 3'", fontSize: "0.85rem", fontWeight: 700 }}>{chatConfirm.confirmLabel}</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Member list / management overlay */}
         {editMembers && editMembers.channelId === activeChannel.id && (() => {
@@ -41818,7 +41996,7 @@ function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
 //    assigned to a store's tablet (paired with a Hexnode single-app/URL kiosk
 //    policy on the device). Reuses AdminTickets (full handling) and OpsTasks,
 //    both of which scope to the user's storePC for the store_tablet role.
-function StoreTabletView({ user, users, stores, th, showAlert, dataAlert, ticketNotifyEmails, setNotifications, onLogout }) {
+function StoreTabletView({ user, users, stores, th, showAlert, dataAlert, ticketNotifyEmails, ticketNotifyPhones, setNotifications, onLogout, deepLinkRef }) {
   const [tab, setTab] = React.useState('tickets');
   const store = (stores || []).find(s => String(s.pc) === String(user?.storePC)) || null;
   const TABS = [
@@ -41859,7 +42037,7 @@ function StoreTabletView({ user, users, stores, th, showAlert, dataAlert, ticket
             This tablet isn't assigned to a store yet. Ask an admin to set the store on this account.
           </div>
         ) : tab === 'tickets' ? (
-          <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={() => {}} />
+          <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setNotifications={setNotifications} setTab={() => {}} deepLinkRef={deepLinkRef} />
         ) : (
           <OpsTasks stores={stores} th={th} user={user} />
         )}
@@ -42024,6 +42202,7 @@ function PCGPortal() {
   const [globalNotifyEmails, setGlobalNotifyEmails] = useState(() => { const s=loadFromStorage(); return s?.globalNotifyEmails || DEFAULT_GLOBAL_NOTIFY; });
   const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter(e => e.toLowerCase() !== "sam@rgi.life");
   const [ticketNotifyEmails, setTicketNotifyEmails] = useState(() => { const s=loadFromStorage(); return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY; });
+  const [ticketNotifyPhones, setTicketNotifyPhones] = useState(() => { const s=loadFromStorage(); return s?.ticketNotifyPhones || []; });
   const [chatChannels, setChatChannels] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatReadState, setChatReadState] = useState({});
@@ -42052,6 +42231,7 @@ function PCGPortal() {
   const cloudNotificationsLoaded = useRef(false);
   const cloudGlobalNotifyLoaded = useRef(false);
   const cloudTicketNotifyLoaded = useRef(false);
+  const cloudTicketNotifyPhonesLoaded = useRef(false);
   const projectsUserEdited = useRef(false);
   const dailyReportsUserEdited = useRef(false);
   // Previous dailyReports snapshot for diffing in the per-report save effect
@@ -42107,6 +42287,7 @@ function PCGPortal() {
   const toggleBtnRef = useRef(null);
   const deepLinkRef = useRef(null);
   const todoDeepLinkRef = useRef(null);
+  const ticketDeepLinkRef = useRef(null);
   const isMobile = useIsMobile();
   const th = getTheme(dark);
   // P&L access: who can see the P&L tab (managers + allowlist blob). Client-side gate.
@@ -42436,6 +42617,7 @@ function PCGPortal() {
     let count = 0;
     for (const ch of chatChannels) {
       if (!ch.members || !ch.members.includes(user.id)) continue;
+      if ((ch.hiddenFor || []).includes(user.id)) continue;
       const lastRead = chatReadState[`${user.id}_${ch.id}`] || "1970-01-01";
       count += chatMessages.filter(m => m.channelId === ch.id && m.timestamp > lastRead && m.senderId !== user.id && !m.deleted).length;
     }
@@ -42537,13 +42719,27 @@ function PCGPortal() {
     }
   }, []);
 
+  // Deep-link: ?ticket=T-0123 → open that ticket after login (the link sent in the
+  // new-ticket SMS/email, since a text can't show photos/video — tapping it should
+  // land straight on the full ticket instead of just the app's home screen).
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const ticketParam = params.get('ticket');
+    if (ticketParam) {
+      setTab('tickets');
+      ticketDeepLinkRef.current = ticketParam;
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [user]);
+
   // Close drawer when switching to desktop
   useEffect(() => { if (!isMobile) setDrawerOpen(false); }, [isMobile]);
 
   // Auto-save all data to localStorage whenever anything changes
   useEffect(() => {
-    saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails });
-  }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails]);
+    saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones });
+  }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones]);
 
   // Save sales data separately (can be large)
   // Load from cloud on mount, fallback to localStorage
@@ -43065,6 +43261,19 @@ function PCGPortal() {
     cloudSave('pcg_ticket_notify_v1', ticketNotifyEmails);
   }, [ticketNotifyEmails]);
 
+  // Cloud sync ticket notify phone numbers (SMS)
+  useEffect(() => {
+    cloudLoad('pcg_ticket_notify_phones_v1').then(data => {
+      cloudTicketNotifyPhonesLoaded.current = true;
+      if (data && Array.isArray(data) && data.length > 0) setTicketNotifyPhones(data);
+    }).catch(() => { cloudTicketNotifyPhonesLoaded.current = true; });
+  }, []);
+  useEffect(() => {
+    if (!cloudTicketNotifyPhonesLoaded.current) return;
+    if (ticketNotifyPhones.length === 0) return;
+    cloudSave('pcg_ticket_notify_phones_v1', ticketNotifyPhones);
+  }, [ticketNotifyPhones]);
+
   // Cloud sync chat data
   const chatPollRef = useRef(null);
   const chatPollActive = useRef(false);
@@ -43374,7 +43583,7 @@ function PCGPortal() {
   }, [projects]);
 
   // Collect all data into one object for export/import
-  const getAllData = () => ({ links, notes, todos, users, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, chatChannels, chatMessages, chatReadState, announcements, announcementsDismissed });
+  const getAllData = () => ({ links, notes, todos, users, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, chatChannels, chatMessages, chatReadState, announcements, announcementsDismissed });
 
   const handleExport = () => {
     exportData(getAllData());
@@ -43395,6 +43604,7 @@ function PCGPortal() {
       if (parsed.dailyReports) setDailyReportsUser(parsed.dailyReports);
       if (parsed.globalNotifyEmails) setGlobalNotifyEmails(parsed.globalNotifyEmails);
       if (parsed.ticketNotifyEmails) setTicketNotifyEmails(parsed.ticketNotifyEmails);
+      if (parsed.ticketNotifyPhones) setTicketNotifyPhones(parsed.ticketNotifyPhones);
       if (parsed.chatChannels) setChatChannels(parsed.chatChannels);
       if (parsed.chatMessages) setChatMessages(parsed.chatMessages);
       if (parsed.chatReadState) setChatReadState(parsed.chatReadState);
@@ -43622,7 +43832,7 @@ function PCGPortal() {
   // ── Store Tablet: store-locked Tickets + Tasks (paired with Hexnode kiosk) ──
   if (user.userType === "store_tablet") {
     return <StoreTabletView user={user} users={users} stores={stores} th={th} showAlert={showAlert}
-      dataAlert={dataAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} onLogout={handleLogout} />;
+      dataAlert={dataAlert} ticketNotifyEmails={ticketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setNotifications={setNotifications} onLogout={handleLogout} deepLinkRef={ticketDeepLinkRef} />;
   }
 
   // Role flags — used in sidebar + content rendering guards
@@ -44510,7 +44720,7 @@ function PCGPortal() {
                   return "👥";
                 };
                 const panelChannels = chatChannels
-                  .filter(ch => ch.members && ch.members.includes(user.id))
+                  .filter(ch => ch.members && ch.members.includes(user.id) && !(ch.hiddenFor || []).includes(user.id))
                   .map(ch => {
                     const chMsgs = chatMessages.filter(m => m.channelId === ch.id && !m.deleted);
                     const lastMsg = chMsgs.length > 0 ? chMsgs[chMsgs.length - 1] : null;
@@ -44759,12 +44969,12 @@ function PCGPortal() {
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
-          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} users={users} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
           {tab === "email"    && (isFullAdmin(user) || isOfficeStaff) && <EmailTab th={th} user={user} />}
-          {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} setNotifications={setNotifications} setTab={setTab} />}
+          {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setNotifications={setNotifications} setTab={setTab} deepLinkRef={ticketDeepLinkRef} />}
           {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} todos={todos} setTodos={setTodos} />}
           {tab === "calendar" && user?.userType !== "maintenance" && <PortalCalendar th={th} user={user} stores={stores} todos={todos} projects={projects} />}
           </Guard>

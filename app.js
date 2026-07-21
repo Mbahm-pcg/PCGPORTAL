@@ -13452,9 +13452,10 @@ ${t2.slice(0, 300)}`);
       if (e.key === "Enter") add();
     }, placeholder: "Add by email or username", style: { ...inp(th), flex: 1 } }), /* @__PURE__ */ React.createElement("button", { onClick: add, disabled: saving || !input.trim(), style: { ...btn(th), opacity: saving || !input.trim() ? 0.6 : 1 } }, saving ? "Saving\u2026" : "Add")));
   }
-  function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
+  function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
     const [newEmail, setNewEmail] = useState("");
     const [newTicketEmail, setNewTicketEmail] = useState("");
+    const [newTicketPhone, setNewTicketPhone] = useState("");
     const [notifyLog, setNotifyLog] = useState(null);
     const [logLoading, setLogLoading] = useState(false);
     const [logOpen, setLogOpen] = useState(false);
@@ -13544,6 +13545,26 @@ ${t2.slice(0, 300)}`);
       setTicketNotifyEmails((prev) => prev.filter((_, i) => i !== idx));
       showAlert2("success", "Email removed from ticket list");
     };
+    const addTicketPhone = () => {
+      const digits = newTicketPhone.replace(/\D/g, "");
+      const validLength = digits.length === 10 || digits.length === 11 && digits[0] === "1";
+      if (!validLength) {
+        showAlert2("error", "Enter a valid 10-digit phone number");
+        return;
+      }
+      const normalized = digits.length === 11 ? digits.slice(1) : digits;
+      if ((ticketNotifyPhones || []).map((p) => p.replace(/\D/g, "")).includes(normalized)) {
+        showAlert2("error", "Number already in ticket list");
+        return;
+      }
+      setTicketNotifyPhones((prev) => [...prev || [], normalized]);
+      setNewTicketPhone("");
+      showAlert2("success", "Number added to ticket SMS list");
+    };
+    const removeTicketPhone = (idx) => {
+      setTicketNotifyPhones((prev) => prev.filter((_, i) => i !== idx));
+      showAlert2("success", "Number removed from ticket SMS list");
+    };
     const [innerTab, setInnerTab] = React.useState("notifications");
     const settingsTab = embedSection || innerTab;
     const setSettingsTab = setInnerTab;
@@ -13588,7 +13609,18 @@ ${t2.slice(0, 300)}`);
           if (e.key === "Enter") addTicketEmail();
         }
       }
-    ), /* @__PURE__ */ React.createElement("button", { onClick: addTicketEmail, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add")))), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("button", { onClick: addTicketEmail, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F4F1}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, "Ticket SMS Numbers"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (ticketNotifyPhones || []).length, ")")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These phone numbers get a text message when a new service ticket is created, same trigger as the email list above."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (ticketNotifyPhones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No ticket SMS numbers configured."), (ticketNotifyPhones || []).map((phone, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" } }, "\u{1F4F1}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, formatPhone(phone))), /* @__PURE__ */ React.createElement("button", { onClick: () => removeTicketPhone(idx), style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        style: { ...inp(th), flex: 1 },
+        placeholder: "(555) 123-4567",
+        value: newTicketPhone,
+        onChange: (e) => setNewTicketPhone(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") addTicketPhone();
+        }
+      }
+    ), /* @__PURE__ */ React.createElement("button", { onClick: addTicketPhone, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add"))))), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => {
@@ -15070,7 +15102,7 @@ ${t2.slice(0, 300)}`);
     }
     return /* @__PURE__ */ React.createElement("div", { style: box }, isImage ? /* @__PURE__ */ React.createElement("div", { style: { position: "relative", cursor: "zoom-in" }, onClick: () => onZoom && onZoom({ src, name: att.name }) }, /* @__PURE__ */ React.createElement("img", { src, alt: att.name, style: { display: "block", width: 160, height: 120, objectFit: "cover" } })) : /* @__PURE__ */ React.createElement("div", { style: { width: 180, padding: "0.625rem" } }, /* @__PURE__ */ React.createElement("video", { src, controls: true, style: { width: "100%", borderRadius: "0.375rem", display: "block" } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.25rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, att.name)));
   }
-  function AdminTickets({ user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, setNotifications, setTab }) {
+  function AdminTickets({ user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef }) {
     const isAdmin = user?.userType === "executive" || user?.userType === "it";
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
@@ -15241,6 +15273,14 @@ ${t2.slice(0, 300)}`);
       }
       if (!cloudTicketsLoaded.current) return;
       cloudSave("pcg_tickets_v1", tickets);
+    }, [tickets]);
+    React.useEffect(() => {
+      if (!deepLinkRef?.current || tickets.length === 0) return;
+      const found = tickets.find((t) => t.number === deepLinkRef.current);
+      if (found) {
+        setSelectedId(found.id);
+        deepLinkRef.current = null;
+      }
     }, [tickets]);
     const [statusFilter, setStatusFilter] = React.useState("all");
     const [search, setSearch] = React.useState("");
@@ -15509,12 +15549,13 @@ ${t2.slice(0, 300)}`);
 
         <!-- CTA -->
         <div style="border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;text-align:center;padding:22px 24px;">
-          <a href="${BRAND_CONFIG.portalUrl}" style="display:inline-block;background:${BRAND_CONFIG.primary};color:#fff;padding:13px 34px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal \u2192</a>
+          <a href="${BRAND_CONFIG.portalUrl}/?ticket=${encodeURIComponent(t.number)}" style="display:inline-block;background:${BRAND_CONFIG.primary};color:#fff;padding:13px 34px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.3px;">View Ticket in Portal \u2192</a>
         </div>
       </div>
     `;
       const subject = `[PCG Ticket ${t.number}] ${t.title} \u2014 ${t.storeName}`;
-      const smsBody = `New ticket ${t.number}: ${t.title} | ${t.storeName} | ${t.priority} priority`;
+      const link = `${BRAND_CONFIG.portalUrl}/?ticket=${encodeURIComponent(t.number)}`;
+      const smsBody = `New ticket ${t.number}: ${t.title} | ${t.storeName} | ${t.priority} priority. Full details: ${link}`;
       const emailRecipients = emails.filter((email) => {
         const u = (users || []).find((usr) => (usr.email || "").toLowerCase() === email.toLowerCase());
         return !u || u.emailNotify !== false;
@@ -15530,6 +15571,10 @@ ${t2.slice(0, 300)}`);
           if (d.length >= 10) smsNumbers.push(d);
         }
         if (u && u.pushNotify && u.id) pushIds.push(u.id);
+      }
+      for (const raw of ticketNotifyPhones || []) {
+        const d = String(raw || "").replace(/\D/g, "");
+        if (d.length >= 10 && !smsNumbers.includes(d)) smsNumbers.push(d);
       }
       if (smsNumbers.length > 0) sendNotifySMS(smsNumbers, smsBody);
       if (pushIds.length > 0) sendPushNotification(pushIds, subject, smsBody, "/", `ticket_${t.id}`);
@@ -19255,7 +19300,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.15";
+  var APP_VERSION = "v19.20";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -19355,6 +19400,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [expandedThreads, setExpandedThreads] = useState(/* @__PURE__ */ new Set());
     const [orionFeedback, setOrionFeedback] = useState({});
     const [editMembers, setEditMembers] = useState(null);
+    const [chatMenuOpen, setChatMenuOpen] = useState(false);
+    const [chatConfirm, setChatConfirm] = useState(null);
     const sendOrionFeedback = (messageId, rating) => {
       if (!messageId) return;
       setOrionFeedback((prev) => ({ ...prev, [messageId]: rating }));
@@ -19711,7 +19758,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const seen = /* @__PURE__ */ new Set();
       return channels.filter((c) => c && c.id && !seen.has(c.id) && seen.add(c.id));
     })();
-    const myChannels = uniqChannels.filter((ch) => ch.type !== "analyst" && ch.members && ch.members.includes(user.id)).map((ch) => {
+    const myChannels = uniqChannels.filter((ch) => ch.type !== "analyst" && ch.members && ch.members.includes(user.id) && !(ch.hiddenFor || []).includes(user.id)).map((ch) => {
       const chMsgs = messages.filter((m) => m.channelId === ch.id && !m.deleted);
       const lastMsg = chMsgs.length > 0 ? chMsgs[chMsgs.length - 1] : null;
       const lastRead = readState[`${user.id}_${ch.id}`] || "1970-01-01";
@@ -19813,6 +19860,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setMsgText("");
       setPendingAttachments([]);
       setReadState((prev) => ({ ...prev, [`${user.id}_${activeChannelId}`]: msg.timestamp }));
+      if (ch?.hiddenFor?.length) {
+        setChannels((prev) => prev.map((c) => c.id === activeChannelId ? { ...c, hiddenFor: [] } : c));
+      }
       if (ch && ch.type === "analyst") {
         sendToOrion(questionText, activeChannelId, msgThreadId);
         setReplyToThread(null);
@@ -19833,6 +19883,40 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const deleteMessage = (msgId) => {
       setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, deleted: true, deletedBy: user.username } : m));
+    };
+    const chatDeleteAction = (ch) => {
+      if (!ch) return null;
+      if (ch.type === "analyst") return "clear";
+      if (ch.type === "dm") return "hide";
+      if (ch.createdBy === user.id || isAdmin) return "delete";
+      return "leave";
+    };
+    const doChatDelete = (ch, action) => {
+      if (action === "clear") {
+        setMessages((prev) => prev.filter((m) => m.channelId !== ch.id));
+      } else if (action === "hide") {
+        setChannels((prev) => prev.map((c) => c.id === ch.id ? { ...c, hiddenFor: [...c.hiddenFor || [], user.id] } : c));
+      } else if (action === "leave") {
+        setChannels((prev) => prev.map((c) => c.id === ch.id ? { ...c, members: (c.members || []).filter((id) => id !== user.id) } : c));
+      } else if (action === "delete") {
+        setChannels((prev) => prev.filter((c) => c.id !== ch.id));
+        setMessages((prev) => prev.filter((m) => m.channelId !== ch.id));
+      }
+      setChatConfirm(null);
+      setChatMenuOpen(false);
+      setChatView("list");
+      setActiveChannelId(null);
+    };
+    const performChatDelete = (ch) => {
+      const action = chatDeleteAction(ch);
+      if (!action) return;
+      const prompts = {
+        clear: { title: "Clear conversation?", body: "This only clears it for you.", confirmLabel: "Clear" },
+        hide: { title: "Delete conversation?", body: "It'll still be there for the other person \u2014 this only removes it from your view.", confirmLabel: "Delete" },
+        leave: { title: `Leave "${getChannelName(ch)}"?`, body: "You'll stop seeing messages here unless someone adds you back.", confirmLabel: "Leave" },
+        delete: { title: `Delete "${getChannelName(ch)}" for everyone?`, body: "This removes the whole conversation for every member and can't be undone.", confirmLabel: "Delete for Everyone" }
+      };
+      setChatConfirm({ ...prompts[action], onConfirm: () => doChatDelete(ch, action) });
     };
     const handleAttach = (e) => {
       Array.from(e.target.files).forEach((file) => {
@@ -19893,6 +19977,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const threadMessages = activeChannelId ? messages.filter((m) => m.channelId === activeChannelId).sort((a, b) => a.timestamp.localeCompare(b.timestamp)) : [];
     useEffect(() => {
       setReplyToThread(null);
+      setChatMenuOpen(false);
     }, [activeChannelId]);
     const threadedMessages = React.useMemo(() => {
       if (!activeChannel || activeChannel.type !== "analyst") return null;
@@ -20047,7 +20132,35 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           style: { ...btn(th, { padding: "0.35rem 0.7rem", fontSize: "0.75rem", background: "none", color: th.muted }), display: "flex", alignItems: "center", gap: 5 }
         },
         "\u{1F465} Members"
-      )), editMembers && editMembers.channelId === activeChannel.id && (() => {
+      ), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setChatMenuOpen((o) => !o),
+          title: "Chat options",
+          style: { ...btn(th, { padding: "0.35rem 0.6rem", fontSize: "1rem", background: "none", color: th.muted }) }
+        },
+        "\u22EE"
+      ), chatMenuOpen && (() => {
+        const action = chatDeleteAction(activeChannel);
+        const label = action === "delete" ? "\u{1F5D1} Delete for everyone" : action === "leave" ? "\u{1F6AA} Leave conversation" : action === "clear" ? "\u{1F5D1} Clear conversation" : "\u{1F5D1} Delete conversation";
+        return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { onClick: () => setChatMenuOpen(false), style: { position: "fixed", inset: 0, zIndex: 9998 } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "100%", right: 0, marginTop: 4, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 9999, minWidth: 190, overflow: "hidden" } }, /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => performChatDelete(activeChannel),
+            style: { display: "block", width: "100%", textAlign: "left", padding: "0.6rem 0.85rem", background: "none", border: "none", color: "#ef4444", fontSize: "0.8125rem", fontWeight: 600, cursor: "pointer", fontFamily: "'Source Sans 3'" }
+          },
+          label
+        )));
+      })())), chatConfirm && /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          style: { position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
+          onClick: (e) => {
+            if (e.target === e.currentTarget) setChatConfirm(null);
+          }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: "1.5rem", width: "100%", maxWidth: 400 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.05rem", color: th.text, marginBottom: "0.4rem" } }, chatConfirm.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, lineHeight: 1.5, marginBottom: "1.25rem" } }, chatConfirm.body), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setChatConfirm(null), style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 8, color: th.muted, padding: "0.6rem 1rem", cursor: "pointer", fontFamily: "'Source Sans 3'", fontSize: "0.85rem" } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: chatConfirm.onConfirm, style: { background: "#ef4444", border: "none", borderRadius: 8, color: "#fff", padding: "0.6rem 1.25rem", cursor: "pointer", fontFamily: "'Source Sans 3'", fontSize: "0.85rem", fontWeight: 700 } }, chatConfirm.confirmLabel)))
+      ), editMembers && editMembers.channelId === activeChannel.id && (() => {
         const canEdit = activeChannel.createdBy === user.id || isAdmin;
         const creatorId = activeChannel.createdBy || user.id;
         const creatorUser = users.find((u) => u.id === creatorId);
@@ -31268,7 +31381,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const dateStr = ann ? new Date(ann.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: `radial-gradient(115% 75% at 50% 28%, ${O}14, transparent 58%), ${th.bg}`, color: th.text, display: "flex", flexDirection: "column", zIndex: 9999, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: th.sidebar } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.2rem" } }, "\u{1F4E2}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "1rem", fontFamily: "'Raleway'", color: th.text } }, "Announcement")), total > 1 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 600 } }, idx + 1, " of ", total)), total > 1 && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", gap: "0.3rem", padding: "0.75rem 1.5rem 0" } }, anns.map((_, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { flex: 1, height: 4, borderRadius: 2, background: i <= idx ? O : th.muted + "33", transition: "background .25s" } }))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { className: "fade-in", style: { maxWidth: 500, width: "100%", margin: "auto", borderRadius: 18, overflow: "hidden", background: th.card, border: `1px solid ${th.cardBorder}`, borderLeft: `4px solid ${O}`, boxShadow: th.dark ? "0 24px 70px rgba(0,0,0,0.5)" : "0 24px 70px rgba(10,16,32,0.16)" } }, /* @__PURE__ */ React.createElement("div", { key: ann?.id, className: "fade-in", style: { padding: "1.75rem 1.9rem 1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.35rem", color: th.text, marginBottom: "0.6rem", fontFamily: "'Raleway'", lineHeight: 1.25 } }, ann?.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.92rem", color: th.text, lineHeight: 1.7, whiteSpace: "pre-wrap" } }, ann?.message), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "1.25rem", paddingTop: "0.85rem", borderTop: `1px solid ${th.cardBorder}` } }, "Posted by ", ann?.createdBy, " \xB7 ", dateStr)), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { width: "100%", aspectRatio: "210 / 96", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement(DunkinRunnerScene, { dark: th.dark })))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1.25rem 1.5rem", borderTop: `1px solid ${th.cardBorder}`, background: th.sidebar, display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Please read before continuing"), /* @__PURE__ */ React.createElement("button", { onClick: isLast ? onDone : onNext, style: { background: O, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 2rem", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" } }, isLast ? "Got it \u2713" : "Next \u2192")));
   }
-  function StoreTabletView({ user, users, stores, th, showAlert: showAlert2, dataAlert, ticketNotifyEmails, setNotifications, onLogout }) {
+  function StoreTabletView({ user, users, stores, th, showAlert: showAlert2, dataAlert, ticketNotifyEmails, ticketNotifyPhones, setNotifications, onLogout, deepLinkRef }) {
     const [tab, setTab] = React.useState("tickets");
     const store = (stores || []).find((s) => String(s.pc) === String(user?.storePC)) || null;
     const TABS = [
@@ -31293,8 +31406,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       justifyContent: "center",
       gap: "0.5rem",
       transition: "all .15s"
-    } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, t.icon), " ", t.label))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflow: "auto", padding: "1rem 1.25rem" } }, !store ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "This tablet isn't assigned to a store yet. Ask an admin to set the store on this account.") : tab === "tickets" ? /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, setNotifications, setTab: () => {
-    } }) : /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user })), dataAlert && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", bottom: 24, right: 24, zIndex: 9998, padding: "0.75rem 1.25rem", borderRadius: "0.625rem", background: dataAlert.type === "success" ? "#69db7c" : "#ff6b6b", color: "#111", fontFamily: "'Source Sans 3'", fontWeight: 600, fontSize: "0.8125rem", boxShadow: "0 8px 32px #00000040", display: "flex", alignItems: "center", gap: "0.5rem" } }, dataAlert.type === "success" ? ICONS.checkCircle("#111") : ICONS.xCircle("#111"), " ", dataAlert.msg));
+    } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, t.icon), " ", t.label))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflow: "auto", padding: "1rem 1.25rem" } }, !store ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "This tablet isn't assigned to a store yet. Ask an admin to set the store on this account.") : tab === "tickets" ? /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab: () => {
+    }, deepLinkRef }) : /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user })), dataAlert && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", bottom: 24, right: 24, zIndex: 9998, padding: "0.75rem 1.25rem", borderRadius: "0.625rem", background: dataAlert.type === "success" ? "#69db7c" : "#ff6b6b", color: "#111", fontFamily: "'Source Sans 3'", fontWeight: 600, fontSize: "0.8125rem", boxShadow: "0 8px 32px #00000040", display: "flex", alignItems: "center", gap: "0.5rem" } }, dataAlert.type === "success" ? ICONS.checkCircle("#111") : ICONS.xCircle("#111"), " ", dataAlert.msg));
   }
   function PCGPortal() {
     const [user, setUser] = useState(null);
@@ -31516,6 +31629,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const s = loadFromStorage();
       return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY;
     });
+    const [ticketNotifyPhones, setTicketNotifyPhones] = useState(() => {
+      const s = loadFromStorage();
+      return s?.ticketNotifyPhones || [];
+    });
     const [chatChannels, setChatChannels] = useState([]);
     const [chatMessages, setChatMessages] = useState([]);
     const [chatReadState, setChatReadState] = useState({});
@@ -31540,6 +31657,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const cloudNotificationsLoaded = useRef(false);
     const cloudGlobalNotifyLoaded = useRef(false);
     const cloudTicketNotifyLoaded = useRef(false);
+    const cloudTicketNotifyPhonesLoaded = useRef(false);
     const projectsUserEdited = useRef(false);
     const dailyReportsUserEdited = useRef(false);
     const prevDailyReportsRef = useRef([]);
@@ -31592,6 +31710,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const toggleBtnRef = useRef(null);
     const deepLinkRef = useRef(null);
     const todoDeepLinkRef = useRef(null);
+    const ticketDeepLinkRef = useRef(null);
     const isMobile = useIsMobile();
     const th = getTheme(dark);
     const [pnlAllowed, setPnlAllowed] = useState(DEFAULT_PNL_ALLOWED);
@@ -31918,6 +32037,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       let count = 0;
       for (const ch of chatChannels) {
         if (!ch.members || !ch.members.includes(user.id)) continue;
+        if ((ch.hiddenFor || []).includes(user.id)) continue;
         const lastRead = chatReadState[`${user.id}_${ch.id}`] || "1970-01-01";
         count += chatMessages.filter((m) => m.channelId === ch.id && m.timestamp > lastRead && m.senderId !== user.id && !m.deleted).length;
       }
@@ -32007,11 +32127,21 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
     }, []);
     useEffect(() => {
+      if (!user) return;
+      const params = new URLSearchParams(window.location.search);
+      const ticketParam = params.get("ticket");
+      if (ticketParam) {
+        setTab("tickets");
+        ticketDeepLinkRef.current = ticketParam;
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }, [user]);
+    useEffect(() => {
       if (!isMobile) setDrawerOpen(false);
     }, [isMobile]);
     useEffect(() => {
-      saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails });
-    }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails]);
+      saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones });
+    }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones]);
     useEffect(() => {
       setCloudStatus("loading");
       cloudLoadOrThrow("pcg_sales_v1").then((data) => {
@@ -32490,6 +32620,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ticketNotifyEmails.length === 0) return;
       cloudSave("pcg_ticket_notify_v1", ticketNotifyEmails);
     }, [ticketNotifyEmails]);
+    useEffect(() => {
+      cloudLoad("pcg_ticket_notify_phones_v1").then((data) => {
+        cloudTicketNotifyPhonesLoaded.current = true;
+        if (data && Array.isArray(data) && data.length > 0) setTicketNotifyPhones(data);
+      }).catch(() => {
+        cloudTicketNotifyPhonesLoaded.current = true;
+      });
+    }, []);
+    useEffect(() => {
+      if (!cloudTicketNotifyPhonesLoaded.current) return;
+      if (ticketNotifyPhones.length === 0) return;
+      cloudSave("pcg_ticket_notify_phones_v1", ticketNotifyPhones);
+    }, [ticketNotifyPhones]);
     const chatPollRef = useRef(null);
     const chatPollActive = useRef(false);
     useEffect(() => {
@@ -32805,7 +32948,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (newNotifs.length > 0) setNotifications((prev2) => [...newNotifs, ...prev2]);
       prevProjectsRef.current = projects;
     }, [projects]);
-    const getAllData = () => ({ links, notes, todos, users, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, chatChannels, chatMessages, chatReadState, announcements, announcementsDismissed });
+    const getAllData = () => ({ links, notes, todos, users, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, chatChannels, chatMessages, chatReadState, announcements, announcementsDismissed });
     const handleExport = () => {
       exportData(getAllData());
       showAlert2("success", "Data exported successfully!");
@@ -32824,6 +32967,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         if (parsed.dailyReports) setDailyReportsUser(parsed.dailyReports);
         if (parsed.globalNotifyEmails) setGlobalNotifyEmails(parsed.globalNotifyEmails);
         if (parsed.ticketNotifyEmails) setTicketNotifyEmails(parsed.ticketNotifyEmails);
+        if (parsed.ticketNotifyPhones) setTicketNotifyPhones(parsed.ticketNotifyPhones);
         if (parsed.chatChannels) setChatChannels(parsed.chatChannels);
         if (parsed.chatMessages) setChatMessages(parsed.chatMessages);
         if (parsed.chatReadState) setChatReadState(parsed.chatReadState);
@@ -33098,8 +33242,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           showAlert: showAlert2,
           dataAlert,
           ticketNotifyEmails,
+          ticketNotifyPhones,
           setNotifications,
-          onLogout: handleLogout
+          onLogout: handleLogout,
+          deepLinkRef: ticketDeepLinkRef
         }
       );
     }
@@ -33938,7 +34084,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         if (ch.type === "project") return "\u{1F3D7}\uFE0F";
         return "\u{1F465}";
       };
-      const panelChannels = chatChannels.filter((ch) => ch.members && ch.members.includes(user.id)).map((ch) => {
+      const panelChannels = chatChannels.filter((ch) => ch.members && ch.members.includes(user.id) && !(ch.hiddenFor || []).includes(user.id)).map((ch) => {
         const chMsgs = chatMessages.filter((m) => m.channelId === ch.id && !m.deleted);
         const lastMsg = chMsgs.length > 0 ? chMsgs[chMsgs.length - 1] : null;
         const lastRead = chatReadState[`${user.id}_${ch.id}`] || "1970-01-01";
@@ -34126,7 +34272,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "reports", name: "Reports", sub: "Dashboards, decks, and scheduled reports from Orion.", show: true, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" }), /* @__PURE__ */ React.createElement("path", { d: "M14 2v6h6M9 13h6M9 17h6" })) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement(TileGrid, { title: "System", tiles: sysTiles, color: SYS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
-    })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, setNotifications, setTab }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {
+    })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {
       const ut = user?.userType;
       const roleDefaults = ut === "executive" || ut === "it" ? ["pulse", "labor", "chat"] : ut === "office_staff" ? ["pulse", "tickets", "chat"] : ut === "dm" ? ["tasks", "labor", "chat"] : ut === "manager" ? ["tasks", "chat", "tickets"] : ut === "maintenance" ? ["tickets", "calendar", "chat"] : ut === "construction" ? ["projects", "chat", "tickets"] : ut === "auditor" ? ["audits", "tickets", "chat"] : ["chat", "announcements", "tickets"];
       const savePins = (pins) => {
