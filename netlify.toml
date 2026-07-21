@@ -107,12 +107,6 @@
 [functions.audit-cap-cron]
   schedule = "0 11 * * *"
 
-# Minor break compliance — every 15 min during business hours (~4am-11pm ET).
-# Flags employees under 18 approaching/exceeding PA's 5-consecutive-hour limit
-# without a 30-min break, alerts the store manager before it's a violation.
-[functions.break-compliance-cron]
-  schedule = "*/15 9-23,0-3 * * *"
-
 # KB article embedding — triggered manually after article approval
 [functions.kb-embed]
   timeout = 60

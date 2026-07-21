@@ -224,25 +224,6 @@ export default async (request, context) => {
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
 
-    // ── Proxy: employee identifying data (v2 endpoint — NOT under /v1, unlike
-    // every other action here). Only ever returns employeeId + birthDate — the
-    // real Paycor response also includes socialSecurityNumber, which is
-    // discarded here and must never be forwarded past this point. ──
-    if (action === 'identifyingData') {
-      const { legalEntityId, continuationToken } = payload;
-      if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
-      const token = await getAccessToken();
-      const subscriptionKey = process.env.PAYCOR_SUBSCRIPTION_KEY;
-      let path = `/v2/legalentities/${legalEntityId}/employeesIdentifyingData`;
-      if (continuationToken) path += `?continuationToken=${continuationToken}`;
-      const res = await httpsRequest(PAYCOR_API_HOST, path, 'GET', {
-        Authorization: `Bearer ${token}`,
-        'Ocp-Apim-Subscription-Key': subscriptionKey,
-      });
-      const records = (res.data?.records || []).map(r => ({ employeeId: r.employeeId, birthDate: r.birthDate || null }));
-      return new Response(JSON.stringify({ status: res.status, count: records.length, records, raw: res.status !== 200 ? res.data : undefined }), { status: 200, headers });
-    }
-
     // ── Proxy: employee pay rates ──
     if (action === 'payRates') {
       const { employeeId } = payload;
