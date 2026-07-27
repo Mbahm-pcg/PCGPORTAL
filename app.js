@@ -9887,8 +9887,10 @@ ${t2.slice(0, 300)}`);
     }
     const handleManualRefresh = () => {
       loadAll();
-      fetch("/.netlify/functions/labor-cron-background", { method: "POST" }).catch(() => {
-      });
+      if (isFullAdmin(user)) {
+        fetch("/.netlify/functions/labor-cron-background", { method: "POST" }).catch(() => {
+        });
+      }
     };
     const wtdAutoLoaded = useRef(false);
     const lastWtdWeek = useRef("");
@@ -19421,7 +19423,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.29";
+  var APP_VERSION = "v19.30";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

@@ -11307,9 +11307,14 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   // 15-min window, ignores any body). Deliberately NOT wired into loadAll() itself, since
   // that also fires on mount and on the 5-min auto-refresh timer — hammering Paycor that
   // often for all stores would be wasteful; only an explicit human click restarts labor.
+  // Restricted to exec/IT — it's a network-wide, 45-store Paycor scan, not something a
+  // DM/manager clicking Refresh on their own store's Pulse view should be able to trigger.
+  // DM/managers still get their own store's sales data refreshed via loadAll().
   const handleManualRefresh = () => {
     loadAll();
-    fetch('/.netlify/functions/labor-cron-background', { method: 'POST' }).catch(() => {});
+    if (isFullAdmin(user)) {
+      fetch('/.netlify/functions/labor-cron-background', { method: 'POST' }).catch(() => {});
+    }
   };
 
   // Auto-load today's data on mount, then auto-load WTD
@@ -24552,7 +24557,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.29";
+const APP_VERSION = "v19.30";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
