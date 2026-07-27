@@ -24552,7 +24552,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.27";
+const APP_VERSION = "v19.29";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -30984,9 +30984,12 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
   });
 
   // ── KPI totals (from today's data) ───────────────────────────────────────
-  const totalLaborToday = (totalTcHoursToday * avgHourlyRate) + totalSalaryCostPerDay + enrichedEmps.reduce((s, e) => s + e.dailyCost, 0) > 0
-    ? (totalTcHoursToday * avgHourlyRate) + totalSalaryCostPerDay
-    : enrichedEmps.reduce((s, e) => s + e.dailyCost, 0);
+  // Sum straight from hourlyLabor — the same allPunchPairs-based calc the
+  // Hourly table below renders — so the two can never disagree. totalTcHoursToday
+  // alone undercounts: it only reflects the old-punches source and misses hours
+  // covered solely by live employeePunches, which allPunchPairs/laborForHour
+  // already merges in.
+  const totalLaborToday = hourlyLabor.reduce((s, h) => s + h.labor, 0);
   const totalSalesToday = Object.values(hourlySales).reduce((s, v) => s + v, 0);
   const laborPctToday = totalSalesToday > 0 ? (totalLaborToday / totalSalesToday) * 100 : 0;
 

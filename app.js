@@ -19421,7 +19421,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.27";
+  var APP_VERSION = "v19.29";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -23862,7 +23862,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const { cost, empsInHour } = laborForHour(hr);
       return { hr, labor: cost, sales: hourlySales[hr] || 0, empsInHour };
     });
-    const totalLaborToday = totalTcHoursToday * avgHourlyRate + totalSalaryCostPerDay + enrichedEmps.reduce((s, e) => s + e.dailyCost, 0) > 0 ? totalTcHoursToday * avgHourlyRate + totalSalaryCostPerDay : enrichedEmps.reduce((s, e) => s + e.dailyCost, 0);
+    const totalLaborToday = hourlyLabor.reduce((s, h) => s + h.labor, 0);
     const totalSalesToday = Object.values(hourlySales).reduce((s, v) => s + v, 0);
     const laborPctToday = totalSalesToday > 0 ? totalLaborToday / totalSalesToday * 100 : 0;
     const cachedToday = store.today || {};

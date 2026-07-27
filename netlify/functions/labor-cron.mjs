@@ -590,8 +590,16 @@ async function processStore(store, busDt, { skipSchedules = false, pnlConfig = n
     const blobStore = getLaborStore();
     const raw = await blobStore.get(payRateCacheKey, { type: 'json' });
     const cached = raw?.data || raw;
-    // Use cache if it's from today (pay rates rarely change intraday)
-    if (cached?.date === busDt && cached?.rates) {
+    // Use cache if it's from today AND actually covers every current employee —
+    // a partial/empty cache (e.g. from a transient Paycor payrates failure on an
+    // earlier run today) must NOT be trusted, or it silently zeroes labor cost
+    // for the rest of the day (payRate 0 → computeDailyCost returns 0 even when
+    // hoursToday is correctly nonzero).
+    const cachedCoversAll = cached?.rates && employees.every(emp => {
+      const id = emp.id || emp.employeeId;
+      return !id || cached.rates[id] != null;
+    });
+    if (cached?.date === busDt && cachedCoversAll) {
       cachedRates = cached.rates;
     }
   } catch {}
@@ -602,6 +610,7 @@ async function processStore(store, busDt, { skipSchedules = false, pnlConfig = n
     console.log(`[labor-cron] ${name}: Using cached pay rates (${Object.keys(cachedRates).length} employees)`);
   } else {
     // Fetch fresh and cache
+    let payRateFetchFailures = 0;
     for (let i = 0; i < employees.length; i += 5) {
       const batch = employees.slice(i, i + 5);
       await Promise.all(batch.map(async (emp) => {
@@ -614,14 +623,22 @@ async function processStore(store, busDt, { skipSchedules = false, pnlConfig = n
             payRate:   rate.payRate   || rate.rate        || 0,
             annualPay: rate.annualPayRate || rate.annualPay || 0,
           };
+        } else {
+          payRateFetchFailures++;
         }
       }));
     }
-    // Cache for today
-    try {
-      const blobStore = getLaborStore();
-      await blobStore.setJSON(payRateCacheKey, { savedAt: new Date().toISOString(), data: { date: busDt, rates: payRateMap } });
-    } catch {}
+    // Only cache a complete result — if any employee's payrate fetch failed
+    // (transient Paycor error), skip caching so the NEXT hourly run retries
+    // instead of being stuck reusing a broken/incomplete cache all day.
+    if (payRateFetchFailures === 0 && employees.length > 0) {
+      try {
+        const blobStore = getLaborStore();
+        await blobStore.setJSON(payRateCacheKey, { savedAt: new Date().toISOString(), data: { date: busDt, rates: payRateMap } });
+      } catch {}
+    } else if (payRateFetchFailures > 0) {
+      console.warn(`[labor-cron] ${name}: ${payRateFetchFailures} pay-rate fetch failure(s) — not caching, will retry next run`);
+    }
   }
 
   // 4. Fetch punches for the full week
