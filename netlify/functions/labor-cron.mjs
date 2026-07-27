@@ -244,7 +244,7 @@ async function getAccessToken() {
 }
 
 /** Call the Paycor REST API. Retries once on 401. */
-async function callPaycor(path, method = 'GET') {
+async function callPaycor(path, method = 'GET', _retried = false) {
   const token = await getAccessToken();
   const subscriptionKey = process.env.PAYCOR_SUBSCRIPTION_KEY;
 
@@ -254,12 +254,24 @@ async function callPaycor(path, method = 'GET') {
     'Ocp-Apim-Subscription-Key': subscriptionKey,
   });
 
-  let res = await makeCall(token);
+  // Every caller of callPaycor (fetchPunches, fetchPrimaryPayRate, fetchSchedulingShifts,
+  // etc.) swallows a failure here and falls back to empty/null — with no retry, one
+  // transient Paycor timeout (httpsRequest's 30s timeout rejects) or 5xx zeroes real
+  // hours/cost for that store's entire run. One retry absorbs most of that flakiness.
+  let res;
+  try {
+    res = await makeCall(token);
+  } catch (err) {
+    if (_retried) throw err;
+    return callPaycor(path, method, true);
+  }
   if (res.status === 401) {
     tokenCache.accessToken = null;
     tokenCache.expiresAt = 0;
     const newToken = await getAccessToken();
     res = await makeCall(newToken);
+  } else if (res.status >= 500 && !_retried) {
+    return callPaycor(path, method, true);
   }
   return res;
 }
