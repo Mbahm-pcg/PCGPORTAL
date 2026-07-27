@@ -2,6 +2,7 @@
 import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG, BTN } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
+import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-negative-shared.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
@@ -8113,6 +8114,14 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const [dtSchedule, setDtSchedule] = React.useState(null);
   const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
   const [upsellHistory, setUpsellHistory] = React.useState(null);
+  const [negScan, setNegScan] = React.useState(null);
+  const [negScanLoading, setNegScanLoading] = React.useState(false);
+  const [negScanRange, setNegScanRange] = React.useState('7');
+  const [negScanProgress, setNegScanProgress] = React.useState(null);
+  const [negScanError, setNegScanError] = React.useState(false);
+  const negScanPollRef = React.useRef(null);
+  // Stop polling if the user navigates away mid-scan (unmount, or switches store).
+  React.useEffect(() => () => { if (negScanPollRef.current) clearInterval(negScanPollRef.current); }, []);
 
   // Most recent upsell-rate entry on or before localDate
   const upsellEntry = React.useMemo(() => {
@@ -8506,6 +8515,65 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       setTxnModal({ check: fullCheck, journalTxt, menuMap: menuMap || {} });
     } catch(e) { console.error('[txn-detail]', e); }
     setTxnModalLoading(false);
+  }
+
+  // Scans a range of business days for checks that closed with a negative total —
+  // a known POS defect where voiding then re-adding an item leaves an orphan
+  // adjustment line behind, driving the final total below $0.00 even after every
+  // real item nets back to zero. Ranges over 30 days run as a background job
+  // (polled via the pcg_negcheck_{pc} blob) since that many Pulse calls would
+  // blow past the 26s manual-invoke limit if done synchronously.
+  async function scanNegatives() {
+    if (negScanPollRef.current) { clearInterval(negScanPollRef.current); negScanPollRef.current = null; }
+    setNegScanLoading(true);
+    setNegScan(null);
+    setNegScanProgress(null);
+    setNegScanError(false);
+    const days = parseInt(negScanRange);
+
+    if (days > 30) {
+      try {
+        await fetch('/.netlify/functions/pos-negative-check-background', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pc: String(pc), days })
+        });
+        let attempts = 0;
+        // pos-negative-check-background.mjs is a background function with a 15-min
+        // timeout — poll for the same window (225 × 4s ≈ 15min) rather than giving
+        // up early and losing track of a scan that's still legitimately running.
+        negScanPollRef.current = setInterval(async () => {
+          attempts++;
+          if (attempts > 225) {
+            clearInterval(negScanPollRef.current); negScanPollRef.current = null;
+            setNegScanLoading(false); setNegScanError(true);
+            return;
+          }
+          try {
+            const status = await cloudLoad(`pcg_negcheck_${pc}`);
+            if (status) {
+              setNegScanProgress({ done: status.done || 0, total: status.total || days });
+              if (status.status === 'done') {
+                clearInterval(negScanPollRef.current); negScanPollRef.current = null;
+                setNegScan(status.findings || []);
+                setNegScanLoading(false);
+              }
+            }
+          } catch {}
+        }, 4000);
+      } catch(e) { setNegScanError(true); setNegScanLoading(false); }
+      return;
+    }
+
+    try {
+      const res = await fetch('/.netlify/functions/pos-negative-check', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pc: String(pc), days })
+      });
+      const data = await res.json();
+      if (data.ok) setNegScan(data.findings || []);
+      else setNegScanError(true);
+    } catch(e) { setNegScanError(true); }
+    setNegScanLoading(false);
   }
 
   return (
@@ -9450,7 +9518,10 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
           const f = txnFilters;
           if (f.otCat !== 'all' && otCat(chk.otNum) !== f.otCat) return false;
           if (f.voids && !(chk.vdTtl && Math.abs(chk.vdTtl) > 0)) return false;
-          if (f.refunds && !(Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
+          // Matches the REFUND badge below exactly — a negative total alone isn't a
+          // refund (that also matches the orphan-adjustment-line POS defect, which
+          // gets its own DEFECT badge, not REFUND).
+          if (f.refunds && !isGenuineRefund(chk)) return false;
           if (f.discounts && !(chk.dscTtl && Math.abs(chk.dscTtl) > 0)) return false;
           if (f.timeStart) {
             const chkT = toETHHMM(chk.opnUTC || '');
@@ -9485,6 +9556,17 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                       style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: 6, background: txnListLoading ? th.card2 : '#3b82f6', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 600, opacity: txnListLoading ? 0.6 : 1 }}>
                       {txnListLoading ? '…' : '↺ Refresh'}
                     </button>
+                    <select value={negScanRange} onChange={e => setNegScanRange(e.target.value)} disabled={negScanLoading}
+                      style={{ fontSize: '0.7rem', padding: '0.25rem 0.3rem', borderRadius: 6, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, cursor: 'pointer' }}>
+                      <option value="7">7 days</option>
+                      <option value="30">30 days</option>
+                      <option value="365">1 year</option>
+                    </select>
+                    <button onClick={scanNegatives} disabled={negScanLoading}
+                      title="Scan for checks that closed with a negative total"
+                      style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: 6, background: negScanLoading ? th.card2 : '#ef4444', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 600, opacity: negScanLoading ? 0.6 : 1 }}>
+                      {negScanLoading ? '…' : '🚩 Check Negatives'}
+                    </button>
                   </>
                 )}
                 <button onClick={() => { if (!txnExpanded) { setTxnExpanded(true); if (!txnList) loadTxnList(); } else setTxnExpanded(false); }}
@@ -9493,6 +9575,36 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                 </button>
               </div>
             </div>
+
+            {/* Negative-total scan results */}
+            {(negScan !== null || negScanLoading || negScanError) && (
+              <div style={{ marginTop: '0.6rem', padding: '0.6rem 0.75rem', borderRadius: 8, background: negScanLoading ? th.card2 : negScanError ? '#f59e0b14' : (negScan && negScan.length > 0 ? '#ef444414' : '#22c55e14'), border: `1px solid ${negScanLoading ? th.cardBorder : negScanError ? '#f59e0b55' : (negScan && negScan.length > 0 ? '#ef444455' : '#22c55e55')}` }}>
+                {negScanLoading ? (
+                  <span style={{ fontSize: '0.75rem', color: th.muted }}>
+                    {negScanProgress ? `Scanning… ${negScanProgress.done}/${negScanProgress.total} days checked` : `Scanning last ${negScanRange} days for negative-total checks…`}
+                  </span>
+                ) : negScanError ? (
+                  <span style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600 }}>⚠ Scan failed or timed out — try again, or check back shortly for a long-range scan still running in the background</span>
+                ) : negScan.length === 0 ? (
+                  <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 600 }}>✓ No negative-total checks found in the last {negScanRange === '365' ? 'year' : `${negScanRange} days`}</span>
+                ) : (
+                  <>
+                    <div style={{ fontSize: '0.78rem', color: '#ef4444', fontWeight: 700, marginBottom: '0.4rem' }}>
+                      ⚠ {negScan.length} check{negScan.length > 1 ? 's' : ''} closed with a negative total in the last {negScanRange === '365' ? 'year' : `${negScanRange} days`}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      {negScan.map((f, i) => (
+                        <div key={i} onClick={() => { setTxnExpanded(true); setTxnDate(f.date); setTxnList(null); loadTxnList(f.date); }}
+                          style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', cursor: 'pointer', padding: '0.15rem 0' }}>
+                          <span style={{ color: th.text }}>#{f.chkNum} · {f.date}</span>
+                          <span style={{ color: '#ef4444', fontWeight: 700 }}>${(f.chkTtl || 0).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {txnExpanded && (
               <>
@@ -9536,7 +9648,15 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                       const t = chk.opnUTC ? toET(chk.opnUTC) : '--';
                       const hasDisc = Math.abs(chk.dscTtl || 0) > 0;
                       const hasVoid = Math.abs(chk.vdTtl || 0) > 0;
-                      const hasRefund = Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0;
+                      // A genuine refund has actual return-flagged menu item lines — a
+                      // negative chkTtl alone does NOT mean a refund happened (that also
+                      // matches the orphan-adjustment-line POS defect, which has no
+                      // return-flagged lines at all and shouldn't be mislabeled as one).
+                      // isGenuineRefund/isNegativeDefect are shared with the backend
+                      // cron/scan functions (src/pos-negative-shared.mjs) — the two
+                      // never drift on what counts as the defect.
+                      const hasRefund = isGenuineRefund(chk);
+                      const hasUnexplainedNeg = isNegativeDefect(chk);
                       const otName = txnOTMap[chk.otNum] || '';
                       const cat = otCat(chk.otNum);
                       const otColor = cat === 'drive_thru' ? '#2563eb' : cat === 'eat_in' ? '#059669' : cat === 'uber' ? '#d97706' : cat === 'doordash' ? '#dc2626' : cat === 'mobile' ? '#7c3aed' : cat === 'delivery' ? '#0891b2' : '#64748b';
@@ -9553,6 +9673,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                               {hasDisc && <span style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#22c55e15', color: '#22c55e', fontWeight: 700 }}>DISC</span>}
                               {hasVoid && <span style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#ef444415', color: '#ef4444', fontWeight: 700 }}>VOID</span>}
                               {hasRefund && <span style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#f59e0b15', color: '#f59e0b', fontWeight: 700 }}>REFUND</span>}
+                              {hasUnexplainedNeg && <span title="Negative total with no return-flagged items — the known void/re-add POS defect" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#dc262615', color: '#dc2626', fontWeight: 700 }}>⚠ DEFECT</span>}
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
@@ -9599,6 +9720,15 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         const mainItems = allLines.filter(l => l.menuItem && !l.vdFlag && !l.doNotShowFlag);
         const tenderLines = allLines.filter(l => l.tenderMedia && !l.vdFlag);
         const discLines = allLines.filter(l => l.discount && !l.vdFlag);
+        // Orphan adjustment lines — no menu item, not a void/tender/discount/error-
+        // correction/display-suppressed entry, yet still counted toward chkTtl. This
+        // is the known POS defect (void-then-re-add leaves one of these behind) —
+        // surface it explicitly instead of letting it silently explain an unmatched
+        // total. Shared with src/pos-negative-shared.mjs (also used server-side).
+        // Gated on isNegativeDefect so a normal, positive-total check can never show
+        // the "POS Defect Detected" banner just from line-shape noise — the receipt
+        // is only actually broken when the check-level total is unexplained-negative.
+        const orphanLines = isNegativeDefect(chk) ? getOrphanLines(allLines) : [];
 
         // ── Structured receipt data (styled render: bold header, single/double dividers, teal TOTAL) ──
         const TEAL = '#0d9488';
@@ -9653,6 +9783,11 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                         <span>{d.name}</span><span style={{ whiteSpace: 'nowrap' }}>{fmtP(d.price)}</span>
                       </div>
                     ))}
+                    {orphanLines.map((l, i) => (
+                      <div key={'o' + i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', margin: '0.2em 0', color: '#ef4444', fontWeight: 700 }}>
+                        <span>⚠ Unexplained Adjustment</span><span style={{ whiteSpace: 'nowrap' }}>{fmtP(l.dspTtl)}</span>
+                      </div>
+                    ))}
                     <div style={sglDiv} />
                     {chk.subTtl != null && <div style={metaRow}><span>Subtotal:</span><span>{fmtP(chk.subTtl)}</span></div>}
                     {chk.taxCollTtl ? <div style={metaRow}><span>Tax:</span><span>{fmtP(chk.taxCollTtl)}</span></div> : null}
@@ -9669,6 +9804,15 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                     <div style={{ textAlign: 'center', fontWeight: 700, marginTop: '0.4em' }}>Thank You! Come Back Soon!</div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, minWidth: 0 }}>
+                    {orphanLines.length > 0 && (
+                      <div style={{ padding: '0.75rem 0.9rem', borderRadius: 8, background: '#ef444414', border: '1px solid #ef444455' }}>
+                        <div style={{ fontSize: '0.78rem', color: '#ef4444', fontWeight: 700, marginBottom: '0.2rem' }}>⚠ POS Defect Detected</div>
+                        <div style={{ fontSize: '0.72rem', color: th.text, lineHeight: 1.4 }}>
+                          This check has {orphanLines.length} unexplained adjustment line{orphanLines.length > 1 ? 's' : ''} totaling {fmtP(orphanLines.reduce((s, l) => s + (l.dspTtl || 0), 0))} with no menu item attached —
+                          a known register defect (voiding then re-adding an item can leave this behind), not a real charge or discount.
+                        </div>
+                      </div>
+                    )}
                     <div style={{ ...card(th), padding: '1rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
                         <span style={{ fontSize: '0.8rem' }}>📊</span>
@@ -24408,7 +24552,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.20";
+const APP_VERSION = "v19.27";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -43230,7 +43374,12 @@ function PCGPortal() {
     }).catch(() => { cloudNotificationsLoaded.current = true; });
   }, []);
   useEffect(() => {
-    if (!cloudNotificationsLoaded.current) return;
+    // Guarded the same way as chat/announcements/access-overrides below — a
+    // poll-triggered setNotifications (e.g. merging in a pos-negative-cron alert)
+    // must not immediately bounce back into a full-array overwrite save, or a
+    // client's stale local copy can race the cron's own read-merge-write and
+    // silently drop whichever wrote last.
+    if (chatPollActive.current || !cloudNotificationsLoaded.current) return;
     if (notifications.length === 0) return;
     cloudSave('pcg_notifications_v1', notifications);
   }, [notifications]);
@@ -43327,13 +43476,14 @@ function PCGPortal() {
     if (!user) return;
     chatPollRef.current = setInterval(async () => {
       try {
-        const [ch, ms, rd, ann, dis, acc] = await Promise.all([
+        const [ch, ms, rd, ann, dis, acc, notif] = await Promise.all([
           cloudLoad('pcg_chat_channels_v1'),
           cloudLoad('pcg_chat_messages_v1'),
           cloudLoad('pcg_chat_read_v1'),
           cloudLoad('pcg_announcements_v1'),
           cloudLoad('pcg_announcements_dismissed_v1'),
           cloudLoad('pcg_access_overrides_v1'),
+          cloudLoad('pcg_notifications_v1'),
         ]);
         chatPollActive.current = true;
         if (ch && Array.isArray(ch)) setChatChannels(ch);
@@ -43342,6 +43492,16 @@ function PCGPortal() {
         if (ann && Array.isArray(ann)) setAnnouncements(ann);
         if (dis && typeof dis === 'object' && dis !== null) setAnnouncementsDismissed(dis);
         if (acc && typeof acc === 'object' && !Array.isArray(acc)) setAccessOverrides(acc);
+        // Merge in only notifications we don't already have locally (e.g. from a
+        // server-side cron like pos-negative-cron) — never overwrite, since local
+        // read-state for existing notifs must survive this poll.
+        if (notif && Array.isArray(notif)) {
+          setNotifications(prev => {
+            const localIds = new Set(prev.map(n => n.id));
+            const fresh = notif.filter(n => !localIds.has(n.id));
+            return fresh.length > 0 ? [...fresh, ...prev] : prev;
+          });
+        }
         // Reset after effects have flushed (setTimeout runs after useEffect)
         setTimeout(() => { chatPollActive.current = false; }, 0);
       } catch {}

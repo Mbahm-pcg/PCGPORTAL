@@ -107,6 +107,12 @@
 [functions.audit-cap-cron]
   schedule = "0 11 * * *"
 
+# POS negative-total check scan — daily 7:30am ET (11:30 UTC), after the prior
+# business day has fully closed. Alerts DM + manager (push + bell) when a check
+# closed with a negative total (the void/re-add POS defect).
+[functions.pos-negative-cron]
+  schedule = "30 11 * * *"
+
 # KB article embedding — triggered manually after article approval
 [functions.kb-embed]
   timeout = 60

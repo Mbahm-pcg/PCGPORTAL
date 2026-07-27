@@ -183,6 +183,21 @@
     return pnlIds(user).some((id) => list.includes(id));
   };
 
+  // src/pos-negative-shared.mjs
+  function isGenuineRefund(check) {
+    return Math.abs(check.returnTtl || 0) > 0 || (check.detailLines || []).some((l) => l.menuItem?.returnFlag);
+  }
+  function isNegativeDefect(check) {
+    return (check.chkTtl || 0) < 0 && !isGenuineRefund(check);
+  }
+  function getOrphanLines(detailLines) {
+    const lines = detailLines || [];
+    const tenderDtlIds = new Set(lines.filter((l) => l.tenderMedia).map((l) => l.dtlId));
+    return lines.filter(
+      (l) => !l.menuItem && !l.vdFlag && !l.errCorFlag && !l.tenderMedia && !l.discount && !l.doNotShowFlag && (l.dspTtl || 0) !== 0 && !(l.parDtlId != null && tenderDtlIds.has(l.parDtlId))
+    );
+  }
+
   // src/portal-auth.mjs
   var FN = "/.netlify/functions";
   var TOKEN_KEY = "pcg_portal_token";
@@ -7589,6 +7604,15 @@
     const [dtSchedule, setDtSchedule] = React.useState(null);
     const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
     const [upsellHistory, setUpsellHistory] = React.useState(null);
+    const [negScan, setNegScan] = React.useState(null);
+    const [negScanLoading, setNegScanLoading] = React.useState(false);
+    const [negScanRange, setNegScanRange] = React.useState("7");
+    const [negScanProgress, setNegScanProgress] = React.useState(null);
+    const [negScanError, setNegScanError] = React.useState(false);
+    const negScanPollRef = React.useRef(null);
+    React.useEffect(() => () => {
+      if (negScanPollRef.current) clearInterval(negScanPollRef.current);
+    }, []);
     const upsellEntry = React.useMemo(() => {
       if (!Array.isArray(upsellHistory)) return null;
       return upsellHistory.find((e) => e.date <= localDate && typeof e.upsellRate === "number") || null;
@@ -7958,6 +7982,67 @@
         console.error("[txn-detail]", e);
       }
       setTxnModalLoading(false);
+    }
+    async function scanNegatives() {
+      if (negScanPollRef.current) {
+        clearInterval(negScanPollRef.current);
+        negScanPollRef.current = null;
+      }
+      setNegScanLoading(true);
+      setNegScan(null);
+      setNegScanProgress(null);
+      setNegScanError(false);
+      const days = parseInt(negScanRange);
+      if (days > 30) {
+        try {
+          await fetch("/.netlify/functions/pos-negative-check-background", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pc: String(pc), days })
+          });
+          let attempts = 0;
+          negScanPollRef.current = setInterval(async () => {
+            attempts++;
+            if (attempts > 225) {
+              clearInterval(negScanPollRef.current);
+              negScanPollRef.current = null;
+              setNegScanLoading(false);
+              setNegScanError(true);
+              return;
+            }
+            try {
+              const status = await cloudLoad(`pcg_negcheck_${pc}`);
+              if (status) {
+                setNegScanProgress({ done: status.done || 0, total: status.total || days });
+                if (status.status === "done") {
+                  clearInterval(negScanPollRef.current);
+                  negScanPollRef.current = null;
+                  setNegScan(status.findings || []);
+                  setNegScanLoading(false);
+                }
+              }
+            } catch {
+            }
+          }, 4e3);
+        } catch (e) {
+          setNegScanError(true);
+          setNegScanLoading(false);
+        }
+        return;
+      }
+      try {
+        const res = await fetch("/.netlify/functions/pos-negative-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pc: String(pc), days })
+        });
+        const data = await res.json();
+        if (data.ok) setNegScan(data.findings || []);
+        else setNegScanError(true);
+      } catch (e) {
+        setNegScanError(true);
+      }
+      setNegScanLoading(false);
     }
     return /* @__PURE__ */ React.createElement("div", { className: "fade-in", ref: frameRef, style: { display: "flex", flexDirection: "column", height: isNarrow ? "auto" : frameH || "calc(100vh - 200px)", minHeight: isNarrow ? 0 : 360 } }, /* @__PURE__ */ React.createElement("div", { style: { flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", overflow: "hidden", borderRadius: "0.85rem", marginBottom: "0.5rem", padding: "0.6rem 1.15rem", background: "linear-gradient(135deg,#001a0d 0%,#00120a 50%,#001810 100%)", border: `1px solid ${G}33`, boxShadow: `0 4px 24px ${G}11` } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: -60, right: -60, width: 200, height: 200, borderRadius: "50%", background: `${G}15`, pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", bottom: -40, left: "20%", width: 150, height: 150, borderRadius: "50%", background: `${G}05`, pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: "50%", background: `${G}22`, border: `2px solid ${G}`, boxShadow: `0 0 14px ${G}66`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem", filter: `drop-shadow(0 0 6px ${G})` } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: "50%", border: `2px solid ${G}`, animation: "pulseRing 2s ease-out infinite" } })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1rem", color: G, textShadow: `0 0 16px ${G}99`, letterSpacing: 1 } }, "PULSE"), /* @__PURE__ */ React.createElement("span", { style: { color: `${G}44` } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.3rem", color: "#fff" } }, s?.name || pc, s?.status !== "Open" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 8, fontSize: "0.6rem", padding: "2px 7px", borderRadius: 4, fontWeight: 700, color: "#fff", verticalAlign: "middle", background: s?.status === "Remodel" ? "#fd7e14" : "#dc3545" } }, s?.status))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: `${G}77`, fontWeight: 600, letterSpacing: 1 } }, "PC# " + pc + " \xB7 " + (s?.city || "") + ", " + (s?.state || "") + " \xB7 District " + (s?.district || "") + (s?.baseAsset ? " \xB7 " + s.baseAsset : "")))), /* @__PURE__ */ React.createElement(HeartbeatLine, null)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: "#001a0d", border: `1px solid ${G}44`, borderRadius: "0.5rem", padding: "0.15rem" } }, ["day", "week"].map((m) => /* @__PURE__ */ React.createElement("button", { key: m, onClick: () => setViewMode(m), style: { background: viewMode === m ? G : "transparent", color: viewMode === m ? "#0a2e0a" : `${G}88`, border: "none", borderRadius: "0.35rem", padding: "0.3rem 0.85rem", fontSize: "0.7rem", fontWeight: 800, cursor: "pointer", textTransform: "uppercase", letterSpacing: 1, fontFamily: "'Source Sans 3'", transition: "all .15s" } }, m))), viewMode === "week" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       const dt = /* @__PURE__ */ new Date(localDate + "T12:00:00");
@@ -8488,7 +8573,7 @@
         const f = txnFilters;
         if (f.otCat !== "all" && otCat(chk.otNum) !== f.otCat) return false;
         if (f.voids && !(chk.vdTtl && Math.abs(chk.vdTtl) > 0)) return false;
-        if (f.refunds && !(Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0)) return false;
+        if (f.refunds && !isGenuineRefund(chk)) return false;
         if (f.discounts && !(chk.dscTtl && Math.abs(chk.dscTtl) > 0)) return false;
         if (f.timeStart) {
           const chkT = toETHHMM(chk.opnUTC || "");
@@ -8522,6 +8607,26 @@
           style: { fontSize: "0.7rem", padding: "0.25rem 0.6rem", borderRadius: 6, background: txnListLoading ? th.card2 : "#3b82f6", border: "none", color: "#fff", cursor: "pointer", fontWeight: 600, opacity: txnListLoading ? 0.6 : 1 }
         },
         txnListLoading ? "\u2026" : "\u21BA Refresh"
+      ), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: negScanRange,
+          onChange: (e) => setNegScanRange(e.target.value),
+          disabled: negScanLoading,
+          style: { fontSize: "0.7rem", padding: "0.25rem 0.3rem", borderRadius: 6, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, cursor: "pointer" }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "7" }, "7 days"),
+        /* @__PURE__ */ React.createElement("option", { value: "30" }, "30 days"),
+        /* @__PURE__ */ React.createElement("option", { value: "365" }, "1 year")
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: scanNegatives,
+          disabled: negScanLoading,
+          title: "Scan for checks that closed with a negative total",
+          style: { fontSize: "0.7rem", padding: "0.25rem 0.6rem", borderRadius: 6, background: negScanLoading ? th.card2 : "#ef4444", border: "none", color: "#fff", cursor: "pointer", fontWeight: 600, opacity: negScanLoading ? 0.6 : 1 }
+        },
+        negScanLoading ? "\u2026" : "\u{1F6A9} Check Negatives"
       )), /* @__PURE__ */ React.createElement(
         "button",
         {
@@ -8534,7 +8639,21 @@
           style: { fontSize: "0.72rem", padding: "0.3rem 0.7rem", borderRadius: 6, background: txnExpanded ? "#ef444422" : O, border: txnExpanded ? `1px solid #ef444455` : "none", color: txnExpanded ? "#ef4444" : "#fff", cursor: "pointer", fontWeight: 700 }
         },
         txnExpanded ? "Hide" : txnListLoading ? "Loading\u2026" : "Load"
-      ))), txnExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.75rem", marginBottom: "0.5rem" } }, [["all", "All"], ["eat_in", "Eat In"], ["drive_thru", "Drive Thru"], ["mobile", "Mobile"], ["uber", "Uber Eats"], ["doordash", "DoorDash"], ["delivery", "Delivery"], ["other", "Other"]].map(([val, label]) => /* @__PURE__ */ React.createElement("span", { key: val, onClick: () => setTxnFilters((f) => ({ ...f, otCat: val })), style: chipStyle(txnFilters.otCat === val) }, label))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("discounts"), style: chipStyle(txnFilters.discounts) }, "\u{1F3F7} Discounts"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("voids"), style: chipStyle(txnFilters.voids) }, "\u{1F6AB} Voids"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("refunds"), style: chipStyle(txnFilters.refunds) }, "\u21A9 Refunds"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center", marginLeft: "auto" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "\u23F1"), /* @__PURE__ */ React.createElement(
+      ))), (negScan !== null || negScanLoading || negScanError) && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", padding: "0.6rem 0.75rem", borderRadius: 8, background: negScanLoading ? th.card2 : negScanError ? "#f59e0b14" : negScan && negScan.length > 0 ? "#ef444414" : "#22c55e14", border: `1px solid ${negScanLoading ? th.cardBorder : negScanError ? "#f59e0b55" : negScan && negScan.length > 0 ? "#ef444455" : "#22c55e55"}` } }, negScanLoading ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, negScanProgress ? `Scanning\u2026 ${negScanProgress.done}/${negScanProgress.total} days checked` : `Scanning last ${negScanRange} days for negative-total checks\u2026`) : negScanError ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: "#f59e0b", fontWeight: 600 } }, "\u26A0 Scan failed or timed out \u2014 try again, or check back shortly for a long-range scan still running in the background") : negScan.length === 0 ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: "#22c55e", fontWeight: 600 } }, "\u2713 No negative-total checks found in the last ", negScanRange === "365" ? "year" : `${negScanRange} days`) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", fontWeight: 700, marginBottom: "0.4rem" } }, "\u26A0 ", negScan.length, " check", negScan.length > 1 ? "s" : "", " closed with a negative total in the last ", negScanRange === "365" ? "year" : `${negScanRange} days`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, negScan.map((f, i) => /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: i,
+          onClick: () => {
+            setTxnExpanded(true);
+            setTxnDate(f.date);
+            setTxnList(null);
+            loadTxnList(f.date);
+          },
+          style: { display: "flex", justifyContent: "space-between", fontSize: "0.72rem", cursor: "pointer", padding: "0.15rem 0" }
+        },
+        /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, "#", f.chkNum, " \xB7 ", f.date),
+        /* @__PURE__ */ React.createElement("span", { style: { color: "#ef4444", fontWeight: 700 } }, "$", (f.chkTtl || 0).toFixed(2))
+      ))))), txnExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.75rem", marginBottom: "0.5rem" } }, [["all", "All"], ["eat_in", "Eat In"], ["drive_thru", "Drive Thru"], ["mobile", "Mobile"], ["uber", "Uber Eats"], ["doordash", "DoorDash"], ["delivery", "Delivery"], ["other", "Other"]].map(([val, label]) => /* @__PURE__ */ React.createElement("span", { key: val, onClick: () => setTxnFilters((f) => ({ ...f, otCat: val })), style: chipStyle(txnFilters.otCat === val) }, label))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("discounts"), style: chipStyle(txnFilters.discounts) }, "\u{1F3F7} Discounts"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("voids"), style: chipStyle(txnFilters.voids) }, "\u{1F6AB} Voids"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("refunds"), style: chipStyle(txnFilters.refunds) }, "\u21A9 Refunds"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center", marginLeft: "auto" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "\u23F1"), /* @__PURE__ */ React.createElement(
         "input",
         {
           type: "time",
@@ -8561,7 +8680,8 @@
         const t = chk.opnUTC ? toET(chk.opnUTC) : "--";
         const hasDisc = Math.abs(chk.dscTtl || 0) > 0;
         const hasVoid = Math.abs(chk.vdTtl || 0) > 0;
-        const hasRefund = Math.abs(chk.returnTtl || 0) > 0 || (chk.chkTtl || 0) < 0;
+        const hasRefund = isGenuineRefund(chk);
+        const hasUnexplainedNeg = isNegativeDefect(chk);
         const otName = txnOTMap[chk.otNum] || "";
         const cat = otCat(chk.otNum);
         const otColor = cat === "drive_thru" ? "#2563eb" : cat === "eat_in" ? "#059669" : cat === "uber" ? "#d97706" : cat === "doordash" ? "#dc2626" : cat === "mobile" ? "#7c3aed" : cat === "delivery" ? "#0891b2" : "#64748b";
@@ -8574,7 +8694,7 @@
             onMouseEnter: (e) => e.currentTarget.style.background = th.card2,
             onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
           },
-          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: O, fontSize: "0.8rem", minWidth: 46 } }, "#", chk.chkNum), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted, minWidth: 52 } }, t), otName && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", padding: "0.1rem 0.3rem", borderRadius: 999, background: otColor + "20", color: otColor, fontWeight: 600, whiteSpace: "nowrap", maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" } }, otName), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.25rem" } }, hasDisc && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", padding: "0.1rem 0.25rem", borderRadius: 999, background: "#22c55e15", color: "#22c55e", fontWeight: 700 } }, "DISC"), hasVoid && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", padding: "0.1rem 0.25rem", borderRadius: 999, background: "#ef444415", color: "#ef4444", fontWeight: 700 } }, "VOID"), hasRefund && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", padding: "0.1rem 0.25rem", borderRadius: 999, background: "#f59e0b15", color: "#f59e0b", fontWeight: 700 } }, "REFUND"))),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: O, fontSize: "0.8rem", minWidth: 46 } }, "#", chk.chkNum), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted, minWidth: 52 } }, t), otName && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", padding: "0.1rem 0.3rem", borderRadius: 999, background: otColor + "20", color: otColor, fontWeight: 600, whiteSpace: "nowrap", maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" } }, otName), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.25rem" } }, hasDisc && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", padding: "0.1rem 0.25rem", borderRadius: 999, background: "#22c55e15", color: "#22c55e", fontWeight: 700 } }, "DISC"), hasVoid && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", padding: "0.1rem 0.25rem", borderRadius: 999, background: "#ef444415", color: "#ef4444", fontWeight: 700 } }, "VOID"), hasRefund && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", padding: "0.1rem 0.25rem", borderRadius: 999, background: "#f59e0b15", color: "#f59e0b", fontWeight: 700 } }, "REFUND"), hasUnexplainedNeg && /* @__PURE__ */ React.createElement("span", { title: "Negative total with no return-flagged items \u2014 the known void/re-add POS defect", style: { fontSize: "0.55rem", padding: "0.1rem 0.25rem", borderRadius: 999, background: "#dc262615", color: "#dc2626", fontWeight: 700 } }, "\u26A0 DEFECT"))),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", alignItems: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.82rem", color: (chk.chkTtl || 0) < 0 ? "#ef4444" : th.text } }, "$", (chk.chkTtl || 0).toFixed(2)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.7rem" } }, "\u203A"))
         );
       }))));
@@ -8617,6 +8737,7 @@
       const mainItems = allLines.filter((l) => l.menuItem && !l.vdFlag && !l.doNotShowFlag);
       const tenderLines = allLines.filter((l) => l.tenderMedia && !l.vdFlag);
       const discLines = allLines.filter((l) => l.discount && !l.vdFlag);
+      const orphanLines = isNegativeDefect(chk) ? getOrphanLines(allLines) : [];
       const TEAL = "#0d9488";
       const fmtP = (n) => (n || 0) < 0 ? "-$" + Math.abs(n).toFixed(2) : "$" + (n || 0).toFixed(2);
       const headerName = store2.legal || store2.name || "Dunkin'";
@@ -8648,7 +8769,7 @@
         /* @__PURE__ */ React.createElement("div", { style: { background: th.bg, borderRadius: isMobileModal ? 0 : 12, width: "100%", maxWidth: isMobileModal ? "100%" : 920, minHeight: isMobileModal ? "100dvh" : "unset", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1rem", color: th.text } }, "Transaction Detail ", !txnModalLoading && /* @__PURE__ */ React.createElement("span", { style: { color: O } }, "#", chk.chkNum)), /* @__PURE__ */ React.createElement("button", { onClick: () => {
           setTxnModal(null);
           setTxnModalLoading(false);
-        }, style: { background: "none", border: "none", color: th.muted, fontSize: "1.4rem", cursor: "pointer", lineHeight: 1 } }, "\xD7")), txnModalLoading ? /* @__PURE__ */ React.createElement("div", { style: { padding: "4rem", textAlign: "center", color: th.muted } }, "Loading transaction detail\u2026") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: isMobileModal ? "column" : "row", gap: "1.25rem", padding: isMobileModal ? "1rem" : "1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", borderRadius: 8, padding: isMobileModal ? "1.5rem 1.25rem" : "1.75rem 1.5rem", fontFamily: "'Courier New', monospace", fontSize: isMobileModal ? "0.8rem" : "0.78rem", color: "#1a1a1a", lineHeight: 1.55, boxShadow: "0 2px 16px rgba(0,0,0,0.14)", maxHeight: isMobileModal ? "none" : 560, overflowY: isMobileModal ? "visible" : "auto", wordBreak: "break-word", flexShrink: 0, width: isMobileModal ? "100%" : "50%", boxSizing: "border-box" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontWeight: 700, fontSize: "1.15em", letterSpacing: "0.04em" } }, headerName), store2.address && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "#777", fontSize: "0.9em", marginTop: "0.15em" } }, store2.address), recCityZip && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "#777", fontSize: "0.9em" } }, recCityZip), /* @__PURE__ */ React.createElement("div", { style: dblDiv }), /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Check #:"), /* @__PURE__ */ React.createElement("span", null, chk.chkNum ?? "--")), /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Date:"), /* @__PURE__ */ React.createElement("span", null, opnDt || "--")), chk.empNum != null && /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Server:"), /* @__PURE__ */ React.createElement("span", null, "Emp #" + chk.empNum)), termNum != null && /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Terminal:"), /* @__PURE__ */ React.createElement("span", null, termNum)), /* @__PURE__ */ React.createElement("div", { style: sglDiv }), recItems.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: "#999", textAlign: "center", margin: "0.5em 0" } }, "(no line items)") : recItems.map((it, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", margin: "0.2em 0" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", minWidth: "2.4em" } }, it.qty, "x"), it.name), /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, fmtP(it.price)))), recDisc.map((d2, i) => /* @__PURE__ */ React.createElement("div", { key: "d" + i, style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", margin: "0.2em 0", color: "#16a34a" } }, /* @__PURE__ */ React.createElement("span", null, d2.name), /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, fmtP(d2.price)))), /* @__PURE__ */ React.createElement("div", { style: sglDiv }), chk.subTtl != null && /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Subtotal:"), /* @__PURE__ */ React.createElement("span", null, fmtP(chk.subTtl))), chk.taxCollTtl ? /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Tax:"), /* @__PURE__ */ React.createElement("span", null, fmtP(chk.taxCollTtl))) : null, /* @__PURE__ */ React.createElement("div", { style: sglDiv }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: "1.3em", color: TEAL, margin: "0.3em 0" } }, /* @__PURE__ */ React.createElement("span", null, "TOTAL:"), /* @__PURE__ */ React.createElement("span", null, fmtP(chk.chkTtl))), recTenders.length > 0 && /* @__PURE__ */ React.createElement("div", { style: dblDiv }), recTenders.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: "t" + i, style: metaRow }, /* @__PURE__ */ React.createElement("span", null, t.name, ":"), /* @__PURE__ */ React.createElement("span", null, fmtP(Math.abs(t.amt))))), /* @__PURE__ */ React.createElement("div", { style: dblDiv }), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontWeight: 700, marginTop: "0.4em" } }, "Thank You! Come Back Soon!")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "1rem", flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem" } }, "\u{1F4CA}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Margin Analysis")), parsedItems.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No item data") : /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `1px solid ${th.cardBorder}` } }, ["ITEM", "COST", "PRICE", "MARGIN"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { textAlign: h === "ITEM" ? "left" : "right", padding: "0.3rem 0.25rem", color: th.muted, fontWeight: 600, fontSize: "0.62rem" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, parsedItems.map((it, i) => /* @__PURE__ */ React.createElement("tr", { key: i, style: { borderBottom: i < parsedItems.length - 1 ? `1px solid ${th.cardBorder}` : "none" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", color: th.text, fontWeight: 500, maxWidth: 140, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title: it.name }, it.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", textAlign: "right", color: th.muted } }, "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", textAlign: "right", color: th.text, fontWeight: 600 } }, it.total > 0 ? "$" + it.total.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", textAlign: "right", color: "#22c55e", fontWeight: 700 } }, "\u2014")))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem" } }, "\u{1F4CA}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Order Complexity")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2rem", color: th.text, lineHeight: 1 } }, totalQty), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", padding: "0.2rem 0.6rem", borderRadius: 999, background: `${complexColor}22`, color: complexColor, fontWeight: 700 } }, complexLabel)), [["Items", `${parsedItems.length} item${parsedItems.length !== 1 ? "s" : ""}`], ["Discounts", hasDisc ? `$${Math.abs(chk.dscTtl || 0).toFixed(2)}` : "No"], ["Service Time", svcSecs > 0 ? `${svcSecs}s` : "\u2014"]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { display: "flex", justifyContent: "space-between", padding: "0.3rem 0", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, k), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 600 } }, v)))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem" } }, "\u{1F550}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Transaction Timeline")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, [
+        }, style: { background: "none", border: "none", color: th.muted, fontSize: "1.4rem", cursor: "pointer", lineHeight: 1 } }, "\xD7")), txnModalLoading ? /* @__PURE__ */ React.createElement("div", { style: { padding: "4rem", textAlign: "center", color: th.muted } }, "Loading transaction detail\u2026") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: isMobileModal ? "column" : "row", gap: "1.25rem", padding: isMobileModal ? "1rem" : "1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", borderRadius: 8, padding: isMobileModal ? "1.5rem 1.25rem" : "1.75rem 1.5rem", fontFamily: "'Courier New', monospace", fontSize: isMobileModal ? "0.8rem" : "0.78rem", color: "#1a1a1a", lineHeight: 1.55, boxShadow: "0 2px 16px rgba(0,0,0,0.14)", maxHeight: isMobileModal ? "none" : 560, overflowY: isMobileModal ? "visible" : "auto", wordBreak: "break-word", flexShrink: 0, width: isMobileModal ? "100%" : "50%", boxSizing: "border-box" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontWeight: 700, fontSize: "1.15em", letterSpacing: "0.04em" } }, headerName), store2.address && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "#777", fontSize: "0.9em", marginTop: "0.15em" } }, store2.address), recCityZip && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "#777", fontSize: "0.9em" } }, recCityZip), /* @__PURE__ */ React.createElement("div", { style: dblDiv }), /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Check #:"), /* @__PURE__ */ React.createElement("span", null, chk.chkNum ?? "--")), /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Date:"), /* @__PURE__ */ React.createElement("span", null, opnDt || "--")), chk.empNum != null && /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Server:"), /* @__PURE__ */ React.createElement("span", null, "Emp #" + chk.empNum)), termNum != null && /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Terminal:"), /* @__PURE__ */ React.createElement("span", null, termNum)), /* @__PURE__ */ React.createElement("div", { style: sglDiv }), recItems.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: "#999", textAlign: "center", margin: "0.5em 0" } }, "(no line items)") : recItems.map((it, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", margin: "0.2em 0" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", minWidth: "2.4em" } }, it.qty, "x"), it.name), /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, fmtP(it.price)))), recDisc.map((d2, i) => /* @__PURE__ */ React.createElement("div", { key: "d" + i, style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", margin: "0.2em 0", color: "#16a34a" } }, /* @__PURE__ */ React.createElement("span", null, d2.name), /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, fmtP(d2.price)))), orphanLines.map((l, i) => /* @__PURE__ */ React.createElement("div", { key: "o" + i, style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", margin: "0.2em 0", color: "#ef4444", fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", null, "\u26A0 Unexplained Adjustment"), /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, fmtP(l.dspTtl)))), /* @__PURE__ */ React.createElement("div", { style: sglDiv }), chk.subTtl != null && /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Subtotal:"), /* @__PURE__ */ React.createElement("span", null, fmtP(chk.subTtl))), chk.taxCollTtl ? /* @__PURE__ */ React.createElement("div", { style: metaRow }, /* @__PURE__ */ React.createElement("span", null, "Tax:"), /* @__PURE__ */ React.createElement("span", null, fmtP(chk.taxCollTtl))) : null, /* @__PURE__ */ React.createElement("div", { style: sglDiv }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: "1.3em", color: TEAL, margin: "0.3em 0" } }, /* @__PURE__ */ React.createElement("span", null, "TOTAL:"), /* @__PURE__ */ React.createElement("span", null, fmtP(chk.chkTtl))), recTenders.length > 0 && /* @__PURE__ */ React.createElement("div", { style: dblDiv }), recTenders.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: "t" + i, style: metaRow }, /* @__PURE__ */ React.createElement("span", null, t.name, ":"), /* @__PURE__ */ React.createElement("span", null, fmtP(Math.abs(t.amt))))), /* @__PURE__ */ React.createElement("div", { style: dblDiv }), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontWeight: 700, marginTop: "0.4em" } }, "Thank You! Come Back Soon!")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "1rem", flex: 1, minWidth: 0 } }, orphanLines.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 0.9rem", borderRadius: 8, background: "#ef444414", border: "1px solid #ef444455" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", fontWeight: 700, marginBottom: "0.2rem" } }, "\u26A0 POS Defect Detected"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.text, lineHeight: 1.4 } }, "This check has ", orphanLines.length, " unexplained adjustment line", orphanLines.length > 1 ? "s" : "", " totaling ", fmtP(orphanLines.reduce((s2, l) => s2 + (l.dspTtl || 0), 0)), " with no menu item attached \u2014 a known register defect (voiding then re-adding an item can leave this behind), not a real charge or discount.")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem" } }, "\u{1F4CA}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Margin Analysis")), parsedItems.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No item data") : /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `1px solid ${th.cardBorder}` } }, ["ITEM", "COST", "PRICE", "MARGIN"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { textAlign: h === "ITEM" ? "left" : "right", padding: "0.3rem 0.25rem", color: th.muted, fontWeight: 600, fontSize: "0.62rem" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, parsedItems.map((it, i) => /* @__PURE__ */ React.createElement("tr", { key: i, style: { borderBottom: i < parsedItems.length - 1 ? `1px solid ${th.cardBorder}` : "none" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", color: th.text, fontWeight: 500, maxWidth: 140, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title: it.name }, it.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", textAlign: "right", color: th.muted } }, "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", textAlign: "right", color: th.text, fontWeight: 600 } }, it.total > 0 ? "$" + it.total.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.25rem", textAlign: "right", color: "#22c55e", fontWeight: 700 } }, "\u2014")))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem" } }, "\u{1F4CA}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Order Complexity")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2rem", color: th.text, lineHeight: 1 } }, totalQty), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", padding: "0.2rem 0.6rem", borderRadius: 999, background: `${complexColor}22`, color: complexColor, fontWeight: 700 } }, complexLabel)), [["Items", `${parsedItems.length} item${parsedItems.length !== 1 ? "s" : ""}`], ["Discounts", hasDisc ? `$${Math.abs(chk.dscTtl || 0).toFixed(2)}` : "No"], ["Service Time", svcSecs > 0 ? `${svcSecs}s` : "\u2014"]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { display: "flex", justifyContent: "space-between", padding: "0.3rem 0", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, k), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 600 } }, v)))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem" } }, "\u{1F550}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.85rem", color: th.text } }, "Transaction Timeline")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, [
           ["\u{1F7E2}", opnTime, "Transaction Opened", chk.empNum ? `Emp #${chk.empNum}` : null],
           parsedItems.length > 0 ? ["\u{1F9FE}", null, `${totalQty} item${totalQty !== 1 ? "s" : ""} ordered`, parsedItems.slice(0, 2).map((it) => it.name).join(", ") + (parsedItems.length > 2 ? ` +${parsedItems.length - 2} more` : "")] : null,
           ["\u2705", clsdTime, "Transaction Closed", `Total: $${(chk.chkTtl || 0).toFixed(2)}`]
@@ -19300,7 +19421,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.20";
+  var APP_VERSION = "v19.27";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -32590,7 +32711,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       });
     }, []);
     useEffect(() => {
-      if (!cloudNotificationsLoaded.current) return;
+      if (chatPollActive.current || !cloudNotificationsLoaded.current) return;
       if (notifications.length === 0) return;
       cloudSave("pcg_notifications_v1", notifications);
     }, [notifications]);
@@ -32703,13 +32824,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (!user) return;
       chatPollRef.current = setInterval(async () => {
         try {
-          const [ch, ms, rd, ann, dis, acc] = await Promise.all([
+          const [ch, ms, rd, ann, dis, acc, notif] = await Promise.all([
             cloudLoad("pcg_chat_channels_v1"),
             cloudLoad("pcg_chat_messages_v1"),
             cloudLoad("pcg_chat_read_v1"),
             cloudLoad("pcg_announcements_v1"),
             cloudLoad("pcg_announcements_dismissed_v1"),
-            cloudLoad("pcg_access_overrides_v1")
+            cloudLoad("pcg_access_overrides_v1"),
+            cloudLoad("pcg_notifications_v1")
           ]);
           chatPollActive.current = true;
           if (ch && Array.isArray(ch)) setChatChannels(ch);
@@ -32718,6 +32840,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           if (ann && Array.isArray(ann)) setAnnouncements(ann);
           if (dis && typeof dis === "object" && dis !== null) setAnnouncementsDismissed(dis);
           if (acc && typeof acc === "object" && !Array.isArray(acc)) setAccessOverrides(acc);
+          if (notif && Array.isArray(notif)) {
+            setNotifications((prev) => {
+              const localIds = new Set(prev.map((n) => n.id));
+              const fresh = notif.filter((n) => !localIds.has(n.id));
+              return fresh.length > 0 ? [...fresh, ...prev] : prev;
+            });
+          }
           setTimeout(() => {
             chatPollActive.current = false;
           }, 0);
