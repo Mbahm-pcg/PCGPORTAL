@@ -8132,6 +8132,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
     const dl = txnDeepLinkRef && txnDeepLinkRef.current;
     if (!dl) return;
     txnDeepLinkRef.current = null;
+    setStoreTab('transactions');
     setTxnExpanded(true);
     setTxnDate(dl.date);
     setTxnList(null);
@@ -11342,7 +11343,13 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   // Auto-load today's data on mount, then auto-load WTD
   const wtdAutoLoaded = useRef(false);
   const lastWtdWeek   = useRef('');
-  useEffect(() => { loadAll(); setPulseView("network"); }, [busDt]);
+  useEffect(() => {
+    loadAll();
+    // Don't clobber a drill-in that's already pending on this same mount (e.g. a
+    // notification click navigating straight to a store) — both this effect and
+    // the drillInStore effect above fire on mount, and this one runs second.
+    if (!drillInStore) setPulseView("network");
+  }, [busDt]);
   useEffect(() => {
     // Determine which week busDt falls in (Sunday start)
     const d = new Date(busDt + 'T12:00:00');
@@ -24579,7 +24586,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.31";
+const APP_VERSION = "v19.32";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

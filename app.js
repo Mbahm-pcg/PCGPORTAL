@@ -7618,6 +7618,7 @@
       const dl = txnDeepLinkRef && txnDeepLinkRef.current;
       if (!dl) return;
       txnDeepLinkRef.current = null;
+      setStoreTab("transactions");
       setTxnExpanded(true);
       setTxnDate(dl.date);
       setTxnList(null);
@@ -9913,7 +9914,7 @@ ${t2.slice(0, 300)}`);
     const lastWtdWeek = useRef("");
     useEffect(() => {
       loadAll();
-      setPulseView("network");
+      if (!drillInStore) setPulseView("network");
     }, [busDt]);
     useEffect(() => {
       const d = /* @__PURE__ */ new Date(busDt + "T12:00:00");
@@ -19440,7 +19441,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.31";
+  var APP_VERSION = "v19.32";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
