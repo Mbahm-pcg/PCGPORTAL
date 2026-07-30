@@ -16,6 +16,7 @@ const STORES = [
   { pc:"352894", name:"Street Rd",       district:2 },
   { pc:"341350", name:"Yardley",         district:2 },
   { pc:"337839", name:"Warrington",      district:2 },
+  { pc:"365953", name:"Hatboro",         district:2 },
   { pc:"330338", name:"Drexel Hill",     district:3 },
   { pc:"337063", name:"Sharon Hill",     district:3 },
   { pc:"343832", name:"Lansdowne",       district:3 },
