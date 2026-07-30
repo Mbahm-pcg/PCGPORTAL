@@ -7884,7 +7884,7 @@ function TrendChart({ data, G, th, onBarClick }) {
 // ─── Manager Pulse — single-store Pulse, hard-locked to the manager's own store ─
 // Renders only StoreDetail for the manager's assigned PC (no store grid, no
 // district/network navigation), so a manager can never view another store's sales.
-function ManagerPulse({ stores, th, user }) {
+function ManagerPulse({ stores, th, user, txnDeepLinkRef }) {
   const G = '#00d084';
   const store = getManagerStore(stores, user);
   const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
@@ -7895,7 +7895,7 @@ function ManagerPulse({ stores, th, user }) {
   );
   return (
     <div className="fade-in">
-      <StoreDetail pc={store.pc} stores={stores} storeData={{}} busDt={todayStr} th={th} G={G} setPulseView={() => {}} user={user} standalone />
+      <StoreDetail pc={store.pc} stores={stores} storeData={{}} busDt={todayStr} th={th} G={G} setPulseView={() => {}} user={user} standalone txnDeepLinkRef={txnDeepLinkRef} />
     </div>
   );
 }
@@ -8032,7 +8032,7 @@ function DaypartMatrix({ pc, th }) {
   );
 }
 
-function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null }) {
+function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null, txnDeepLinkRef = null }) {
   const s = stores.find(st => st.pc === pc);
 
   const fmtUSD = v => '$' + Math.round(v).toLocaleString();
@@ -8122,6 +8122,28 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const negScanPollRef = React.useRef(null);
   // Stop polling if the user navigates away mid-scan (unmount, or switches store).
   React.useEffect(() => () => { if (negScanPollRef.current) clearInterval(negScanPollRef.current); }, []);
+
+  // Notification-bell deep link (pos_negative_total click) — jump to the flagged
+  // date and, if the notification named exactly one check, auto-open it once the
+  // day's transaction list has loaded. Consumed once so revisiting this store
+  // later doesn't repeat the jump.
+  const [pendingChkNum, setPendingChkNum] = React.useState(null);
+  React.useEffect(() => {
+    const dl = txnDeepLinkRef && txnDeepLinkRef.current;
+    if (!dl) return;
+    txnDeepLinkRef.current = null;
+    setTxnExpanded(true);
+    setTxnDate(dl.date);
+    setTxnList(null);
+    if (dl.chkNum != null) setPendingChkNum(dl.chkNum);
+    loadTxnList(dl.date);
+  }, []);
+  React.useEffect(() => {
+    if (pendingChkNum == null || !txnList) return;
+    const match = txnList.find(c => c.chkNum === pendingChkNum);
+    setPendingChkNum(null);
+    if (match) openTxnDetail(match);
+  }, [txnList, pendingChkNum]);
 
   // Most recent upsell-rate entry on or before localDate
   const upsellEntry = React.useMemo(() => {
@@ -11087,7 +11109,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
 }
 
 // ─── Admin Pulse ─────────────────────────────────────────────────────────────
-function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn }) {
+function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
   const G = '#00d084';
   const isMobile = useIsMobile(); // phones get stacked cards instead of the wide table
   // Labor % lives inline in the Store Breakdown table (between Net Sales and Guests), and
@@ -11714,7 +11736,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
 
       {/* ── Store Detail View ── */}
       {pulseView?.level === "store" && loaded.length > 0 && (
-        <StoreDetail key={pulseView.pc} pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} users={users} laborData={laborData} />
+        <StoreDetail key={pulseView.pc} pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} users={users} laborData={laborData} txnDeepLinkRef={txnDeepLinkRef} />
       )}
 
 
@@ -24557,7 +24579,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.30";
+const APP_VERSION = "v19.31";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -42440,6 +42462,7 @@ function PCGPortal() {
   const deepLinkRef = useRef(null);
   const todoDeepLinkRef = useRef(null);
   const ticketDeepLinkRef = useRef(null);
+  const txnDeepLinkRef = useRef(null); // pos_negative_total notification click → StoreDetail Transactions
   const isMobile = useIsMobile();
   const th = getTheme(dark);
   // P&L access: who can see the P&L tab (managers + allowlist blob). Client-side gate.
@@ -44842,7 +44865,13 @@ function PCGPortal() {
                         return (
                         <div key={n.id} onClick={() => {
                           setNotifications(ns => ns.map(nn => nn.id === n.id ? { ...nn, read: true } : nn));
-                          setTab(n.type === "new_ticket" ? "tickets" : "projects");
+                          if (n.type === "pos_negative_total" && n.storePC) {
+                            txnDeepLinkRef.current = { date: n.date, chkNum: (n.chkNums && n.chkNums.length === 1) ? n.chkNums[0] : null };
+                            setDrillInStore(n.storePC);
+                            setTab("pulse");
+                          } else {
+                            setTab(n.type === "new_ticket" ? "tickets" : "projects");
+                          }
                           setShowNotifs(false);
                         }}
                           onMouseEnter={e => e.currentTarget.style.background = th.hover || (O + "0d")}
@@ -45092,8 +45121,8 @@ function PCGPortal() {
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
-          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
-          {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} />}
+          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
+          {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
           {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
           {tab === "ops-hub" && (() => {

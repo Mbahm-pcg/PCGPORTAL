@@ -193,6 +193,10 @@ export default async () => {
           type: 'pos_negative_total',
           storePC: store.pc, district: store.district,
           message: `${store.name}: ${message}`,
+          // Deep-link fields for the notification-bell click handler: jump straight
+          // to this store's Transactions view for this date, and auto-open the
+          // specific check if there's exactly one (ambiguous when there are several).
+          date: yesterday, chkNums: fresh.map(c => c.chkNum),
           read: false, createdAt: new Date().toISOString(),
         });
 
