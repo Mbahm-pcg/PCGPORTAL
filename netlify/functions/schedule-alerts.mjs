@@ -19,6 +19,7 @@ const STORES = [
   { pc:'352894', name:'Street Rd',       district:2, email:'streetrd@peoplecapitalgroup.com'      },
   { pc:'341350', name:'Yardley',         district:2, email:'yardley@peoplecapitalgroup.com'       },
   { pc:'337839', name:'Warrington',      district:2, email:'warrington@peoplecapitalgroup.com'    },
+  { pc:'365953', name:'Hatboro',         district:2, email:'365953@peoplecapitalgroup.com'        },
   { pc:'330338', name:'Drexel Hill',     district:3, email:'drexelhill@peoplecapitalgroup.com'    },
   { pc:'337063', name:'Sharon Hill',     district:3, email:'sharonhill@peoplecapitalgroup.com'    },
   { pc:'343832', name:'Lansdowne',       district:3, email:'lansdowne@peoplecapitalgroup.com'     },
