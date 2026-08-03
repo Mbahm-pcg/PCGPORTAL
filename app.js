@@ -279,6 +279,21 @@
   async function portalRevokeSessions(targetUserId) {
     return post(targetUserId != null ? { action: "revoke-sessions", targetUserId } : { action: "revoke-sessions" });
   }
+  async function portalMe() {
+    if (!_token) return null;
+    try {
+      const res = await fetch(`${FN}/portal-auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "me" })
+      });
+      if (!res.ok) return null;
+      const j = await res.json();
+      return j.user || null;
+    } catch {
+      return null;
+    }
+  }
 
   // src/deal-api.mjs
   var FN2 = "/.netlify/functions";
@@ -19441,7 +19456,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.32";
+  var APP_VERSION = "v19.33";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -31552,6 +31567,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
   }
   function PCGPortal() {
     const [user, setUser] = useState(null);
+    useEffect(() => {
+      if (user || !getSessionToken()) return;
+      let cancelled = false;
+      portalMe().then((u) => {
+        if (!cancelled && u) setUser(u);
+      }).catch(() => {
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, []);
     const [managerMode, setManagerMode] = useState(null);
     const [preferFullPortal, setPreferFullPortal] = useState(() => {
       try {

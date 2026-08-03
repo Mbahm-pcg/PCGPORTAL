@@ -4,7 +4,7 @@ import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCa
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-negative-shared.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
-import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions } from './src/portal-auth.mjs';
+import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 
@@ -24586,7 +24586,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.32";
+const APP_VERSION = "v19.33";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -42236,6 +42236,16 @@ function StoreTabletView({ user, users, stores, th, showAlert, dataAlert, ticket
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
+  // Native-app SSO: the PCG Pulse iOS app injects a valid portal token into
+  // sessionStorage['pcg_portal_token'] before this SPA boots. If we have that token but no
+  // user yet, validate it server-side (portalMe) and restore the session — so the embedded
+  // Portal tab is logged in without a second sign-in. Harmless in a normal browser (no token).
+  useEffect(() => {
+    if (user || !getSessionToken()) return;
+    let cancelled = false;
+    portalMe().then(u => { if (!cancelled && u) setUser(u); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   const [managerMode, setManagerMode] = useState(null);
   const [preferFullPortal, setPreferFullPortal] = useState(() => { try { return localStorage.getItem('pcg_prefer_full_portal') === 'true'; } catch { return false; } });
   const togglePortalMode = (full) => {
