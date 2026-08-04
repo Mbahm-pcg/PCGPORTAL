@@ -10,7 +10,8 @@
     "nodemailer": "^9.0.1",
     "pdf-parse": "^1.1.4",
     "sharp": "^0.34.5",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "xlsx": "^0.18.5"
   },
   "scripts": {
     "test": "node --test 'netlify/functions/analyst-lib/*.test.mjs' 'src/*.test.mjs' 'netlify/functions/deal-lib/*.test.js' 'netlify/functions/ndcp-lib/*.test.js' 'netlify/functions/auth-lib/*.test.js' 'netlify/functions/audit-lib/*.test.js'",

@@ -9551,6 +9551,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
           // gets its own DEFECT badge, not REFUND).
           if (f.refunds && !isGenuineRefund(chk)) return false;
           if (f.discounts && !(chk.dscTtl && Math.abs(chk.dscTtl) > 0)) return false;
+          if (f.tips && !(chk.tipTotal && chk.tipTotal > 0)) return false;
           if (f.timeStart) {
             const chkT = toETHHMM(chk.opnUTC || '');
             if (chkT && chkT < f.timeStart) return false;
@@ -9648,6 +9649,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                   <span onClick={() => toggleChip('discounts')} style={chipStyle(txnFilters.discounts)}>🏷 Discounts</span>
                   <span onClick={() => toggleChip('voids')} style={chipStyle(txnFilters.voids)}>🚫 Voids</span>
                   <span onClick={() => toggleChip('refunds')} style={chipStyle(txnFilters.refunds)}>↩ Refunds</span>
+                  <span onClick={() => toggleChip('tips')} style={chipStyle(txnFilters.tips)}>💰 Tips</span>
                   <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', marginLeft: 'auto' }}>
                     <span style={{ fontSize: '0.65rem', color: th.muted }}>⏱</span>
                     <input type="time" value={txnFilters.timeStart}
@@ -9685,6 +9687,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                       // never drift on what counts as the defect.
                       const hasRefund = isGenuineRefund(chk);
                       const hasUnexplainedNeg = isNegativeDefect(chk);
+                      const tipAmt = chk.tipTotal || 0;
                       const otName = txnOTMap[chk.otNum] || '';
                       const cat = otCat(chk.otNum);
                       const otColor = cat === 'drive_thru' ? '#2563eb' : cat === 'eat_in' ? '#059669' : cat === 'uber' ? '#d97706' : cat === 'doordash' ? '#dc2626' : cat === 'mobile' ? '#7c3aed' : cat === 'delivery' ? '#0891b2' : '#64748b';
@@ -9702,6 +9705,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                               {hasVoid && <span style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#ef444415', color: '#ef4444', fontWeight: 700 }}>VOID</span>}
                               {hasRefund && <span style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#f59e0b15', color: '#f59e0b', fontWeight: 700 }}>REFUND</span>}
                               {hasUnexplainedNeg && <span title="Negative total with no return-flagged items — the known void/re-add POS defect" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#dc262615', color: '#dc2626', fontWeight: 700 }}>⚠ DEFECT</span>}
+                              {tipAmt > 0 && <span style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', borderRadius: 999, background: '#0d948815', color: '#0d9488', fontWeight: 700 }}>💰 TIP ${tipAmt.toFixed(2)}</span>}
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
@@ -9766,6 +9770,10 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         const recItems = [];
         { const seenR = new Set(); mainItems.forEach(l => { if (seenR.has(l.guestCheckLineItemId)) return; seenR.add(l.guestCheckLineItemId); recItems.push({ qty: Math.abs(l.dspQty || 1), name: menuMap[l.menuItem.miNum]?.name || ('Item #' + l.menuItem.miNum), price: l.dspTtl || 0 }); }); }
         const recDisc = discLines.map(l => ({ name: menuMap[l.discount?.dscNum]?.name || 'Discount', price: l.dspTtl || 0 }));
+        // Tip lines are recorded as a serviceCharge detail line (refInfo1 "Charged Tip"),
+        // not a menuItem — separate mechanism from tenderMedia/discount lines. The
+        // check-level tipTotal field mirrors this line's amount exactly.
+        const tipLines = allLines.filter(l => l.serviceCharge && !l.vdFlag && (l.dspTtl || 0) !== 0);
         const recTenders = tenderLines.map(l => ({ name: menuMap[l.tenderMedia?.tmedNum]?.name || (l.tenderMedia?.tmedNum === 1 ? 'Cash' : 'Payment'), amt: l.dspTtl || 0 })).filter(t => t.amt !== 0);
         const termNum = allLines[0]?.wsNum;
         const metaRow = { display: 'flex', justifyContent: 'space-between', gap: '1rem', margin: '0.14em 0', color: '#1a1a1a' };
@@ -9811,6 +9819,11 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                         <span>{d.name}</span><span style={{ whiteSpace: 'nowrap' }}>{fmtP(d.price)}</span>
                       </div>
                     ))}
+                    {tipLines.map((l, i) => (
+                      <div key={'tip' + i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', margin: '0.2em 0', color: '#0d9488' }}>
+                        <span>{l.refInfo1 || 'Charged Tip'}</span><span style={{ whiteSpace: 'nowrap' }}>{fmtP(l.dspTtl)}</span>
+                      </div>
+                    ))}
                     {orphanLines.map((l, i) => (
                       <div key={'o' + i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', margin: '0.2em 0', color: '#ef4444', fontWeight: 700 }}>
                         <span>⚠ Unexplained Adjustment</span><span style={{ whiteSpace: 'nowrap' }}>{fmtP(l.dspTtl)}</span>
@@ -9832,6 +9845,12 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                     <div style={{ textAlign: 'center', fontWeight: 700, marginTop: '0.4em' }}>Thank You! Come Back Soon!</div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, minWidth: 0 }}>
+                    {tipLines.length > 0 && (
+                      <div style={{ padding: '0.75rem 0.9rem', borderRadius: 8, background: '#0d948814', border: '1px solid #0d948855', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.78rem', color: '#0d9488', fontWeight: 700 }}>💰 Tip Charged</span>
+                        <span style={{ fontSize: '0.9rem', color: '#0d9488', fontWeight: 800 }}>{fmtP(tipLines.reduce((s, l) => s + (l.dspTtl || 0), 0))}</span>
+                      </div>
+                    )}
                     {orphanLines.length > 0 && (
                       <div style={{ padding: '0.75rem 0.9rem', borderRadius: 8, background: '#ef444414', border: '1px solid #ef444455' }}>
                         <div style={{ fontSize: '0.78rem', color: '#ef4444', fontWeight: 700, marginBottom: '0.2rem' }}>⚠ POS Defect Detected</div>
@@ -24596,7 +24615,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.36";
+const APP_VERSION = "v19.37";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

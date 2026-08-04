@@ -33,7 +33,7 @@ export function getOrphanLines(detailLines) {
   const tenderDtlIds = new Set(lines.filter(l => l.tenderMedia).map(l => l.dtlId));
   return lines.filter(l =>
     !l.menuItem && !l.vdFlag && !l.errCorFlag && !l.tenderMedia && !l.discount &&
-    !l.doNotShowFlag && (l.dspTtl || 0) !== 0 &&
+    !l.serviceCharge && !l.doNotShowFlag && (l.dspTtl || 0) !== 0 &&
     !(l.parDtlId != null && tenderDtlIds.has(l.parDtlId))
   );
 }
