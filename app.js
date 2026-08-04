@@ -759,6 +759,9 @@
     if (gateableOnly) active = active.filter((u) => !isFullAdmin(u));
     return active.filter((u) => announcementTargetsUser(targets, u));
   }
+  function announcementGateAudience(ann, users) {
+    return announcementAudience(ann?.targets, users, { gateableOnly: !ann?.forceAll });
+  }
   var PROJECT_PHASES = [
     { id: "zoning", label: "Zoning", icon: "\u{1F3DB}\uFE0F", color: "#6366f1", items: [
       { key: "zoningClassification", label: "Zoning Classification Obtained", type: "bool" },
@@ -14878,7 +14881,7 @@ ${t2.slice(0, 300)}`);
       setSelId(id);
       loadAcks(id);
     };
-    const audience = selected ? announcementAudience(selected.targets, users, { gateableOnly: true }) : [];
+    const audience = selected ? announcementGateAudience(selected, users) : [];
     const ackMap = {};
     (acks || []).forEach((a) => {
       if (a && a.userId != null) ackMap[String(a.userId)] = a.ts;
@@ -15040,6 +15043,7 @@ ${t2.slice(0, 300)}`);
     const [newMsg, setNewMsg] = useState("");
     const [newTargets, setNewTargets] = useState([]);
     const [newUserTargets, setNewUserTargets] = useState([]);
+    const [newForceAll, setNewForceAll] = useState(false);
     const [expandedRole, setExpandedRole] = useState(null);
     const TARGETABLE_ROLES = ["dm", "executive", "construction", "office_staff"];
     const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
@@ -15073,7 +15077,7 @@ ${t2.slice(0, 300)}`);
       }
       const hasTargets = newTargets.length > 0 || newUserTargets.length > 0;
       const targets = hasTargets ? { roles: newTargets, users: newUserTargets } : null;
-      const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), createdBy: user.name, active: true, targets };
+      const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), createdBy: user.name, active: true, targets, forceAll: newForceAll };
       setAnnouncements((prev) => [ann, ...prev]);
       const recipients = resolveAudience(targets);
       if (recipients.length > 0) {
@@ -15085,6 +15089,7 @@ ${t2.slice(0, 300)}`);
       setNewTargets([]);
       setNewUserTargets([]);
       setExpandedRole(null);
+      setNewForceAll(false);
       setAddMode(false);
       showAlert2("success", recipients.length > 0 ? `Announcement posted \u2014 notifying ${recipients.length} ${recipients.length === 1 ? "person" : "people"}` : "Announcement posted!");
     };
@@ -15178,7 +15183,7 @@ ${t2.slice(0, 300)}`);
           u.name || u.username
         );
       })));
-    })()), /* @__PURE__ */ React.createElement("button", { onClick: postAnnouncement, style: { ...btn(th), padding: "0.5rem 1.5rem", background: O, color: "#fff", border: "none", fontWeight: 600 } }, "Post Announcement")), sorted.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { icon: ICONS.announcements(th.muted), title: "No announcements yet", description: "Company-wide updates and news will appear here.", th }) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem" } }, sorted.map((a) => {
+    })()), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.9rem", cursor: "pointer", fontSize: "0.78rem", color: th.text } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: newForceAll, onChange: (e) => setNewForceAll(e.target.checked) }), "Require admins/executives to acknowledge too (normally exempt from the popup gate \u2014 use this for policy changes everyone must confirm)"), /* @__PURE__ */ React.createElement("button", { onClick: postAnnouncement, style: { ...btn(th), padding: "0.5rem 1.5rem", background: O, color: "#fff", border: "none", fontWeight: 600 } }, "Post Announcement")), sorted.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { icon: ICONS.announcements(th.muted), title: "No announcements yet", description: "Company-wide updates and news will appear here.", th }) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem" } }, sorted.map((a) => {
       const isEditing = editingId === a.id;
       const dateStr = new Date(a.createdAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
       const timeStr = new Date(a.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -18872,7 +18877,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.34";
+  var APP_VERSION = "v19.36";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -20284,6 +20289,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           }
         },
         "\u{1F6AA} Sign out of all devices"
+      )), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement(
+        "a",
+        {
+          href: "/delete-account.html",
+          target: "_blank",
+          rel: "noopener noreferrer",
+          style: { fontSize: "0.7rem", color: th.muted, textDecoration: "underline" }
+        },
+        "Request account & data deletion"
       )))
     );
   }
@@ -29368,12 +29382,16 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, [dark]);
     return /* @__PURE__ */ React.createElement("div", { ref: hostRef, "aria-hidden": "true", style: { width: "100%", height: "100%" } });
   }
+  function linkifyText(text) {
+    const parts = String(text || "").split(/(https?:\/\/[^\s]+)/g);
+    return parts.map((part, i) => /^https?:\/\//.test(part) ? /* @__PURE__ */ React.createElement("a", { key: i, href: part, target: "_blank", rel: "noopener noreferrer", style: { color: "inherit", textDecoration: "underline" } }, part) : /* @__PURE__ */ React.createElement(React.Fragment, { key: i }, part));
+  }
   function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
     const ann = anns[idx];
     const isLast = idx === anns.length - 1;
     const total = anns.length;
     const dateStr = ann ? new Date(ann.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
-    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: `radial-gradient(115% 75% at 50% 28%, ${O}14, transparent 58%), ${th.bg}`, color: th.text, display: "flex", flexDirection: "column", zIndex: 9999, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: th.sidebar } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.2rem" } }, "\u{1F4E2}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "1rem", fontFamily: "'Raleway'", color: th.text } }, "Announcement")), total > 1 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 600 } }, idx + 1, " of ", total)), total > 1 && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", gap: "0.3rem", padding: "0.75rem 1.5rem 0" } }, anns.map((_, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { flex: 1, height: 4, borderRadius: 2, background: i <= idx ? O : th.muted + "33", transition: "background .25s" } }))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { className: "fade-in", style: { maxWidth: 500, width: "100%", margin: "auto", borderRadius: 18, overflow: "hidden", background: th.card, border: `1px solid ${th.cardBorder}`, borderLeft: `4px solid ${O}`, boxShadow: th.dark ? "0 24px 70px rgba(0,0,0,0.5)" : "0 24px 70px rgba(10,16,32,0.16)" } }, /* @__PURE__ */ React.createElement("div", { key: ann?.id, className: "fade-in", style: { padding: "1.75rem 1.9rem 1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.35rem", color: th.text, marginBottom: "0.6rem", fontFamily: "'Raleway'", lineHeight: 1.25 } }, ann?.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.92rem", color: th.text, lineHeight: 1.7, whiteSpace: "pre-wrap" } }, ann?.message), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "1.25rem", paddingTop: "0.85rem", borderTop: `1px solid ${th.cardBorder}` } }, "Posted by ", ann?.createdBy, " \xB7 ", dateStr)), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { width: "100%", aspectRatio: "210 / 96", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement(DunkinRunnerScene, { dark: th.dark })))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1.25rem 1.5rem", borderTop: `1px solid ${th.cardBorder}`, background: th.sidebar, display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Please read before continuing"), /* @__PURE__ */ React.createElement("button", { onClick: isLast ? onDone : onNext, style: { background: O, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 2rem", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" } }, isLast ? "Got it \u2713" : "Next \u2192")));
+    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: `radial-gradient(115% 75% at 50% 28%, ${O}14, transparent 58%), ${th.bg}`, color: th.text, display: "flex", flexDirection: "column", zIndex: 9999, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1rem 1.5rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: th.sidebar } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.2rem" } }, "\u{1F4E2}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "1rem", fontFamily: "'Raleway'", color: th.text } }, "Announcement")), total > 1 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 600 } }, idx + 1, " of ", total)), total > 1 && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", gap: "0.3rem", padding: "0.75rem 1.5rem 0" } }, anns.map((_, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { flex: 1, height: 4, borderRadius: 2, background: i <= idx ? O : th.muted + "33", transition: "background .25s" } }))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { className: "fade-in", style: { maxWidth: 500, width: "100%", margin: "auto", borderRadius: 18, overflow: "hidden", background: th.card, border: `1px solid ${th.cardBorder}`, borderLeft: `4px solid ${O}`, boxShadow: th.dark ? "0 24px 70px rgba(0,0,0,0.5)" : "0 24px 70px rgba(10,16,32,0.16)" } }, /* @__PURE__ */ React.createElement("div", { key: ann?.id, className: "fade-in", style: { padding: "1.75rem 1.9rem 1.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.35rem", color: th.text, marginBottom: "0.6rem", fontFamily: "'Raleway'", lineHeight: 1.25 } }, ann?.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.92rem", color: th.text, lineHeight: 1.7, whiteSpace: "pre-wrap" } }, linkifyText(ann?.message)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "1.25rem", paddingTop: "0.85rem", borderTop: `1px solid ${th.cardBorder}` } }, "Posted by ", ann?.createdBy, " \xB7 ", dateStr)), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { width: "100%", aspectRatio: "210 / 96", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement(DunkinRunnerScene, { dark: th.dark })))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, padding: "1.25rem 1.5rem", borderTop: `1px solid ${th.cardBorder}`, background: th.sidebar, display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Please read before continuing"), /* @__PURE__ */ React.createElement("button", { onClick: isLast ? onDone : onNext, style: { background: O, color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 2rem", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" } }, isLast ? "Got it \u2713" : "Next \u2192")));
   }
   function StoreTabletView({ user, users, stores, th, showAlert: showAlert2, dataAlert, ticketNotifyEmails, ticketNotifyPhones, setNotifications, onLogout, deepLinkRef }) {
     const [tab, setTab] = React.useState("tickets");
@@ -31016,11 +31034,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
     }, [dark]);
     useEffect(() => {
-      if (!user || annGateDone || isFullAdmin(user) || user.userType?.startsWith("kiosk")) return;
+      if (!user || annGateDone || user.userType?.startsWith("kiosk")) return;
       const GATE_MAX_AGE_DAYS = 14;
       const cutoff = Date.now() - GATE_MAX_AGE_DAYS * 864e5;
       const queue = announcements.filter((a) => {
         if (!a.active) return false;
+        if (isFullAdmin(user) && !a.forceAll) return false;
         if (!announcementTargetsUser(a.targets, user)) return false;
         if (a.createdAt && new Date(a.createdAt).getTime() < cutoff) return false;
         if (announcementsDismissed?.[`${user.id}_${a.id}`]) return false;
@@ -31035,11 +31054,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, [user?.id, user?.userType, announcements, annGateDone, announcementsDismissed]);
     const annBackfillRef = useRef(false);
     useEffect(() => {
-      if (!user || annBackfillRef.current || isFullAdmin(user) || user.userType?.startsWith("kiosk")) return;
+      if (!user || annBackfillRef.current || user.userType?.startsWith("kiosk")) return;
       if (!announcements || announcements.length === 0) return;
       annBackfillRef.current = true;
       announcements.forEach((a) => {
         if (!a || !a.active) return;
+        if (isFullAdmin(user) && !a.forceAll) return;
         if (!announcementTargetsUser(a.targets, user)) return;
         let locallyAcked = false;
         try {

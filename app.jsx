@@ -296,6 +296,11 @@ function announcementAudience(targets, users, { gateableOnly = false } = {}) {
   if (gateableOnly) active = active.filter(u => !isFullAdmin(u));
   return active.filter(u => announcementTargetsUser(targets, u));
 }
+// Same as announcementAudience({gateableOnly:true}), but honors an announcement's
+// forceAll flag (used for policies every account — admins included — must ack).
+function announcementGateAudience(ann, users) {
+  return announcementAudience(ann?.targets, users, { gateableOnly: !ann?.forceAll });
+}
 
 // ── Project Tracker Constants & Helpers ───────────────────────────────────────
 const PROJECT_PHASES = [
@@ -18314,7 +18319,7 @@ function AnnouncementAcksSection({ th, users, announcements, accent }) {
   const handleToggle = () => setOpen(o => { if (!o && selected) loadAcks(selected.id); return !o; });
   const handleSelect = (id) => { setSelId(id); loadAcks(id); };
 
-  const audience = selected ? announcementAudience(selected.targets, users, { gateableOnly: true }) : [];
+  const audience = selected ? announcementGateAudience(selected, users) : [];
   const ackMap = {};
   (acks || []).forEach(a => { if (a && a.userId != null) ackMap[String(a.userId)] = a.ts; });
   const ackedCount = audience.filter(u => ackMap[String(u.id)]).length;
@@ -18658,6 +18663,7 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
   const [newMsg, setNewMsg] = useState("");
   const [newTargets, setNewTargets] = useState([]);     // whole-role targets
   const [newUserTargets, setNewUserTargets] = useState([]); // specific user IDs
+  const [newForceAll, setNewForceAll] = useState(false); // require admins/execs to ack too (policy announcements)
   const [expandedRole, setExpandedRole] = useState(null);   // which role's member list is open
   // Roles that support drilling down to specific people
   const TARGETABLE_ROLES = ["dm", "executive", "construction", "office_staff"];
@@ -18694,7 +18700,7 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
     if (!newTitle.trim() || !newMsg.trim()) { showAlert("error", "Title and message required"); return; }
     const hasTargets = newTargets.length > 0 || newUserTargets.length > 0;
     const targets = hasTargets ? { roles: newTargets, users: newUserTargets } : null;
-    const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: new Date().toISOString(), createdBy: user.name, active: true, targets };
+    const ann = { id: `ann_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, title: newTitle.trim(), message: newMsg.trim(), createdAt: new Date().toISOString(), createdBy: user.name, active: true, targets, forceAll: newForceAll };
     setAnnouncements(prev => [ann, ...prev]);
     // Push to the targeted audience (fire-and-forget; only users with a push
     // subscription registered actually receive it).
@@ -18703,7 +18709,7 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
       const preview = ann.message.length > 160 ? ann.message.slice(0, 157) + "…" : ann.message;
       sendPushNotification(recipients, `📢 ${ann.title}`, preview, "/", `ann_${ann.id}`);
     }
-    setNewTitle(""); setNewMsg(""); setNewTargets([]); setNewUserTargets([]); setExpandedRole(null); setAddMode(false);
+    setNewTitle(""); setNewMsg(""); setNewTargets([]); setNewUserTargets([]); setExpandedRole(null); setNewForceAll(false); setAddMode(false);
     showAlert("success", recipients.length > 0 ? `Announcement posted — notifying ${recipients.length} ${recipients.length === 1 ? "person" : "people"}` : "Announcement posted!");
   };
 
@@ -18820,6 +18826,10 @@ function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAler
               );
             })()}
           </div>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.9rem", cursor: "pointer", fontSize: "0.78rem", color: th.text }}>
+            <input type="checkbox" checked={newForceAll} onChange={e => setNewForceAll(e.target.checked)} />
+            Require admins/executives to acknowledge too (normally exempt from the popup gate — use this for policy changes everyone must confirm)
+          </label>
           <button onClick={postAnnouncement} style={{ ...btn(th), padding: "0.5rem 1.5rem", background: O, color: "#fff", border: "none", fontWeight: 600 }}>Post Announcement</button>
         </div>
       )}
@@ -24586,7 +24596,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.34";
+const APP_VERSION = "v19.36";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -26452,6 +26462,14 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
               await portalLogout();
               setUser(null);
             }}>🚪 Sign out of all devices</button>
+        </div>
+        {/* Play Store data-safety requirement: a discoverable, logged-in link to the
+            account/data deletion request page (also listed on the Play Store listing). */}
+        <div style={{ marginTop:"0.75rem", textAlign:"center" }}>
+          <a href="/delete-account.html" target="_blank" rel="noopener noreferrer"
+            style={{ fontSize:"0.7rem", color:th.muted, textDecoration:"underline" }}>
+            Request account &amp; data deletion
+          </a>
         </div>
       </div>
     </div>
@@ -42118,6 +42136,16 @@ function DunkinRunnerScene({ dark }) {
   return <div ref={hostRef} aria-hidden="true" style={{ width: "100%", height: "100%" }} />;
 }
 
+// Splits announcement text on bare URLs and turns them into real links —
+// announcement messages are plain text (no rich-text editor), but policy
+// announcements need a clickable link to the actual policy page.
+function linkifyText(text) {
+  const parts = String(text || "").split(/(https?:\/\/[^\s]+)/g);
+  return parts.map((part, i) => /^https?:\/\//.test(part)
+    ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>{part}</a>
+    : <React.Fragment key={i}>{part}</React.Fragment>);
+}
+
 function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
   const ann = anns[idx];
   const isLast = idx === anns.length - 1;
@@ -42151,7 +42179,7 @@ function AnnouncementGate({ anns, idx, onNext, onDone, th }) {
           {/* Message — keyed so it re-animates as you advance through multiple */}
           <div key={ann?.id} className="fade-in" style={{ padding: "1.75rem 1.9rem 1.5rem" }}>
             <div style={{ fontWeight: 800, fontSize: "1.35rem", color: th.text, marginBottom: "0.6rem", fontFamily: "'Raleway'", lineHeight: 1.25 }}>{ann?.title}</div>
-            <div style={{ fontSize: "0.92rem", color: th.text, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{ann?.message}</div>
+            <div style={{ fontSize: "0.92rem", color: th.text, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{linkifyText(ann?.message)}</div>
             <div style={{ fontSize: "0.72rem", color: th.muted, marginTop: "1.25rem", paddingTop: "0.85rem", borderTop: `1px solid ${th.cardBorder}` }}>
               Posted by {ann?.createdBy} · {dateStr}
             </div>
@@ -43848,7 +43876,7 @@ function PCGPortal() {
 
   // Announcement gate — compute queue whenever user or announcements change
   useEffect(() => {
-    if (!user || annGateDone || isFullAdmin(user) || user.userType?.startsWith('kiosk')) return;
+    if (!user || annGateDone || user.userType?.startsWith('kiosk')) return;
     // Only RECENT announcements block login. Announcements never auto-expire, so
     // without this cap the blocking gate re-prompts the entire back-catalog every
     // time someone opens the app in a storage context that lacks the old local acks
@@ -43857,6 +43885,11 @@ function PCGPortal() {
     const cutoff = Date.now() - GATE_MAX_AGE_DAYS * 86400000;
     const queue = announcements.filter(a => {
       if (!a.active) return false;
+      // Admins/execs are normally exempt from the blocking gate — they manage
+      // announcements rather than being stopped by them. `forceAll` opts a
+      // specific announcement (e.g. a policy every account must ack) out of
+      // that exemption so it blocks literally everyone, admins included.
+      if (isFullAdmin(user) && !a.forceAll) return false;
       if (!announcementTargetsUser(a.targets, user)) return false;
       if (a.createdAt && new Date(a.createdAt).getTime() < cutoff) return false;
       // Acked on this device (localStorage) OR dismissed on any device (cloud map) → skip.
@@ -43877,11 +43910,12 @@ function PCGPortal() {
   // sessionStorage so it sends at most once per announcement per session.
   const annBackfillRef = useRef(false);
   useEffect(() => {
-    if (!user || annBackfillRef.current || isFullAdmin(user) || user.userType?.startsWith('kiosk')) return;
+    if (!user || annBackfillRef.current || user.userType?.startsWith('kiosk')) return;
     if (!announcements || announcements.length === 0) return;
     annBackfillRef.current = true;
     announcements.forEach(a => {
       if (!a || !a.active) return;
+      if (isFullAdmin(user) && !a.forceAll) return;
       if (!announcementTargetsUser(a.targets, user)) return;
       let locallyAcked = false;
       try { locallyAcked = !!localStorage.getItem(`pcg_ann_ack_${user.id}_${a.id}`); } catch {}
