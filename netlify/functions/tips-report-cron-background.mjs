@@ -201,14 +201,15 @@ function buildWorkbook(busDt, storeResults) {
 
   // Employee distribution: each store's tip pool is divided by the total hours
   // worked that day (crew only, managers excluded) to get a per-hour tip rate,
-  // then each person's share = that rate × their own hours worked.
-  // Layout matches the mockup: District / Store(PC) / Total Tips are merged
-  // down the store's employee rows; Employee / Payroll ID / Hours / Share are
-  // one row per person.
+  // then each person's share = that rate × their own hours worked — hours feed
+  // the calculation but aren't shown as their own column, matching the exact
+  // 5-column layout requested (District / Store(PC) / Employee / Total Tips /
+  // Share), with District, Store(PC), and Total Tips merged down each store's
+  // employee rows. Payroll ID is intentionally omitted per that same request.
   const empAoa = [
     [`PCG Tips — Employee Distribution — ${busDt} (hours-weighted, managers excluded)`],
     [],
-    ['District', 'Store (PC)', 'Employee', 'Payroll ID', 'Hours Worked', 'Total Tips for Store', 'Per-Employee Share'],
+    ['District', 'Store Name (PC)', 'Employee', 'Total Tips for Store', 'Per-Employee Share'],
   ];
   const empMerges = [];
   for (const s of storeResults) {
@@ -217,11 +218,11 @@ function buildWorkbook(busDt, storeResults) {
     const startRow = empAoa.length;
 
     if (s.crewStatus === 'error') {
-      empAoa.push([s.district, storeLabel, '(Paycor data unavailable)', '', '', pool, '']);
+      empAoa.push([s.district, storeLabel, '(Paycor data unavailable)', pool, '']);
       continue;
     }
     if (s.crew.length === 0) {
-      empAoa.push([s.district, storeLabel, '(no crew punches found)', '', 0, pool, '']);
+      empAoa.push([s.district, storeLabel, '(no crew punches found)', pool, '']);
       continue;
     }
 
@@ -229,7 +230,7 @@ function buildWorkbook(busDt, storeResults) {
     const hourlyRate = totalHours > 0 ? pool / totalHours : 0;
     s.crew.forEach(c => {
       const share = Number((hourlyRate * c.hours).toFixed(2));
-      empAoa.push([s.district, storeLabel, c.name, c.payrollId, Number(c.hours.toFixed(2)), pool, share]);
+      empAoa.push([s.district, storeLabel, c.name, pool, share]);
     });
 
     // Merge District/Store/Total-Tips down across this store's rows (only when
@@ -237,12 +238,12 @@ function buildWorkbook(busDt, storeResults) {
     const endRow = empAoa.length - 1;
     if (endRow > startRow) {
       empMerges.push({ s: { r: startRow, c: 0 }, e: { r: endRow, c: 0 } }); // District
-      empMerges.push({ s: { r: startRow, c: 1 }, e: { r: endRow, c: 1 } }); // Store (PC)
-      empMerges.push({ s: { r: startRow, c: 5 }, e: { r: endRow, c: 5 } }); // Total Tips for Store
+      empMerges.push({ s: { r: startRow, c: 1 }, e: { r: endRow, c: 1 } }); // Store Name (PC)
+      empMerges.push({ s: { r: startRow, c: 3 }, e: { r: endRow, c: 3 } }); // Total Tips for Store
     }
   }
   const empWs = XLSX.utils.aoa_to_sheet(empAoa);
-  empWs['!cols'] = [{ wch: 9 }, { wch: 24 }, { wch: 24 }, { wch: 13 }, { wch: 13 }, { wch: 16 }, { wch: 16 }];
+  empWs['!cols'] = [{ wch: 9 }, { wch: 24 }, { wch: 24 }, { wch: 18 }, { wch: 16 }];
   empWs['!merges'] = empMerges;
 
   const detailWs = XLSX.utils.aoa_to_sheet(detailAoa);
