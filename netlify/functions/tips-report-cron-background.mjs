@@ -168,36 +168,14 @@ function toET(utc) {
   catch { return '--'; }
 }
 
-// ── Build the workbook (two sheets: per-transaction detail, per-employee distribution) ──
+// ── Build the workbook (single sheet: per-employee distribution) ──
 function buildWorkbook(busDt, storeResults) {
-  const detailAoa = [
-    [`PCG Tips Report — ${busDt}`],
-    [],
-    ['District', 'Store', 'PC', 'Time', 'Check #', 'Tip'],
-  ];
   let grandTotal = 0;
   let grandCount = 0;
-
   for (const s of storeResults) {
-    if (s.status === 'error') {
-      detailAoa.push([s.district, s.name, s.pc, '', '(data unavailable)', '']);
-      continue;
-    }
-    if (s.rows.length === 0) {
-      detailAoa.push([s.district, s.name, s.pc, '', '(no tips)', 0]);
-      continue;
-    }
-    s.rows.forEach(r => {
-      detailAoa.push([s.district, s.name, s.pc, r.time, r.chkNum, Number(r.tip.toFixed(2))]);
-    });
-    const subtotal = s.rows.reduce((sum, r) => sum + r.tip, 0);
-    detailAoa.push(['', s.name, s.pc, '', 'Subtotal', Number(subtotal.toFixed(2))]);
-    grandTotal += subtotal;
+    grandTotal += s.rows.reduce((sum, r) => sum + r.tip, 0);
     grandCount += s.rows.length;
   }
-
-  detailAoa.push([]);
-  detailAoa.push(['', '', '', '', `GRAND TOTAL (${grandCount} tipped checks)`, Number(grandTotal.toFixed(2))]);
 
   // Employee distribution: each store's tip pool is divided by the total hours
   // worked that day (crew only, managers excluded) to get a per-hour tip rate,
@@ -246,11 +224,7 @@ function buildWorkbook(busDt, storeResults) {
   empWs['!cols'] = [{ wch: 9 }, { wch: 24 }, { wch: 24 }, { wch: 18 }, { wch: 16 }];
   empWs['!merges'] = empMerges;
 
-  const detailWs = XLSX.utils.aoa_to_sheet(detailAoa);
-  detailWs['!cols'] = [{ wch: 9 }, { wch: 20 }, { wch: 9 }, { wch: 10 }, { wch: 26 }, { wch: 12 }];
-
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, detailWs, 'Tips');
   XLSX.utils.book_append_sheet(wb, empWs, 'By Employee');
   return { buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }), grandTotal, grandCount };
 }
@@ -397,7 +371,7 @@ export default async (request) => {
       <div style="padding: 24px; border: 1px solid #e5e5e5; border-top: none; border-radius: 0 0 8px 8px;">
         <p style="margin: 0 0 8px; font-size: 14px;">Total tips: <strong>$${grandTotal.toFixed(2)}</strong> across <strong>${grandCount}</strong> checks.</p>
         <p style="margin: 0 0 8px; font-size: 14px; color: #666;">${storesWithTips} of ${STORES.length} stores had tips recorded${storesWithErrors ? `; ${storesWithErrors} store(s) could not be reached` : ''}.</p>
-        <p style="margin: 16px 0 0; font-size: 13px; color: #999;">Attached (${filename}): "Tips" sheet has the per-transaction breakdown; "By Employee" sheet divides each store's tip pool by hours worked that day (managers excluded) and pays each person by their own hours, with Paycor payroll IDs for manual entry.</p>
+        <p style="margin: 16px 0 0; font-size: 13px; color: #999;">Attached (${filename}): "By Employee" sheet divides each store's tip pool by hours worked that day (Store Managers excluded) and pays each person by their own hours.</p>
       </div>
     </div>
   `;
