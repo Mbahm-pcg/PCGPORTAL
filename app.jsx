@@ -24615,7 +24615,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.38";
+const APP_VERSION = "v19.39";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -43958,6 +43958,8 @@ function PCGPortal() {
     });
     setManagerMode(u.userType === "manager" ? "embed" : "full");
     if (u.userType === "vendor") setTab("projects");
+    if (u.userType === "construction") { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); }
+    if (window.innerWidth <= 768 && (u.userType === 'dm' || u.userType === 'executive' || u.userType === 'it')) { try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {} setPreferFullPortal(false); }
     logClientEvent(u.id, u.userType, 'login', { name: u.name, role: u.userType });
     // Reload full users list from Neon now that we have an auth token
     fetch('/.netlify/functions/users?action=list', { headers: { ...authHeader() } })
@@ -43991,7 +43993,7 @@ function PCGPortal() {
     return <AnnouncementGate anns={annGateQueue} idx={annGateIdx} onNext={handleAnnNext} onDone={handleAnnDone} th={th} />;
   }
 
-  if (false && user.userType === "maintenance" && isMobile && !preferFullPortal) {
+  if (user.userType === "maintenance" && isMobile && !preferFullPortal) {
     return (
       <MaintenanceMobileView
         th={th}
@@ -44007,7 +44009,7 @@ function PCGPortal() {
     );
   }
 
-  if (false && user.userType === "construction" && isMobile && !preferFullPortal && isConstructionMobileTester(user)) {
+  if (user.userType === "construction" && isMobile && !preferFullPortal && isConstructionMobileTester(user)) {
     return (
       <ConstructionMobileView
         th={th}
@@ -44024,7 +44026,7 @@ function PCGPortal() {
     );
   }
 
-  if (false && user.userType === "manager" && (isMobile && !preferFullPortal)) {
+  if (user.userType === "manager" && (isMobile && !preferFullPortal)) {
     return (
       <ManagerEmbeddableView
         user={user}
@@ -44704,7 +44706,7 @@ function PCGPortal() {
     </>
   );
 
-  if (false && user && isMobile && !preferFullPortal && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
+  if (user && isMobile && !preferFullPortal && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
     return (
       <Guard name="mobile-shell" fallback={
         <div style={{ minHeight: '100dvh', background: th.bg, color: th.text, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
@@ -44837,6 +44839,19 @@ function PCGPortal() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            {/* Switch back to mobile shell */}
+            {isMobile && (user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it') && (
+              <button onClick={() => togglePortalMode(false)} style={{ background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap' }}>✦ Orion</button>
+            )}
+            {isMobile && user?.userType === 'manager' && (
+              <button onClick={() => togglePortalMode(false)} style={{ background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap' }}>⊞ My Store</button>
+            )}
+            {isMobile && user?.userType === 'maintenance' && (
+              <button onClick={() => togglePortalMode(false)} style={{ background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap' }}>Mobile View</button>
+            )}
+            {isMobile && user?.userType === 'construction' && isConstructionMobileTester(user) && (
+              <button onClick={() => togglePortalMode(false)} style={{ background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap' }}>Mobile View</button>
+            )}
             {false && user?.userType === "manager" && tab === "dashboard" && (
               <button
                 onClick={() => { setShowNotifs(false); setShowChatPanel(false); setManagerMode("embed"); }}
