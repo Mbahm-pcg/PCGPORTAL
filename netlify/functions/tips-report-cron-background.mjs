@@ -370,7 +370,9 @@ export default async (request) => {
             name: e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${guid.slice(0, 8)})`,
             payrollId: e?.employeeNumber || e?.alternateEmployeeNumber || '',
             hours: hoursByGuid[guid],
-            isManager: /manager/i.test(jobTitle),
+            // Only the actual Store Manager is excluded — Asst Managers, Shift
+            // Leaders, and Crew Member all stay in the tip pool.
+            isManager: /store\s*manager/i.test(jobTitle),
           };
         }).filter(c => !c.isManager && c.hours > 0);
         crewStatus = 'ok';
