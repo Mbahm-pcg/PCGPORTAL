@@ -114,8 +114,13 @@
   schedule = "30 11 * * *"
 
 # Nightly Tips report — 12am ET (04:00 UTC). Per-transaction Excel breakdown
-# (District, Store, PC, Time, Check #, Tip) emailed as an attachment.
-[functions.tips-report-cron]
+# (District, Store, PC, Time, Check #, Tip) + hours-weighted employee
+# distribution, emailed as an attachment. Scheduled as the -background variant
+# (15-min timeout) — 46 stores × Pulse + Paycor calls (punches, paginated
+# employees) routinely exceeds the 26s sync limit; a first run without this
+# suffix got cut off mid-way with no email sent. Manual test/catch-up run:
+# POST /.netlify/functions/tips-report-cron-background (optional {"busDt":"YYYY-MM-DD"}).
+[functions.tips-report-cron-background]
   schedule = "0 4 * * *"
 
 # KB article embedding — triggered manually after article approval

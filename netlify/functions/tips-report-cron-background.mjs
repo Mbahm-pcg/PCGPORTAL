@@ -124,7 +124,7 @@ function callPaycorProxy(action, payload) {
       res.on('end', () => resolve(raw));
     });
     req.on('error', reject);
-    req.setTimeout(20000, () => req.destroy(new Error('paycor proxy request timed out')));
+    req.setTimeout(45000, () => req.destroy(new Error('paycor proxy request timed out')));
     req.write(body);
     req.end();
   });
@@ -309,8 +309,14 @@ function getBlobStore() {
   return getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 }
 
-export default async () => {
-  const busDt = etDate(1);
+export default async (request) => {
+  // Manual catch-up runs can target a specific date: POST {"busDt":"YYYY-MM-DD"}.
+  // Scheduled invocations have no body, so this falls back to yesterday-ET.
+  let busDt = etDate(1);
+  try {
+    const body = await request.json();
+    if (body?.busDt) busDt = body.busDt;
+  } catch {}
   console.log(`[tips-report-cron] Building tips report for ${busDt} across ${STORES.length} stores`);
 
   const storeResults = new Array(STORES.length);
