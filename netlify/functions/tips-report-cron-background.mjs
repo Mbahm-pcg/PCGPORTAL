@@ -111,8 +111,11 @@ function callUpstream(cfg, endpoint, body) {
 }
 
 // Calls our own deployed paycor.mjs proxy (handles OAuth/token refresh) rather
-// than reimplementing that here — same site, internal HTTPS call.
-function callPaycorProxy(action, payload) {
+// than reimplementing that here — same site, internal HTTPS call. Retries once
+// on failure/5xx — Paycor's own gateway genuinely returns transient 504s (seen
+// directly: same store, same call, succeeded on one attempt and 504'd on the
+// next), same real-world flakiness labor-cron.mjs already retries around.
+function callPaycorProxyOnce(action, payload) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ action, ...payload });
     const req = https.request({
@@ -121,13 +124,26 @@ function callPaycorProxy(action, payload) {
     }, (res) => {
       let raw = '';
       res.on('data', d => raw += d);
-      res.on('end', () => resolve(raw));
+      res.on('end', () => resolve({ status: res.statusCode, raw }));
     });
     req.on('error', reject);
     req.setTimeout(45000, () => req.destroy(new Error('paycor proxy request timed out')));
     req.write(body);
     req.end();
   });
+}
+async function callPaycorProxy(action, payload) {
+  let result;
+  try {
+    result = await callPaycorProxyOnce(action, payload);
+  } catch (err) {
+    result = await callPaycorProxyOnce(action, payload); // retry once on network error
+    return result.raw;
+  }
+  if (result.status >= 500) {
+    result = await callPaycorProxyOnce(action, payload); // retry once on 5xx
+  }
+  return result.raw;
 }
 
 // Paycor paginates /employees via continuationToken (same as labor-cron.mjs's
