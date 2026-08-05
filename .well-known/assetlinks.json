@@ -3,6 +3,9 @@
       "target": {
         "namespace": "android_app",
         "package_name": "com.peoplecapitalgroup.uop.twa",
-        "sha256_cert_fingerprints": ["9D:B7:E7:F7:A1:60:56:12:4F:79:CB:CB:6E:71:34:56:AE:70:7F:95:B2:4F:C6:D3:4E:F8:B9:6E:15:63:B2:C3"]
+        "sha256_cert_fingerprints": [
+          "9D:B7:E7:F7:A1:60:56:12:4F:79:CB:CB:6E:71:34:56:AE:70:7F:95:B2:4F:C6:D3:4E:F8:B9:6E:15:63:B2:C3",
+          "27:86:8D:2B:B1:43:6F:5B:0B:94:59:28:49:D4:C7:08:49:84:54:1B:E7:12:8F:A3:14:D0:E7:D2:A5:79:2F:08"
+        ]
       }
     }]
