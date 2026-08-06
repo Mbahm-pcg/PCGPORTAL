@@ -20089,7 +20089,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.51";
+  var APP_VERSION = "v19.53";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -27904,15 +27904,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       throw new Error(`Pulse returned a non-JSON response (${r.status}): ${text.slice(0, 120)}`);
     }
   }
-  async function tipsRptFetchDayLive(dateStr, onProgress) {
+  async function tipsRptFetchDayLive(dateStr, onProgress, empCache) {
     let pulseRes = null, pulseFailed = false;
-    try {
-      pulseRes = await tipsRptFetchPulseBatch(dateStr);
-    } catch {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         pulseRes = await tipsRptFetchPulseBatch(dateStr);
+        break;
       } catch {
-        pulseFailed = true;
+        if (attempt === 2) pulseFailed = true;
       }
     }
     const tipPoolByPc = {};
@@ -27941,15 +27940,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           return j;
         };
         const punchesRaw = await fetchPaycorJSON({ action: "punches", legalEntityId: s.paycor, startDate: dateStr, endDate: dateStr });
-        let empListRaw = [], continuationToken;
-        do {
-          const body = continuationToken ? { action: "employees", legalEntityId: s.paycor, continuationToken } : { action: "employees", legalEntityId: s.paycor };
-          const res = await fetchPaycorJSON(body);
-          const page = Array.isArray(res.records) ? res.records : Array.isArray(res) ? res : [];
-          empListRaw = empListRaw.concat(page);
-          continuationToken = res.continuationToken || res.nextToken || null;
-          if (!page.length) continuationToken = null;
-        } while (continuationToken);
+        let empListRaw;
+        if (empCache && empCache.has(s.paycor)) {
+          empListRaw = empCache.get(s.paycor);
+        } else {
+          empListRaw = [];
+          let continuationToken;
+          do {
+            const body = continuationToken ? { action: "employees", legalEntityId: s.paycor, continuationToken } : { action: "employees", legalEntityId: s.paycor };
+            const res = await fetchPaycorJSON(body);
+            const page = Array.isArray(res.records) ? res.records : Array.isArray(res) ? res : [];
+            empListRaw = empListRaw.concat(page);
+            continuationToken = res.continuationToken || res.nextToken || null;
+            if (!page.length) continuationToken = null;
+          } while (continuationToken);
+          if (empCache) empCache.set(s.paycor, empListRaw);
+        }
         const punches = Array.isArray(punchesRaw.records) ? punchesRaw.records : Array.isArray(punchesRaw) ? punchesRaw : [];
         const empByGuid = {};
         empListRaw.forEach((e) => {
@@ -28360,13 +28366,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         ord.forEach((entry) => {
           if (!data[entry.name]) data[entry.name] = tipsRptPlaceholderAOA(entry.date);
         });
+        const empCache = /* @__PURE__ */ new Map();
         for (let dayIdx = 0; dayIdx < ord.length; dayIdx++) {
           const entry = ord[dayIdx];
           setRangeProgress({ dayIndex: dayIdx + 1, totalDays: ord.length, dayLabel: `${TIPS_RPT_DOW[entry.date.getUTCDay()]} ${entry.date.getUTCMonth() + 1}/${entry.date.getUTCDate()}`, storeDone: 0, storeTotal: TIPS_RPT_STORES.length, storeName: "" });
           try {
             const records = await tipsRptFetchDayLive(
               tipsRptFormatISODate(entry.date),
-              (storeDone, storeTotal, storeName) => setRangeProgress((p) => ({ ...p, storeDone, storeTotal, storeName }))
+              (storeDone, storeTotal, storeName) => setRangeProgress((p) => ({ ...p, storeDone, storeTotal, storeName })),
+              empCache
             );
             const { rows, total } = tipsRptBuildDaySheetAOA(entry.date, records);
             data[entry.name] = rows;

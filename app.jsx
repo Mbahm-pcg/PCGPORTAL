@@ -24729,7 +24729,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.51";
+const APP_VERSION = "v19.53";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -36293,11 +36293,10 @@ function tipsRptPunchHours(p) {
 // tips-report-cron-background.mjs's logic exactly (same manager-exclusion
 // regex, same hours-weighted split). Pulse goes through pulse.mjs's batch
 // mode — one request, server fans out all 46 stores in parallel. Paycor stays
-// SEQUENTIAL, one store at a time — the cron's own token-refresh race
-// (confirmed directly: concurrent calls to our Paycor proxy spin up separate
-// cold Lambda instances with no shared token cache, racing on the same
-// single-use refresh token) applies here too since it's the same server-side
-// proxy either way, regardless of who's calling it.
+// One batched call for all 46 stores — pulse.mjs fans these out concurrently
+// server-side and has no shared-token cache to race on (unlike Paycor), so
+// concurrency here is safe. The only real failure mode is Dunkin's upstream
+// POS occasionally taking longer than the ~30s function/gateway limit.
 async function tipsRptFetchPulseBatch(dateStr) {
   const r = await fetch('/.netlify/functions/pulse', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -36312,17 +36311,22 @@ async function tipsRptFetchPulseBatch(dateStr) {
   catch { throw new Error(`Pulse returned a non-JSON response (${r.status}): ${text.slice(0, 120)}`); }
 }
 
-async function tipsRptFetchDayLive(dateStr, onProgress) {
+// empCache: optional Map(paycorLegalEntityId -> employee[]), shared across
+// multiple calls (e.g. the whole-period range fetch) so a store's employee
+// roster — which barely changes day to day — is only paginated from Paycor
+// ONCE per run instead of once per store per day. Roughly halves total
+// Paycor calls on a 14-day range fetch; single-day fetches just pass nothing.
+async function tipsRptFetchDayLive(dateStr, onProgress, empCache) {
   // The 46-store batch call occasionally times out or hiccups (same real-world
   // flakiness seen elsewhere this session) — without a retry, that loses the
   // WHOLE day (every store) instead of just marking it unavailable and moving
   // on, since nothing downstream has a valid tip pool to work with anyway.
+  // Two retries (three attempts total) since a single retry can still land on
+  // back-to-back slow upstream responses.
   let pulseRes = null, pulseFailed = false;
-  try {
-    pulseRes = await tipsRptFetchPulseBatch(dateStr);
-  } catch {
-    try { pulseRes = await tipsRptFetchPulseBatch(dateStr); } // retry once
-    catch { pulseFailed = true; }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { pulseRes = await tipsRptFetchPulseBatch(dateStr); break; }
+    catch { if (attempt === 2) pulseFailed = true; }
   }
 
   const tipPoolByPc = {};
@@ -36368,15 +36372,22 @@ async function tipsRptFetchDayLive(dateStr, onProgress) {
       // (same root cause as the server-side cron's token race), which shows up
       // here as intermittent 504 gateway timeouts instead of outright 401s.
       const punchesRaw = await fetchPaycorJSON({ action: 'punches', legalEntityId: s.paycor, startDate: dateStr, endDate: dateStr });
-      let empListRaw = [], continuationToken;
-      do {
-        const body = continuationToken ? { action: 'employees', legalEntityId: s.paycor, continuationToken } : { action: 'employees', legalEntityId: s.paycor };
-        const res = await fetchPaycorJSON(body);
-        const page = Array.isArray(res.records) ? res.records : (Array.isArray(res) ? res : []);
-        empListRaw = empListRaw.concat(page);
-        continuationToken = res.continuationToken || res.nextToken || null;
-        if (!page.length) continuationToken = null;
-      } while (continuationToken);
+      let empListRaw;
+      if (empCache && empCache.has(s.paycor)) {
+        empListRaw = empCache.get(s.paycor);
+      } else {
+        empListRaw = [];
+        let continuationToken;
+        do {
+          const body = continuationToken ? { action: 'employees', legalEntityId: s.paycor, continuationToken } : { action: 'employees', legalEntityId: s.paycor };
+          const res = await fetchPaycorJSON(body);
+          const page = Array.isArray(res.records) ? res.records : (Array.isArray(res) ? res : []);
+          empListRaw = empListRaw.concat(page);
+          continuationToken = res.continuationToken || res.nextToken || null;
+          if (!page.length) continuationToken = null;
+        } while (continuationToken);
+        if (empCache) empCache.set(s.paycor, empListRaw);
+      }
       const punches = Array.isArray(punchesRaw.records) ? punchesRaw.records : (Array.isArray(punchesRaw) ? punchesRaw : []);
       const empByGuid = {};
       empListRaw.forEach(e => { if (e && e.id) empByGuid[e.id] = e; });
@@ -36772,6 +36783,7 @@ function TipsReportBuilder({ th, showAlert }) {
       const ord = tipsRptCanonicalOrder(periodStart);
       const data = sheetData ? { ...sheetData } : {};
       ord.forEach(entry => { if (!data[entry.name]) data[entry.name] = tipsRptPlaceholderAOA(entry.date); });
+      const empCache = new Map(); // shared across all 14 days — each store's roster fetched once for the whole run
 
       for (let dayIdx = 0; dayIdx < ord.length; dayIdx++) {
         const entry = ord[dayIdx];
@@ -36779,7 +36791,8 @@ function TipsReportBuilder({ th, showAlert }) {
         try {
           const records = await tipsRptFetchDayLive(
             tipsRptFormatISODate(entry.date),
-            (storeDone, storeTotal, storeName) => setRangeProgress(p => ({ ...p, storeDone, storeTotal, storeName }))
+            (storeDone, storeTotal, storeName) => setRangeProgress(p => ({ ...p, storeDone, storeTotal, storeName })),
+            empCache
           );
           const { rows, total } = tipsRptBuildDaySheetAOA(entry.date, records);
           data[entry.name] = rows;
