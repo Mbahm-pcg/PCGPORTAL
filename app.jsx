@@ -24755,7 +24755,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.48";
+const APP_VERSION = "v19.52";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32478,6 +32478,58 @@ function TaskSkeleton({ th, rows = 3 }) {
   );
 }
 
+// Custom on-screen numeric keypad for task measurement entry (temperature/weight/
+// count) — replaces the native mobile keyboard. Two reasons: iOS's decimal keypad
+// has no minus key at all (freezers read well below 0°F), and toggling a separate
+// ± button against the native keyboard felt laggy in practice. `value` is the
+// current string (e.g. "-4.5"); `onKey` receives the raw key pressed ("0"-"9",
+// ".", "±", "⌫") and is responsible for updating the underlying state — kept
+// dumb/stateless here so the caller decides where the value actually lives
+// (entryVal vs. a specific localAnswers[key]).
+// Docked panel, not a full-screen bottom sheet — the caller positions it
+// (absolutely, centered, inside its own fixed "Section 1" chrome) so it never
+// lives inside a scrolling container and never moves when the task list scrolls.
+function NumericKeypad({ value, unit, onKey, onDone, onClose, th }) {
+  const ROWS = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], [".", "0", "⌫"]];
+  // btn()'s default text color is white, meant for the orange-filled buttons — fine
+  // against dark mode's dark card2, but nearly invisible against light mode's pale
+  // card2. Override to th.text in light mode only; leave dark mode's white as-is.
+  const keyColor = th.dark ? "#fff" : th.text;
+  const keyBtn = (k, extra = {}) => (
+    <button key={k} type="button" onClick={() => onKey(k)}
+      style={{ ...btn(th, { background: th.card2, color: keyColor }), fontSize: "1.35rem", fontWeight: 700, padding: "0.9rem 0", minHeight: 54, touchAction: "manipulation", ...extra }}>
+      {k}
+    </button>
+  );
+  return (
+    <div className="fade-in" style={{ width: "100%", maxWidth: 340, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "1rem", padding: "0.85rem", boxShadow: "0 12px 34px rgba(0,0,0,0.3)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+        <div style={{ textAlign: "center", fontSize: "1.8rem", fontWeight: 800, padding: "0.1rem 0 0.75rem", color: th.text, fontFamily: "'Source Sans 3'" }}>
+          {value || "0"}{unit ? <span style={{ fontSize: "0.95rem", color: th.muted, marginLeft: 4 }}>{unit}</span> : null}
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close keypad" style={{ position: "absolute", right: 0, top: 0, background: "none", border: "none", color: th.muted, fontSize: "1rem", cursor: "pointer", padding: "0.25rem" }}>✕</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "0.45rem" }}>
+        {ROWS.flatMap((row) => row.map((k) => keyBtn(k)))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "0.45rem", marginTop: "0.45rem" }}>
+        <button type="button" onClick={() => onKey("±")} style={{ ...btn(th, { background: th.card2, color: keyColor }), fontSize: "1.15rem", fontWeight: 700, padding: "0.85rem 0", minHeight: 50, touchAction: "manipulation" }}>±</button>
+        <button type="button" onClick={onDone} style={{ ...btn(th, { background: "#FF671F", color: "#fff" }), fontSize: "1.05rem", fontWeight: 700, padding: "0.85rem 0", minHeight: 50, touchAction: "manipulation" }}>Done</button>
+      </div>
+    </div>
+  );
+}
+
+// Applies one NumericKeypad key press to a value string. Shared by both entry
+// points (single-reading + multi-item) so backspace/decimal/± behave identically.
+function applyKeypadKey(cur, k) {
+  cur = cur || "";
+  if (k === "⌫") return cur.slice(0, -1);
+  if (k === "±") return cur.startsWith("-") ? cur.slice(1) : ("-" + cur);
+  if (k === ".") return cur.includes(".") ? cur : cur + ".";
+  return cur + k; // digit
+}
+
 function OpsTasks({ stores, th, user }) {
   const isDM = user?.userType === "dm";
   // Store Tablet behaves exactly like a manager here: single-store, tasks-first view.
@@ -32499,6 +32551,11 @@ function OpsTasks({ stores, th, user }) {
   };
 
   const [view, setView] = useState(isManager ? "tasks" : "dashboard");
+  // Fixed-header / scrollable-body frame (same pattern as AdminUsers / StoreDetail):
+  // nav + controls + tabs stay put, only the task list underneath scrolls. `view` is
+  // passed as the remeasure dep since switching views can change the header's height.
+  const frameRef = React.useRef(null);
+  const frameH = useFrameHeight(frameRef, 420, 20, view);
   const [storePc, setStorePc] = useState(isManager && myStore ? String(myStore.pc) : (scopeStores[0]?.pc ? String(scopeStores[0].pc) : ""));
   const [date, setDate] = useState(todayET());
   const [seg, setSeg] = useState("open");
@@ -32509,6 +32566,12 @@ function OpsTasks({ stores, th, user }) {
   const [busyId, setBusyId] = useState(null);
   const [openEntry, setOpenEntry] = useState(null);
   const [entryVal, setEntryVal] = useState("");
+  // Custom numeric keypad (replaces the native mobile keyboard for measurement entry —
+  // iOS's decimal keypad has no minus key, and the native keyboard felt laggy toggling
+  // it via a separate ± button). null when closed; otherwise either { mode: "entry" }
+  // for the single-reading flow, or { mode: "item", tk, item, equip, key } for a
+  // specific multi-item row.
+  const [keypad, setKeypad] = useState(null);
   // Phase 2: multi-item expansion + local answer staging
   const [expandedId, setExpandedId] = useState(null);
   const [localAnswers, setLocalAnswers] = useState({});
@@ -33006,13 +33069,14 @@ function OpsTasks({ stores, th, user }) {
   );
 
   return (
-    <div style={{ maxWidth: 1600, margin: "0 auto", paddingBottom: "3rem" }}>
+    <div className="fade-in" ref={frameRef} style={{ maxWidth: 1600, margin: "0 auto", display: "flex", flexDirection: "column", height: frameH || "calc(100vh - 200px)", minHeight: 420 }}>
       <style>{`
-        .ops-layout { display: flex; gap: 1.25rem; align-items: flex-start; }
-        .ops-nav { display: flex; flex-direction: column; gap: 0.4rem; flex-shrink: 0; width: 210px; position: sticky; top: 0.5rem; }
+        .ops-layout { display: flex; gap: 1.25rem; align-items: stretch; flex: 1; min-height: 0; }
+        .ops-nav { display: flex; flex-direction: column; gap: 0.4rem; flex-shrink: 0; width: 210px; }
         .ops-nav > button { width: 100%; text-align: left; transition: background .15s, border-color .15s, transform .12s; }
         .ops-nav > button:hover { transform: translateX(2px); }
-        .ops-content { flex: 1; min-width: 0; }
+        .ops-content { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+        .ops-content-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
         .ops-kpi { transition: transform .16s ease, box-shadow .16s ease; }
         .ops-kpi:hover { transform: translateY(-2px); box-shadow: 0 10px 24px ${th.dark ? "rgba(0,0,0,.45)" : "rgba(15,23,42,.10)"}; }
         .ops-cat-card { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
@@ -33020,7 +33084,7 @@ function OpsTasks({ stores, th, user }) {
         .ops-chip { font-size: .68rem; font-weight: 700; padding: .12rem .5rem; border-radius: 999px; white-space: nowrap; line-height: 1.5; }
         @media (max-width: 760px) {
           .ops-layout { flex-direction: column; gap: 0.75rem; }
-          .ops-nav { flex-direction: row; flex-wrap: wrap; width: 100%; position: static; }
+          .ops-nav { flex-direction: row; flex-wrap: wrap; width: 100%; }
           .ops-nav > button { width: auto; text-align: center; }
         }
         @media (prefers-reduced-motion: reduce) {
@@ -33028,7 +33092,7 @@ function OpsTasks({ stores, th, user }) {
           .ops-kpi:hover, .ops-cat-card:hover, .ops-nav > button:hover { transform: none !important; }
         }
       `}</style>
-      <h2 style={{ ...pageTitle(th), margin: "0 0 0.85rem" }}>Tasks</h2>
+      <h2 style={{ ...pageTitle(th), margin: "0 0 0.85rem", flexShrink: 0 }}>Tasks</h2>
       <div className="ops-layout">
         <nav className="ops-nav">
           {!isManager && viewTab("dashboard", "Dashboard")}
@@ -33044,6 +33108,10 @@ function OpsTasks({ stores, th, user }) {
         </nav>
         <div className="ops-content">
 
+      {/* ─── Section 1 — controls, banners, tabs (fixed, non-scrolling). Also
+          where the custom keypad docks (centered, absolutely positioned) so it
+          can never end up inside Section 2's scroll container or move with it. ─── */}
+      <div style={{ flexShrink: 0, position: "relative" }}>
       {/* Controls — match the Tasks list's 880px column so the date picker doesn't
           overhang the cards; Dashboard stays full-width to match its grid. */}
       {(view === "tasks" || view === "dashboard") && (
@@ -33095,6 +33163,59 @@ function OpsTasks({ stores, th, user }) {
           </div>
         </div>
       )}
+
+      {/* Now/Missing/All tabs live in Section 1 too — moved out of the tasks-list
+          block below so they stay fixed above the scrolling list, matching the
+          controls row and location banners above. */}
+      {view === "tasks" && data && !loading && (
+        <div style={{ display: "flex", background: th.muted + "1a", borderRadius: 12, padding: 4, marginBottom: "0.9rem", gap: 4, maxWidth: 880 }}>
+          {segBtn("open", "Now", nowCount)}
+          {segBtn("missed", "Missing", data.counts.missed + data.counts.overdue)}
+          {segBtn("all", "All", data.counts.all)}
+        </div>
+      )}
+
+      {/* Docked keypad — absolutely positioned within Section 1 (this div), centered,
+          so it's always visible and never scrolls with Section 2's task list below. */}
+      {keypad && (() => {
+        const isEntry = keypad.mode === "entry";
+        const curVal = isEntry
+          ? entryVal
+          : (localAnswers[keypad.key] !== undefined ? localAnswers[keypad.key]
+              : ((keypad.tk.answers || []).find((a) => a.item_id === keypad.item.id && (keypad.equip ? a.equipment_id === keypad.equip.id : !a.equipment_id))?.value ?? ""));
+        const curValStr = curVal == null ? "" : String(curVal);
+        return (
+          // Centered within Section 1's own box (inset:0 relative to the position:relative
+          // wrapper above), not below or outside it — Section 1 never scrolls, so anchoring
+          // here is what keeps the keypad from drifting when Section 2's list scrolls.
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }}>
+            <NumericKeypad
+              th={th}
+              value={curValStr}
+              unit={isEntry ? keypad.tk.unit : keypad.item.unit}
+              onKey={(k) => {
+                const next = applyKeypadKey(curValStr, k);
+                if (isEntry) setEntryVal(next);
+                else setLocalAnswers((prev) => ({ ...prev, [keypad.key]: next }));
+              }}
+              onDone={() => {
+                if (!isEntry) {
+                  const v = curValStr;
+                  if (v !== "" && v !== "-" && busyId !== keypad.tk.id) {
+                    submitAnswer(keypad.tk, keypad.item, keypad.equip, { value: Number(v) });
+                  }
+                }
+                setKeypad(null);
+              }}
+              onClose={() => setKeypad(null)}
+            />
+          </div>
+        );
+      })()}
+      </div>{/* ── /Section 1 ── */}
+
+      {/* ─── Section 2 — task content (scrollable) ─── */}
+      <div className="ops-content-body">
 
       {loading && <TaskSkeleton th={th} rows={3} />}
 
@@ -33149,14 +33270,10 @@ function OpsTasks({ stores, th, user }) {
         </div>
       )}
 
-      {/* ── Tasks list ── (capped for readable line length; it's an interaction column) */}
+      {/* ── Tasks list ── (capped for readable line length; it's an interaction column).
+          The Now/Missing/All tabs for this view now live up in Section 1, above. */}
       {view === "tasks" && data && !loading && (
         <div style={{ maxWidth: 880 }}>
-          <div style={{ display: "flex", background: th.muted + "1a", borderRadius: 12, padding: 4, marginBottom: "0.9rem", gap: 4 }}>
-            {segBtn("open", "Now", nowCount)}
-            {segBtn("missed", "Missing", data.counts.missed + data.counts.overdue)}
-            {segBtn("all", "All", data.counts.all)}
-          </div>
           {segTasks.length === 0 && (
             <div style={{ textAlign: "center", color: th.muted, padding: "2.5rem 1rem" }}>
               <div style={{ fontSize: "1.5rem", marginBottom: "0.4rem" }}>—</div>
@@ -33265,23 +33382,13 @@ function OpsTasks({ stores, th, user }) {
                               <>
                                 <span style={{ flex: 1, fontSize: "0.85rem" }}>{item.label}</span>
                                 {item.min_val != null && <span style={{ fontSize: "0.68rem", color: th.muted, whiteSpace: "nowrap" }}>{item.min_val}–{item.max_val}{item.unit}</span>}
-                                {/* iOS's decimal keypad (inputMode="decimal") has no minus key at all — freezers
-                                    read well below 0°F, so a plain number field can't record that on a phone.
-                                    A separate ± toggle button sidesteps the keyboard limitation entirely. */}
-                                <input type="number" inputMode="decimal"
-                                  value={localVal !== undefined ? localVal : (existing?.value != null ? String(existing.value) : "")}
-                                  onChange={(e) => setLocalAnswers((prev) => ({ ...prev, [key]: e.target.value }))}
-                                  onBlur={(e) => { const v = e.target.value; if (v !== "" && !done && busyId !== tk.id) submitAnswer(tk, item, equip, { value: Number(v) }); }}
-                                  disabled={done || busyId === tk.id}
-                                  style={{ ...inp(th), width: 80, fontSize: "0.85rem", borderColor: outRange ? "#e03131" : undefined }} />
-                                <button type="button" aria-label="Toggle negative" disabled={done || busyId === tk.id}
-                                  onClick={() => {
-                                    const cur = localVal !== undefined ? localVal : (existing?.value != null ? String(existing.value) : "");
-                                    const next = cur.startsWith("-") ? cur.slice(1) : ("-" + cur);
-                                    setLocalAnswers((prev) => ({ ...prev, [key]: next }));
-                                    if (next !== "" && next !== "-" && !done && busyId !== tk.id) submitAnswer(tk, item, equip, { value: Number(next) });
-                                  }}
-                                  style={{ ...btn(th, { background: th.card2 }), width: 34, minHeight: 34, padding: 0, fontSize: "0.85rem", fontWeight: 700, flexShrink: 0, touchAction: "manipulation" }}>±</button>
+                                {/* Opens the custom NumericKeypad below instead of the native mobile keyboard —
+                                    iOS's decimal keypad has no minus key, and freezers read well below 0°F. */}
+                                <button type="button" disabled={done || busyId === tk.id}
+                                  onClick={() => setKeypad({ mode: "item", tk, item, equip, key })}
+                                  style={{ ...inp(th), width: 80, fontSize: "0.85rem", textAlign: "left", borderColor: outRange ? "#e03131" : undefined, cursor: done || busyId === tk.id ? "default" : "pointer" }}>
+                                  {(localVal !== undefined ? localVal : (existing?.value != null ? String(existing.value) : "")) || <span style={{ color: th.muted }}>—</span>}
+                                </button>
                                 {outRange && <span style={{ color: "#e03131", fontSize: "0.8rem" }}>⚠</span>}
                                 {existing?.in_range === true && <span style={{ color: "#2f9e44", fontSize: "0.8rem" }}>✓</span>}
                               </>
@@ -33359,12 +33466,11 @@ function OpsTasks({ stores, th, user }) {
                       </>
                     ) : openEntry === tk.id ? (
                       <>
-                        <input type="number" inputMode="decimal" autoFocus value={entryVal} onChange={(e) => setEntryVal(e.target.value)}
-                          placeholder={`Reading${tk.unit ? " (" + tk.unit + ")" : ""}`} style={{ ...inp(th), flex: 1, fontSize: "0.9rem", minHeight: 44 }} />
-                        {/* iOS's decimal keypad has no minus key — needed for below-0°F freezer readings. */}
-                        <button type="button" aria-label="Toggle negative"
-                          onClick={() => setEntryVal((v) => v.startsWith("-") ? v.slice(1) : ("-" + v))}
-                          style={{ ...btn(th, { background: th.card2 }), width: 40, minHeight: 44, padding: 0, fontSize: "0.9rem", fontWeight: 700, flexShrink: 0, touchAction: "manipulation" }}>±</button>
+                        {/* Opens the custom NumericKeypad below instead of the native mobile keyboard. */}
+                        <button type="button" onClick={() => setKeypad({ mode: "entry" })}
+                          style={{ ...inp(th), flex: 1, fontSize: "0.9rem", minHeight: 44, textAlign: "left", cursor: "pointer" }}>
+                          {entryVal || <span style={{ color: th.muted }}>{`Reading${tk.unit ? " (" + tk.unit + ")" : ""}`}</span>}
+                        </button>
                         <button onClick={() => completeTask(tk, entryVal === "" ? null : Number(entryVal))} disabled={busyId === tk.id}
                           style={{ ...btn(th), fontSize: "0.85rem", padding: "0.55rem 1rem", minHeight: 44, touchAction: "manipulation" }}>Save</button>
                         <button onClick={() => { setOpenEntry(null); setEntryVal(""); }} aria-label="Cancel"
@@ -33879,6 +33985,8 @@ function OpsTasks({ stores, th, user }) {
           <img src={photoLightbox} alt="Full size photo" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" }} />
         </div>
       )}
+
+      </div>{/* /.ops-content-body (Section 2) */}
         </div>{/* /.ops-content */}
       </div>{/* /.ops-layout */}
     </div>
@@ -45188,9 +45296,14 @@ function PCGPortal() {
                 <span className="hide-mobile">My Store</span>
               </button>
             )}
-            {/* Notification bell */}
+            {/* Notification bell. The dropdown's wrapper below deliberately has no
+                position:relative — it needs to anchor against the full-width topbar
+                (which already has position:relative), not this tiny button wrapper.
+                Anchoring to the wrapper put the panel's right edge at the BELL's
+                position instead of the true screen edge, so on a narrow phone a
+                360px-wide panel could start well left of x=0 and run off-screen. */}
             {(canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && (
-              <div ref={notifRef} style={{ position: "relative" }}>
+              <div ref={notifRef}>
                 <button onClick={() => { setShowNotifs(s => !s); setShowChatPanel(false); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4, display: "flex", alignItems: "center" }}>
                   {ICONS.bell(th.text)}
                   {filterNotifsByRole(notifications, user).filter(n => !n.read).length > 0 && (
@@ -45219,7 +45332,7 @@ function PCGPortal() {
                     return new Date(iso).toLocaleDateString();
                   };
                   return (
-                  <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 10, width: 360, maxHeight: 440, display: "flex", flexDirection: "column", ...card(th), padding: 0, overflow: "hidden", boxShadow: "0 12px 40px #00000050", border: `1px solid ${th.cardBorder}`, borderRadius: 14, zIndex: 999 }}>
+                  <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 10, width: "min(360px, calc(100vw - 24px))", maxHeight: 440, display: "flex", flexDirection: "column", ...card(th), padding: 0, overflow: "hidden", boxShadow: "0 12px 40px #00000050", border: `1px solid ${th.cardBorder}`, borderRadius: 14, zIndex: 999 }}>
                     {/* Header */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.875rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -45277,7 +45390,9 @@ function PCGPortal() {
               </div>
             )}
             {/* Chat quick-access icon */}
-            <div ref={chatPanelRef} style={{ position: "relative" }}>
+              {/* Same fix as notifRef above — no position:relative here, so the dropdown
+                  anchors against the full-width topbar instead of this small wrapper. */}
+            <div ref={chatPanelRef}>
               <button onClick={() => { setShowChatPanel(s => !s); setShowNotifs(false); setChatQuickReply({ channelId: null, text: "" }); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4 }}>
                 💬
                 {chatUnreadCount > 0 && (
@@ -45324,7 +45439,7 @@ function PCGPortal() {
                 };
 
                 return (
-                  <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 8, width: 360, maxHeight: 480, overflow: "hidden", display: "flex", flexDirection: "column", ...card(th), padding: 0, boxShadow: "0 8px 32px #00000040", zIndex: 999 }}>
+                  <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 8, width: "min(360px, calc(100vw - 24px))", maxHeight: 480, overflow: "hidden", display: "flex", flexDirection: "column", ...card(th), padding: 0, boxShadow: "0 8px 32px #00000040", zIndex: 999 }}>
                     {/* Header */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0 }}>
                       <span style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text }}>💬 Messages</span>
