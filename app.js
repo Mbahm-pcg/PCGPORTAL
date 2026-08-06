@@ -8061,7 +8061,7 @@
       /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: `${G}44`, strokeWidth: 1.5 })
     )));
   }
-  function ManagerPulse({ stores, th, user, txnDeepLinkRef }) {
+  function ManagerPulse({ stores, th, user, txnDeepLinkRef, initialTab }) {
     const G = "#00d084";
     const store = getManagerStore(stores, user);
     const todayStr = (() => {
@@ -8070,7 +8070,7 @@
     })();
     if (!store?.pc) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "No store is linked to your account yet. Ask an admin to assign your manager profile to a store.");
     return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement(StoreDetail, { pc: store.pc, stores, storeData: {}, busDt: todayStr, th, G, setPulseView: () => {
-    }, user, standalone: true, txnDeepLinkRef }));
+    }, user, standalone: true, txnDeepLinkRef, initialTab: initialTab || "sales" }));
   }
   var DAYPART_COLS = ["Morning", "Midday", "Afternoon", "Evening"];
   var DAYPART_HINTS = { Morning: "to 11a", Midday: "11a\u20132p", Afternoon: "2\u20135p", Evening: "5p+" };
@@ -8176,7 +8176,7 @@
       )));
     })))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, marginTop: "0.6rem" } }, "Outlined cell = each category's peak daypart. Deeper blue = more units."));
   }
-  function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null, txnDeepLinkRef = null }) {
+  function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null, txnDeepLinkRef = null, initialTab = "sales" }) {
     const s = stores.find((st) => st.pc === pc);
     const fmtUSD = (v) => "$" + Math.round(v).toLocaleString();
     const fmtNum = (v) => Math.round(v).toLocaleString();
@@ -8229,7 +8229,7 @@
     const [foodCostLoading, setFoodCostLoading] = React.useState(false);
     const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
     const [expandedReview, setExpandedReview] = React.useState(null);
-    const [storeTab, setStoreTab] = React.useState("sales");
+    const [storeTab, setStoreTab] = React.useState(initialTab);
     React.useEffect(() => {
       contentRef.current?.scrollTo(0, 0);
     }, [storeTab]);
@@ -8355,12 +8355,12 @@
             fetchEndpoint("getTenderMediaDailyTotals", { locRef: pc, busDt: date, include: "revenueCenters.tenderMedias" }),
             fetchEndpoint("getMenuItemDailyTotals", { locRef: pc, busDt: date, searchCriteria: "where greaterThan(revenueCenters.menuItems.slsCnt, 0)", include: "revenueCenters.menuItems.miNum,revenueCenters.menuItems.slsTtl,revenueCenters.menuItems.slsCnt" }),
             fetchEndpoint("getOrderTypeDailyTotals", { locRef: pc, busDt: date, include: "revenueCenters.orderTypes" }),
-            fetchEndpoint("getGuestChecks", { locRef: pc, busDt: date, include: "guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl" }),
+            fetchEndpoint("getGuestChecks", { locRef: pc, busDt: date, include: "guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl,guestChecks.tipTotal" }),
             fetchEndpoint("getOperationsDailyTotals", { locRef: pc, busDt: date, include: "locRef,busDt,revenueCenters" })
           ]);
           return { date, tender, menu, order, checks, ops };
         }));
-        const aggOps = { netSales: 0, guests: 0, forecast: 0, voids: 0, voidCnt: 0, errCor: 0, discounts: 0, tax: 0 };
+        const aggOps = { netSales: 0, guests: 0, forecast: 0, voids: 0, voidCnt: 0, errCor: 0, discounts: 0, tax: 0, tips: 0 };
         const allRcs = [];
         let anyOpsOk = false;
         for (const day of perDay) {
@@ -8379,6 +8379,9 @@
           }
         }
         aggOps.avgCheck = aggOps.guests > 0 ? aggOps.netSales / aggOps.guests : 0;
+        for (const day of perDay) {
+          for (const c of day.checks?.guestChecks || []) aggOps.tips += c.tipTotal || 0;
+        }
         if (isWeek || localDate !== busDt || standalone) {
           setOverrideLive(anyOpsOk ? { status: "ok", data: aggOps, rcs: allRcs } : { status: "error", data: null, rcs: [] });
         }
@@ -8716,6 +8719,10 @@
       { label: "Net Sales", value: fmtUSD(d.netSales), color: G },
       { label: "Checks", value: fmtNum(d.guests), color: "#74c0fc" },
       { label: "Avg Check", value: fmtAvg(d.avgCheck), color: "#ffd43b" },
+      // Only present when d came from this component's own aggOps (standalone /
+      // week mode / date override) — the parent-supplied storeData path (default
+      // AdminPulse day view) doesn't fetch tipTotal, so d.tips is undefined there.
+      ...d.tips != null ? [{ label: "Tips", value: fmtUSD(d.tips), color: "#63e6be" }] : [],
       { label: "Discounts", value: fmtUSD(d.discounts), color: "#f06595" },
       { label: "Void Rate", value: voidPct.toFixed(2) + "%", color: voidPct > 1 ? "#ff6b6b" : "#69db7c" },
       { label: "Tax", value: fmtUSD(d.tax), color: "#20c997" },
@@ -19186,7 +19193,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
       { id: "pulse", label: "My Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
-      { id: "labor", label: "My Labor", icon: (c) => ICONS.dollar(c) },
       { id: "pnl", label: "My P&L", icon: (c) => ICONS.dollar(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
@@ -19612,28 +19618,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setRefreshing(true);
       try {
-        if (withLaborRefresh) {
-          try {
-            const res = await fetch("/.netlify/functions/labor-cron", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ storePC: pc })
-            });
-            const json = res.ok ? await res.json().catch(() => {
-            }) : null;
-            if (json?.ok && !json?.skipped) {
-              const freshStore = await cloudLoad(`pcg_labor_store_${pc}`).catch(() => null);
-              if (freshStore?.daily?.[0]) {
-                const d = freshStore.daily[0];
-                const w = freshStore.weekly?.[0];
-                setLabor({ today: { laborDollars: d.laborDollars, sales: d.sales, laborPct: d.laborPct }, wtd: w ? { laborDollars: w.laborDollars, sales: w.sales, laborPct: w.laborPct } : null });
-                setStoreBlob(freshStore);
-                const empList2 = d.employees || [];
-                if (empList2.length > 0) setWorkers(empList2.filter((e) => e.hoursToday > 0).map((e) => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
-              }
-            }
-          } catch {
+        let liveLabor = null;
+        try {
+          const res = await fetch("/.netlify/functions/labor-refresh", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ storePC: pc })
+          });
+          const json = res.ok ? await res.json().catch(() => null) : null;
+          if (json?.ok && !json?.skipped) {
+            liveLabor = { today: { laborDollars: json.laborDollars, sales: json.sales, laborPct: json.laborPct, currentlyClockedIn: json.currentlyClockedIn || 0 } };
+            setLabor(liveLabor);
           }
+        } catch {
         }
         const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
           method: "POST",
@@ -19642,12 +19639,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }).then((r) => r.ok ? r.json() : null).catch(() => null);
         const [opsRes, laborBlob, checkRes, storeBlobData] = await Promise.all([
           fetchOpsTotals(pc, todayStr).catch(() => null),
-          cloudLoad("pcg_labor_v1").catch(() => null),
+          liveLabor ? Promise.resolve(null) : cloudLoad("pcg_labor_v1").catch(() => null),
           pulsePost("getGuestChecks", { include: "guestChecks" }),
           cloudLoad(`pcg_labor_store_${pc}`).catch(() => null)
         ]);
         if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
-        if (laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
+        if (!liveLabor && laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
+        if (storeBlobData?.daily?.[0]?.employees?.length) {
+          setWorkers(storeBlobData.daily[0].employees.filter((e) => e.hoursToday > 0).map((e) => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
+        }
         if (checkRes?.guestChecks) {
           const h = Array.from({ length: 24 }, (_, i) => ({ hour: i, sales: 0 }));
           for (const ck of checkRes.guestChecks) {
@@ -20089,7 +20089,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.43";
+  var APP_VERSION = "v19.45";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -24272,6 +24272,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [hourlySales, setHourlySales] = useState({});
     const [scheduleShifts, setScheduleShifts] = useState([]);
     const [livePunches, setLivePunches] = useState({});
+    const [liveSummary, setLiveSummary] = useState(null);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(false);
     const [empExpanded, setEmpExpanded] = useState(false);
@@ -24384,6 +24385,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             });
           }
           setLivePunches(punchMap);
+        }
+        try {
+          const res = await fetch("/.netlify/functions/labor-refresh", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ storePC: store.pc })
+          });
+          const json = res.ok ? await res.json().catch(() => null) : null;
+          if (json?.ok && !json?.skipped) {
+            setLiveSummary({ laborDollars: json.laborDollars, laborPct: json.laborPct, sales: json.sales, currentlyClockedIn: json.currentlyClockedIn || 0 });
+          }
+        } catch {
         }
         const hasEmpData = empList.length > 0;
         if (!hasEmpData && !histData) setFetchError(true);
@@ -24593,9 +24606,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const totalSalesToday = Object.values(hourlySales).reduce((s, v) => s + v, 0);
     const laborPctToday = totalSalesToday > 0 ? totalLaborToday / totalSalesToday * 100 : 0;
     const cachedToday = store.today || {};
-    const dispLaborDollars = totalLaborToday > 0 ? totalLaborToday : cachedToday.laborDollars || 0;
-    const dispSales = totalSalesToday > 0 ? totalSalesToday : cachedToday.sales || 0;
-    const dispLaborPct = dispSales > 0 ? dispLaborDollars / dispSales * 100 : cachedToday.laborPct || 0;
+    const dispLaborDollars = liveSummary ? liveSummary.laborDollars : totalLaborToday > 0 ? totalLaborToday : cachedToday.laborDollars || 0;
+    const dispSales = liveSummary ? liveSummary.sales : totalSalesToday > 0 ? totalSalesToday : cachedToday.sales || 0;
+    const dispLaborPct = liveSummary ? liveSummary.laborPct : dispSales > 0 ? dispLaborDollars / dispSales * 100 : cachedToday.laborPct || 0;
     const maxBarVal = Math.max(...hourlyLabor.map((h) => Math.max(h.labor, h.sales)), 1);
     function HourlyBar({ h }) {
       const laborH = h.labor / maxBarVal * 100;
@@ -24631,7 +24644,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { label: "Labor $", value: fmtDollars(dispLaborDollars), color: laborColor(dispLaborPct) },
       { label: "Labor %", value: fmtPct(dispLaborPct), color: laborColor(dispLaborPct) },
       { label: "Sales $", value: fmtDollars(dispSales), color: "#FF671F" },
-      { label: "Clocked In", value: String(onClockCount || 0), color: "#4caf50" }
+      { label: "Clocked In", value: String((liveSummary ? liveSummary.currentlyClockedIn : onClockCount) || 0), color: "#4caf50" }
     ].map((k, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "1rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, textTransform: "uppercase", fontWeight: 600, letterSpacing: 0.5 } }, k.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 700, color: k.color, marginTop: "0.25rem", fontFamily: "'Source Sans 3'" } }, k.value)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}`, marginBottom: "1.25rem", width: "fit-content" } }, tabBtn("hourly", "Hourly"), tabBtn("daily", "Daily"), tabBtn("weekly", "Weekly"), tabBtn("optimizer", "\u26A1 Optimizer")), activeTab === "hourly" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" } }, "Labor vs Sales by Hour", /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.75rem", fontSize: "0.7rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 10, height: 10, background: "#4caf50", marginRight: 3, borderRadius: 2 } }), "Labor", /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 10, height: 10, background: "#FF671F55", marginLeft: 8, marginRight: 3, borderRadius: 2 } }), "Sales")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 2, paddingBottom: "0.25rem", overflowX: "auto" } }, hourlyLabor.map((h) => /* @__PURE__ */ React.createElement(HourlyBar, { key: h.hr, h }))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Hour", "Labor $", "Sales $", "Labor %", "Working"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thS }, h)))), /* @__PURE__ */ React.createElement("tbody", null, hourlyLabor.filter((h) => h.labor > 0 || h.sales > 0).map((h) => {
       const pct = h.sales > 0 ? h.labor / h.sales * 100 : 0;
       const onClock = h.empsInHour || 0;
@@ -32325,6 +32338,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setUser(null);
     };
     const [tab, setTab] = useState("dashboard");
+    const [pulseInitialTab, setPulseInitialTab] = useState("sales");
     useEffect(() => {
       window.scrollTo(0, 0);
     }, [tab]);
@@ -32618,7 +32632,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       it: ["pulse", "finance", "projects"],
       office_staff: ["pulse", "reports", "projects"],
       dm: ["pulse", "reports"],
-      manager: ["labor", "reports"]
+      manager: ["pulse", "reports"]
     };
     const pinnedNavIds = (pinnedTabIds ?? (PINNED_DEFAULTS[user?.userType] || [])).filter((id) => TABS.some((t) => t.id === id));
     const togglePinNav = (id) => {
@@ -34051,12 +34065,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             setTab("tasks");
           },
           onPulse: () => {
+            setPulseInitialTab("sales");
             togglePortalMode(true);
             setTab("pulse");
           },
           onLabor: () => {
+            setPulseInitialTab("labor");
             togglePortalMode(true);
-            setTab("labor");
+            setTab("pulse");
           },
           onLogout: handleLogout
         }
@@ -35140,7 +35156,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" || tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
+    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
       const OPS = "#2F6FA8";
       const opsTiles = [
         { id: "tasks", name: "Tasks", sub: "Checklists, GPS-verified completions, DM escalation.", show: isFullAdmin(user) || isOfficeStaff || isDM || isManager, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "m9 11 3 3L22 4" }), /* @__PURE__ */ React.createElement("path", { d: "M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" })) },

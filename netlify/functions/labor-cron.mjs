@@ -11,7 +11,7 @@ import { computeStorePnL, DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.mjs';
 export const config = { schedule: "0 9-23,0-3 * * *" };
 
 // ── Store configs (pc = Dunkin store number, paycor = Paycor legal entity ID) ──
-const STORES = [
+export const STORES = [
   { pc:"339616", paycor:"193919", name:"Wadsworth",       district:1 },
   { pc:"340794", paycor:"193904", name:"Front",           district:1 },
   { pc:"351099", paycor:"193900", name:"Sonic",           district:2 },
@@ -301,7 +301,7 @@ async function fetchAllPages(basePath) {
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
-function todayET() {
+export function todayET() {
   const now = new Date();
   const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   return `${et.getFullYear()}-${String(et.getMonth()+1).padStart(2,'0')}-${String(et.getDate()).padStart(2,'0')}`;
@@ -334,7 +334,7 @@ function weekDatesThrough(todayStr) {
 
 // ── POS helpers ───────────────────────────────────────────────────────────────
 
-async function fetchLatestBusDt(pc) {
+export async function fetchLatestBusDt(pc) {
   try {
     const cfg = APIS[apiRoute(pc)];
     // 'getLatestBusDt' is not a real Pulse endpoint — it HARD-500s. The correct endpoint
@@ -428,7 +428,7 @@ async function fetchSchedulingShifts(legalEntityId, startDate, endDate) {
  * Fetch employeePunches for a single employee on a given date.
  * Returns the actual clock-in time if currently on clock (odd punch count), or null.
  */
-async function fetchLiveClockIn(employeeId, busDt) {
+export async function fetchLiveClockIn(employeeId, busDt) {
   try {
     const res = await callPaycor(`/employees/${employeeId}/employeePunches?startDate=${busDt}&endDate=${busDt}`);
     if (res.status !== 200) return null;
@@ -527,7 +527,7 @@ function overtimeStatus(weeklyHours) {
 
 // ── Process a single store ────────────────────────────────────────────────────
 
-async function processStore(store, busDt, { skipSchedules = false, pnlConfig = null } = {}) {
+export async function processStore(store, busDt, { skipSchedules = false, pnlConfig = null } = {}) {
   const { pc, paycor: legalEntityId, name, district } = store;
   const weekDates = weekDatesThrough(busDt);
   const weekOfStr  = weekStart(busDt);
@@ -875,7 +875,7 @@ async function processAllStores(busDt, batchSize = 8, opts = {}) {
 
 // ── Blob helpers ──────────────────────────────────────────────────────────────
 
-function getLaborStore() {
+export function getLaborStore() {
   return getStore({
     name: 'pcg-portal',
     consistency: 'strong',
@@ -888,7 +888,7 @@ function getLaborStore() {
  * Merge today's daily entry into the per-store blob.
  * Keeps the last 30 daily records and last 13 weekly records.
  */
-function mergeStoreBlob(existing, todayEntry, weeklyEntry) {
+export function mergeStoreBlob(existing, todayEntry, weeklyEntry) {
   const MAX_DAILY  = 30;
   const MAX_WEEKLY = 13;
 
@@ -1004,54 +1004,11 @@ export default async (request, context) => {
     return new Response(JSON.stringify({ ok: true, store: body.storePC, results }), { status: 200, headers });
   }
 
-  // ── Scoped single-store refresh (for manager/DM mobile Refresh button) ──────
-  // When POST body contains { storePC: "332941" }, only process that one store.
-  // Fast enough for the 26-second HTTP timeout. Updates per-store blob + network entry.
-  let scopedPC = null;
-  if (isManual && body) {
-    scopedPC = body.storePC || null;
-  }
-
-  if (scopedPC) {
-    const storeConfig = STORES.find(s => String(s.pc) === String(scopedPC));
-    if (!storeConfig) return new Response(JSON.stringify({ error: `Store ${scopedPC} not found` }), { status: 404, headers });
-
-    console.log('[labor-cron] scoped refresh for store', scopedPC, storeConfig.name);
-    try {
-      const busDt = await fetchLatestBusDt(scopedPC).catch(() => todayET());
-      const result = await processStore(storeConfig, busDt, { skipSchedules: false });
-      if (result.error) return new Response(JSON.stringify({ error: result.error }), { status: 500, headers });
-
-      // Safety guard: never overwrite good existing data with zeros.
-      // If Paycor returned no punches (e.g. slow API), keep the old blob intact.
-      const hasNewData = result.today.sales > 0 || result.today.laborDollars > 0;
-      if (!hasNewData) {
-        console.warn('[labor-cron] scoped refresh returned zero data for', scopedPC, '— keeping existing blob');
-        return new Response(JSON.stringify({ ok: true, store: scopedPC, busDt, skipped: true, reason: 'zero data from Paycor' }), { status: 200, headers });
-      }
-
-      const blobStore = getLaborStore();
-      const weekOfStr = weekStart(busDt);
-      const key = `pcg_labor_store_${scopedPC}`;
-      let existing = null;
-      try { const raw = await blobStore.get(key, { type: 'json' }); existing = raw?.data || raw; } catch {}
-
-      const dailyEntry = { date: busDt, laborDollars: result.today.laborDollars, sales: result.today.sales, laborPct: result.today.laborPct, hoursWorked: result.today.hoursWorked, employees: result.employeeDetails };
-      const weeklyEntry = { weekOf: weekOfStr, laborDollars: result.wtd.laborDollars, sales: result.wtd.sales, laborPct: result.wtd.laborPct, avgDailyEmployees: result.today.employees };
-      const merged = mergeStoreBlob(existing, dailyEntry, weeklyEntry);
-      await blobStore.setJSON(key, { savedAt: new Date().toISOString(), data: merged });
-
-      // NOTE: Do NOT patch pcg_labor_v1 here — that blob is owned by the full cron.
-      // Patching it from a scoped refresh can overwrite valid network totals with partial data.
-      // The full cron (every 4h) will pick up this store's fresh data on its next run.
-
-      console.log('[labor-cron] scoped refresh complete for', scopedPC, '— labor', result.today.laborPct?.toFixed(1), '% sales $', Math.round(result.today.sales));
-      return new Response(JSON.stringify({ ok: true, store: scopedPC, busDt, laborPct: result.today.laborPct, laborDollars: result.today.laborDollars, sales: result.today.sales }), { status: 200, headers });
-    } catch (e) {
-      console.error('[labor-cron] scoped refresh error:', e.message);
-      return new Response(JSON.stringify({ error: e.message }), { status: 500, headers });
-    }
-  }
+  // NOTE: the old scoped single-store refresh branch (POST { storePC }) lived
+  // here. It's been moved to labor-refresh.mjs — this function has
+  // `config.schedule` above, and Netlify's edge blocks ALL direct external
+  // POSTs to any scheduled function, so that branch was silently unreachable
+  // from the client the whole time. See labor-refresh.mjs for the live version.
 
   // ── Cron trigger → hand off to the 15-min background function ──────────────
   // The full 45-store aggregation (Paycor employees/punches/shifts per store) takes

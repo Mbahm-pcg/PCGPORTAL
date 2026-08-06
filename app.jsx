@@ -7994,7 +7994,7 @@ function TrendChart({ data, G, th, onBarClick }) {
 // ─── Manager Pulse — single-store Pulse, hard-locked to the manager's own store ─
 // Renders only StoreDetail for the manager's assigned PC (no store grid, no
 // district/network navigation), so a manager can never view another store's sales.
-function ManagerPulse({ stores, th, user, txnDeepLinkRef }) {
+function ManagerPulse({ stores, th, user, txnDeepLinkRef, initialTab }) {
   const G = '#00d084';
   const store = getManagerStore(stores, user);
   const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
@@ -8005,7 +8005,7 @@ function ManagerPulse({ stores, th, user, txnDeepLinkRef }) {
   );
   return (
     <div className="fade-in">
-      <StoreDetail pc={store.pc} stores={stores} storeData={{}} busDt={todayStr} th={th} G={G} setPulseView={() => {}} user={user} standalone txnDeepLinkRef={txnDeepLinkRef} />
+      <StoreDetail pc={store.pc} stores={stores} storeData={{}} busDt={todayStr} th={th} G={G} setPulseView={() => {}} user={user} standalone txnDeepLinkRef={txnDeepLinkRef} initialTab={initialTab || 'sales'} />
     </div>
   );
 }
@@ -8142,7 +8142,7 @@ function DaypartMatrix({ pc, th }) {
   );
 }
 
-function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null, txnDeepLinkRef = null }) {
+function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null, txnDeepLinkRef = null, initialTab = 'sales' }) {
   const s = stores.find(st => st.pc === pc);
 
   const fmtUSD = v => '$' + Math.round(v).toLocaleString();
@@ -8208,7 +8208,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const [foodCostLoading, setFoodCostLoading] = React.useState(false);
   const [expandedFoodCat, setExpandedFoodCat] = React.useState(null);
   const [expandedReview, setExpandedReview] = React.useState(null);
-  const [storeTab, setStoreTab] = React.useState('sales');
+  const [storeTab, setStoreTab] = React.useState(initialTab);
   // Each store tab renders into the same persistent scroll column — reset its scroll
   // when switching tabs so Forecast doesn't open at Transactions' old offset.
   React.useEffect(() => { contentRef.current?.scrollTo(0, 0); }, [storeTab]);
@@ -8335,14 +8335,14 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
           fetchEndpoint('getTenderMediaDailyTotals', { locRef: pc, busDt: date, include: 'revenueCenters.tenderMedias' }),
           fetchEndpoint('getMenuItemDailyTotals', { locRef: pc, busDt: date, searchCriteria: 'where greaterThan(revenueCenters.menuItems.slsCnt, 0)', include: 'revenueCenters.menuItems.miNum,revenueCenters.menuItems.slsTtl,revenueCenters.menuItems.slsCnt' }),
           fetchEndpoint('getOrderTypeDailyTotals', { locRef: pc, busDt: date, include: 'revenueCenters.orderTypes' }),
-          fetchEndpoint('getGuestChecks', { locRef: pc, busDt: date, include: 'guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl' }),
+          fetchEndpoint('getGuestChecks', { locRef: pc, busDt: date, include: 'guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl,guestChecks.tipTotal' }),
           fetchEndpoint('getOperationsDailyTotals', { locRef: pc, busDt: date, include: 'locRef,busDt,revenueCenters' }),
         ]);
         return { date, tender, menu, order, checks, ops };
       }));
 
       // ─── Aggregate Operations Totals ───
-      const aggOps = { netSales:0, guests:0, forecast:0, voids:0, voidCnt:0, errCor:0, discounts:0, tax:0 };
+      const aggOps = { netSales:0, guests:0, forecast:0, voids:0, voidCnt:0, errCor:0, discounts:0, tax:0, tips:0 };
       const allRcs = [];
       let anyOpsOk = false;
       for (const day of perDay) {
@@ -8356,6 +8356,14 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         }
       }
       aggOps.avgCheck = aggOps.guests > 0 ? aggOps.netSales / aggOps.guests : 0;
+      // Tips (tipTotal) live on each check, not on revenueCenters — getOperationsDailyTotals
+      // never reports them, so they can only be summed off the checks we're already
+      // fetching for the hourly chart below. Same field the nightly tips-report email
+      // totals per store. Summed here (before setOverrideLive) so aggOps.tips is
+      // populated before that object is handed to state.
+      for (const day of perDay) {
+        for (const c of (day.checks?.guestChecks || [])) aggOps.tips += c.tipTotal || 0;
+      }
       // In week mode, ALWAYS override. In day mode, only override if localDate !== busDt.
       // Standalone (manager Pulse) has no parent storeData, so always self-populate.
       if (isWeek || localDate !== busDt || standalone) {
@@ -8764,6 +8772,10 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
             { label:'Net Sales', value: fmtUSD(d.netSales), color: G },
             { label:'Checks',    value: fmtNum(d.guests),   color: '#74c0fc' },
             { label:'Avg Check', value: fmtAvg(d.avgCheck), color: '#ffd43b' },
+            // Only present when d came from this component's own aggOps (standalone /
+            // week mode / date override) — the parent-supplied storeData path (default
+            // AdminPulse day view) doesn't fetch tipTotal, so d.tips is undefined there.
+            ...(d.tips != null ? [{ label:'Tips', value: fmtUSD(d.tips), color: '#63e6be' }] : []),
             { label:'Discounts', value: fmtUSD(d.discounts), color: '#f06595' },
             { label:'Void Rate', value: voidPct.toFixed(2)+'%', color: voidPct > 1 ? '#ff6b6b' : '#69db7c' },
             { label:'Tax',       value: fmtUSD(d.tax),       color: '#20c997' },
@@ -23450,7 +23462,6 @@ const computeRoleTabs = (user) => {
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
-    { id: "labor",     label: "My Labor",     icon: (c) => ICONS.dollar(c) },
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
@@ -24064,29 +24075,27 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     if (!pc) { setLoading(false); return; }
     setRefreshing(true);
     try {
-      // Trigger scoped Paycor labor refresh for this store when manually refreshing.
-      // Wait for it, then reload pcg_labor_store_{pc} and update labor state directly.
-      if (withLaborRefresh) {
-        try {
-          const res = await fetch('/.netlify/functions/labor-cron', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ storePC: pc }),
-          });
-          const json = res.ok ? await res.json().catch(()=>{}) : null;
-          if (json?.ok && !json?.skipped) {
-            // Load fresh per-store blob and update labor + workers state
-            const freshStore = await cloudLoad(`pcg_labor_store_${pc}`).catch(() => null);
-            if (freshStore?.daily?.[0]) {
-              const d = freshStore.daily[0];
-              const w = freshStore.weekly?.[0];
-              setLabor({ today: { laborDollars: d.laborDollars, sales: d.sales, laborPct: d.laborPct }, wtd: w ? { laborDollars: w.laborDollars, sales: w.sales, laborPct: w.laborPct } : null });
-              setStoreBlob(freshStore);
-              const empList = d.employees || [];
-              if (empList.length > 0) setWorkers(empList.filter(e => e.hoursToday > 0).map(e => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
-            }
-          }
-        } catch {}
-      }
+      // Live labor refresh for this store — real per-employee pay rates + a true
+      // "currently punched in" count, computed fresh right now via labor-refresh
+      // (a scoped, unscheduled function — labor-cron itself can't be called
+      // directly from the client since it's schedule-configured and Netlify's
+      // edge blocks all external POSTs to scheduled functions). This is the
+      // exact same source Pulse's Labor sub-tab uses (LaborDrillDown), so this
+      // tile and that tab can't disagree the way the old hourly-cached
+      // pcg_labor_v1 blob used to. Runs every load, not just on manual refresh —
+      // single-store scoped calls are cheap.
+      let liveLabor = null;
+      try {
+        const res = await fetch('/.netlify/functions/labor-refresh', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storePC: pc }),
+        });
+        const json = res.ok ? await res.json().catch(() => null) : null;
+        if (json?.ok && !json?.skipped) {
+          liveLabor = { today: { laborDollars: json.laborDollars, sales: json.sales, laborPct: json.laborPct, currentlyClockedIn: json.currentlyClockedIn || 0 } };
+          setLabor(liveLabor);
+        }
+      } catch {}
       const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra }),
@@ -24102,13 +24111,21 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       // worth even a background request.)
       const [opsRes, laborBlob, checkRes, storeBlobData] = await Promise.all([
         fetchOpsTotals(pc, todayStr).catch(() => null),
-        cloudLoad('pcg_labor_v1').catch(() => null),
+        liveLabor ? Promise.resolve(null) : cloudLoad('pcg_labor_v1').catch(() => null),
         pulsePost('getGuestChecks', { include: 'guestChecks' }),
         cloudLoad(`pcg_labor_store_${pc}`).catch(() => null),
       ]);
 
       if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
-      if (laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
+      // Only fall back to the hourly-cached network blob if the live scoped
+      // refresh above didn't succeed (e.g. Paycor timeout) — liveLabor already
+      // set the authoritative numbers.
+      if (!liveLabor && laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
+      // storeBlobData was just re-fetched after the scoped refresh wrote it, so
+      // it already reflects today's fresh per-employee hours when liveLabor loaded.
+      if (storeBlobData?.daily?.[0]?.employees?.length) {
+        setWorkers(storeBlobData.daily[0].employees.filter(e => e.hoursToday > 0).map(e => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
+      }
 
       if (checkRes?.guestChecks) {
         const h = Array.from({ length: 24 }, (_, i) => ({ hour: i, sales: 0 }));
@@ -24729,7 +24746,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.43";
+const APP_VERSION = "v19.45";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -30873,6 +30890,13 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
   const [hourlySales, setHourlySales] = useState({});
   const [scheduleShifts, setScheduleShifts] = useState([]);
   const [livePunches, setLivePunches] = useState({}); // employeeId -> [{punchDateTime, punchStatusType}]
+  // Authoritative headline KPIs (Labor $/%, Sales $, Clocked In) — a scoped live
+  // labor-cron run for just this store, using real per-employee pay rates and a
+  // true "currently punched in" count. Same source ManagerEmbeddableView's Home
+  // dashboard tile uses, so the two screens can't disagree. null until it loads
+  // (or if the request fails) — the client-side hourly-chart-derived estimate
+  // below is kept as the fallback in that case.
+  const [liveSummary, setLiveSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [empExpanded, setEmpExpanded] = useState(false);
@@ -30993,6 +31017,23 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
         }
         setLivePunches(punchMap);
       }
+
+      // Scoped live labor-refresh run — real per-employee pay rates + true
+      // "currently punched in" count, computed fresh right now for just this
+      // store (labor-cron itself can't be called directly from the client —
+      // see labor-refresh.mjs for why). This is the number
+      // ManagerEmbeddableView's Home dashboard tile also reads, so the
+      // headline KPIs above agree everywhere.
+      try {
+        const res = await fetch('/.netlify/functions/labor-refresh', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storePC: store.pc }),
+        });
+        const json = res.ok ? await res.json().catch(() => null) : null;
+        if (json?.ok && !json?.skipped) {
+          setLiveSummary({ laborDollars: json.laborDollars, laborPct: json.laborPct, sales: json.sales, currentlyClockedIn: json.currentlyClockedIn || 0 });
+        }
+      } catch {}
 
       const hasEmpData = empList.length > 0;
       if (!hasEmpData && !histData) setFetchError(true);
@@ -31274,11 +31315,15 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
   const totalSalesToday = Object.values(hourlySales).reduce((s, v) => s + v, 0);
   const laborPctToday = totalSalesToday > 0 ? (totalLaborToday / totalSalesToday) * 100 : 0;
 
-  // Fallback to cached blob data if live data not yet loaded
+  // Headline KPIs: prefer the scoped live labor-cron summary (real per-employee
+  // rates, true currently-punched-in count — see liveSummary above) over the
+  // hourly-chart-derived estimate, which only exists as a fallback and to drive
+  // the Hourly tab's bars/table below. Cached blob data is the last resort if
+  // neither live source has loaded yet.
   const cachedToday = store.today || {};
-  const dispLaborDollars = totalLaborToday > 0 ? totalLaborToday : (cachedToday.laborDollars || 0);
-  const dispSales        = totalSalesToday > 0  ? totalSalesToday  : (cachedToday.sales || 0);
-  const dispLaborPct     = dispSales > 0 ? (dispLaborDollars / dispSales) * 100 : (cachedToday.laborPct || 0);
+  const dispLaborDollars = liveSummary ? liveSummary.laborDollars : (totalLaborToday > 0 ? totalLaborToday : (cachedToday.laborDollars || 0));
+  const dispSales        = liveSummary ? liveSummary.sales        : (totalSalesToday > 0  ? totalSalesToday  : (cachedToday.sales || 0));
+  const dispLaborPct     = liveSummary ? liveSummary.laborPct     : (dispSales > 0 ? (dispLaborDollars / dispSales) * 100 : (cachedToday.laborPct || 0));
 
   // ── Hourly tab chart ──────────────────────────────────────────────────────
   const maxBarVal = Math.max(...hourlyLabor.map(h => Math.max(h.labor, h.sales)), 1);
@@ -31351,7 +31396,7 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
           { label: 'Labor $',   value: fmtDollars(dispLaborDollars), color: laborColor(dispLaborPct) },
           { label: 'Labor %',   value: fmtPct(dispLaborPct),         color: laborColor(dispLaborPct) },
           { label: 'Sales $',   value: fmtDollars(dispSales),        color: '#FF671F' },
-          { label: 'Clocked In',  value: String(onClockCount || 0), color: '#4caf50' },
+          { label: 'Clocked In',  value: String((liveSummary ? liveSummary.currentlyClockedIn : onClockCount) || 0), color: '#4caf50' },
         ].map((k, i) => (
           <div key={i} style={{ ...card(th), padding: '1rem', textAlign: 'center' }}>
             <div style={{ fontSize: '0.6875rem', color: th.muted, textTransform: 'uppercase', fontWeight: 600, letterSpacing: 0.5 }}>{k.label}</div>
@@ -42543,6 +42588,10 @@ function PCGPortal() {
     setUser(null);
   };
   const [tab, setTab]           = useState("dashboard");
+  // Which sub-tab ManagerPulse's StoreDetail should open on — lets the mobile
+  // dashboard's Labor tile deep-link straight to the Labor sub-tab instead of
+  // always landing on Sales.
+  const [pulseInitialTab, setPulseInitialTab] = useState('sales');
   // Tab content remounts on switch (Guard key={tab}), so the old scroll offset is never
   // meaningful — open every tab at the top instead of wherever the last one was scrolled.
   useEffect(() => { window.scrollTo(0, 0); }, [tab]);
@@ -42779,7 +42828,7 @@ function PCGPortal() {
     it:        ['pulse', 'finance', 'projects'],
     office_staff: ['pulse', 'reports', 'projects'],
     dm:        ['pulse', 'reports'],
-    manager:   ['labor', 'reports'],
+    manager:   ['pulse', 'reports'],
   };
   const pinnedNavIds = (pinnedTabIds ?? (PINNED_DEFAULTS[user?.userType] || []))
     .filter(id => TABS.some(t => t.id === id));
@@ -44274,8 +44323,8 @@ function PCGPortal() {
         onFullPortal={() => togglePortalMode(true)}
         onTickets={() => { togglePortalMode(true); setTab("tickets"); }}
         onTasks={() => { togglePortalMode(true); setTab("tasks"); }}
-        onPulse={() => { togglePortalMode(true); setTab("pulse"); }}
-        onLabor={() => { togglePortalMode(true); setTab("labor"); }}
+        onPulse={() => { setPulseInitialTab('sales'); togglePortalMode(true); setTab("pulse"); }}
+        onLabor={() => { setPulseInitialTab('labor'); togglePortalMode(true); setTab("pulse"); }}
         onLogout={handleLogout}
       />
     );
@@ -45427,8 +45476,8 @@ function PCGPortal() {
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
-          {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} />}
-          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
+          {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}
+          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
           {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
           {tab === "ops-hub" && (() => {
             const OPS = '#2F6FA8';
