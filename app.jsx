@@ -3450,33 +3450,42 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
     // Store tablets never own an email — it's always resolved live from the assigned store's
     // manager (see resolveUserEmail), so never persist a copy here that could go stale.
     const securedForm = { ...form, initials: ini, twoFactorRequired: isTwoFactorRequired(form), email: form.userType === "store_tablet" ? "" : form.email };
-    if (editId) {
-      const old = users.find(u => u.id === editId) || {};
-      const res = await fetch('/.netlify/functions/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify({ action: 'update', id: editId, patch: securedForm }),
-      });
-      const json = await res.json();
-      if (!res.ok) { showAlert('error', json.error || 'Save failed'); return; }
-      setUsers(us => us.map(u => u.id === editId ? { ...u, ...json.user } : u));
-      logClientEvent(currentUser?.id, currentUser?.userType, 'user_edited', { targetName: form.name, targetId: editId, targetRole: form.userType });
-      if (form.password) logClientEvent(currentUser?.id, currentUser?.userType, 'user_password_changed', { targetName: form.name, targetId: editId });
-      if (form.username !== old.username) logClientEvent(currentUser?.id, currentUser?.userType, 'user_username_changed', { targetName: form.name, targetId: editId, from: old.username, to: form.username });
-      if ((form.email || '') !== (old.email || '')) logClientEvent(currentUser?.id, currentUser?.userType, 'user_email_changed', { targetName: form.name, targetId: editId });
-      if (securedForm.twoFactorRequired !== old.twoFactorRequired) logClientEvent(currentUser?.id, currentUser?.userType, securedForm.twoFactorRequired ? 'user_2fa_enabled' : 'user_2fa_disabled', { targetName: form.name, targetId: editId });
-      if (form.userType !== old.userType) logClientEvent(currentUser?.id, currentUser?.userType, 'user_role_changed', { targetName: form.name, targetId: editId, from: old.userType, to: form.userType });
-    } else {
-      const res = await fetch('/.netlify/functions/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify({ action: 'create', user: { ...securedForm, mustSetup: true } }),
-      });
-      const json = await res.json();
-      if (!res.ok) { showAlert('error', json.error || 'Create failed'); return; }
-      setUsers(us => [...us, json.user]);
-      sendWelcomeEmail(json.user);
-      logClientEvent(currentUser?.id, currentUser?.userType, 'user_created', { targetName: form.name, targetRole: form.userType });
+    // Wrapped so a network error or a non-JSON response (e.g. a timeout/500 HTML
+    // page) surfaces an alert instead of silently doing nothing — previously an
+    // unhandled rejection here (from res.json() on a bad response) meant Save
+    // could fail with zero visible feedback.
+    try {
+      if (editId) {
+        const old = users.find(u => u.id === editId) || {};
+        const res = await fetch('/.netlify/functions/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ action: 'update', id: editId, patch: securedForm }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) { showAlert('error', json.error || `Save failed (${res.status})`); return; }
+        setUsers(us => us.map(u => u.id === editId ? { ...u, ...json.user } : u));
+        logClientEvent(currentUser?.id, currentUser?.userType, 'user_edited', { targetName: form.name, targetId: editId, targetRole: form.userType });
+        if (form.password) logClientEvent(currentUser?.id, currentUser?.userType, 'user_password_changed', { targetName: form.name, targetId: editId });
+        if (form.username !== old.username) logClientEvent(currentUser?.id, currentUser?.userType, 'user_username_changed', { targetName: form.name, targetId: editId, from: old.username, to: form.username });
+        if ((form.email || '') !== (old.email || '')) logClientEvent(currentUser?.id, currentUser?.userType, 'user_email_changed', { targetName: form.name, targetId: editId });
+        if (securedForm.twoFactorRequired !== old.twoFactorRequired) logClientEvent(currentUser?.id, currentUser?.userType, securedForm.twoFactorRequired ? 'user_2fa_enabled' : 'user_2fa_disabled', { targetName: form.name, targetId: editId });
+        if (form.userType !== old.userType) logClientEvent(currentUser?.id, currentUser?.userType, 'user_role_changed', { targetName: form.name, targetId: editId, from: old.userType, to: form.userType });
+      } else {
+        const res = await fetch('/.netlify/functions/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ action: 'create', user: { ...securedForm, mustSetup: true } }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) { showAlert('error', json.error || `Create failed (${res.status})`); return; }
+        setUsers(us => [...us, json.user]);
+        sendWelcomeEmail(json.user);
+        logClientEvent(currentUser?.id, currentUser?.userType, 'user_created', { targetName: form.name, targetRole: form.userType });
+      }
+    } catch (e) {
+      showAlert('error', 'Save failed — ' + e.message);
+      return;
     }
     setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false, auditsAccess:null });
     setSaveFlash(true);
@@ -24746,7 +24755,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.45";
+const APP_VERSION = "v19.46";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

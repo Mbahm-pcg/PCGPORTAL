@@ -178,10 +178,22 @@ export default async (request) => {
       const { id, patch } = body;
       if (!id || !patch) return reply(400, { error: 'id and patch required' });
 
-      const [target] = await db`SELECT id, user_type, audits_access FROM users WHERE id = ${id}`;
+      const [target] = await db`SELECT id, username, user_type, audits_access FROM users WHERE id = ${id}`;
       if (!target) return reply(404, { error: 'user not found' });
       if (!canManage(claims, target.user_type)) return reply(403, { error: 'forbidden' });
       if (patch.userType && !canManage(claims, patch.userType)) return reply(403, { error: 'cannot assign this role' });
+
+      // Username changes need their own uniqueness check (same rule `create` enforces
+      // via ON CONFLICT) — the main UPDATE below only ever narrows to this one row, so
+      // a duplicate would otherwise only surface as a generic 500 from the DB's unique
+      // constraint instead of a clear 409.
+      if (patch.username != null) {
+        const newUsername = lc(patch.username);
+        if (newUsername && newUsername !== lc(target.username)) {
+          const [dupe] = await db`SELECT id FROM users WHERE username = ${newUsername} AND id != ${id}`;
+          if (dupe) return reply(409, { error: 'username already exists' });
+        }
+      }
 
       // audits_access grant: validate the value; only executive/it may change it. A
       // patch that omits the field entirely (office_staff editing unrelated fields)
@@ -215,6 +227,7 @@ export default async (request) => {
 
       await db`
         UPDATE users SET
+          username            = COALESCE(${patch.username != null ? lc(patch.username) : null}, username),
           name                = COALESCE(${patch.name ?? null}, name),
           email               = COALESCE(${patch.email != null ? lc(patch.email) : null}, email),
           phone               = COALESCE(${patch.phone ?? null}, phone),

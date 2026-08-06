@@ -4671,39 +4671,44 @@
       }
       const ini = form.initials || initials(form.name);
       const securedForm = { ...form, initials: ini, twoFactorRequired: isTwoFactorRequired(form), email: form.userType === "store_tablet" ? "" : form.email };
-      if (editId) {
-        const old = users.find((u) => u.id === editId) || {};
-        const res = await fetch("/.netlify/functions/users", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeader() },
-          body: JSON.stringify({ action: "update", id: editId, patch: securedForm })
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          showAlert2("error", json.error || "Save failed");
-          return;
+      try {
+        if (editId) {
+          const old = users.find((u) => u.id === editId) || {};
+          const res = await fetch("/.netlify/functions/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeader() },
+            body: JSON.stringify({ action: "update", id: editId, patch: securedForm })
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showAlert2("error", json.error || `Save failed (${res.status})`);
+            return;
+          }
+          setUsers((us) => us.map((u) => u.id === editId ? { ...u, ...json.user } : u));
+          logClientEvent(currentUser?.id, currentUser?.userType, "user_edited", { targetName: form.name, targetId: editId, targetRole: form.userType });
+          if (form.password) logClientEvent(currentUser?.id, currentUser?.userType, "user_password_changed", { targetName: form.name, targetId: editId });
+          if (form.username !== old.username) logClientEvent(currentUser?.id, currentUser?.userType, "user_username_changed", { targetName: form.name, targetId: editId, from: old.username, to: form.username });
+          if ((form.email || "") !== (old.email || "")) logClientEvent(currentUser?.id, currentUser?.userType, "user_email_changed", { targetName: form.name, targetId: editId });
+          if (securedForm.twoFactorRequired !== old.twoFactorRequired) logClientEvent(currentUser?.id, currentUser?.userType, securedForm.twoFactorRequired ? "user_2fa_enabled" : "user_2fa_disabled", { targetName: form.name, targetId: editId });
+          if (form.userType !== old.userType) logClientEvent(currentUser?.id, currentUser?.userType, "user_role_changed", { targetName: form.name, targetId: editId, from: old.userType, to: form.userType });
+        } else {
+          const res = await fetch("/.netlify/functions/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeader() },
+            body: JSON.stringify({ action: "create", user: { ...securedForm, mustSetup: true } })
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showAlert2("error", json.error || `Create failed (${res.status})`);
+            return;
+          }
+          setUsers((us) => [...us, json.user]);
+          sendWelcomeEmail(json.user);
+          logClientEvent(currentUser?.id, currentUser?.userType, "user_created", { targetName: form.name, targetRole: form.userType });
         }
-        setUsers((us) => us.map((u) => u.id === editId ? { ...u, ...json.user } : u));
-        logClientEvent(currentUser?.id, currentUser?.userType, "user_edited", { targetName: form.name, targetId: editId, targetRole: form.userType });
-        if (form.password) logClientEvent(currentUser?.id, currentUser?.userType, "user_password_changed", { targetName: form.name, targetId: editId });
-        if (form.username !== old.username) logClientEvent(currentUser?.id, currentUser?.userType, "user_username_changed", { targetName: form.name, targetId: editId, from: old.username, to: form.username });
-        if ((form.email || "") !== (old.email || "")) logClientEvent(currentUser?.id, currentUser?.userType, "user_email_changed", { targetName: form.name, targetId: editId });
-        if (securedForm.twoFactorRequired !== old.twoFactorRequired) logClientEvent(currentUser?.id, currentUser?.userType, securedForm.twoFactorRequired ? "user_2fa_enabled" : "user_2fa_disabled", { targetName: form.name, targetId: editId });
-        if (form.userType !== old.userType) logClientEvent(currentUser?.id, currentUser?.userType, "user_role_changed", { targetName: form.name, targetId: editId, from: old.userType, to: form.userType });
-      } else {
-        const res = await fetch("/.netlify/functions/users", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeader() },
-          body: JSON.stringify({ action: "create", user: { ...securedForm, mustSetup: true } })
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          showAlert2("error", json.error || "Create failed");
-          return;
-        }
-        setUsers((us) => [...us, json.user]);
-        sendWelcomeEmail(json.user);
-        logClientEvent(currentUser?.id, currentUser?.userType, "user_created", { targetName: form.name, targetRole: form.userType });
+      } catch (e) {
+        showAlert2("error", "Save failed \u2014 " + e.message);
+        return;
       }
       setForm({ username: "", password: "", name: "", role: "Store Manager", initials: "", isAdmin: false, userType: "manager", region: "PA", active: true, darkMode: false, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
       setSaveFlash(true);
@@ -20089,7 +20094,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.45";
+  var APP_VERSION = "v19.46";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
