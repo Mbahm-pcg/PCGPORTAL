@@ -1,24 +1,40 @@
-// tips-report-cron.mjs — Nightly network-wide tips report. Runs 12am ET, right
-// after the prior business day fully closes. Pulls every check for that day
-// across all stores, sums the "Charged Tip" service-charge amount (mirrored in
-// the check-level tipTotal field — verified against store 302446 check #9344),
-// builds a per-transaction Excel breakdown grouped by district → store with
-// store subtotals + a grand total, and emails it as an attachment.
+// tips-report-cron-background.mjs — Runs nightly, 12am ET, right after the
+// prior business day fully closes. Always sends a DAILY tips report; on the
+// Sunday each Sun–Sat pay week closes, also sends a WEEKLY rollup; every other
+// Sunday (anchored to the real Aug 2–15, 2026 period, confirmed against
+// Paycor's own "Bi-weekly" pay-group frequency) also sends a BIWEEKLY rollup
+// meant for keying straight into Paycor payroll. All three share the exact
+// same report shape (single "By Employee" sheet, see buildWorkbook) — weekly/
+// biweekly just aggregate more days' worth of data.
 //
-// Second sheet ("By Employee"): each store's tip pool is divided by total hours
-// worked that day (crew only) to get a per-hour rate, then multiplied by each
-// person's own hours — hours-weighted, not equal split. Hours come from real
-// Paycor punches (summed per employee for the day) — NOT Pulse's per-check
-// employee ID, which was tested against live data and found to reflect whoever
-// is logged into the register, not who's actually working; one store showed
-// 191 checks all attributed to just 2 IDs, one of them a non-person "TransSvcs"
-// system account. Punches are matched to Paycor's own employee list by GUID
-// (employeeId), so no cross-system name-matching is needed. Managers (jobTitle
-// containing "Manager") are excluded from the pool per explicit instruction.
+// Kept as one function rather than three separate ones: this Netlify site's
+// total env vars sit right at AWS Lambda's 4KB-per-function cap, so creating
+// any brand-new function fails outright (hit this directly earlier). Folding
+// weekly/biweekly into the already-existing nightly function sidesteps that.
+//
+// Each store's tip pool is divided by total hours worked in the period (crew
+// only) to get a per-hour rate, then multiplied by each person's own hours —
+// hours-weighted, not equal split. Hours come from real Paycor punches (summed
+// per employee) — NOT Pulse's per-check employee ID, which was tested against
+// live data and found to reflect whoever is logged into the register, not
+// who's actually working; one store showed 191 checks all attributed to just
+// 2 IDs, one of them a non-person "TransSvcs" system account. Punches are
+// matched to Paycor's own employee list by GUID (employeeId), so no
+// cross-system name-matching is needed. Only General Managers / Store
+// Managers are excluded (jobTitle-based) — Asst Managers, Shift Leaders, and
+// Crew Member all stay in the pool, per explicit instruction.
+//
+// Weekly/biweekly reuse each day's own nightly snapshot (pcg_tips_snapshot_*
+// blobs) rather than re-fetching a week or two of Paycor data fresh — that
+// would take way longer than the 15-min budget allows (46 stores sequential
+// already takes minutes for ONE day). Known tradeoff: a punch a manager
+// corrects AFTER that day's snapshot was taken won't retroactively show up in
+// a later weekly/biweekly rollup unless that day's daily report is re-run
+// (POST {"busDt":"YYYY-MM-DD"} regenerates and re-saves that day's snapshot).
 // Known limitation (accepted): Paycor punch data has been sparse for some
-// stores/days in this environment even after the labor-cron retry fix, so this
-// sheet may undercount crew until that's resolved — same underlying data gap,
-// not a bug in this file.
+// stores/days in this environment even after the labor-cron retry fix, so any
+// of these reports may undercount crew until that's resolved — same
+// underlying data gap, not a bug in this file.
 
 import https from 'node:https';
 import XLSX from 'xlsx';
@@ -184,8 +200,101 @@ function toET(utc) {
   catch { return '--'; }
 }
 
+// ── Weekly / biweekly period helpers ─────────────────────────────────────────
+// Pay weeks run Sunday–Saturday (not the Mon-start week the Labor page uses),
+// so two weekly periods line up exactly with one biweekly pay period. Biweekly
+// is anchored to the real period the user gave us: Sun Aug 2 – Sat Aug 15,
+// 2026 (confirmed against Paycor's own pay-group frequency: "Bi-weekly").
+const BIWEEKLY_ANCHOR_END = '2026-08-15'; // Saturday closing the first known period
+
+function parseDateOnly(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+function dayOfWeek(dateStr) { return parseDateOnly(dateStr).getDay(); } // 0=Sun..6=Sat
+function isWeekBoundary(busDt) { return dayOfWeek(busDt) === 6; } // Saturday just closed
+function isBiweekBoundary(busDt) {
+  if (!isWeekBoundary(busDt)) return false;
+  const diffDays = Math.round((parseDateOnly(busDt) - parseDateOnly(BIWEEKLY_ANCHOR_END)) / 86400000);
+  return diffDays >= 0 && diffDays % 14 === 0;
+}
+// Inclusive date range of `days` dates ending at endDateStr, ascending.
+function dateRangeEndingAt(endDateStr, days) {
+  const end = parseDateOnly(endDateStr);
+  const dates = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const dd = new Date(end);
+    dd.setDate(end.getDate() - i);
+    dates.push(`${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, '0')}-${String(dd.getDate()).padStart(2, '0')}`);
+  }
+  return dates;
+}
+
+async function saveDaySnapshot(busDt, storeResults) {
+  try {
+    await getBlobStore().setJSON(`pcg_tips_snapshot_${busDt}`, { savedAt: new Date().toISOString(), data: storeResults });
+  } catch (e) { console.warn('[tips-report-cron] snapshot save failed:', e.message); }
+}
+async function loadDaySnapshot(busDt) {
+  try {
+    const raw = await getBlobStore().get(`pcg_tips_snapshot_${busDt}`, { type: 'json' });
+    return raw?.data || null;
+  } catch { return null; }
+}
+
+// Combine N days of saved per-store snapshots into one period-long storeResults
+// array — used for weekly/biweekly rollups. Re-fetching a full week or two of
+// Paycor data fresh in a single run isn't feasible inside the 15-min budget
+// (46 stores sequential already takes minutes for ONE day), so weekly/biweekly
+// reuse each day's own nightly snapshot instead. Employees are matched across
+// days by payrollId (falls back to name) so split/multi-day hours sum correctly.
+async function buildPeriodStoreResults(endDateStr, days) {
+  const dates = dateRangeEndingAt(endDateStr, days);
+  const snapshots = await Promise.all(dates.map(loadDaySnapshot));
+  const missingDates = dates.filter((d, i) => !snapshots[i]);
+
+  const byStore = {};
+  for (const dayResults of snapshots) {
+    if (!dayResults) continue;
+    for (const s of dayResults) {
+      if (!byStore[s.pc]) {
+        byStore[s.pc] = { pc: s.pc, name: s.name, district: s.district, rows: [], tipPool: 0, crewMap: {}, hadTips: false, hadCrew: false };
+      }
+      const agg = byStore[s.pc];
+      if (s.status === 'ok') {
+        agg.hadTips = true;
+        agg.rows.push(...s.rows);
+        agg.tipPool += s.tipPool || 0;
+      }
+      if (s.crewStatus === 'ok') {
+        agg.hadCrew = true;
+        (s.crew || []).forEach(c => {
+          const key = c.payrollId || c.name;
+          if (!agg.crewMap[key]) agg.crewMap[key] = { name: c.name, payrollId: c.payrollId, hours: 0 };
+          agg.crewMap[key].hours += c.hours;
+        });
+      }
+    }
+  }
+
+  const storeResults = STORES.map(s => {
+    const agg = byStore[s.pc];
+    if (!agg) return { pc: s.pc, name: s.name, district: s.district, status: 'error', crewStatus: 'error', rows: [], tipPool: 0, crew: [] };
+    return {
+      pc: s.pc, name: s.name, district: s.district,
+      status: agg.hadTips ? 'ok' : 'error',
+      crewStatus: agg.hadCrew ? 'ok' : 'error',
+      rows: agg.rows, tipPool: agg.tipPool,
+      crew: Object.values(agg.crewMap),
+    };
+  });
+  return { storeResults, missingDates };
+}
+
 // ── Build the workbook (single sheet: per-employee distribution) ──
-function buildWorkbook(busDt, storeResults) {
+// periodLabel is display text for the title row (e.g. "2026-08-05" for daily,
+// "Week of Aug 3–9, 2026" for weekly, "Pay Period Aug 2–15, 2026" for biweekly).
+function buildWorkbook(periodLabel, storeResults) {
   let grandTotal = 0;
   let grandCount = 0;
   for (const s of storeResults) {
@@ -194,14 +303,15 @@ function buildWorkbook(busDt, storeResults) {
   }
 
   // Employee distribution: each store's tip pool is divided by the total hours
-  // worked that day (crew only, managers excluded) to get a per-hour tip rate,
-  // then each person's share = that rate × their own hours worked — hours feed
-  // the calculation but aren't shown as their own column, matching the exact
-  // 5-column layout requested (District / Store(PC) / Employee / Total Tips /
-  // Share), with District, Store(PC), and Total Tips merged down each store's
-  // employee rows. Payroll ID is intentionally omitted per that same request.
+  // worked in the period (crew only, managers excluded) to get a per-hour tip
+  // rate, then each person's share = that rate × their own hours worked —
+  // hours feed the calculation but aren't shown as their own column, matching
+  // the exact 5-column layout requested (District / Store(PC) / Employee /
+  // Total Tips / Share), with District, Store(PC), and Total Tips merged down
+  // each store's employee rows. Payroll ID is intentionally omitted per that
+  // same request.
   const empAoa = [
-    [`PCG Tips — Employee Distribution — ${busDt} (hours-weighted, managers excluded)`],
+    [`PCG Tips — Employee Distribution — ${periodLabel} (hours-weighted, GM/Store Managers excluded)`],
     [],
     ['District', 'Store Name (PC)', 'Employee', 'Total Tips for Store', 'Per-Employee Share'],
   ];
@@ -387,37 +497,67 @@ export default async (request) => {
     storeResults[idx].crewStatus = crewStatus;
   }
 
-  const { buffer, grandTotal, grandCount } = buildWorkbook(busDt, storeResults);
-  const filename = `PCG-Tips-Report-${busDt}.xlsx`;
-
-  const storesWithTips = storeResults.filter(s => s.status === 'ok' && s.rows.length > 0).length;
-  const storesWithErrors = storeResults.filter(s => s.status === 'error').length;
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: #FF671F; padding: 16px 24px; border-radius: 8px 8px 0 0;">
-        <h2 style="color: #fff; margin: 0; font-size: 18px;">PCG Tips Report — ${busDt}</h2>
-      </div>
-      <div style="padding: 24px; border: 1px solid #e5e5e5; border-top: none; border-radius: 0 0 8px 8px;">
-        <p style="margin: 0 0 8px; font-size: 14px;">Total tips: <strong>$${grandTotal.toFixed(2)}</strong> across <strong>${grandCount}</strong> checks.</p>
-        <p style="margin: 0 0 8px; font-size: 14px; color: #666;">${storesWithTips} of ${STORES.length} stores had tips recorded${storesWithErrors ? `; ${storesWithErrors} store(s) could not be reached` : ''}.</p>
-        <p style="margin: 16px 0 0; font-size: 13px; color: #999;">Attached (${filename}): "By Employee" sheet divides each store's tip pool by hours worked that day (Store Managers excluded) and pays each person by their own hours.</p>
-      </div>
-    </div>
-  `;
+  // Cache today's snapshot BEFORE building/sending anything — weekly/biweekly
+  // rollups (below) read from these, and a report failure downstream shouldn't
+  // stop the day's data from being saved for next time.
+  await saveDaySnapshot(busDt, storeResults);
+  // Snapshots aren't needed past one biweekly cycle plus slack.
+  const staleDate = dateRangeEndingAt(busDt, 40)[0];
+  getBlobStore().delete(`pcg_tips_snapshot_${staleDate}`).catch(() => {});
 
   const recipient = (process.env.TIPS_REPORT_EMAIL || 'ahmed@peoplecapitalgroup.com').split(',').map(s => s.trim()).filter(Boolean);
-  const emailResult = await sendReportEmail(recipient, `PCG Tips Report — ${busDt} — $${grandTotal.toFixed(2)}`, html, buffer, filename);
-  console.log('[tips-report-cron] Email result:', emailResult, 'to', recipient);
+
+  async function buildAndSend(periodLabel, filenameTag, storeResultsForPeriod, subjectPrefix, missingDates) {
+    const { buffer, grandTotal, grandCount } = buildWorkbook(periodLabel, storeResultsForPeriod);
+    const filename = `PCG-Tips-Report-${filenameTag}.xlsx`;
+    const storesWithTips = storeResultsForPeriod.filter(s => s.status === 'ok' && s.rows.length > 0).length;
+    const storesWithErrors = storeResultsForPeriod.filter(s => s.status === 'error').length;
+    const missingNote = missingDates && missingDates.length
+      ? `<p style="margin:0 0 8px;font-size:13px;color:#b45309;">Note: ${missingDates.length} day(s) in this period predate this report existing and have no saved data (${missingDates.join(', ')}).</p>`
+      : '';
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #FF671F; padding: 16px 24px; border-radius: 8px 8px 0 0;">
+          <h2 style="color: #fff; margin: 0; font-size: 18px;">${subjectPrefix} — ${periodLabel}</h2>
+        </div>
+        <div style="padding: 24px; border: 1px solid #e5e5e5; border-top: none; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 8px; font-size: 14px;">Total tips: <strong>$${grandTotal.toFixed(2)}</strong> across <strong>${grandCount}</strong> checks.</p>
+          <p style="margin: 0 0 8px; font-size: 14px; color: #666;">${storesWithTips} of ${STORES.length} stores had tips recorded${storesWithErrors ? `; ${storesWithErrors} store(s) could not be reached` : ''}.</p>
+          ${missingNote}
+          <p style="margin: 16px 0 0; font-size: 13px; color: #999;">Attached (${filename}): "By Employee" sheet divides each store's tip pool by hours worked in this period (GM/Store Managers excluded) and pays each person by their own hours.</p>
+        </div>
+      </div>
+    `;
+    const emailResult = await sendReportEmail(recipient, `${subjectPrefix} — ${periodLabel} — $${grandTotal.toFixed(2)}`, html, buffer, filename);
+    console.log(`[tips-report-cron] ${subjectPrefix} email result:`, emailResult, 'to', recipient);
+    return { grandTotal, grandCount, storesWithTips, storesWithErrors, email: emailResult };
+  }
+
+  const dailyResult = await buildAndSend(busDt, busDt, storeResults, 'PCG Tips Report — Daily');
+
+  let weeklyResult = null, biweeklyResult = null;
+  if (isWeekBoundary(busDt)) {
+    const [weekStart] = dateRangeEndingAt(busDt, 7);
+    const { storeResults: weekResults, missingDates } = await buildPeriodStoreResults(busDt, 7);
+    const label = `Week of ${weekStart} – ${busDt}`;
+    weeklyResult = await buildAndSend(label, `Week-${weekStart}-to-${busDt}`, weekResults, 'PCG Tips Report — Weekly', missingDates);
+  }
+  if (isBiweekBoundary(busDt)) {
+    const [periodStart] = dateRangeEndingAt(busDt, 14);
+    const { storeResults: biweekResults, missingDates } = await buildPeriodStoreResults(busDt, 14);
+    const label = `Pay Period ${periodStart} – ${busDt}`;
+    biweeklyResult = await buildAndSend(label, `PayPeriod-${periodStart}-to-${busDt}`, biweekResults, 'PCG Tips Report — Biweekly (Payroll)', missingDates);
+  }
 
   try {
     const store = getBlobStore();
     await store.setJSON('pcg_tips_report_last_run', {
       savedAt: new Date().toISOString(),
-      data: { ranAt: new Date().toISOString(), busDt, grandTotal, grandCount, storesWithTips, storesWithErrors, email: emailResult },
+      data: { ranAt: new Date().toISOString(), busDt, daily: dailyResult, weekly: weeklyResult, biweekly: biweeklyResult },
     });
   } catch {}
 
-  const summary = { ok: true, busDt, grandTotal, grandCount, storesWithTips, storesWithErrors, email: emailResult };
+  const summary = { ok: true, busDt, daily: dailyResult, weekly: weeklyResult, biweekly: biweeklyResult };
   console.log('[tips-report-cron] done:', JSON.stringify(summary));
   return new Response(JSON.stringify(summary), { status: 200, headers: { 'Content-Type': 'application/json' } });
 };
