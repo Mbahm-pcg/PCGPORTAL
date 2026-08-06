@@ -24729,7 +24729,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.43";
+const APP_VERSION = "v19.50";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -36212,6 +36212,803 @@ const TileGrid = ({ title, tiles, color, th, isMobile, onNavigate, pinnedNavIds,
   </div>
 );
 
+// ── Tips Report Builder ──────────────────────────────────────────────────────
+// Assembles the biweekly Paycor tips workbook from the daily "PCG Tips Report"
+// exports the nightly cron emails: drop in each day's file as it arrives, this
+// keeps a running per-employee total across the 14-day pay period plus one
+// sheet per day, formatted for Paycor entry. Pure client-side (parses/builds
+// .xlsx via the same window.XLSX CDN global used elsewhere in this file) —
+// nothing is uploaded or saved server-side; the workbook download is the only
+// copy, so re-uploading last time's download is how state carries forward
+// between sessions. Helper names are "tipsRpt"-prefixed to guarantee no
+// collision with anything else in this file.
+const TIPS_RPT_SOURCE_SHEET = "By Employee";
+const TIPS_RPT_DATE_RE = /(\d{4}-\d{2}-\d{2})/;
+const TIPS_RPT_DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const TIPS_RPT_DOW_FULL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const TIPS_RPT_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+// Same 46 stores as tips-report-cron-background.mjs (CLAUDE.md gotcha #9 —
+// duplicated store config, keep in sync). Only pc/paycor/name/district are
+// needed here; paycor is the Paycor legalEntityId used for the punches/
+// employees calls in the live-fetch path below.
+const TIPS_RPT_STORES = [
+  { pc:'339616', paycor:'193919', name:'Wadsworth',       district:1 },
+  { pc:'340794', paycor:'193904', name:'Front',           district:1 },
+  { pc:'351099', paycor:'193900', name:'Sonic',           district:2 },
+  { pc:'351259', paycor:'193892', name:'Rosemore',        district:2 },
+  { pc:'302642', paycor:'193914', name:'County Line',     district:2 },
+  { pc:'352894', paycor:'193890', name:'Street Rd',       district:2 },
+  { pc:'341350', paycor:'193920', name:'Yardley',         district:2 },
+  { pc:'337839', paycor:'193888', name:'Warrington',      district:2 },
+  { pc:'365953', paycor:'200540', name:'Hatboro',         district:2 },
+  { pc:'330338', paycor:'193887', name:'Drexel Hill',     district:3 },
+  { pc:'337063', paycor:'193902', name:'Sharon Hill',     district:3 },
+  { pc:'343832', paycor:'193876', name:'Lansdowne',       district:3 },
+  { pc:'304669', paycor:'193894', name:'Collingdale',     district:3 },
+  { pc:'355146', paycor:'193895', name:'Gallery',         district:3 },
+  { pc:'300496', paycor:'193906', name:'Cobbs Creek',     district:3 },
+  { pc:'304863', paycor:'193885', name:'18th St',         district:3 },
+  { pc:'354561', paycor:'193910', name:'Carlisle',        district:3 },
+  { pc:'332393', paycor:'193907', name:'Lindbergh',       district:3 },
+  { pc:'341167', paycor:'193893', name:'5th Street',      district:4 },
+  { pc:'340870', paycor:'193912', name:'Hunting Park',    district:4 },
+  { pc:'335981', paycor:'193873', name:'Lehigh',          district:4 },
+  { pc:'353150', paycor:'193903', name:'Bakers Square',   district:4 },
+  { pc:'351050', paycor:'193877', name:'Allegheny',       district:4 },
+  { pc:'345985', paycor:'193916', name:'Wissahickon',     district:4 },
+  { pc:'356374', paycor:'193898', name:'Montgomeryville', district:5 },
+  { pc:'353843', paycor:'193891', name:'Tollgate',        district:5 },
+  { pc:'353047', paycor:'193875', name:'Silverdale',      district:5 },
+  { pc:'340538', paycor:'193879', name:'Easton',          district:5 },
+  { pc:'343079', paycor:'193901', name:'Downingtown',     district:6 },
+  { pc:'342144', paycor:'193908', name:'Westchester',     district:6 },
+  { pc:'364295', paycor:'193881', name:'Lionville',       district:6 },
+  { pc:'365361', paycor:'194373', name:'Little Welsh',    district:7 },
+  { pc:'310382', paycor:'193899', name:'Grant',           district:7 },
+  { pc:'332941', paycor:'193884', name:'Bustleton',       district:7 },
+  { pc:'343497', paycor:'193874', name:'Red Lion',        district:7 },
+  { pc:'302446', paycor:'193878', name:'Little Red Lion', district:7 },
+  { pc:'337079', paycor:'193911', name:'Holme Circle',    district:7 },
+  { pc:'345986', paycor:'193896', name:'Willits',         district:7 },
+  { pc:'364412', paycor:'193905', name:'8200',            district:7 },
+  { pc:'345489', paycor:'193880', name:'Oxford',          district:7 },
+  { pc:'336372', paycor:'193897', name:'Elkins Park',     district:7 },
+  { pc:'358933', paycor:'193886', name:'Brace Rd',        district:8 },
+  { pc:'354865', paycor:'193915', name:'Quakertown',      district:8 },
+  { pc:'353689', paycor:'193883', name:'Fort Washington', district:8 },
+  { pc:'342184', paycor:'193917', name:'Lansdale',        district:8 },
+  { pc:'356316', paycor:'193889', name:"BJ's",            district:8 },
+];
+
+function tipsRptPunchHours(p) {
+  if (p.hourAmount != null) return p.hourAmount;
+  if (p.hoursAmount != null) return p.hoursAmount;
+  const inMs = new Date(p.punchIn || p.inActualPunch || 0).getTime();
+  const outMs = new Date(p.punchOut || p.outActualPunch || 0).getTime();
+  return (inMs && outMs && outMs > inMs) ? (outMs - inMs) / 3600000 : 0;
+}
+
+// Live-fetch a single day's tips data straight from Pulse + Paycor, matching
+// tips-report-cron-background.mjs's logic exactly (same manager-exclusion
+// regex, same hours-weighted split). Pulse goes through pulse.mjs's batch
+// mode — one request, server fans out all 46 stores in parallel. Paycor stays
+// SEQUENTIAL, one store at a time — the cron's own token-refresh race
+// (confirmed directly: concurrent calls to our Paycor proxy spin up separate
+// cold Lambda instances with no shared token cache, racing on the same
+// single-use refresh token) applies here too since it's the same server-side
+// proxy either way, regardless of who's calling it.
+async function tipsRptFetchPulseBatch(dateStr) {
+  const r = await fetch('/.netlify/functions/pulse', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      endpoint: 'getGuestChecks',
+      batch: TIPS_RPT_STORES.map(s => ({ api: s.pc === '345986' ? 'p227' : 'p228', locRef: s.pc })),
+      opnBusDt: dateStr, clsdGuestChecksOnly: true, include: 'guestChecks',
+    }),
+  });
+  const text = await r.text();
+  try { return JSON.parse(text); }
+  catch { throw new Error(`Pulse returned a non-JSON response (${r.status}): ${text.slice(0, 120)}`); }
+}
+
+async function tipsRptFetchDayLive(dateStr, onProgress) {
+  // The 46-store batch call occasionally times out or hiccups (same real-world
+  // flakiness seen elsewhere this session) — without a retry, that loses the
+  // WHOLE day (every store) instead of just marking it unavailable and moving
+  // on, since nothing downstream has a valid tip pool to work with anyway.
+  let pulseRes = null, pulseFailed = false;
+  try {
+    pulseRes = await tipsRptFetchPulseBatch(dateStr);
+  } catch {
+    try { pulseRes = await tipsRptFetchPulseBatch(dateStr); } // retry once
+    catch { pulseFailed = true; }
+  }
+
+  const tipPoolByPc = {};
+  TIPS_RPT_STORES.forEach(s => {
+    const checks = pulseRes?.results?.[s.pc]?.data?.guestChecks;
+    tipPoolByPc[s.pc] = Array.isArray(checks) ? checks.reduce((sum, c) => sum + (c.tipTotal || 0), 0) : 0;
+  });
+
+  const records = [];
+  if (pulseFailed) {
+    // No valid tip pool for any store this day — no point spending ~2 minutes
+    // on 46 Paycor calls with nothing to distribute. Mark the whole day
+    // unavailable and move on; the range-fetch loop continues to the next day.
+    TIPS_RPT_STORES.forEach((s, i) => {
+      onProgress?.(i + 1, TIPS_RPT_STORES.length, s.name);
+      records.push({ district: s.district, store: `${s.name} (${s.pc})`, employee: null, tips: 0, placeholderLabel: "(Pulse data unavailable)" });
+    });
+    return records;
+  }
+
+  for (let i = 0; i < TIPS_RPT_STORES.length; i++) {
+    const s = TIPS_RPT_STORES[i];
+    onProgress?.(i + 1, TIPS_RPT_STORES.length, s.name);
+    const pool = tipsRptRound2(tipPoolByPc[s.pc] || 0);
+    const storeLabel = `${s.name} (${s.pc})`;
+    try {
+      // Check both r.ok AND an `error` field in the body — paycor.mjs returns
+      // a 200-with-error-shaped body in some failure paths, and a real 500 in
+      // others (e.g. "Missing Paycor credentials" on deploy previews, which
+      // don't get the same env vars as production); either one parses as
+      // valid JSON with no `records` array, which silently looked identical
+      // to "genuinely zero punches" until this check was added — every store
+      // showed "(no crew punches found)" instead of the real "(Paycor data
+      // unavailable)" reason.
+      const fetchPaycorJSON = async (body) => {
+        const r = await fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j.error) throw new Error(j.error || `Paycor request failed (${r.status})`);
+        return j;
+      };
+      const [punchesRaw, empListRaw] = await Promise.all([
+        fetchPaycorJSON({ action: 'punches', legalEntityId: s.paycor, startDate: dateStr, endDate: dateStr }),
+        (async () => {
+          let all = [], continuationToken;
+          do {
+            const body = continuationToken ? { action: 'employees', legalEntityId: s.paycor, continuationToken } : { action: 'employees', legalEntityId: s.paycor };
+            const res = await fetchPaycorJSON(body);
+            const page = Array.isArray(res.records) ? res.records : (Array.isArray(res) ? res : []);
+            all = all.concat(page);
+            continuationToken = res.continuationToken || res.nextToken || null;
+            if (!page.length) continuationToken = null;
+          } while (continuationToken);
+          return all;
+        })(),
+      ]);
+      const punches = Array.isArray(punchesRaw.records) ? punchesRaw.records : (Array.isArray(punchesRaw) ? punchesRaw : []);
+      const empByGuid = {};
+      empListRaw.forEach(e => { if (e && e.id) empByGuid[e.id] = e; });
+      const hoursByGuid = {};
+      punches.forEach(p => { if (!p.employeeId) return; hoursByGuid[p.employeeId] = (hoursByGuid[p.employeeId] || 0) + tipsRptPunchHours(p); });
+      const crew = Object.keys(hoursByGuid).map(guid => {
+        const e = empByGuid[guid];
+        const jobTitle = e?.positionData?.jobTitle || '';
+        const name = e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee`;
+        const isManager = /general\s*manager|store\s*manager/i.test(jobTitle) && !/assist|asst/i.test(jobTitle);
+        return { name, hours: hoursByGuid[guid], isManager };
+      }).filter(c => !c.isManager && c.hours > 0);
+
+      if (!crew.length) { records.push({ district: s.district, store: storeLabel, employee: null, tips: pool, placeholderLabel: "(no crew punches found)" }); continue; }
+      const totalHours = crew.reduce((sum, c) => sum + c.hours, 0);
+      const hourlyRate = totalHours > 0 ? pool / totalHours : 0;
+      crew.sort((a, b) => a.name.localeCompare(b.name)).forEach(c => {
+        records.push({ district: s.district, store: storeLabel, employee: c.name, tips: tipsRptRound2(hourlyRate * c.hours) });
+      });
+    } catch (err) {
+      records.push({ district: s.district, store: storeLabel, employee: null, tips: pool, placeholderLabel: "(Paycor data unavailable)" });
+    }
+  }
+  return records;
+}
+
+function tipsRptParseISODate(s) { const [y, m, d] = s.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)); }
+function tipsRptFormatISODate(dt) { return dt.toISOString().slice(0, 10); }
+function tipsRptAddDays(dt, n) { return new Date(dt.getTime() + n * 86400000); }
+function tipsRptDayOffset(a, b) { return Math.round((a.getTime() - b.getTime()) / 86400000); }
+function tipsRptRound2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
+
+function tipsRptSheetNameFor(dt, start) {
+  const offset = tipsRptDayOffset(dt, start);
+  const week = Math.floor(offset / 7) + 1;
+  const dow = TIPS_RPT_DOW[dt.getUTCDay()];
+  return `Wk${week} ${dow} ${dt.getUTCMonth() + 1}-${dt.getUTCDate()}`;
+}
+function tipsRptCanonicalOrder(start) {
+  const out = [];
+  for (let i = 0; i < 14; i++) { const dt = tipsRptAddDays(start, i); out.push({ name: tipsRptSheetNameFor(dt, start), date: dt }); }
+  return out;
+}
+
+function tipsRptParseDailyWorkbook(wb, filename) {
+  if (!wb.SheetNames.includes(TIPS_RPT_SOURCE_SHEET)) {
+    throw new Error(`"${filename}" has no "${TIPS_RPT_SOURCE_SHEET}" sheet (found: ${wb.SheetNames.join(", ")})`);
+  }
+  const ws = wb.Sheets[TIPS_RPT_SOURCE_SHEET];
+  const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  if (!rows.length || !rows[0][0]) throw new Error(`"${filename}": couldn't find the title row to read the date from`);
+  const title = String(rows[0][0]);
+  const m = TIPS_RPT_DATE_RE.exec(title);
+  if (!m) throw new Error(`"${filename}": couldn't find a YYYY-MM-DD date in the title ("${title}")`);
+  const reportDate = tipsRptParseISODate(m[1]);
+
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(5, rows.length); i++) { if (rows[i][0] === "District") { headerIdx = i; break; } }
+  if (headerIdx === -1) throw new Error(`"${filename}": couldn't find the header row`);
+
+  const storeOrder = [];
+  const stores = {};
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row[1] == null) continue;
+    const district = row[0], store = row[1], employee = row[2], perEmployeeShare = row[4];
+    if (!stores[store]) { stores[store] = { district, employees: new Map() }; storeOrder.push(store); }
+    if (employee == null || String(employee).toLowerCase().includes("no crew punches") || String(employee).toLowerCase().includes("data unavailable")) continue;
+    const share = (typeof perEmployeeShare === "number") ? perEmployeeShare : 0;
+    const cur = stores[store].employees.get(employee) || 0;
+    stores[store].employees.set(employee, tipsRptRound2(cur + share));
+  }
+
+  const records = [];
+  for (const store of storeOrder) {
+    const info = stores[store];
+    if (info.employees.size) {
+      const names = Array.from(info.employees.keys()).sort();
+      for (const name of names) records.push({ district: info.district, store, employee: name, tips: info.employees.get(name) });
+    } else {
+      records.push({ district: info.district, store, employee: null, tips: 0 });
+    }
+  }
+  return { reportDate, records };
+}
+
+function tipsRptBuildDaySheetAOA(reportDate, records) {
+  const dowFull = TIPS_RPT_DOW_FULL[reportDate.getUTCDay()];
+  const title = `Daily Tips by Employee — ${dowFull}, ${TIPS_RPT_MONTHS[reportDate.getUTCMonth()]} ${reportDate.getUTCDate()}, ${reportDate.getUTCFullYear()}`;
+  const rows = [[title], [], ["District", "Store", "Employee", "Tips"]];
+  let currentStore = null, storeStartRow = null, grandTotal = 0, hasAnyStore = false;
+  function closeStore() {
+    if (currentStore === null || storeStartRow === null) return;
+    let subtotal = 0;
+    for (let r = storeStartRow; r < rows.length; r++) subtotal += rows[r][3] || 0;
+    subtotal = tipsRptRound2(subtotal);
+    rows.push([null, `${currentStore} — TOTAL`, null, subtotal]);
+    grandTotal = tipsRptRound2(grandTotal + subtotal);
+    hasAnyStore = true;
+  }
+  for (const rec of records) {
+    if (rec.store !== currentStore) { closeStore(); currentStore = rec.store; storeStartRow = rows.length; }
+    rows.push([rec.district, rec.store, rec.employee == null ? (rec.placeholderLabel || "(no crew punches found)") : rec.employee, rec.tips]);
+  }
+  closeStore();
+  rows.push([]);
+  rows.push([null, "PAY DAY GRAND TOTAL", null, hasAnyStore ? grandTotal : 0]);
+  return { rows, total: grandTotal };
+}
+
+function tipsRptInspectAOA(rows) {
+  if (!rows || rows.length < 4) return { filled: false };
+  const title = String((rows[0] && rows[0][0]) || "");
+  if (title.includes("no file inserted yet")) return { filled: false };
+  let employees = 0; const storeSet = new Set(); let total = 0;
+  for (let i = 3; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
+    const col2 = row[1];
+    if (col2 === "PAY DAY GRAND TOTAL") { total = row[3] || 0; continue; }
+    if (typeof col2 === "string" && col2.endsWith("— TOTAL")) continue;
+    if (row[1] != null) storeSet.add(row[1]);
+    if (row[2] != null && row[2] !== "(no crew punches found)" && row[2] !== "(Paycor data unavailable)") employees++;
+  }
+  return { filled: true, employees, stores: storeSet.size, total };
+}
+
+function tipsRptComputePeriodTotals(order, sheetData) {
+  const map = new Map(); const storeOrder = [];
+  // Placeholder rows (no crew punches / Paycor unreachable) still carry a real,
+  // known dollar pool for that store/day — track it separately per store so the
+  // grand total reflects actual money even when it can't be split by employee.
+  const unattributed = new Map();
+  for (const entry of order) {
+    const rows = sheetData[entry.name];
+    const info = tipsRptInspectAOA(rows);
+    if (!info.filled) continue;
+    for (let i = 3; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+      const col2 = row[1];
+      if (col2 === "PAY DAY GRAND TOTAL") continue;
+      if (typeof col2 === "string" && col2.endsWith("— TOTAL")) continue;
+      const employee = row[2];
+      const store = row[1];
+      const tips = typeof row[3] === "number" ? row[3] : 0;
+      if (employee == null || employee === "(no crew punches found)" || employee === "(Paycor data unavailable)" || employee === "(Pulse data unavailable)") {
+        if (tips) {
+          if (!unattributed.has(store)) { unattributed.set(store, { district: row[0], tips: 0 }); if (!storeOrder.includes(store)) storeOrder.push(store); }
+          const u = unattributed.get(store);
+          u.tips = tipsRptRound2(u.tips + tips);
+        }
+        continue;
+      }
+      const key = store + "||" + employee;
+      if (!map.has(key)) { map.set(key, { district: row[0], store, employee, tips: 0 }); if (!storeOrder.includes(store)) storeOrder.push(store); }
+      const rec = map.get(key);
+      rec.tips = tipsRptRound2(rec.tips + tips);
+    }
+  }
+  const byStore = {};
+  for (const rec of map.values()) (byStore[rec.store] = byStore[rec.store] || []).push(rec);
+  const records = [];
+  for (const store of storeOrder) {
+    const list = byStore[store] || [];
+    list.sort((a, b) => a.employee.localeCompare(b.employee));
+    records.push(...list);
+    const un = unattributed.get(store);
+    if (un && un.tips) records.push({ district: un.district, store, employee: "(Unattributed — Paycor unavailable)", tips: un.tips });
+  }
+  return records;
+}
+
+function tipsRptBuildPeriodTotalsAOA(start, end, records) {
+  const title = `Pay Period Totals — ${TIPS_RPT_MONTHS[start.getUTCMonth()]} ${start.getUTCDate()} to ${TIPS_RPT_MONTHS[end.getUTCMonth()]} ${end.getUTCDate()}, ${end.getUTCFullYear()} (for Paycor entry)`;
+  const rows = [[title], [], ["District", "Store", "Employee", "Pay Period Tips"]];
+  let currentStore = null, storeStartRow = null, grandTotal = 0, hasAnyStore = false;
+  function closeStore() {
+    if (currentStore === null || storeStartRow === null) return;
+    let subtotal = 0;
+    for (let r = storeStartRow; r < rows.length; r++) subtotal += rows[r][3] || 0;
+    subtotal = tipsRptRound2(subtotal);
+    rows.push([null, `${currentStore} — TOTAL`, null, subtotal]);
+    grandTotal = tipsRptRound2(grandTotal + subtotal);
+    hasAnyStore = true;
+  }
+  for (const rec of records) {
+    if (rec.store !== currentStore) { closeStore(); currentStore = rec.store; storeStartRow = rows.length; }
+    rows.push([rec.district, rec.store, rec.employee, rec.tips]);
+  }
+  closeStore();
+  rows.push([]);
+  rows.push([null, "PAY PERIOD GRAND TOTAL", null, hasAnyStore ? grandTotal : 0]);
+  return { rows, total: grandTotal };
+}
+
+function tipsRptPlaceholderAOA(dt) {
+  const dowFull = TIPS_RPT_DOW_FULL[dt.getUTCDay()];
+  return [[`${dowFull}, ${TIPS_RPT_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}, ${dt.getUTCFullYear()} — no file inserted yet`]];
+}
+
+function tipsRptAoaToFormattedSheet(rows) {
+  const XLSX = window.XLSX;
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 28 }, { wch: 14 }];
+  if (rows.length && rows[0].length) ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row) continue;
+    const val = row[3];
+    if (typeof val === "number") {
+      const ref = XLSX.utils.encode_cell({ r, c: 3 });
+      if (ws[ref]) ws[ref].z = "$#,##0.00";
+    }
+  }
+  return ws;
+}
+
+function TipsReportBuilder({ th, showAlert }) {
+  const [periodStart, setPeriodStart] = useState(null);
+  const [masterFile, setMasterFile] = useState(null);
+  const [newFiles, setNewFiles] = useState([]);
+  const [sheetData, setSheetData] = useState(null);
+  const [justAdded, setJustAdded] = useState(new Set());
+  const [builtWorkbook, setBuiltWorkbook] = useState(null);
+  const [downloadName, setDownloadName] = useState(null);
+  const [building, setBuilding] = useState(false);
+  const [log, setLog] = useState([]);
+  const [dragOver, setDragOver] = useState(null); // 'master' | 'new' | null
+  const masterInputRef = useRef(null);
+  const newInputRef = useRef(null);
+
+  const fmtMoneyTips = (n) => "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pushLog = (kind, text) => setLog(l => [{ kind, text, id: Date.now() + Math.random() }, ...l]);
+
+  const order = periodStart ? tipsRptCanonicalOrder(periodStart) : null;
+  let filledCount = 0, periodTotal = 0;
+  if (order) {
+    order.forEach(entry => {
+      const info = tipsRptInspectAOA(sheetData ? sheetData[entry.name] : null);
+      if (info.filled) { filledCount++; periodTotal = tipsRptRound2(periodTotal + (info.total || 0)); }
+    });
+  }
+
+  const handleFiles = (files, target) => {
+    const xlsxFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith(".xlsx"));
+    if (!xlsxFiles.length) return;
+    if (target === "master") setMasterFile(xlsxFiles[0]);
+    else setNewFiles(prev => [...prev, ...xlsxFiles]);
+  };
+
+  const readFileAsArrayBuffer = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+
+  const runBuild = async () => {
+    if (!periodStart || !newFiles.length) return;
+    setBuilding(true);
+    setLog([]);
+    try {
+      const XLSX = window.XLSX;
+      const start = periodStart;
+      const ord = tipsRptCanonicalOrder(start);
+      const data = {};
+
+      if (masterFile) {
+        try {
+          const buf = await readFileAsArrayBuffer(masterFile);
+          const wb = XLSX.read(buf, { type: "array" });
+          let matched = 0;
+          ord.forEach(entry => {
+            if (wb.SheetNames.includes(entry.name)) { data[entry.name] = XLSX.utils.sheet_to_json(wb.Sheets[entry.name], { header: 1, defval: null, raw: true }); matched++; }
+            else data[entry.name] = tipsRptPlaceholderAOA(entry.date);
+          });
+          if (matched === 0) pushLog("warn", `Heads up: "${masterFile.name}" doesn't have any sheets matching this pay period (${tipsRptFormatISODate(start)} onward) — starting a fresh workbook instead. Double-check the pay period start date if that's unexpected.`);
+          else pushLog("ok", `Loaded ${matched} existing day${matched === 1 ? "" : "s"} from "${masterFile.name}".`);
+        } catch (err) {
+          throw new Error(`Couldn't read "${masterFile.name}" — is it the workbook this tool produced? (${err.message})`);
+        }
+      } else {
+        ord.forEach(entry => { data[entry.name] = tipsRptPlaceholderAOA(entry.date); });
+      }
+
+      const added = new Set();
+      for (const file of newFiles) {
+        try {
+          const buf = await readFileAsArrayBuffer(file);
+          const wb = XLSX.read(buf, { type: "array" });
+          const { reportDate, records } = tipsRptParseDailyWorkbook(wb, file.name);
+          const offset = tipsRptDayOffset(reportDate, start);
+          if (offset < 0 || offset > 13) {
+            const end = tipsRptAddDays(start, 13);
+            pushLog("warn", `Skipped "${file.name}": its date (${tipsRptFormatISODate(reportDate)}) falls outside the current pay period (${tipsRptFormatISODate(start)} to ${tipsRptFormatISODate(end)}).`);
+            continue;
+          }
+          const name = tipsRptSheetNameFor(reportDate, start);
+          const { rows, total } = tipsRptBuildDaySheetAOA(reportDate, records);
+          data[name] = rows;
+          added.add(name);
+          const nEmployees = records.filter(r => r.employee != null).length;
+          const nStores = new Set(records.map(r => r.store)).size;
+          pushLog("ok", `Added ${TIPS_RPT_DOW_FULL[reportDate.getUTCDay()]}, ${TIPS_RPT_MONTHS[reportDate.getUTCMonth()]} ${reportDate.getUTCDate()} → sheet "${name}": ${nEmployees} employees across ${nStores} stores, ${fmtMoneyTips(total)} total tips.`);
+        } catch (err) {
+          pushLog("err", `Couldn't process "${file.name}": ${err.message}`);
+        }
+      }
+
+      setSheetData(data);
+      setJustAdded(added);
+      assembleWorkbook(start, ord, data);
+    } catch (err) {
+      pushLog("err", `Something went wrong: ${err.message}`);
+    } finally {
+      setBuilding(false);
+    }
+  };
+
+  // Shared by the manual "Build report" flow above and the live-fetch flow
+  // below — both end the same way: recompute Pay Period Totals from whatever
+  // day-sheets currently exist and produce a fresh downloadable workbook.
+  const assembleWorkbook = (start, ord, data) => {
+    const XLSX = window.XLSX;
+    const wbOut = XLSX.utils.book_new();
+    const end = tipsRptAddDays(start, 13);
+    const periodRecords = tipsRptComputePeriodTotals(ord, data);
+    const { rows: periodRows } = tipsRptBuildPeriodTotalsAOA(start, end, periodRecords);
+    XLSX.utils.book_append_sheet(wbOut, tipsRptAoaToFormattedSheet(periodRows), "Pay Period Totals");
+    ord.forEach(entry => XLSX.utils.book_append_sheet(wbOut, tipsRptAoaToFormattedSheet(data[entry.name]), entry.name));
+    setBuiltWorkbook(wbOut);
+    setDownloadName(`Biweekly_Tips_Report_${tipsRptFormatISODate(start)}_to_${tipsRptFormatISODate(end)}.xlsx`);
+  };
+
+  // ── Live fetch (automatic) ──────────────────────────────────────────────
+  const [fetchDate, setFetchDate] = useState(null);
+  const [fetching, setFetching] = useState(false);
+  const [fetchProgress, setFetchProgress] = useState(null); // { done, total, storeName }
+
+  const runLiveFetch = async () => {
+    if (!periodStart || !fetchDate) return;
+    const offset = tipsRptDayOffset(fetchDate, periodStart);
+    if (offset < 0 || offset > 13) {
+      pushLog("warn", `${tipsRptFormatISODate(fetchDate)} falls outside the current pay period — pick a date within it.`);
+      return;
+    }
+    setFetching(true);
+    setFetchProgress({ done: 0, total: TIPS_RPT_STORES.length, storeName: '' });
+    try {
+      const ord = tipsRptCanonicalOrder(periodStart);
+      // Start from whatever's already loaded (uploaded files, prior live
+      // fetches) so this only touches the one day being fetched — placeholders
+      // for anything not yet filled in, same as the manual build's first pass.
+      const data = sheetData ? { ...sheetData } : {};
+      ord.forEach(entry => { if (!data[entry.name]) data[entry.name] = tipsRptPlaceholderAOA(entry.date); });
+
+      const records = await tipsRptFetchDayLive(tipsRptFormatISODate(fetchDate), (done, total, storeName) => setFetchProgress({ done, total, storeName }));
+      const name = tipsRptSheetNameFor(fetchDate, periodStart);
+      const { rows, total } = tipsRptBuildDaySheetAOA(fetchDate, records);
+      data[name] = rows;
+      setSheetData(data);
+      setJustAdded(new Set([name]));
+
+      const nEmployees = records.filter(r => r.employee != null).length;
+      const nStores = new Set(records.map(r => r.store)).size;
+      const nUnavailable = records.filter(r => r.placeholderLabel === "(Paycor data unavailable)").length;
+      pushLog("ok", `Fetched ${TIPS_RPT_DOW_FULL[fetchDate.getUTCDay()]}, ${TIPS_RPT_MONTHS[fetchDate.getUTCMonth()]} ${fetchDate.getUTCDate()} live → sheet "${name}": ${nEmployees} employees across ${nStores} stores, ${fmtMoneyTips(total)} total tips${nUnavailable ? ` (${nUnavailable} store${nUnavailable === 1 ? '' : 's'} could not be reached)` : ''}.`);
+
+      assembleWorkbook(periodStart, ord, data);
+    } catch (err) {
+      pushLog("err", `Live fetch failed: ${err.message}`);
+    } finally {
+      setFetching(false);
+      setFetchProgress(null);
+    }
+  };
+
+  // Fetches all 14 days of the current pay period, one day (and within each
+  // day, one store) at a time. Same underlying per-day fetch as the single-day
+  // button above, just looped across the whole period. This runs entirely in
+  // this browser tab — closing or navigating away mid-fetch stops it, so the
+  // page needs to stay open (there's no server-side job backing this; it's
+  // the same live client-side calls, just for 14 days instead of 1).
+  const [fetchingRange, setFetchingRange] = useState(false);
+  const [rangeProgress, setRangeProgress] = useState(null); // { dayIndex, totalDays, dayLabel, storeDone, storeTotal, storeName }
+
+  const runLiveFetchRange = async () => {
+    if (!periodStart) return;
+    setFetchingRange(true);
+    setLog([]);
+    try {
+      const ord = tipsRptCanonicalOrder(periodStart);
+      const data = sheetData ? { ...sheetData } : {};
+      ord.forEach(entry => { if (!data[entry.name]) data[entry.name] = tipsRptPlaceholderAOA(entry.date); });
+
+      for (let dayIdx = 0; dayIdx < ord.length; dayIdx++) {
+        const entry = ord[dayIdx];
+        setRangeProgress({ dayIndex: dayIdx + 1, totalDays: ord.length, dayLabel: `${TIPS_RPT_DOW[entry.date.getUTCDay()]} ${entry.date.getUTCMonth() + 1}/${entry.date.getUTCDate()}`, storeDone: 0, storeTotal: TIPS_RPT_STORES.length, storeName: '' });
+        try {
+          const records = await tipsRptFetchDayLive(
+            tipsRptFormatISODate(entry.date),
+            (storeDone, storeTotal, storeName) => setRangeProgress(p => ({ ...p, storeDone, storeTotal, storeName }))
+          );
+          const { rows, total } = tipsRptBuildDaySheetAOA(entry.date, records);
+          data[entry.name] = rows;
+          setSheetData({ ...data });
+          const nEmployees = records.filter(r => r.employee != null).length;
+          const nUnavailable = records.filter(r => r.placeholderLabel === "(Paycor data unavailable)").length;
+          pushLog("ok", `Fetched ${TIPS_RPT_DOW_FULL[entry.date.getUTCDay()]}, ${TIPS_RPT_MONTHS[entry.date.getUTCMonth()]} ${entry.date.getUTCDate()} live: ${nEmployees} employees, ${fmtMoneyTips(total)} total tips${nUnavailable ? ` (${nUnavailable} store${nUnavailable === 1 ? '' : 's'} unreachable)` : ''}.`);
+        } catch (err) {
+          pushLog("err", `${entry.name} failed: ${err.message} — continuing with the remaining days.`);
+        }
+        // Keep the workbook current after every day, not just at the very end —
+        // if something interrupts the run partway through, everything fetched
+        // so far is still assembled and downloadable.
+        assembleWorkbook(periodStart, ord, data);
+      }
+      pushLog("ok", `Done — all 14 days of the pay period have been fetched.`);
+    } catch (err) {
+      pushLog("err", `Period fetch failed: ${err.message}`);
+    } finally {
+      setFetchingRange(false);
+      setRangeProgress(null);
+    }
+  };
+
+  const download = () => { if (builtWorkbook) window.XLSX.writeFile(builtWorkbook, downloadName); };
+  // Only one of build / fetch-one-day / fetch-range should run at a time —
+  // they all read and write the same sheetData/builtWorkbook state.
+  const anyBusy = building || fetching || fetchingRange;
+
+  const dropzoneStyle = (active) => ({
+    border: `1.5px dashed ${active ? O : th.cardBorder}`,
+    borderRadius: 8, padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    gap: '0.625rem', cursor: 'pointer', background: active ? `${O}0d` : 'transparent', transition: 'border-color .15s, background .15s',
+  });
+
+  return (
+    <div>
+      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '0.3rem' }}>Tips Report Builder</h2>
+      <p style={{ fontSize: '0.85rem', color: th.muted, marginBottom: '1.25rem', maxWidth: '52ch', lineHeight: 1.5 }}>
+        Drop in each day's tips export as it comes in. This fills in one sheet per day of the pay period, broken down by store and employee, plus a running total per employee — ready to key into Paycor.
+      </p>
+
+      {periodStart && (
+        <div style={{ ...card(th), padding: '1rem 1.125rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.625rem', flexWrap: 'wrap', gap: '0.25rem 0.75rem' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Pay period progress</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', color: th.muted }}>
+              {filledCount} / 14 days filled · <span style={{ color: '#1B8F5C', fontWeight: 700 }}>{fmtMoneyTips(periodTotal)}</span> so far
+            </div>
+          </div>
+          {[0, 1].map(week => (
+            <div key={week} style={{ display: 'flex', gap: '0.3rem', marginBottom: week === 0 ? '0.3rem' : 0 }}>
+              {order.slice(week * 7, week * 7 + 7).map(entry => {
+                const info = tipsRptInspectAOA(sheetData ? sheetData[entry.name] : null);
+                const isJust = justAdded.has(entry.name);
+                return (
+                  <div key={entry.name} title={info.filled ? `${entry.name}: ${info.employees} employees, ${info.stores} stores, ${fmtMoneyTips(info.total)}` : `${entry.name}: no data yet`}
+                    style={{
+                      flex: 1, minWidth: 0, borderRadius: 6, textAlign: 'center', padding: '0.4rem 0.1rem',
+                      border: `1px solid ${info.filled ? '#1B8F5C' : th.cardBorder}`,
+                      background: info.filled ? '#1B8F5C18' : th.card2,
+                      transform: isJust ? 'scale(1.06)' : 'none', transition: 'transform .3s ease',
+                    }}>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.58rem', textTransform: 'uppercase', color: info.filled ? '#1B8F5C' : th.muted }}>{TIPS_RPT_DOW[entry.date.getUTCDay()]}</div>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 700, marginTop: 1, color: info.filled ? '#1B8F5C' : th.text }}>{entry.date.getUTCMonth() + 1}/{entry.date.getUTCDate()}</div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ ...card(th), overflow: 'hidden' }}>
+        <div style={{ padding: '1.25rem 1.375rem', display: 'flex', gap: '0.875rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+          <div style={{ flex: '0 0 auto', width: 22, height: 22, borderRadius: '50%', background: '#1B8F5C18', color: '#1B8F5C', fontSize: '0.72rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>1</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: th.text, marginBottom: 2 }}>Pay period start date</div>
+            <div style={{ fontSize: '0.76rem', color: th.muted, marginBottom: '0.7rem' }}>The first day of the current two-week period.</div>
+            <input type="date" style={inp(th)} value={periodStart ? tipsRptFormatISODate(periodStart) : ''} onChange={e => {
+              const v = e.target.value;
+              setPeriodStart(v ? tipsRptParseISODate(v) : null);
+              setSheetData(null); setBuiltWorkbook(null); setDownloadName(null);
+            }} />
+            {periodStart && (
+              <div style={{ marginTop: '0.55rem', fontSize: '0.76rem', color: '#1B8F5C', fontWeight: 600 }}>
+                Covers {TIPS_RPT_DOW_FULL[periodStart.getUTCDay()]}, {TIPS_RPT_MONTHS[periodStart.getUTCMonth()]} {periodStart.getUTCDate()} – {(() => { const e = tipsRptAddDays(periodStart, 13); return `${TIPS_RPT_DOW_FULL[e.getUTCDay()]}, ${TIPS_RPT_MONTHS[e.getUTCMonth()]} ${e.getUTCDate()}, ${e.getUTCFullYear()}`; })()}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ padding: '1.25rem 1.375rem', display: 'flex', gap: '0.875rem', borderBottom: `1px solid ${th.cardBorder}` }}>
+          <div style={{ flex: '0 0 auto', width: 22, height: 22, borderRadius: '50%', background: '#1B8F5C18', color: '#1B8F5C', fontSize: '0.72rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>2</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: th.text, marginBottom: 2 }}>Your report so far <span style={{ fontWeight: 400, color: th.muted }}>(optional)</span></div>
+            <div style={{ fontSize: '0.76rem', color: th.muted, marginBottom: '0.7rem' }}>Upload the workbook this tool gave you last time, so today's file gets added to it. Leave empty the first time.</div>
+            <div style={dropzoneStyle(dragOver === 'master')} onClick={() => masterInputRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setDragOver('master'); }} onDragLeave={() => setDragOver(null)}
+              onDrop={e => { e.preventDefault(); setDragOver(null); handleFiles(e.dataTransfer.files, 'master'); }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.8rem', color: th.text }}>Click or drop the workbook here</div>
+                <div style={{ color: th.muted, fontSize: '0.7rem', marginTop: 2 }}>.xlsx from a previous run</div>
+              </div>
+            </div>
+            <input ref={masterInputRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => { handleFiles(e.target.files, 'master'); e.target.value = ''; }} />
+            {masterFile && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 6, padding: '0.4rem 0.6rem', fontSize: '0.74rem', marginTop: '0.5rem' }}>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{masterFile.name}</span>
+                <button onClick={() => setMasterFile(null)} style={{ border: 'none', background: 'none', color: '#ef4444', fontWeight: 600, fontSize: '0.74rem', cursor: 'pointer' }}>Remove</button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ padding: '1.25rem 1.375rem', display: 'flex', gap: '0.875rem' }}>
+          <div style={{ flex: '0 0 auto', width: 22, height: 22, borderRadius: '50%', background: '#1B8F5C18', color: '#1B8F5C', fontSize: '0.72rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>3</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: th.text, marginBottom: 2 }}>New daily file(s)</div>
+            <div style={{ fontSize: '0.76rem', color: th.muted, marginBottom: '0.7rem' }}>The PCG Tips Report export(s) — one per day. You can add more than one at once.</div>
+            <div style={dropzoneStyle(dragOver === 'new')} onClick={() => newInputRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setDragOver('new'); }} onDragLeave={() => setDragOver(null)}
+              onDrop={e => { e.preventDefault(); setDragOver(null); handleFiles(e.dataTransfer.files, 'new'); }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.8rem', color: th.text }}>Click or drop file(s) here</div>
+                <div style={{ color: th.muted, fontSize: '0.7rem', marginTop: 2 }}>PCG-Tips-Report-YYYY-MM-DD.xlsx</div>
+              </div>
+            </div>
+            <input ref={newInputRef} type="file" accept=".xlsx" multiple style={{ display: 'none' }} onChange={e => { handleFiles(e.target.files, 'new'); e.target.value = ''; }} />
+            {newFiles.length > 0 && (
+              <div style={{ display: 'grid', gap: '0.35rem', marginTop: '0.5rem' }}>
+                {newFiles.map((f, idx) => (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 6, padding: '0.4rem 0.6rem', fontSize: '0.74rem' }}>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{f.name}</span>
+                    <button onClick={() => setNewFiles(prev => prev.filter((_, i) => i !== idx))} style={{ border: 'none', background: 'none', color: '#ef4444', fontWeight: 600, fontSize: '0.74rem', cursor: 'pointer' }}>Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ padding: '1.25rem 1.375rem', display: 'flex', gap: '0.875rem', borderTop: `1px solid ${th.cardBorder}` }}>
+          <div style={{ flex: '0 0 auto', width: 22, height: 22, borderRadius: '50%', background: '#1B8F5C18', color: '#1B8F5C', fontSize: '0.72rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>4</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: th.text, marginBottom: 2 }}>Or fetch a day automatically <span style={{ fontWeight: 400, color: th.muted }}>(no file needed)</span></div>
+            <div style={{ fontSize: '0.76rem', color: th.muted, marginBottom: '0.7rem' }}>Pulls that day's tips + hours live from Pulse and Paycor — same numbers the automatic report uses. Good for a missed day, or re-fetching a day after a punch correction. Checks all 46 stores one at a time, so it takes a couple of minutes.</div>
+            <div style={{ display: 'flex', gap: '0.625rem', flexWrap: 'wrap' }}>
+              <input type="date" style={inp(th)} disabled={!periodStart || anyBusy}
+                min={periodStart ? tipsRptFormatISODate(periodStart) : undefined}
+                max={periodStart ? tipsRptFormatISODate(tipsRptAddDays(periodStart, 13)) : undefined}
+                value={fetchDate ? tipsRptFormatISODate(fetchDate) : ''}
+                onChange={e => setFetchDate(e.target.value ? tipsRptParseISODate(e.target.value) : null)} />
+              <button style={{ ...btn(th, { background: 'transparent', color: '#1B8F5C', border: '1.5px solid #1B8F5C' }), opacity: (!periodStart || !fetchDate || anyBusy) ? 0.5 : 1, cursor: (!periodStart || !fetchDate || anyBusy) ? 'not-allowed' : 'pointer' }}
+                disabled={!periodStart || !fetchDate || anyBusy} onClick={runLiveFetch}>
+                {fetching ? 'Fetching…' : 'Fetch This Day'}
+              </button>
+            </div>
+            {fetchProgress && (
+              <div style={{ marginTop: '0.7rem' }}>
+                <div style={{ height: 6, borderRadius: 999, background: th.card2, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${(fetchProgress.done / fetchProgress.total) * 100}%`, background: '#1B8F5C', transition: 'width .2s ease' }} />
+                </div>
+                <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.3rem' }}>{fetchProgress.done} / {fetchProgress.total} stores checked{fetchProgress.storeName ? ` · ${fetchProgress.storeName}` : ''}</div>
+              </div>
+            )}
+
+            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: `1px dashed ${th.cardBorder}` }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: th.text, marginBottom: 2 }}>Or fetch the whole pay period at once</div>
+              <div style={{ fontSize: '0.74rem', color: th.muted, marginBottom: '0.7rem' }}>All 14 days, one after another — no files needed at all. This checks 46 stores × 14 days, so it can take a while; keep this tab open while it runs (it stops if you navigate away).</div>
+              <button style={{ ...btn(th, { background: 'transparent', color: '#1B8F5C', border: '1.5px solid #1B8F5C' }), opacity: (!periodStart || anyBusy) ? 0.5 : 1, cursor: (!periodStart || anyBusy) ? 'not-allowed' : 'pointer' }}
+                disabled={!periodStart || anyBusy} onClick={runLiveFetchRange}>
+                {fetchingRange ? 'Fetching…' : 'Fetch Entire Period (14 days)'}
+              </button>
+              {rangeProgress && (
+                <div style={{ marginTop: '0.7rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: th.muted, marginBottom: '0.25rem' }}>
+                    <span>Day {rangeProgress.dayIndex} of {rangeProgress.totalDays} — {rangeProgress.dayLabel}</span>
+                    <span>{rangeProgress.storeDone} / {rangeProgress.storeTotal} stores</span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 999, background: th.card2, overflow: 'hidden', marginBottom: 3 }}>
+                    <div style={{ height: '100%', width: `${((rangeProgress.dayIndex - 1) / rangeProgress.totalDays) * 100}%`, background: '#1B8F5C33', transition: 'width .2s ease' }} />
+                  </div>
+                  <div style={{ height: 4, borderRadius: 999, background: th.card2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${(rangeProgress.storeDone / rangeProgress.storeTotal) * 100}%`, background: '#1B8F5C', transition: 'width .2s ease' }} />
+                  </div>
+                  {rangeProgress.storeName && <div style={{ fontSize: '0.68rem', color: th.muted, marginTop: '0.25rem' }}>{rangeProgress.storeName}</div>}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: '1.25rem' }}>
+        <button style={{ ...btn(th), width: '100%', opacity: (!periodStart || !newFiles.length || anyBusy) ? 0.5 : 1, cursor: (!periodStart || !newFiles.length || anyBusy) ? 'not-allowed' : 'pointer' }}
+          disabled={!periodStart || !newFiles.length || anyBusy} onClick={runBuild}>
+          {building ? 'Building…' : 'Build report'}
+        </button>
+        {builtWorkbook && (
+          <button style={{ ...btn(th, { background: 'transparent', color: '#1B8F5C', border: '1.5px solid #1B8F5C' }), width: '100%', marginTop: '0.625rem' }} onClick={download}>
+            Download updated workbook
+          </button>
+        )}
+      </div>
+
+      {log.length > 0 && (
+        <div style={{ marginTop: '1.125rem', display: 'grid', gap: '0.4rem' }}>
+          {log.map(entry => (
+            <div key={entry.id} style={{
+              background: th.card2, border: `1px solid ${th.cardBorder}`,
+              borderLeft: `3px solid ${entry.kind === 'ok' ? '#1B8F5C' : entry.kind === 'warn' ? '#f59e0b' : '#ef4444'}`,
+              borderRadius: 6, padding: '0.55rem 0.75rem', fontSize: '0.76rem', lineHeight: 1.5, color: th.text,
+            }}>
+              {entry.text}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginTop: '1.5rem', fontSize: '0.72rem', color: th.muted, lineHeight: 1.6 }}>
+        <strong style={{ color: th.text }}>Each day:</strong> come back here, upload last time's workbook under step 2, add the new day's file under step 3, and download again. Nothing is saved automatically — the download is your only copy.<br /><br />
+        <strong style={{ color: th.text }}>For Paycor:</strong> the workbook's first sheet, "Pay Period Totals," adds up each employee's tips across every day inserted so far.
+      </div>
+    </div>
+  );
+}
+
 // ── AdminFinance ─────────────────────────────────────────────────────────────
 // Merges P&L, NDCP Orders, Cash Management, Reconciliation, and Expense Log into one
 // page (rail nav + an Overview landing) instead of 5 separate sidebar tabs. Each area
@@ -36231,42 +37028,19 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
 
   const [viewMode, setViewMode] = useState('overview');
 
-  // Overview: real numbers only — the same P&L blob AdminPnL reads (for revenue/margin
-  // and the district breakdown), plus a real pending-expense count from the same
-  // ticket data ExpenseLogSection reads. No fabricated trend/alert data.
-  const [pnlOv, setPnlOv] = useState(null);
+  // Pending-expense count still feeds the Expense Log tile's badge below.
   const [expPending, setExpPending] = useState(null);
   useEffect(() => {
-    if (viewMode !== 'overview') return;
-    if (canPnl && !pnlOv) cloudLoad('pcg_pnl_live_v1').then(d => { if (d?.stores) setPnlOv(d); }).catch(() => {});
-    if (expPending == null) {
-      cloudLoadOrThrow('pcg_tickets_v1').then(data => {
-        if (!Array.isArray(data)) return;
-        let count = 0;
-        data.forEach(t => (t.expenses || []).forEach(ex => {
-          if (!ex.noExpense && (ex.approvalStatus == null || ex.approvalStatus === 'pending')) count++;
-        }));
-        setExpPending(count);
-      }).catch(() => {});
-    }
+    if (viewMode !== 'overview' || expPending != null) return;
+    cloudLoadOrThrow('pcg_tickets_v1').then(data => {
+      if (!Array.isArray(data)) return;
+      let count = 0;
+      data.forEach(t => (t.expenses || []).forEach(ex => {
+        if (!ex.noExpense && (ex.approvalStatus == null || ex.approvalStatus === 'pending')) count++;
+      }));
+      setExpPending(count);
+    }).catch(() => {});
   }, [viewMode]);
-
-  const overview = React.useMemo(() => {
-    if (!pnlOv?.stores?.length) return null;
-    const byDist = {};
-    let revenue = 0, contribution = 0;
-    pnlOv.stores.forEach(s => {
-      revenue += s.revenue; contribution += s.contribution;
-      const d = s.district || 0;
-      if (!byDist[d]) byDist[d] = { revenue: 0, contribution: 0 };
-      byDist[d].revenue += s.revenue; byDist[d].contribution += s.contribution;
-    });
-    const marginPct = revenue > 0 ? (contribution / revenue) * 100 : 0;
-    const districtRows = Object.entries(byDist)
-      .map(([d, v]) => ({ district: d, marginPct: v.revenue > 0 ? (v.contribution / v.revenue) * 100 : 0 }))
-      .sort((a, b) => Number(a.district) - Number(b.district));
-    return { revenue, marginPct, districtRows };
-  }, [pnlOv]);
 
   const FIN = '#1B8F5C';
   const tiles = [
@@ -36275,6 +37049,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
     { id: 'cash', icon: <HubIcon color={FIN} d={<><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20M6 15h4"/></>} />, name: 'Cash Management', sub: 'Deposit tracking, alerts, and POS reconciliation.', badge: cashMissingCount > 0 ? `${cashMissingCount} missing` : null, show: canCash },
     { id: 'recon', icon: <HubIcon color={FIN} d={<><path d="M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3"/></>} />, name: 'Reconciliation', sub: 'Snapshot vs. live sales compare, WTD differences by store.', show: isAdmin },
     { id: 'expenses', icon: <HubIcon color={FIN} d={<><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z"/><path d="M9 10v6M15 10v6"/></>} />, name: 'Expense Log', sub: 'All ticket expenses — filter, approve, reject.', badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin },
+    { id: 'tips', icon: <HubIcon color={FIN} d={<><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></>} />, name: 'Tips Report Builder', sub: 'Assemble the biweekly Paycor tips workbook from daily exports.', show: isAdmin || isOfficeStaff },
   ].filter(t => t.show);
 
   return (
@@ -36286,57 +37061,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
       )}
       <div style={{ display: viewMode === 'overview' ? 'block' : 'none' }}>
         <div>
-            <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>Finance Overview</h2>
-            {canPnl && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                <div style={{ ...card(th), padding: '1rem 1.125rem', borderTop: '3px solid #3b82f6' }}>
-                  <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: th.text }}>{overview ? fmtDollars(overview.revenue) : '—'}</div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Revenue (MTD)</div>
-                </div>
-                <div style={{ ...card(th), padding: '1rem 1.125rem', borderTop: `3px solid ${overview && overview.marginPct >= 30 ? '#22c55e' : '#ef4444'}` }}>
-                  <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: overview && overview.marginPct >= 30 ? '#22c55e' : th.text }}>{overview ? fmtPct(overview.marginPct) : '—'}</div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Margin %</div>
-                </div>
-                <div style={{ ...card(th), padding: '1rem 1.125rem', borderTop: '3px solid #f59e0b', cursor: 'pointer' }} onClick={() => setViewMode('expenses')}>
-                  <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: th.text }}>{expPending != null ? expPending : '—'}</div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Pending Expense Approvals</div>
-                </div>
-              </div>
-            )}
-            {overview && overview.districtRows.length > 0 && (() => {
-              // Real store margins tend to sit in a tight band (e.g. all 52-58%), so a fixed
-              // 0-100% scale saturates every bar at the cap and they all look identical.
-              // Scale relative to this network's own min/max, and color relative to the
-              // network average, so real differences between districts are actually visible
-              // regardless of what "normal" margin looks like for this business.
-              const vals = overview.districtRows.map(d => d.marginPct);
-              const lo = Math.min(...vals), hi = Math.max(...vals);
-              const spread = hi - lo || 1;
-              const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-              return (
-                <div style={{ ...card(th), padding: '1.125rem', marginBottom: '1.25rem' }}>
-                  <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.2rem' }}>Margin by District</div>
-                  <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: '0.875rem' }}>Relative to network average ({fmtPct(avg)})</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {overview.districtRows.map(d => {
-                      const delta = d.marginPct - avg;
-                      const color = delta >= 1 ? '#22c55e' : delta <= -1 ? '#ef4444' : '#f59e0b';
-                      const width = 12 + 88 * ((d.marginPct - lo) / spread);
-                      return (
-                        <div key={d.district} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 60px', alignItems: 'center', gap: '0.6rem', fontSize: '0.8rem' }}>
-                          <span style={{ color: th.text }}>{districtLabel(Number(d.district))}</span>
-                          <div style={{ height: 7, borderRadius: 999, background: th.card3, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${width}%`, background: color, borderRadius: 999 }} />
-                          </div>
-                          <span style={{ textAlign: 'right', fontWeight: 700, color }}>{fmtPct(d.marginPct)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: '0.7rem' }}>Tools</div>
+            <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>Finance</h2>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.9rem' }}>
               {tiles.map(t => (
                 <HubTile key={t.id} th={th} color={FIN} icon={t.icon} name={t.name} sub={t.sub} badge={t.badge} onClick={() => setViewMode(t.id)}
@@ -36352,6 +37077,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
           {viewMode === 'cash' && canCash && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {viewMode === 'recon' && isAdmin && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {viewMode === 'expenses' && isAdmin && <ExpenseLogSection th={th} user={user} standalone />}
+          {viewMode === 'tips' && (isAdmin || isOfficeStaff) && <TipsReportBuilder th={th} showAlert={showAlert} />}
         </div>
       )}
     </div>
