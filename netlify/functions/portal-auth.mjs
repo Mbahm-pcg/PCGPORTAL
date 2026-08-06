@@ -9,6 +9,10 @@ import { sql } from './_shared/db.mjs';
 import { signToken } from './deal-lib/token.js';
 import { hashPassword, verifyPassword, validatePasswordComplexity, isSharedDevice } from './auth-lib/passwords.js';
 import { requireUser, requireActiveUser } from './auth-lib/require-user.js';
+import {
+  generateRegistrationOptions, verifyRegistrationResponse,
+  generateAuthenticationOptions, verifyAuthenticationResponse,
+} from '@simplewebauthn/server';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Content-Type': 'application/json' };
 const reply = (code, obj, extraHeaders) => new Response(JSON.stringify(obj), { status: code, headers: { ...cors, ...(extraHeaders || {}) } });
@@ -38,6 +42,58 @@ async function ensureAuditsColumn(db) {
     await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS audits_access text`;
     _auditsColumnEnsured = true;
   } catch { /* best-effort — SELECT below will surface any real DB problem */ }
+}
+
+// Idempotent table creation, same self-managing-schema pattern as tickets.mjs /
+// audits.mjs. Module-level once-flag so a warm lambda only issues this once.
+let _webauthnTablesEnsured = false;
+async function ensureWebauthnTables(db) {
+  if (_webauthnTablesEnsured) return;
+  try {
+    await db`CREATE TABLE IF NOT EXISTS webauthn_credentials (
+      credential_id text PRIMARY KEY,
+      user_id integer NOT NULL,
+      public_key text NOT NULL,
+      counter bigint NOT NULL DEFAULT 0,
+      device_label text,
+      created_at timestamp DEFAULT now(),
+      last_used_at timestamp
+    )`;
+    await db`CREATE TABLE IF NOT EXISTS webauthn_challenges (
+      key text PRIMARY KEY,
+      challenge text NOT NULL,
+      created_at timestamp DEFAULT now()
+    )`;
+    _webauthnTablesEnsured = true;
+  } catch { /* best-effort — the queries below will surface any real DB problem */ }
+}
+
+// WebAuthn credentials are bound to the exact origin they were registered on.
+// Derived dynamically from the request's Origin header rather than hardcoded
+// so both the production custom domain and stable branch/preview aliases work
+// without a code change — a credential registered on one origin simply won't
+// verify on a different one (expected: e.g. a Netlify preview URL that changes
+// every deploy can't carry a registration forward, same as any WebAuthn site).
+function deriveRpIdAndOrigin(request) {
+  const originHeader = request.headers.get('origin') || '';
+  try {
+    const u = new URL(originHeader);
+    return { rpID: u.hostname, origin: `${u.protocol}//${u.host}` };
+  } catch {
+    return { rpID: 'uop.peoplecapitalgroup.com', origin: 'https://uop.peoplecapitalgroup.com' };
+  }
+}
+
+// Simple guess at a human-readable device label from the User-Agent, purely
+// cosmetic (shown in the user's "manage biometric devices" list).
+function guessDeviceLabel(request) {
+  const ua = request.headers.get('user-agent') || '';
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) return 'Android device';
+  if (/Macintosh/i.test(ua)) return 'Mac';
+  if (/Windows/i.test(ua)) return 'Windows PC';
+  return 'Device';
 }
 
 function blobStore() {
@@ -334,6 +390,189 @@ export default async (request, context) => {
         WHERE username = ${username}
       `;
       return reply(200, { ok: true });
+    }
+
+    // ── WebAuthn (fingerprint / Face ID) — enrollment requires an existing
+    // active session (you enroll a device while already logged in normally);
+    // login does not, since establishing that session is the whole point. ──
+
+    if (action === 'webauthn-register-options') {
+      const claims = await requireActiveUser(eventShim, db);
+      if (!claims) return reply(401, { error: 'unauthorized' });
+      await ensureWebauthnTables(db);
+      const { rpID } = deriveRpIdAndOrigin(request);
+      const existing = await db`SELECT credential_id FROM webauthn_credentials WHERE user_id = ${claims.sub}`;
+      const options = await generateRegistrationOptions({
+        rpName: 'PCG Company Portal',
+        rpID,
+        userID: new TextEncoder().encode(String(claims.sub)),
+        userName: claims.username,
+        userDisplayName: claims.name || claims.username,
+        attestationType: 'none',
+        excludeCredentials: existing.map(r => ({ id: r.credential_id })),
+        // residentKey 'required' (not 'preferred') — the auto-prompt-on-open flow
+        // depends on the credential being discoverable so the device can be
+        // recognized with no username typed; 'preferred' lets the authenticator
+        // skip that, which would silently break the no-username login path.
+        authenticatorSelection: { residentKey: 'required', userVerification: 'preferred', authenticatorAttachment: 'platform' },
+      });
+      await db`
+        INSERT INTO webauthn_challenges (key, challenge, created_at) VALUES (${String(claims.sub)}, ${options.challenge}, now())
+        ON CONFLICT (key) DO UPDATE SET challenge = EXCLUDED.challenge, created_at = now()
+      `;
+      return reply(200, { options });
+    }
+
+    if (action === 'webauthn-register-verify') {
+      const claims = await requireActiveUser(eventShim, db);
+      if (!claims) return reply(401, { error: 'unauthorized' });
+      await ensureWebauthnTables(db);
+      const { rpID, origin } = deriveRpIdAndOrigin(request);
+      const [ch] = await db`SELECT challenge FROM webauthn_challenges WHERE key = ${String(claims.sub)}`;
+      if (!ch) return reply(400, { error: 'no pending registration — request new options first' });
+
+      let verification;
+      try {
+        verification = await verifyRegistrationResponse({
+          response: body.credential,
+          expectedChallenge: ch.challenge,
+          expectedOrigin: origin,
+          expectedRPID: rpID,
+        });
+      } catch (e) {
+        return reply(400, { error: 'registration verification failed: ' + e.message });
+      }
+      if (!verification.verified || !verification.registrationInfo) return reply(400, { error: 'registration not verified' });
+
+      const { credential } = verification.registrationInfo;
+      await db`
+        INSERT INTO webauthn_credentials (credential_id, user_id, public_key, counter, device_label, created_at)
+        VALUES (${credential.id}, ${claims.sub}, ${Buffer.from(credential.publicKey).toString('base64url')}, ${credential.counter}, ${guessDeviceLabel(request)}, now())
+        ON CONFLICT (credential_id) DO NOTHING
+      `;
+      await db`DELETE FROM webauthn_challenges WHERE key = ${String(claims.sub)}`;
+      return reply(200, { ok: true });
+    }
+
+    if (action === 'webauthn-list') {
+      const claims = await requireActiveUser(eventShim, db);
+      if (!claims) return reply(401, { error: 'unauthorized' });
+      await ensureWebauthnTables(db);
+      const rows = await db`
+        SELECT credential_id, device_label, created_at, last_used_at
+        FROM webauthn_credentials WHERE user_id = ${claims.sub} ORDER BY created_at DESC
+      `;
+      return reply(200, { credentials: rows });
+    }
+
+    if (action === 'webauthn-delete') {
+      const claims = await requireActiveUser(eventShim, db);
+      if (!claims) return reply(401, { error: 'unauthorized' });
+      await ensureWebauthnTables(db);
+      const credentialId = body.credentialId;
+      if (!credentialId) return reply(400, { error: 'credentialId required' });
+      await db`DELETE FROM webauthn_credentials WHERE credential_id = ${credentialId} AND user_id = ${claims.sub}`;
+      return reply(200, { ok: true });
+    }
+
+    if (action === 'webauthn-login-options') {
+      await ensureWebauthnTables(db);
+      const username = lc(body.username);
+      // Two modes: a username narrows to that account's specific credentials
+      // (allowCredentials); with none, this is a "discoverable" request — any
+      // credential enrolled for this origin can answer, and the OS/browser
+      // resolves which one (registration used residentKey:'preferred', which
+      // is what makes this possible). A random per-attempt key (not username)
+      // avoids two simultaneous login attempts on the same account clobbering
+      // each other's stored challenge.
+      let creds = [];
+      if (username) {
+        const rows = await db`
+          SELECT u.id, c.credential_id
+          FROM users u
+          LEFT JOIN webauthn_credentials c ON c.user_id = u.id
+          WHERE u.username = ${username} AND u.active = true
+        `;
+        if (!rows.length) return reply(404, { error: 'no account for this username' });
+        creds = rows.filter(r => r.credential_id).map(r => ({ id: r.credential_id }));
+        if (!creds.length) return reply(404, { error: 'no biometric login set up for this account' });
+      }
+
+      const { rpID } = deriveRpIdAndOrigin(request);
+      const options = await generateAuthenticationOptions({ rpID, allowCredentials: creds, userVerification: 'preferred' });
+      const requestId = crypto.randomUUID();
+      await db`INSERT INTO webauthn_challenges (key, challenge, created_at) VALUES (${requestId}, ${options.challenge}, now())`;
+      return reply(200, { options, requestId });
+    }
+
+    if (action === 'webauthn-login-verify') {
+      await ensureWebauthnTables(db);
+      if (!body.requestId || !body.credential) return reply(400, { error: 'requestId and credential required' });
+
+      // Discoverable logins carry no username — the authenticator's response
+      // includes userHandle, the exact bytes we set as userID at registration
+      // (TextEncoder-encoded user id), so the account is recovered from the
+      // credential itself instead of a client-supplied field.
+      const username = lc(body.username);
+      const userIdFromHandle = (!username && body.credential.response?.userHandle)
+        ? Buffer.from(body.credential.response.userHandle, 'base64url').toString('utf8')
+        : null;
+      if (!username && !userIdFromHandle) return reply(400, { error: 'could not identify account from credential' });
+
+      const [[ch], userCredRows] = await Promise.all([
+        db`SELECT challenge FROM webauthn_challenges WHERE key = ${body.requestId}`,
+        username
+          ? db`
+              SELECT u.id, u.username, u.name, u.email, u.user_type, u.district, u.store_pc, u.active,
+                     u.is_admin, u.region, u.initials, u.must_setup, u.dark_mode,
+                     u.must_change, u.two_factor_required, u.two_factor_enabled, u.two_factor_secret,
+                     u.audits_access, c.credential_id, c.public_key, c.counter
+              FROM users u
+              JOIN webauthn_credentials c ON c.user_id = u.id AND c.credential_id = ${body.credential.id}
+              WHERE u.username = ${username} AND u.active = true
+            `
+          : db`
+              SELECT u.id, u.username, u.name, u.email, u.user_type, u.district, u.store_pc, u.active,
+                     u.is_admin, u.region, u.initials, u.must_setup, u.dark_mode,
+                     u.must_change, u.two_factor_required, u.two_factor_enabled, u.two_factor_secret,
+                     u.audits_access, c.credential_id, c.public_key, c.counter
+              FROM users u
+              JOIN webauthn_credentials c ON c.user_id = u.id AND c.credential_id = ${body.credential.id}
+              WHERE u.id = ${Number(userIdFromHandle)} AND u.active = true
+            `,
+      ]);
+      if (!ch) return reply(400, { error: 'no pending login — request new options first' });
+      const [row] = userCredRows;
+      if (!row) return reply(401, { error: 'credential not recognized for this account' });
+
+      const { rpID, origin } = deriveRpIdAndOrigin(request);
+      let verification;
+      try {
+        verification = await verifyAuthenticationResponse({
+          response: body.credential,
+          expectedChallenge: ch.challenge,
+          expectedOrigin: origin,
+          expectedRPID: rpID,
+          credential: {
+            id: row.credential_id,
+            publicKey: Buffer.from(row.public_key, 'base64url'),
+            counter: Number(row.counter),
+          },
+        });
+      } catch (e) {
+        return reply(400, { error: 'login verification failed: ' + e.message });
+      }
+      if (!verification.verified) return reply(401, { error: 'login not verified' });
+
+      // Fire-and-forget — the user is already verified at this point, no need
+      // to block the response on housekeeping writes.
+      db`UPDATE webauthn_credentials SET counter = ${verification.authenticationInfo.newCounter}, last_used_at = now() WHERE credential_id = ${row.credential_id}`.catch(() => {});
+      db`DELETE FROM webauthn_challenges WHERE key = ${body.requestId}`.catch(() => {});
+
+      const out = issue(row, false);
+      if (!out) return reply(500, { error: 'server not configured' });
+      db`UPDATE users SET last_login = now() WHERE id = ${row.id}`.catch(() => {});
+      return reply(200, out, { 'Set-Cookie': sessionCookie(out.token) });
     }
 
     return reply(400, { error: 'unknown action' });

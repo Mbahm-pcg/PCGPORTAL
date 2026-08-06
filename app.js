@@ -198,6 +198,426 @@
     );
   }
 
+  // node_modules/@simplewebauthn/browser/esm/helpers/bufferToBase64URLString.js
+  function bufferToBase64URLString(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let str = "";
+    for (const charCode of bytes) {
+      str += String.fromCharCode(charCode);
+    }
+    const base64String = btoa(str);
+    return base64String.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  }
+
+  // node_modules/@simplewebauthn/browser/esm/helpers/base64URLStringToBuffer.js
+  function base64URLStringToBuffer(base64URLString) {
+    const base64 = base64URLString.replace(/-/g, "+").replace(/_/g, "/");
+    const padLength = (4 - base64.length % 4) % 4;
+    const padded = base64.padEnd(base64.length + padLength, "=");
+    const binary = atob(padded);
+    const buffer = new ArrayBuffer(binary.length);
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return buffer;
+  }
+
+  // node_modules/@simplewebauthn/browser/esm/helpers/browserSupportsWebAuthn.js
+  function browserSupportsWebAuthn() {
+    return _browserSupportsWebAuthnInternals.stubThis(globalThis?.PublicKeyCredential !== void 0 && typeof globalThis.PublicKeyCredential === "function");
+  }
+  var _browserSupportsWebAuthnInternals = {
+    stubThis: (value) => value
+  };
+
+  // node_modules/@simplewebauthn/browser/esm/helpers/toPublicKeyCredentialDescriptor.js
+  function toPublicKeyCredentialDescriptor(descriptor) {
+    const { id } = descriptor;
+    return {
+      ...descriptor,
+      id: base64URLStringToBuffer(id),
+      /**
+       * `descriptor.transports` is an array of our `AuthenticatorTransportFuture` that includes newer
+       * transports that TypeScript's DOM lib is ignorant of. Convince TS that our list of transports
+       * are fine to pass to WebAuthn since browsers will recognize the new value.
+       */
+      transports: descriptor.transports
+    };
+  }
+
+  // node_modules/@simplewebauthn/browser/esm/helpers/isValidDomain.js
+  function isValidDomain(hostname) {
+    return (
+      // Consider localhost valid as well since it's okay wrt Secure Contexts
+      hostname === "localhost" || // Support punycode (ACE) or ascii labels and domains
+      /^((xn--[a-z0-9-]+|[a-z0-9]+(-[a-z0-9]+)*)\.)+([a-z]{2,}|xn--[a-z0-9-]+)$/i.test(hostname)
+    );
+  }
+
+  // node_modules/@simplewebauthn/browser/esm/helpers/webAuthnError.js
+  var WebAuthnError = class extends Error {
+    constructor({ message, code, cause, name }) {
+      super(message, { cause });
+      Object.defineProperty(this, "code", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: void 0
+      });
+      this.name = name ?? cause.name;
+      this.code = code;
+    }
+  };
+
+  // node_modules/@simplewebauthn/browser/esm/helpers/identifyRegistrationError.js
+  function identifyRegistrationError({ error, options }) {
+    const { publicKey } = options;
+    if (!publicKey) {
+      throw Error("options was missing required publicKey property");
+    }
+    if (error.name === "AbortError") {
+      if (options.signal instanceof AbortSignal) {
+        return new WebAuthnError({
+          message: "Registration ceremony was sent an abort signal",
+          code: "ERROR_CEREMONY_ABORTED",
+          cause: error
+        });
+      }
+    } else if (error.name === "ConstraintError") {
+      if (publicKey.authenticatorSelection?.requireResidentKey === true) {
+        return new WebAuthnError({
+          message: "Discoverable credentials were required but no available authenticator supported it",
+          code: "ERROR_AUTHENTICATOR_MISSING_DISCOVERABLE_CREDENTIAL_SUPPORT",
+          cause: error
+        });
+      } else if (
+        // @ts-ignore: `mediation` doesn't yet exist on CredentialCreationOptions but it's possible as of Sept 2024
+        options.mediation === "conditional" && publicKey.authenticatorSelection?.userVerification === "required"
+      ) {
+        return new WebAuthnError({
+          message: "User verification was required during automatic registration but it could not be performed",
+          code: "ERROR_AUTO_REGISTER_USER_VERIFICATION_FAILURE",
+          cause: error
+        });
+      } else if (publicKey.authenticatorSelection?.userVerification === "required") {
+        return new WebAuthnError({
+          message: "User verification was required but no available authenticator supported it",
+          code: "ERROR_AUTHENTICATOR_MISSING_USER_VERIFICATION_SUPPORT",
+          cause: error
+        });
+      }
+    } else if (error.name === "InvalidStateError") {
+      return new WebAuthnError({
+        message: "The authenticator was previously registered",
+        code: "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED",
+        cause: error
+      });
+    } else if (error.name === "NotAllowedError") {
+      return new WebAuthnError({
+        message: error.message,
+        code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
+        cause: error
+      });
+    } else if (error.name === "NotSupportedError") {
+      const validPubKeyCredParams = publicKey.pubKeyCredParams.filter((param) => param.type === "public-key");
+      if (validPubKeyCredParams.length === 0) {
+        return new WebAuthnError({
+          message: 'No entry in pubKeyCredParams was of type "public-key"',
+          code: "ERROR_MALFORMED_PUBKEYCREDPARAMS",
+          cause: error
+        });
+      }
+      return new WebAuthnError({
+        message: "No available authenticator supported any of the specified pubKeyCredParams algorithms",
+        code: "ERROR_AUTHENTICATOR_NO_SUPPORTED_PUBKEYCREDPARAMS_ALG",
+        cause: error
+      });
+    } else if (error.name === "SecurityError") {
+      const effectiveDomain = globalThis.location.hostname;
+      if (!isValidDomain(effectiveDomain)) {
+        return new WebAuthnError({
+          message: `${globalThis.location.hostname} is an invalid domain`,
+          code: "ERROR_INVALID_DOMAIN",
+          cause: error
+        });
+      } else if (publicKey.rp.id !== effectiveDomain) {
+        return new WebAuthnError({
+          message: `The RP ID "${publicKey.rp.id}" is invalid for this domain`,
+          code: "ERROR_INVALID_RP_ID",
+          cause: error
+        });
+      }
+    } else if (error.name === "TypeError") {
+      if (publicKey.user.id.byteLength < 1 || publicKey.user.id.byteLength > 64) {
+        return new WebAuthnError({
+          message: "User ID was not between 1 and 64 characters",
+          code: "ERROR_INVALID_USER_ID_LENGTH",
+          cause: error
+        });
+      }
+    } else if (error.name === "UnknownError") {
+      return new WebAuthnError({
+        message: "The authenticator was unable to process the specified options, or could not create a new credential",
+        code: "ERROR_AUTHENTICATOR_GENERAL_ERROR",
+        cause: error
+      });
+    }
+    return error;
+  }
+
+  // node_modules/@simplewebauthn/browser/esm/helpers/webAuthnAbortService.js
+  var BaseWebAuthnAbortService = class {
+    constructor() {
+      Object.defineProperty(this, "controller", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: void 0
+      });
+    }
+    createNewAbortSignal() {
+      if (this.controller) {
+        const abortError = new Error("Cancelling existing WebAuthn API call for new one");
+        abortError.name = "AbortError";
+        this.controller.abort(abortError);
+      }
+      const newController = new AbortController();
+      this.controller = newController;
+      return newController.signal;
+    }
+    cancelCeremony() {
+      if (this.controller) {
+        const abortError = new Error("Manually cancelling existing WebAuthn API call");
+        abortError.name = "AbortError";
+        this.controller.abort(abortError);
+        this.controller = void 0;
+      }
+    }
+  };
+  var WebAuthnAbortService = new BaseWebAuthnAbortService();
+
+  // node_modules/@simplewebauthn/browser/esm/helpers/toAuthenticatorAttachment.js
+  var attachments = ["cross-platform", "platform"];
+  function toAuthenticatorAttachment(attachment) {
+    if (!attachment) {
+      return;
+    }
+    if (attachments.indexOf(attachment) < 0) {
+      return;
+    }
+    return attachment;
+  }
+
+  // node_modules/@simplewebauthn/browser/esm/methods/startRegistration.js
+  async function startRegistration(options) {
+    if (!options.optionsJSON && options.challenge) {
+      console.warn("startRegistration() was not called correctly. It will try to continue with the provided options, but this call should be refactored to use the expected call structure instead. See https://simplewebauthn.dev/docs/packages/browser#typeerror-cannot-read-properties-of-undefined-reading-challenge for more information.");
+      options = { optionsJSON: options };
+    }
+    const { optionsJSON, useAutoRegister = false } = options;
+    if (!browserSupportsWebAuthn()) {
+      throw new Error("WebAuthn is not supported in this browser");
+    }
+    const publicKey = {
+      ...optionsJSON,
+      challenge: base64URLStringToBuffer(optionsJSON.challenge),
+      user: {
+        ...optionsJSON.user,
+        id: base64URLStringToBuffer(optionsJSON.user.id)
+      },
+      excludeCredentials: optionsJSON.excludeCredentials?.map(toPublicKeyCredentialDescriptor)
+    };
+    const createOptions = {};
+    if (useAutoRegister) {
+      createOptions.mediation = "conditional";
+    }
+    createOptions.publicKey = publicKey;
+    createOptions.signal = WebAuthnAbortService.createNewAbortSignal();
+    let credential;
+    try {
+      credential = await navigator.credentials.create(createOptions);
+    } catch (err) {
+      throw identifyRegistrationError({ error: err, options: createOptions });
+    }
+    if (!credential) {
+      throw new Error("Registration was not completed");
+    }
+    const { id, rawId, response, type } = credential;
+    let transports = void 0;
+    if (typeof response.getTransports === "function") {
+      transports = response.getTransports();
+    }
+    let responsePublicKeyAlgorithm = void 0;
+    if (typeof response.getPublicKeyAlgorithm === "function") {
+      try {
+        responsePublicKeyAlgorithm = response.getPublicKeyAlgorithm();
+      } catch (error) {
+        warnOnBrokenImplementation("getPublicKeyAlgorithm()", error);
+      }
+    }
+    let responsePublicKey = void 0;
+    if (typeof response.getPublicKey === "function") {
+      try {
+        const _publicKey = response.getPublicKey();
+        if (_publicKey !== null) {
+          responsePublicKey = bufferToBase64URLString(_publicKey);
+        }
+      } catch (error) {
+        warnOnBrokenImplementation("getPublicKey()", error);
+      }
+    }
+    let responseAuthenticatorData;
+    if (typeof response.getAuthenticatorData === "function") {
+      try {
+        responseAuthenticatorData = bufferToBase64URLString(response.getAuthenticatorData());
+      } catch (error) {
+        warnOnBrokenImplementation("getAuthenticatorData()", error);
+      }
+    }
+    return {
+      id,
+      rawId: bufferToBase64URLString(rawId),
+      response: {
+        attestationObject: bufferToBase64URLString(response.attestationObject),
+        clientDataJSON: bufferToBase64URLString(response.clientDataJSON),
+        transports,
+        publicKeyAlgorithm: responsePublicKeyAlgorithm,
+        publicKey: responsePublicKey,
+        authenticatorData: responseAuthenticatorData
+      },
+      type,
+      clientExtensionResults: credential.getClientExtensionResults(),
+      authenticatorAttachment: toAuthenticatorAttachment(credential.authenticatorAttachment)
+    };
+  }
+  function warnOnBrokenImplementation(methodName, cause) {
+    console.warn(`The browser extension that intercepted this WebAuthn API call incorrectly implemented ${methodName}. You should report this error to them.
+`, cause);
+  }
+
+  // node_modules/@simplewebauthn/browser/esm/helpers/browserSupportsWebAuthnAutofill.js
+  function browserSupportsWebAuthnAutofill() {
+    if (!browserSupportsWebAuthn()) {
+      return _browserSupportsWebAuthnAutofillInternals.stubThis(new Promise((resolve) => resolve(false)));
+    }
+    const globalPublicKeyCredential = globalThis.PublicKeyCredential;
+    if (globalPublicKeyCredential?.isConditionalMediationAvailable === void 0) {
+      return _browserSupportsWebAuthnAutofillInternals.stubThis(new Promise((resolve) => resolve(false)));
+    }
+    return _browserSupportsWebAuthnAutofillInternals.stubThis(globalPublicKeyCredential.isConditionalMediationAvailable());
+  }
+  var _browserSupportsWebAuthnAutofillInternals = {
+    stubThis: (value) => value
+  };
+
+  // node_modules/@simplewebauthn/browser/esm/helpers/identifyAuthenticationError.js
+  function identifyAuthenticationError({ error, options }) {
+    const { publicKey } = options;
+    if (!publicKey) {
+      throw Error("options was missing required publicKey property");
+    }
+    if (error.name === "AbortError") {
+      if (options.signal instanceof AbortSignal) {
+        return new WebAuthnError({
+          message: "Authentication ceremony was sent an abort signal",
+          code: "ERROR_CEREMONY_ABORTED",
+          cause: error
+        });
+      }
+    } else if (error.name === "NotAllowedError") {
+      return new WebAuthnError({
+        message: error.message,
+        code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
+        cause: error
+      });
+    } else if (error.name === "SecurityError") {
+      const effectiveDomain = globalThis.location.hostname;
+      if (!isValidDomain(effectiveDomain)) {
+        return new WebAuthnError({
+          message: `${globalThis.location.hostname} is an invalid domain`,
+          code: "ERROR_INVALID_DOMAIN",
+          cause: error
+        });
+      } else if (publicKey.rpId !== effectiveDomain) {
+        return new WebAuthnError({
+          message: `The RP ID "${publicKey.rpId}" is invalid for this domain`,
+          code: "ERROR_INVALID_RP_ID",
+          cause: error
+        });
+      }
+    } else if (error.name === "UnknownError") {
+      return new WebAuthnError({
+        message: "The authenticator was unable to process the specified options, or could not create a new assertion signature",
+        code: "ERROR_AUTHENTICATOR_GENERAL_ERROR",
+        cause: error
+      });
+    }
+    return error;
+  }
+
+  // node_modules/@simplewebauthn/browser/esm/methods/startAuthentication.js
+  async function startAuthentication(options) {
+    if (!options.optionsJSON && options.challenge) {
+      console.warn("startAuthentication() was not called correctly. It will try to continue with the provided options, but this call should be refactored to use the expected call structure instead. See https://simplewebauthn.dev/docs/packages/browser#typeerror-cannot-read-properties-of-undefined-reading-challenge for more information.");
+      options = { optionsJSON: options };
+    }
+    const { optionsJSON, useBrowserAutofill = false, verifyBrowserAutofillInput = true } = options;
+    if (!browserSupportsWebAuthn()) {
+      throw new Error("WebAuthn is not supported in this browser");
+    }
+    let allowCredentials;
+    if (optionsJSON.allowCredentials?.length !== 0) {
+      allowCredentials = optionsJSON.allowCredentials?.map(toPublicKeyCredentialDescriptor);
+    }
+    const publicKey = {
+      ...optionsJSON,
+      challenge: base64URLStringToBuffer(optionsJSON.challenge),
+      allowCredentials
+    };
+    const getOptions = {};
+    if (useBrowserAutofill) {
+      if (!await browserSupportsWebAuthnAutofill()) {
+        throw Error("Browser does not support WebAuthn autofill");
+      }
+      const eligibleInputs = document.querySelectorAll("input[autocomplete$='webauthn']");
+      if (eligibleInputs.length < 1 && verifyBrowserAutofillInput) {
+        throw Error('No <input> with "webauthn" as the only or last value in its `autocomplete` attribute was detected');
+      }
+      getOptions.mediation = "conditional";
+      publicKey.allowCredentials = [];
+    }
+    getOptions.publicKey = publicKey;
+    getOptions.signal = WebAuthnAbortService.createNewAbortSignal();
+    let credential;
+    try {
+      credential = await navigator.credentials.get(getOptions);
+    } catch (err) {
+      throw identifyAuthenticationError({ error: err, options: getOptions });
+    }
+    if (!credential) {
+      throw new Error("Authentication was not completed");
+    }
+    const { id, rawId, response, type } = credential;
+    let userHandle = void 0;
+    if (response.userHandle) {
+      userHandle = bufferToBase64URLString(response.userHandle);
+    }
+    return {
+      id,
+      rawId: bufferToBase64URLString(rawId),
+      response: {
+        authenticatorData: bufferToBase64URLString(response.authenticatorData),
+        clientDataJSON: bufferToBase64URLString(response.clientDataJSON),
+        signature: bufferToBase64URLString(response.signature),
+        userHandle
+      },
+      type,
+      clientExtensionResults: credential.getClientExtensionResults(),
+      authenticatorAttachment: toAuthenticatorAttachment(credential.authenticatorAttachment)
+    };
+  }
+
   // src/portal-auth.mjs
   var FN = "/.netlify/functions";
   var TOKEN_KEY = "pcg_portal_token";
@@ -278,6 +698,113 @@
   }
   async function portalRevokeSessions(targetUserId) {
     return post(targetUserId != null ? { action: "revoke-sessions", targetUserId } : { action: "revoke-sessions" });
+  }
+  async function postAuthenticated(body) {
+    let res;
+    try {
+      res = await fetch(`${FN}/portal-auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify(body)
+      });
+    } catch {
+      return { ok: false, error: "network error" };
+    }
+    let j = {};
+    try {
+      j = await res.json();
+    } catch {
+    }
+    if (!res.ok) return { ok: false, error: j.error || `request failed (${res.status})` };
+    return { ok: true, ...j };
+  }
+  async function webauthnAvailable() {
+    try {
+      if (!window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) return false;
+      return await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } catch {
+      return false;
+    }
+  }
+  async function webauthnRegister() {
+    const optRes = await postAuthenticated({ action: "webauthn-register-options" });
+    if (!optRes.ok) return { ok: false, error: optRes.error };
+    let credential;
+    try {
+      credential = await startRegistration({ optionsJSON: optRes.options });
+    } catch (e) {
+      return { ok: false, error: e?.name === "NotAllowedError" ? "cancelled" : e?.message || "registration failed" };
+    }
+    const verifyRes = await postAuthenticated({ action: "webauthn-register-verify", credential });
+    if (verifyRes.ok) {
+      try {
+        localStorage.setItem(DEVICE_ENROLLED_KEY, "1");
+      } catch {
+      }
+    }
+    return verifyRes;
+  }
+  var DEVICE_ENROLLED_KEY = "pcg_webauthn_device_enrolled";
+  var DEVICE_DECLINED_KEY = "pcg_webauthn_device_declined";
+  function webauthnDeviceEnrolled() {
+    try {
+      return localStorage.getItem(DEVICE_ENROLLED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+  function webauthnDeviceDeclined() {
+    try {
+      return localStorage.getItem(DEVICE_DECLINED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+  function markWebauthnDeviceDeclined() {
+    try {
+      localStorage.setItem(DEVICE_DECLINED_KEY, "1");
+    } catch {
+    }
+  }
+  async function webauthnList() {
+    const res = await postAuthenticated({ action: "webauthn-list" });
+    return res.ok ? res.credentials || [] : [];
+  }
+  async function webauthnDelete(credentialId) {
+    const res = await postAuthenticated({ action: "webauthn-delete", credentialId });
+    if (res.ok) {
+      try {
+        localStorage.removeItem(DEVICE_ENROLLED_KEY);
+      } catch {
+      }
+    }
+    return res;
+  }
+  async function webauthnLogin(username) {
+    let res;
+    try {
+      res = await fetch(`${FN}/portal-auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(username ? { action: "webauthn-login-options", username } : { action: "webauthn-login-options" })
+      });
+    } catch {
+      return { ok: false, unreachable: true };
+    }
+    if (res.status >= 500) return { ok: false, unreachable: true, status: res.status };
+    let j = {};
+    try {
+      j = await res.json();
+    } catch {
+    }
+    if (!res.ok) return { ok: false, unreachable: false, status: res.status, error: j.error || "no biometric login set up" };
+    let credential;
+    try {
+      credential = await startAuthentication({ optionsJSON: j.options });
+    } catch (e) {
+      return { ok: false, unreachable: false, error: e?.name === "NotAllowedError" ? "cancelled" : e?.message || "authentication failed" };
+    }
+    return post({ action: "webauthn-login-verify", requestId: j.requestId, username, credential });
   }
   async function portalMe() {
     if (!_token) return null;
@@ -1775,6 +2302,9 @@
     document.body.appendChild(overlay);
     return overlay;
   }
+  function FaceIdIcon({ size = 20, color = "currentColor" }) {
+    return /* @__PURE__ */ React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", style: { display: "inline-block", verticalAlign: "middle", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("path", { d: "M3 8V6a3 3 0 0 1 3-3h2" }), /* @__PURE__ */ React.createElement("path", { d: "M16 3h2a3 3 0 0 1 3 3v2" }), /* @__PURE__ */ React.createElement("path", { d: "M21 16v2a3 3 0 0 1-3 3h-2" }), /* @__PURE__ */ React.createElement("path", { d: "M8 21H6a3 3 0 0 1-3-3v-2" }), /* @__PURE__ */ React.createElement("path", { d: "M9 10v1" }), /* @__PURE__ */ React.createElement("path", { d: "M15 10v1" }), /* @__PURE__ */ React.createElement("path", { d: "M9.5 15.5c.8.8 1.9 1 2.5 1s1.7-.2 2.5-1" }));
+  }
   function Login({ onLogin, dark, toggleDark, users }) {
     const th = getTheme(dark);
     const [form, setForm] = useState({ u: (() => {
@@ -1813,6 +2343,13 @@
     const logoRef = useRef(null);
     const googleBtnRef = useRef(null);
     const tokenClientRef = useRef(null);
+    const [bioAvailable, setBioAvailable] = useState(false);
+    const [bioLoading, setBioLoading] = useState(false);
+    const [bioAutoPrompting, setBioAutoPrompting] = useState(false);
+    const bioAutoTriedRef = useRef(false);
+    useEffect(() => {
+      webauthnAvailable().then(setBioAvailable);
+    }, []);
     useEffect(() => {
       const onResize = () => {
         setNarrow(window.innerWidth < 900);
@@ -1983,6 +2520,59 @@
         setTimeout(() => setShake(false), 520);
       }
     };
+    const handleBiometricResult = async (res, silent) => {
+      if (!res.ok) {
+        if (!silent && !res.unreachable && res.error !== "cancelled") setErr(res.error || "Biometric sign-in failed.");
+        return;
+      }
+      const uname = res.user?.username || "";
+      const localAcct = uname ? users.find((u) => (u.username || "").trim().toLowerCase() === uname.toLowerCase() && u.active !== false) : null;
+      const found = localAcct || (res.user ? {
+        id: res.user.id,
+        username: res.user.username,
+        name: res.user.name,
+        userType: res.user.userType,
+        district: res.user.district,
+        email: res.user.email,
+        isAdmin: res.user.isAdmin || false,
+        storePC: res.user.storePC || null,
+        region: res.user.region || null,
+        darkMode: res.user.darkMode || false,
+        initials: res.user.initials || null,
+        twoFactorRequired: res.user.twoFactorRequired || false,
+        twoFactorEnabled: res.user.twoFactorEnabled || false,
+        twoFactorSecret: res.twoFactorSecret || null,
+        mustSetup: res.user.mustSetup || false,
+        active: true
+      } : null);
+      if (!found) return;
+      const trusted = await isTwoFactorDeviceTrusted(found).catch(() => false);
+      if (isTwoFactorRequired(found) && !trusted) {
+        beginTwoFactor(found);
+      } else {
+        applyRememberMe(found.username);
+        finishLogin(found);
+      }
+    };
+    const submitBiometric = async () => {
+      if (bioLoading || loading) return;
+      setBioLoading(true);
+      setErr("");
+      const res = await webauthnLogin((form.u || "").trim() || void 0);
+      setBioLoading(false);
+      await handleBiometricResult(res, false);
+    };
+    useEffect(() => {
+      if (bioAutoTriedRef.current) return;
+      if (!bioAvailable || !webauthnDeviceEnrolled()) return;
+      bioAutoTriedRef.current = true;
+      (async () => {
+        setBioAutoPrompting(true);
+        const res = await webauthnLogin();
+        setBioAutoPrompting(false);
+        await handleBiometricResult(res, true);
+      })();
+    }, [bioAvailable]);
     useEffect(() => {
       if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
       let tries = 0;
@@ -2675,7 +3265,40 @@
         userSelect: "none",
         boxSizing: "border-box",
         transition: "box-shadow .15s"
-      } }, /* @__PURE__ */ React.createElement("svg", { width: "18", height: "18", viewBox: "0 0 24 24" }, /* @__PURE__ */ React.createElement("path", { fill: "#4285F4", d: "M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" }), /* @__PURE__ */ React.createElement("path", { fill: "#34A853", d: "M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" }), /* @__PURE__ */ React.createElement("path", { fill: "#FBBC05", d: "M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" }), /* @__PURE__ */ React.createElement("path", { fill: "#EA4335", d: "M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" })), "Sign in with Google"))),
+      } }, /* @__PURE__ */ React.createElement("svg", { width: "18", height: "18", viewBox: "0 0 24 24" }, /* @__PURE__ */ React.createElement("path", { fill: "#4285F4", d: "M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" }), /* @__PURE__ */ React.createElement("path", { fill: "#34A853", d: "M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" }), /* @__PURE__ */ React.createElement("path", { fill: "#FBBC05", d: "M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" }), /* @__PURE__ */ React.createElement("path", { fill: "#EA4335", d: "M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" })), "Sign in with Google")), bioAvailable && /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          onClick: submitBiometric,
+          disabled: bioLoading,
+          style: {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.625rem",
+            width: "100%",
+            marginTop: "0.75rem",
+            padding: "0.85rem 1rem",
+            borderRadius: "2rem",
+            cursor: bioLoading ? "wait" : "pointer",
+            border: `1.5px solid ${dark ? "rgba(255,255,255,0.15)" : "#dadce0"}`,
+            background: dark ? "rgba(255,255,255,0.07)" : "#fff",
+            fontFamily: "'Source Sans 3'",
+            fontWeight: 600,
+            fontSize: "0.88rem",
+            color: dark ? "#e8eaed" : "#3c4043",
+            transition: "border-color .15s, background .15s"
+          },
+          onMouseEnter: (e) => {
+            if (!bioLoading) e.currentTarget.style.borderColor = O;
+          },
+          onMouseLeave: (e) => {
+            e.currentTarget.style.borderColor = dark ? "rgba(255,255,255,0.15)" : "#dadce0";
+          }
+        },
+        /* @__PURE__ */ React.createElement(FaceIdIcon, { size: 19, color: O }),
+        bioLoading ? "Checking..." : "Sign in with Face ID / Fingerprint"
+      )),
       /* @__PURE__ */ React.createElement("div", { style: {
         marginTop: "1.5rem",
         paddingTop: "1.25rem",
@@ -7090,9 +7713,9 @@
   }
   var SITE_URL = typeof window !== "undefined" ? window.location.origin : "https://pcgops.com";
   var projectEmailLink = (id, label) => `<div style="margin-top:16px"><a href="${SITE_URL}/?project=${id}" style="display:inline-block;padding:10px 24px;background:${BRAND_CONFIG.primary};color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">View Project: ${label}</a></div>`;
-  async function sendNotifyEmail(to, subject, htmlBody, attachments) {
+  async function sendNotifyEmail(to, subject, htmlBody, attachments2) {
     const payload = { to: Array.isArray(to) ? to : [to], subject, body: htmlBody };
-    if (attachments && attachments.length > 0) payload.attachments = attachments;
+    if (attachments2 && attachments2.length > 0) payload.attachments = attachments2;
     const res = await fetch("/.netlify/functions/notify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -15777,19 +16400,19 @@ ${t2.slice(0, 300)}`);
       const initActivity = notifyEmails.length > 0 ? [{ id: Date.now() + 1, type: "system", text: `Sent ticket details on emails:
 ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       setCreating(true);
-      const attachments = [];
+      const attachments2 = [];
       for (let i = 0; i < rawAttachments.length; i++) {
         const a = rawAttachments[i];
         const fileKey = `pcg_ticket_att_${ticketId}_${i}`;
         try {
           await cloudSaveDataUrl(fileKey, a.dataUrl, { name: a.name, type: a.type, size: a.size, uploadedBy: user?.name });
-          attachments.push({ name: a.name, type: a.type, size: a.size, fileKey });
+          attachments2.push({ name: a.name, type: a.type, size: a.size, fileKey });
         } catch {
-          attachments.push({ name: a.name, type: a.type, size: a.size, dataUrl: a.dataUrl });
+          attachments2.push({ name: a.name, type: a.type, size: a.size, dataUrl: a.dataUrl });
         }
       }
       setCreating(false);
-      const t = { id: ticketId, number: nextNumber(), title: form.title, storePC: form.storePC, storeName: store?.name || "Unknown Store", address: store ? store.address || "" : "", category: form.category, priority: form.priority, dueDate: form.dueDate, status: "Open", ticketOwner: form.ticketOwner || user?.name || "Unassigned", createdBy: user?.name || "Unknown", description, selectedIssues: form.selectedIssues, attachments, comments: initActivity, createdAt: now, updatedAt: now };
+      const t = { id: ticketId, number: nextNumber(), title: form.title, storePC: form.storePC, storeName: store?.name || "Unknown Store", address: store ? store.address || "" : "", category: form.category, priority: form.priority, dueDate: form.dueDate, status: "Open", ticketOwner: form.ticketOwner || user?.name || "Unassigned", createdBy: user?.name || "Unknown", description, selectedIssues: form.selectedIssues, attachments: attachments2, comments: initActivity, createdAt: now, updatedAt: now };
       setTickets((ts) => [t, ...ts]);
       setSelectedId(t.id);
       setShowForm(false);
@@ -19466,7 +20089,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.40";
+  var APP_VERSION = "v19.43";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -20614,6 +21237,30 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       textAlign: "left"
     } }, uploadMsg.text), currentWeek && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.5rem", padding: "1rem", background: th.card2, borderRadius: "0.5rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Currently Loaded"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.95rem", color: th.text, fontWeight: 700 } }, "Week #", currentWeek.weekNum, " \u2014 ", currentWeek.weekEnd, currentWeek.isDraft ? /* @__PURE__ */ React.createElement("span", { style: { color: "#ffa94d", fontWeight: 700, marginLeft: "0.4rem", fontSize: "0.65rem", border: "1px solid #ffa94d", borderRadius: "4px", padding: "1px 6px" } }, "DRAFT") : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, currentWeek.stores.length, " stores")), salesWeeks.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Previous Weeks"), salesWeeks.slice(1).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.25rem 0" } }, "Week #", w.weekNum, " \u2014 ", w.weekEnd, w.isDraft ? " (Draft)" : "", " (", w.stores.length, " stores)")))));
   }
+  function BiometricEnrollPrompt({ th, onDone }) {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const enable = async () => {
+      setBusy(true);
+      setErr("");
+      const res = await webauthnRegister();
+      setBusy(false);
+      if (!res.ok) {
+        if (res.error === "cancelled") {
+          onDone();
+          return;
+        }
+        setErr(res.error || "Could not enable biometric sign-in.");
+        return;
+      }
+      onDone();
+    };
+    const decline = () => {
+      markWebauthnDeviceDeclined();
+      onDone();
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), maxWidth: 380, width: "100%", padding: "1.75rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 56, height: 56, borderRadius: "50%", background: `${O}18`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement(FaceIdIcon, { size: 28, color: O })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Enable Face ID / Fingerprint?"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, lineHeight: 1.5, marginBottom: "1.25rem" } }, "Skip typing your password next time you sign in on this device."), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.75rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted, flex: 1 }), onClick: decline, disabled: busy }, "Not now"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { flex: 1 }), onClick: enable, disabled: busy }, busy ? "Enabling..." : "Enable"))));
+  }
   function FirstLoginSetup({ user, setUser, setUsers, th }) {
     const [step, setStep] = useState(1);
     const [form, setForm] = useState({
@@ -20741,6 +21388,32 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       showConfirm: false
     });
     const [profileMsg, setProfileMsg] = useState(null);
+    const [bioAvailable, setBioAvailable] = useState(false);
+    const [bioCreds, setBioCreds] = useState([]);
+    const [bioBusy, setBioBusy] = useState(false);
+    const refreshBioCreds = () => webauthnList().then(setBioCreds);
+    useEffect(() => {
+      webauthnAvailable().then(setBioAvailable);
+      refreshBioCreds();
+    }, []);
+    const handleBioEnroll = async () => {
+      setBioBusy(true);
+      setProfileMsg(null);
+      const res = await webauthnRegister();
+      setBioBusy(false);
+      if (!res.ok) {
+        if (res.error !== "cancelled") setProfileMsg({ type: "error", text: res.error || "Could not enroll this device." });
+        return;
+      }
+      setProfileMsg({ type: "success", text: "Fingerprint/Face unlock enabled on this device." });
+      refreshBioCreds();
+    };
+    const handleBioDelete = async (credentialId) => {
+      setBioBusy(true);
+      await webauthnDelete(credentialId);
+      setBioBusy(false);
+      refreshBioCreds();
+    };
     const handleProfileSave = async () => {
       if (profileForm.newPassword) {
         if (!isSharedDeviceType(user.userType)) {
@@ -20858,7 +21531,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         background: "#fff",
         transition: "left .25s",
         boxShadow: "0 1px 3px #00000030"
-      } })))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Change Password"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.625rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), type: profileForm.showCurrent ? "text" : "password", placeholder: "Current password", value: profileForm.currentPassword, onChange: (e) => setProfileForm((f) => ({ ...f, currentPassword: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { onClick: () => setProfileForm((f) => ({ ...f, showCurrent: !f.showCurrent })), style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.75rem" } }, profileForm.showCurrent ? "\u{1F648}" : "\u{1F441}")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), type: profileForm.showNew ? "text" : "password", placeholder: "New password", value: profileForm.newPassword, onChange: (e) => setProfileForm((f) => ({ ...f, newPassword: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { onClick: () => setProfileForm((f) => ({ ...f, showNew: !f.showNew })), style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.75rem" } }, profileForm.showNew ? "\u{1F648}" : "\u{1F441}")), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), type: profileForm.showConfirm ? "text" : "password", placeholder: "Confirm password", value: profileForm.confirmPassword, onChange: (e) => setProfileForm((f) => ({ ...f, confirmPassword: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { onClick: () => setProfileForm((f) => ({ ...f, showConfirm: !f.showConfirm })), style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.75rem" } }, profileForm.showConfirm ? "\u{1F648}" : "\u{1F441}")))), profileMsg && /* @__PURE__ */ React.createElement("div", { style: {
+      } })))), bioAvailable && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Fingerprint / Face Unlock"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, bioCreds.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.625rem" } }, "Not set up on this device yet.") : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.4rem", marginBottom: "0.625rem" } }, bioCreds.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.credential_id, style: { display: "flex", alignItems: "center", gap: "0.625rem", padding: "0.5rem 0.75rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 32, height: 32, borderRadius: "50%", background: `${O}18`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement(FaceIdIcon, { size: 16, color: O })), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.text } }, c.device_label || "Device"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, "Added ", c.created_at ? new Date(c.created_at).toLocaleDateString() : "\u2014", c.last_used_at ? ` \xB7 last used ${new Date(c.last_used_at).toLocaleDateString()}` : "")), /* @__PURE__ */ React.createElement("button", { onClick: () => handleBioDelete(c.credential_id), disabled: bioBusy, style: { background: "none", border: "none", color: "#ff6666", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("button", { style: { ...btn(th, { background: th.card3 }), display: "inline-flex", alignItems: "center", gap: "0.5rem" }, disabled: bioBusy, onClick: handleBioEnroll }, /* @__PURE__ */ React.createElement(FaceIdIcon, { size: 16 }), bioBusy ? "Working..." : "Enable on This Device"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Change Password"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.625rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), type: profileForm.showCurrent ? "text" : "password", placeholder: "Current password", value: profileForm.currentPassword, onChange: (e) => setProfileForm((f) => ({ ...f, currentPassword: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { onClick: () => setProfileForm((f) => ({ ...f, showCurrent: !f.showCurrent })), style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.75rem" } }, profileForm.showCurrent ? "\u{1F648}" : "\u{1F441}")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), type: profileForm.showNew ? "text" : "password", placeholder: "New password", value: profileForm.newPassword, onChange: (e) => setProfileForm((f) => ({ ...f, newPassword: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { onClick: () => setProfileForm((f) => ({ ...f, showNew: !f.showNew })), style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.75rem" } }, profileForm.showNew ? "\u{1F648}" : "\u{1F441}")), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), type: profileForm.showConfirm ? "text" : "password", placeholder: "Confirm password", value: profileForm.confirmPassword, onChange: (e) => setProfileForm((f) => ({ ...f, confirmPassword: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { onClick: () => setProfileForm((f) => ({ ...f, showConfirm: !f.showConfirm })), style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.75rem" } }, profileForm.showConfirm ? "\u{1F648}" : "\u{1F441}")))), profileMsg && /* @__PURE__ */ React.createElement("div", { style: {
         padding: "0.5rem 0.75rem",
         borderRadius: "0.375rem",
         marginBottom: "0.75rem",
@@ -31831,6 +32504,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [annGateQueue, setAnnGateQueue] = useState([]);
     const [annGateIdx, setAnnGateIdx] = useState(0);
     const [annGateDone, setAnnGateDone] = useState(false);
+    const [bioPromptDone, setBioPromptDone] = useState(false);
+    const [bioPromptEligible, setBioPromptEligible] = useState(false);
+    useEffect(() => {
+      if (!user) return;
+      webauthnAvailable().then((avail) => {
+        setBioPromptEligible(avail && !webauthnDeviceEnrolled() && !webauthnDeviceDeclined());
+      });
+    }, [user?.id]);
     const [accessOverrides, setAccessOverrides] = useState({});
     const cloudAccessLoaded = useRef(false);
     const cloudProjectsLoaded = useRef(false);
@@ -33290,6 +33971,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     } });
     if (user.mustSetup && user.userType !== "store_tablet") {
       return /* @__PURE__ */ React.createElement(FirstLoginSetup, { user, setUser, setUsers, th });
+    }
+    if (!bioPromptDone && bioPromptEligible && !isSharedDeviceType(user.userType)) {
+      return /* @__PURE__ */ React.createElement(BiometricEnrollPrompt, { th, onDone: () => setBioPromptDone(true) });
     }
     if (!annGateDone && annGateQueue.length > 0 && annGateIdx < annGateQueue.length) {
       const ackAnn = (annId) => {

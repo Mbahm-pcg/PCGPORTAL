@@ -4,7 +4,7 @@ import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCa
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-negative-shared.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
-import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken } from './src/portal-auth.mjs';
+import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 
@@ -773,6 +773,25 @@ function spawnTransitionFX(cx, cy, newDark) {
   return overlay;
 }
 
+// Face ID / biometric scan icon — corner-bracket viewfinder + minimal face,
+// same stroke-icon language as the rest of the app (viewBox 24, strokeWidth 2,
+// round caps/joins). Replaces the finger emoji: works for both Face ID and
+// fingerprint unlock without picking a side, and renders identically across
+// platforms (emoji glyphs vary by OS/font and read as informal).
+function FaceIdIcon({ size = 20, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle", flexShrink: 0 }}>
+      <path d="M3 8V6a3 3 0 0 1 3-3h2" />
+      <path d="M16 3h2a3 3 0 0 1 3 3v2" />
+      <path d="M21 16v2a3 3 0 0 1-3 3h-2" />
+      <path d="M8 21H6a3 3 0 0 1-3-3v-2" />
+      <path d="M9 10v1" />
+      <path d="M15 10v1" />
+      <path d="M9.5 15.5c.8.8 1.9 1 2.5 1s1.7-.2 2.5-1" />
+    </svg>
+  );
+}
+
 function Login({ onLogin, dark, toggleDark, users }) {
   const th = getTheme(dark);
   const [form, setForm] = useState({ u: (() => { try { return localStorage.getItem('pcg_remember_username') || ''; } catch { return ''; } })(), p: "" });
@@ -801,6 +820,11 @@ function Login({ onLogin, dark, toggleDark, users }) {
   const logoRef = useRef(null);
   const googleBtnRef = useRef(null);
   const tokenClientRef = useRef(null);
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioLoading, setBioLoading] = useState(false);
+  const [bioAutoPrompting, setBioAutoPrompting] = useState(false);
+  const bioAutoTriedRef = useRef(false);
+  useEffect(() => { webauthnAvailable().then(setBioAvailable); }, []);
 
   // Track viewport size so the layout reacts to rotation / resize
   useEffect(() => {
@@ -991,6 +1015,63 @@ function Login({ onLogin, dark, toggleDark, users }) {
       setTimeout(() => setShake(false), 520);
     }
   };
+
+  // Mirrors submit()'s success-handling (2FA gate, remember-me, finishLogin) —
+  // only the credential exchange differs (biometric assertion vs password).
+  // Shared by both the manual "Sign in with Fingerprint" button (username
+  // typed) and the auto-prompt-on-open effect below (no username — the
+  // discoverable credential itself tells the server who it is).
+  const handleBiometricResult = async (res, silent) => {
+    if (!res.ok) {
+      if (!silent && !res.unreachable && res.error !== "cancelled") setErr(res.error || "Biometric sign-in failed.");
+      return;
+    }
+    const uname = res.user?.username || "";
+    const localAcct = uname ? users.find(u => (u.username || "").trim().toLowerCase() === uname.toLowerCase() && u.active !== false) : null;
+    const found = localAcct || (res.user ? {
+      id: res.user.id, username: res.user.username, name: res.user.name, userType: res.user.userType,
+      district: res.user.district, email: res.user.email, isAdmin: res.user.isAdmin || false,
+      storePC: res.user.storePC || null, region: res.user.region || null, darkMode: res.user.darkMode || false,
+      initials: res.user.initials || null, twoFactorRequired: res.user.twoFactorRequired || false,
+      twoFactorEnabled: res.user.twoFactorEnabled || false, twoFactorSecret: res.twoFactorSecret || null,
+      mustSetup: res.user.mustSetup || false, active: true,
+    } : null);
+    if (!found) return;
+    const trusted = await isTwoFactorDeviceTrusted(found).catch(() => false);
+    if (isTwoFactorRequired(found) && !trusted) {
+      beginTwoFactor(found);
+    } else {
+      applyRememberMe(found.username);
+      finishLogin(found);
+    }
+  };
+
+  const submitBiometric = async () => {
+    if (bioLoading || loading) return;
+    setBioLoading(true);
+    setErr("");
+    // A typed username narrows the lookup; omit it entirely for a fully
+    // discoverable attempt (server/OS figures out the account).
+    const res = await webauthnLogin((form.u || "").trim() || undefined);
+    setBioLoading(false);
+    await handleBiometricResult(res, false);
+  };
+
+  // Auto-prompt biometric on open for a device that's already proven itself
+  // (enrolled previously) — no username, no button tap. Fires once per page
+  // load; a cancel/failure just falls back to the normal login form silently
+  // rather than nagging the user with an error before they've done anything.
+  useEffect(() => {
+    if (bioAutoTriedRef.current) return;
+    if (!bioAvailable || !webauthnDeviceEnrolled()) return;
+    bioAutoTriedRef.current = true;
+    (async () => {
+      setBioAutoPrompting(true);
+      const res = await webauthnLogin();
+      setBioAutoPrompting(false);
+      await handleBiometricResult(res, true);
+    })();
+  }, [bioAvailable]);
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
@@ -1771,6 +1852,30 @@ function Login({ onLogin, dark, toggleDark, users }) {
                 </div>
               )}
             </div>
+
+            {bioAvailable && (
+              <button
+                type="button"
+                onClick={submitBiometric}
+                disabled={bioLoading}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  gap: "0.625rem", width: "100%", marginTop: "0.75rem",
+                  padding: "0.85rem 1rem", borderRadius: "2rem",
+                  cursor: bioLoading ? "wait" : "pointer",
+                  border: `1.5px solid ${dark ? "rgba(255,255,255,0.15)" : "#dadce0"}`,
+                  background: dark ? "rgba(255,255,255,0.07)" : "#fff",
+                  fontFamily: "'Source Sans 3'", fontWeight: 600, fontSize: "0.88rem",
+                  color: dark ? "#e8eaed" : "#3c4043",
+                  transition: "border-color .15s, background .15s",
+                }}
+                onMouseEnter={e => { if (!bioLoading) e.currentTarget.style.borderColor = O; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = dark ? "rgba(255,255,255,0.15)" : "#dadce0"; }}
+              >
+                <FaceIdIcon size={19} color={O} />
+                {bioLoading ? "Checking..." : "Sign in with Face ID / Fingerprint"}
+              </button>
+            )}
             </>
             )}
 
@@ -24624,7 +24729,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.40";
+const APP_VERSION = "v19.43";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -26142,6 +26247,49 @@ function KioskUpload({ th, salesWeeks, setSalesWeeks }) {
   );
 }
 
+// ── Post-login biometric enrollment prompt ───────────────────────────────────
+// Shown once per device after a normal (password/Google) login, when this
+// device supports biometrics but hasn't enrolled or explicitly declined yet.
+// Enable → runs the same enrollment as Profile settings. Not now → remembered
+// on this device (localStorage) so it's asked once, not every login.
+function BiometricEnrollPrompt({ th, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const enable = async () => {
+    setBusy(true);
+    setErr("");
+    const res = await webauthnRegister();
+    setBusy(false);
+    if (!res.ok) {
+      if (res.error === "cancelled") { onDone(); return; }
+      setErr(res.error || "Could not enable biometric sign-in.");
+      return;
+    }
+    onDone();
+  };
+  const decline = () => { markWebauthnDeviceDeclined(); onDone(); };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+      <div style={{ ...card(th), maxWidth: 380, width: "100%", padding: "1.75rem", textAlign: "center" }}>
+        <div style={{ width: 56, height: 56, borderRadius: "50%", background: `${O}18`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
+          <FaceIdIcon size={28} color={O} />
+        </div>
+        <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" }}>Enable Face ID / Fingerprint?</div>
+        <div style={{ fontSize: "0.85rem", color: th.muted, lineHeight: 1.5, marginBottom: "1.25rem" }}>
+          Skip typing your password next time you sign in on this device.
+        </div>
+        {err && <div style={{ fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.75rem" }}>{err}</div>}
+        <div style={{ display: "flex", gap: "0.625rem" }}>
+          <button style={btn(th, { background: th.card3, color: th.muted, flex: 1 })} onClick={decline} disabled={busy}>Not now</button>
+          <button style={btn(th, { flex: 1 })} onClick={enable} disabled={busy}>{busy ? "Enabling..." : "Enable"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── First-Login Setup Screen ─────────────────────────────────────────────────
 function FirstLoginSetup({ user, setUser, setUsers, th }) {
   const [step, setStep] = useState(1); // 1=password, 2=profile+prefs
@@ -26312,6 +26460,30 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
     showConfirm: false,
   });
   const [profileMsg, setProfileMsg] = useState(null);
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioCreds, setBioCreds] = useState([]);
+  const [bioBusy, setBioBusy] = useState(false);
+  const refreshBioCreds = () => webauthnList().then(setBioCreds);
+  useEffect(() => { webauthnAvailable().then(setBioAvailable); refreshBioCreds(); }, []);
+
+  const handleBioEnroll = async () => {
+    setBioBusy(true);
+    setProfileMsg(null);
+    const res = await webauthnRegister();
+    setBioBusy(false);
+    if (!res.ok) {
+      if (res.error !== "cancelled") setProfileMsg({ type:"error", text: res.error || "Could not enroll this device." });
+      return;
+    }
+    setProfileMsg({ type:"success", text:"Fingerprint/Face unlock enabled on this device." });
+    refreshBioCreds();
+  };
+  const handleBioDelete = async (credentialId) => {
+    setBioBusy(true);
+    await webauthnDelete(credentialId);
+    setBioBusy(false);
+    refreshBioCreds();
+  };
 
   const handleProfileSave = async () => {
     // Password change goes through the server (verifies the current password against the
@@ -26452,6 +26624,35 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
             </div>
           </label>
         </div>
+        {bioAvailable && (
+          <>
+            <div style={{ fontSize:"0.75rem", color:th.muted, fontWeight:600, marginBottom:"0.5rem", textTransform:"uppercase", letterSpacing:0.5 }}>Fingerprint / Face Unlock</div>
+            <div style={{ marginBottom:"1.25rem" }}>
+              {bioCreds.length === 0 ? (
+                <div style={{ fontSize:"0.78rem", color:th.muted, marginBottom:"0.625rem" }}>Not set up on this device yet.</div>
+              ) : (
+                <div style={{ display:"grid", gap:"0.4rem", marginBottom:"0.625rem" }}>
+                  {bioCreds.map(c => (
+                    <div key={c.credential_id} style={{ display:"flex", alignItems:"center", gap:"0.625rem", padding:"0.5rem 0.75rem", background:th.card2, borderRadius:"0.5rem" }}>
+                      <div style={{ width:32, height:32, borderRadius:"50%", background:`${O}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                        <FaceIdIcon size={16} color={O} />
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:"0.8rem", fontWeight:600, color:th.text }}>{c.device_label || "Device"}</div>
+                        <div style={{ fontSize:"0.65rem", color:th.muted }}>Added {c.created_at ? new Date(c.created_at).toLocaleDateString() : "—"}{c.last_used_at ? ` · last used ${new Date(c.last_used_at).toLocaleDateString()}` : ""}</div>
+                      </div>
+                      <button onClick={() => handleBioDelete(c.credential_id)} disabled={bioBusy} style={{ background:"none", border:"none", color:"#ff6666", cursor:"pointer", fontSize:"0.75rem", fontWeight:600 }}>Remove</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button style={{ ...btn(th,{background:th.card3}), display:"inline-flex", alignItems:"center", gap:"0.5rem" }} disabled={bioBusy} onClick={handleBioEnroll}>
+                <FaceIdIcon size={16} />
+                {bioBusy ? "Working..." : "Enable on This Device"}
+              </button>
+            </div>
+          </>
+        )}
         <div style={{ fontSize:"0.75rem", color:th.muted, fontWeight:600, marginBottom:"0.5rem", textTransform:"uppercase", letterSpacing:0.5 }}>Change Password</div>
         <div style={{ display:"grid", gap:"0.625rem", marginBottom:"1.25rem" }}>
           <div style={{ position:"relative" }}>
@@ -42458,6 +42659,15 @@ function PCGPortal() {
   const [annGateQueue, setAnnGateQueue] = useState([]);
   const [annGateIdx, setAnnGateIdx] = useState(0);
   const [annGateDone, setAnnGateDone] = useState(false);
+  // Post-login "enable Face ID/fingerprint?" prompt — shown once per device.
+  const [bioPromptDone, setBioPromptDone] = useState(false);
+  const [bioPromptEligible, setBioPromptEligible] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    webauthnAvailable().then(avail => {
+      setBioPromptEligible(avail && !webauthnDeviceEnrolled() && !webauthnDeviceDeclined());
+    });
+  }, [user?.id]);
   // IT/exec-managed per-role tab visibility overrides: { [userType]: { [tabId]: false } }
   const [accessOverrides, setAccessOverrides] = useState({});
   const cloudAccessLoaded = useRef(false);
@@ -43994,6 +44204,13 @@ function PCGPortal() {
   // never go through first-login setup, even if an older record still has the flag.
   if (user.mustSetup && user.userType !== "store_tablet") {
     return <FirstLoginSetup user={user} setUser={setUser} setUsers={setUsers} th={th} />;
+  }
+
+  // ── Biometric Enrollment Prompt ────────────────────────────────────────────
+  // Shared/kiosk devices (store tablets, kiosks) never prompt — this is a
+  // per-person device-trust feature, meaningless on a device many people use.
+  if (!bioPromptDone && bioPromptEligible && !isSharedDeviceType(user.userType)) {
+    return <BiometricEnrollPrompt th={th} onDone={() => setBioPromptDone(true)} />;
   }
 
   // ── Announcement Gate ──────────────────────────────────────────────────────

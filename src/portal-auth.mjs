@@ -119,6 +119,127 @@ export async function portalRevokeSessions(targetUserId) {
   return post(targetUserId != null ? { action: 'revoke-sessions', targetUserId } : { action: 'revoke-sessions' });
 }
 
+// ── WebAuthn (fingerprint / Face ID) ─────────────────────────────────────────
+// @simplewebauthn/browser's startRegistration/startAuthentication call the
+// native navigator.credentials API and produce JSON shapes that
+// @simplewebauthn/server's verify functions expect directly — no manual
+// base64url encoding needed here.
+import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
+
+// Generic POST for actions that must NOT touch the held session token (enroll/
+// list/delete all require an existing session but don't return a new one —
+// the shared post() helper above unconditionally overwrites the token from
+// j.token, which would wipe the current session since these replies have no
+// token field at all).
+async function postAuthenticated(body) {
+  let res;
+  try {
+    res = await fetch(`${FN}/portal-auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(body),
+    });
+  } catch { return { ok: false, error: 'network error' }; }
+  let j = {};
+  try { j = await res.json(); } catch {}
+  if (!res.ok) return { ok: false, error: j.error || `request failed (${res.status})` };
+  return { ok: true, ...j };
+}
+
+// True if this browser/device can prompt for a platform biometric at all
+// (fingerprint/Face ID hardware present) — check before showing any
+// biometric UI so devices without it never see a button that can't work.
+export async function webauthnAvailable() {
+  try {
+    if (!window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) return false;
+    return await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch { return false; }
+}
+
+// Enroll this device's biometric for the CURRENTLY logged-in user. Returns
+// { ok, error? }.
+export async function webauthnRegister() {
+  const optRes = await postAuthenticated({ action: 'webauthn-register-options' });
+  if (!optRes.ok) return { ok: false, error: optRes.error };
+  let credential;
+  try {
+    credential = await startRegistration({ optionsJSON: optRes.options });
+  } catch (e) {
+    // User cancelled the prompt, or no platform authenticator available.
+    return { ok: false, error: e?.name === 'NotAllowedError' ? 'cancelled' : (e?.message || 'registration failed') };
+  }
+  const verifyRes = await postAuthenticated({ action: 'webauthn-register-verify', credential });
+  // Device-local marker (localStorage, not sessionStorage — must survive a full
+  // app close/reopen, not just a page refresh) so the login screen knows this
+  // specific device is worth auto-prompting biometric on next open, without
+  // needing a username to check. Purely a client-side hint — the login itself
+  // is still cryptographically verified server-side regardless of this flag.
+  if (verifyRes.ok) { try { localStorage.setItem(DEVICE_ENROLLED_KEY, '1'); } catch {} }
+  return verifyRes;
+}
+
+const DEVICE_ENROLLED_KEY = 'pcg_webauthn_device_enrolled';
+const DEVICE_DECLINED_KEY = 'pcg_webauthn_device_declined';
+
+// True if THIS device has previously completed biometric enrollment — the
+// login screen uses this to decide whether to auto-prompt on open.
+export function webauthnDeviceEnrolled() {
+  try { return localStorage.getItem(DEVICE_ENROLLED_KEY) === '1'; } catch { return false; }
+}
+
+// True if the user explicitly dismissed the "enable Face ID/fingerprint?"
+// post-login prompt on THIS device — so it's asked once, not every login.
+export function webauthnDeviceDeclined() {
+  try { return localStorage.getItem(DEVICE_DECLINED_KEY) === '1'; } catch { return false; }
+}
+export function markWebauthnDeviceDeclined() {
+  try { localStorage.setItem(DEVICE_DECLINED_KEY, '1'); } catch {}
+}
+
+// List this user's enrolled biometric devices: [{credentialId, deviceLabel, createdAt, lastUsedAt}].
+export async function webauthnList() {
+  const res = await postAuthenticated({ action: 'webauthn-list' });
+  return res.ok ? (res.credentials || []) : [];
+}
+
+export async function webauthnDelete(credentialId) {
+  const res = await postAuthenticated({ action: 'webauthn-delete', credentialId });
+  // Clear the local marker unconditionally on any successful deletion — this
+  // device can't tell which credential (if it has several) it actually used,
+  // so the safe move is to stop auto-prompting and let the user re-enable if
+  // the one they removed wasn't this device's.
+  if (res.ok) { try { localStorage.removeItem(DEVICE_ENROLLED_KEY); } catch {} }
+  return res;
+}
+
+// Log in via a previously-enrolled biometric credential. Pass `username` to
+// narrow to one account, or omit it entirely for a "discoverable" login —
+// the OS/browser resolves which enrolled credential to use (and which
+// account it belongs to) with no username needed at all, for the
+// auto-prompt-on-open flow. Same result shape as portalLogin (sets the
+// session token on success).
+export async function webauthnLogin(username) {
+  let res;
+  try {
+    res = await fetch(`${FN}/portal-auth`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(username ? { action: 'webauthn-login-options', username } : { action: 'webauthn-login-options' }),
+    });
+  } catch { return { ok: false, unreachable: true }; }
+  if (res.status >= 500) return { ok: false, unreachable: true, status: res.status };
+  let j = {};
+  try { j = await res.json(); } catch {}
+  if (!res.ok) return { ok: false, unreachable: false, status: res.status, error: j.error || 'no biometric login set up' };
+
+  let credential;
+  try {
+    credential = await startAuthentication({ optionsJSON: j.options });
+  } catch (e) {
+    return { ok: false, unreachable: false, error: e?.name === 'NotAllowedError' ? 'cancelled' : (e?.message || 'authentication failed') };
+  }
+  return post({ action: 'webauthn-login-verify', requestId: j.requestId, username, credential });
+}
+
 // Verify the held token is still valid and return its claims, or null.
 export async function portalMe() {
   if (!_token) return null;

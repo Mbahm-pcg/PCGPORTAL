@@ -4,6 +4,8 @@
     "@neondatabase/serverless": "^1.1.0",
     "@netlify/blobs": "^10.7.2",
     "@netlify/database": "^1.0.0",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.2",
     "drizzle-orm": "^1.0.0-beta.22",
     "googleapis": "^149.0.0",
     "minimalistic-assert": "^1.0.1",

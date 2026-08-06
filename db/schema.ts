@@ -342,6 +342,33 @@ export const auditLog = pgTable("audit_log", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// ── WebAuthn (fingerprint / Face ID login — LIVE) ─────────────────────────────
+// Backs biometric login (see netlify/functions/portal-auth.mjs, action prefix
+// "webauthn-"). Folded into portal-auth.mjs rather than a separate function —
+// this Netlify site's env vars sit right at AWS Lambda's 4KB-per-function cap,
+// so creating any brand-new function fails outright (hit this directly once
+// already). portal-auth.mjs self-creates both tables via CREATE TABLE IF NOT
+// EXISTS; this block documents the schema for drizzle/tooling only.
+export const webauthnCredentials = pgTable("webauthn_credentials", {
+  credentialId: text("credential_id").primaryKey(), // base64url, from the authenticator
+  userId: integer("user_id").notNull(),
+  publicKey: text("public_key").notNull(), // base64url-encoded COSE public key
+  counter: bigint("counter", { mode: "number" }).notNull().default(0),
+  deviceLabel: text("device_label"), // e.g. "Pixel 8 — Fingerprint", set from User-Agent at registration
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
+// Short-lived challenges for the registration/login handshake. `key` is the
+// user id (registration) or lowercased username (login, pre-auth so no user
+// id yet). One row per key — a new challenge overwrites the previous one, so
+// only the most recent attempt can complete.
+export const webauthnChallenges = pgTable("webauthn_challenges", {
+  key: text("key").primaryKey(),
+  challenge: text("challenge").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // ── Type exports ──────────────────────────────────────────────────────────────
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
