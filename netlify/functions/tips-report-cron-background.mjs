@@ -311,6 +311,8 @@ export default async (request) => {
   console.log(`[tips-report-cron] Building tips report for ${busDt} across ${STORES.length} stores`);
 
   const storeResults = new Array(STORES.length);
+
+  // Phase 1: Pulse tip totals — safe to batch, no shared auth state involved.
   const BATCH = 6;
   for (let i = 0; i < STORES.length; i += BATCH) {
     const batch = STORES.slice(i, i + BATCH);
@@ -318,8 +320,6 @@ export default async (request) => {
       const idx = i + j;
       const cfg = APIS[s.pc === '345986' ? 'p227' : 'p228'];
       let rows = [], tipPool = 0, checksStatus = 'error';
-      let crew = [], crewStatus = 'error';
-
       try {
         const checksRaw = await callUpstream(cfg, 'getGuestChecks', { locRef: s.pc, opnBusDt: busDt, clsdGuestChecksOnly: true, include: 'guestChecks' });
         const data = JSON.parse(checksRaw || '{}');
@@ -333,45 +333,58 @@ export default async (request) => {
       } catch (err) {
         console.error(`[tips-report-cron] ${s.name} checks error:`, err.message);
       }
-
-      try {
-        const [punchesRaw, empList] = await Promise.all([
-          callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt }),
-          fetchAllEmployees(s.paycor),
-        ]);
-        const punchData = JSON.parse(punchesRaw || '{}');
-        const punches = Array.isArray(punchData.records) ? punchData.records : (Array.isArray(punchData) ? punchData : []);
-        const empByGuid = {};
-        empList.forEach(e => { if (e && e.id) empByGuid[e.id] = e; });
-
-        // Matched by Paycor's own GUID (employeeId on the punch === id on the
-        // employee record) — no cross-system name-matching needed. Hours are
-        // summed per employee (a split shift shows as multiple punch rows) so
-        // the tip pool can be divided by hours worked, not headcount.
-        const hoursByGuid = {};
-        punches.forEach(p => {
-          if (!p.employeeId) return;
-          hoursByGuid[p.employeeId] = (hoursByGuid[p.employeeId] || 0) + punchHours(p);
-        });
-        crew = Object.keys(hoursByGuid).map(guid => {
-          const e = empByGuid[guid];
-          const jobTitle = e?.positionData?.jobTitle || '';
-          return {
-            name: e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${guid.slice(0, 8)})`,
-            payrollId: e?.employeeNumber || e?.alternateEmployeeNumber || '',
-            hours: hoursByGuid[guid],
-            // Only the actual Store Manager is excluded — Asst Managers, Shift
-            // Leaders, and Crew Member all stay in the tip pool.
-            isManager: /store\s*manager/i.test(jobTitle),
-          };
-        }).filter(c => !c.isManager && c.hours > 0);
-        crewStatus = 'ok';
-      } catch (err) {
-        console.error(`[tips-report-cron] ${s.name} crew error:`, err.message);
-      }
-
-      storeResults[idx] = { pc: s.pc, name: s.name, district: s.district, status: checksStatus, crewStatus, rows, tipPool, crew };
+      storeResults[idx] = { pc: s.pc, name: s.name, district: s.district, status: checksStatus, crewStatus: 'error', rows, tipPool, crew: [] };
     }));
+  }
+
+  // Phase 2: Paycor punches/employees — SEQUENTIAL, one store at a time. Our
+  // own paycor.mjs proxy caches its OAuth token in-memory per warm Lambda
+  // instance; firing this concurrently spins up multiple cold instances with
+  // no shared cache, all racing to refresh the same (single-use) refresh
+  // token — only one wins, the rest get rejected. Confirmed directly: a real
+  // overnight run failed on ~40 of 46 stores simultaneously with the same
+  // error the instant concurrency was introduced. Sequential avoids the race
+  // entirely; the 15-min background budget easily covers 46 stores one at a time.
+  for (let idx = 0; idx < STORES.length; idx++) {
+    const s = STORES[idx];
+    let crew = [], crewStatus = 'error';
+    try {
+      const [punchesRaw, empList] = await Promise.all([
+        callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt }),
+        fetchAllEmployees(s.paycor),
+      ]);
+      const punchData = JSON.parse(punchesRaw || '{}');
+      const punches = Array.isArray(punchData.records) ? punchData.records : (Array.isArray(punchData) ? punchData : []);
+      const empByGuid = {};
+      empList.forEach(e => { if (e && e.id) empByGuid[e.id] = e; });
+
+      // Matched by Paycor's own GUID (employeeId on the punch === id on the
+      // employee record) — no cross-system name-matching needed. Hours are
+      // summed per employee (a split shift shows as multiple punch rows) so
+      // the tip pool can be divided by hours worked, not headcount.
+      const hoursByGuid = {};
+      punches.forEach(p => {
+        if (!p.employeeId) return;
+        hoursByGuid[p.employeeId] = (hoursByGuid[p.employeeId] || 0) + punchHours(p);
+      });
+      crew = Object.keys(hoursByGuid).map(guid => {
+        const e = empByGuid[guid];
+        const jobTitle = e?.positionData?.jobTitle || '';
+        return {
+          name: e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${guid.slice(0, 8)})`,
+          payrollId: e?.employeeNumber || e?.alternateEmployeeNumber || '',
+          hours: hoursByGuid[guid],
+          // Only General Managers / Store Managers are excluded — Asst
+          // Managers, Shift Leaders, and Crew Member all stay in the pool.
+          isManager: /general\s*manager|store\s*manager/i.test(jobTitle),
+        };
+      }).filter(c => !c.isManager && c.hours > 0);
+      crewStatus = 'ok';
+    } catch (err) {
+      console.error(`[tips-report-cron] ${s.name} crew error:`, err.message);
+    }
+    storeResults[idx].crew = crew;
+    storeResults[idx].crewStatus = crewStatus;
   }
 
   const { buffer, grandTotal, grandCount } = buildWorkbook(busDt, storeResults);
