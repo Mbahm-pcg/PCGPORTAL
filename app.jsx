@@ -24729,7 +24729,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.50";
+const APP_VERSION = "v19.51";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -36363,21 +36363,20 @@ async function tipsRptFetchDayLive(dateStr, onProgress) {
         if (!r.ok || j.error) throw new Error(j.error || `Paycor request failed (${r.status})`);
         return j;
       };
-      const [punchesRaw, empListRaw] = await Promise.all([
-        fetchPaycorJSON({ action: 'punches', legalEntityId: s.paycor, startDate: dateStr, endDate: dateStr }),
-        (async () => {
-          let all = [], continuationToken;
-          do {
-            const body = continuationToken ? { action: 'employees', legalEntityId: s.paycor, continuationToken } : { action: 'employees', legalEntityId: s.paycor };
-            const res = await fetchPaycorJSON(body);
-            const page = Array.isArray(res.records) ? res.records : (Array.isArray(res) ? res : []);
-            all = all.concat(page);
-            continuationToken = res.continuationToken || res.nextToken || null;
-            if (!page.length) continuationToken = null;
-          } while (continuationToken);
-          return all;
-        })(),
-      ]);
+      // Sequential, not Promise.all — two concurrent calls to paycor.mjs from
+      // this browser race on that Lambda's shared in-memory OAuth token cache
+      // (same root cause as the server-side cron's token race), which shows up
+      // here as intermittent 504 gateway timeouts instead of outright 401s.
+      const punchesRaw = await fetchPaycorJSON({ action: 'punches', legalEntityId: s.paycor, startDate: dateStr, endDate: dateStr });
+      let empListRaw = [], continuationToken;
+      do {
+        const body = continuationToken ? { action: 'employees', legalEntityId: s.paycor, continuationToken } : { action: 'employees', legalEntityId: s.paycor };
+        const res = await fetchPaycorJSON(body);
+        const page = Array.isArray(res.records) ? res.records : (Array.isArray(res) ? res : []);
+        empListRaw = empListRaw.concat(page);
+        continuationToken = res.continuationToken || res.nextToken || null;
+        if (!page.length) continuationToken = null;
+      } while (continuationToken);
       const punches = Array.isArray(punchesRaw.records) ? punchesRaw.records : (Array.isArray(punchesRaw) ? punchesRaw : []);
       const empByGuid = {};
       empListRaw.forEach(e => { if (e && e.id) empByGuid[e.id] = e; });

@@ -20089,7 +20089,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.50";
+  var APP_VERSION = "v19.51";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -27940,21 +27940,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           if (!r.ok || j.error) throw new Error(j.error || `Paycor request failed (${r.status})`);
           return j;
         };
-        const [punchesRaw, empListRaw] = await Promise.all([
-          fetchPaycorJSON({ action: "punches", legalEntityId: s.paycor, startDate: dateStr, endDate: dateStr }),
-          (async () => {
-            let all = [], continuationToken;
-            do {
-              const body = continuationToken ? { action: "employees", legalEntityId: s.paycor, continuationToken } : { action: "employees", legalEntityId: s.paycor };
-              const res = await fetchPaycorJSON(body);
-              const page = Array.isArray(res.records) ? res.records : Array.isArray(res) ? res : [];
-              all = all.concat(page);
-              continuationToken = res.continuationToken || res.nextToken || null;
-              if (!page.length) continuationToken = null;
-            } while (continuationToken);
-            return all;
-          })()
-        ]);
+        const punchesRaw = await fetchPaycorJSON({ action: "punches", legalEntityId: s.paycor, startDate: dateStr, endDate: dateStr });
+        let empListRaw = [], continuationToken;
+        do {
+          const body = continuationToken ? { action: "employees", legalEntityId: s.paycor, continuationToken } : { action: "employees", legalEntityId: s.paycor };
+          const res = await fetchPaycorJSON(body);
+          const page = Array.isArray(res.records) ? res.records : Array.isArray(res) ? res : [];
+          empListRaw = empListRaw.concat(page);
+          continuationToken = res.continuationToken || res.nextToken || null;
+          if (!page.length) continuationToken = null;
+        } while (continuationToken);
         const punches = Array.isArray(punchesRaw.records) ? punchesRaw.records : Array.isArray(punchesRaw) ? punchesRaw : [];
         const empByGuid = {};
         empListRaw.forEach((e) => {
