@@ -235,11 +235,19 @@ async function saveDaySnapshot(busDt, storeResults) {
     await getBlobStore().setJSON(`pcg_tips_snapshot_${busDt}`, { savedAt: new Date().toISOString(), data: storeResults });
   } catch (e) { console.warn('[tips-report-cron] snapshot save failed:', e.message); }
 }
+// Memoized within a single invocation — on a biweekly-boundary Saturday, the
+// weekly (7-day) and biweekly (14-day) rollups overlap on 7 of those days;
+// without this they'd each re-fetch those same 7 snapshot blobs separately.
+const snapshotCache = new Map();
 async function loadDaySnapshot(busDt) {
+  if (snapshotCache.has(busDt)) return snapshotCache.get(busDt);
+  let result;
   try {
     const raw = await getBlobStore().get(`pcg_tips_snapshot_${busDt}`, { type: 'json' });
-    return raw?.data || null;
-  } catch { return null; }
+    result = raw?.data || null;
+  } catch { result = null; }
+  snapshotCache.set(busDt, result);
+  return result;
 }
 
 // Combine N days of saved per-store snapshots into one period-long storeResults
@@ -486,7 +494,10 @@ export default async (request) => {
           hours: hoursByGuid[guid],
           // Only General Managers / Store Managers are excluded — Asst
           // Managers, Shift Leaders, and Crew Member all stay in the pool.
-          isManager: /general\s*manager|store\s*manager/i.test(jobTitle),
+          // The plain substring match alone would also catch "Assistant
+          // General Manager" (a real Paycor title in this data), so an
+          // "assist"/"asst" prefix explicitly opts the title back in.
+          isManager: /general\s*manager|store\s*manager/i.test(jobTitle) && !/assist|asst/i.test(jobTitle),
         };
       }).filter(c => !c.isManager && c.hours > 0);
       crewStatus = 'ok';
@@ -513,7 +524,7 @@ export default async (request) => {
     const storesWithTips = storeResultsForPeriod.filter(s => s.status === 'ok' && s.rows.length > 0).length;
     const storesWithErrors = storeResultsForPeriod.filter(s => s.status === 'error').length;
     const missingNote = missingDates && missingDates.length
-      ? `<p style="margin:0 0 8px;font-size:13px;color:#b45309;">Note: ${missingDates.length} day(s) in this period predate this report existing and have no saved data (${missingDates.join(', ')}).</p>`
+      ? `<p style="margin:0 0 8px;font-size:13px;color:#b45309;">Note: ${missingDates.length} day(s) in this period have no saved data — either before this report existed, or that night's run didn't complete (${missingDates.join(', ')}).</p>`
       : '';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
