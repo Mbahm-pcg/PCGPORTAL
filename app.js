@@ -20094,7 +20094,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.46";
+  var APP_VERSION = "v19.48";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25757,7 +25757,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/*";
-      if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) input.capture = "environment";
       input.style.cssText = "position:absolute;opacity:0;pointer-events:none";
       input.onchange = async (e) => {
         if (document.body.contains(input)) document.body.removeChild(input);
@@ -25950,6 +25949,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
                 disabled: done || busyId === tk.id,
                 style: { ...inp(th), width: 80, fontSize: "0.85rem", borderColor: outRange ? "#e03131" : void 0 }
               }
+            ), /* @__PURE__ */ React.createElement(
+              "button",
+              {
+                type: "button",
+                "aria-label": "Toggle negative",
+                disabled: done || busyId === tk.id,
+                onClick: () => {
+                  const cur = localVal !== void 0 ? localVal : existing?.value != null ? String(existing.value) : "";
+                  const next = cur.startsWith("-") ? cur.slice(1) : "-" + cur;
+                  setLocalAnswers((prev) => ({ ...prev, [key]: next }));
+                  if (next !== "" && next !== "-" && !done && busyId !== tk.id) submitAnswer(tk, item, equip, { value: Number(next) });
+                },
+                style: { ...btn(th, { background: th.card2 }), width: 34, minHeight: 34, padding: 0, fontSize: "0.85rem", fontWeight: 700, flexShrink: 0, touchAction: "manipulation" }
+              },
+              "\xB1"
             ), outRange && /* @__PURE__ */ React.createElement("span", { style: { color: "#e03131", fontSize: "0.8rem" } }, "\u26A0"), existing?.in_range === true && /* @__PURE__ */ React.createElement("span", { style: { color: "#2f9e44", fontSize: "0.8rem" } }, "\u2713")));
           });
         }), isPhoto && !done && (() => {
@@ -26006,6 +26020,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             placeholder: `Reading${tk.unit ? " (" + tk.unit + ")" : ""}`,
             style: { ...inp(th), flex: 1, fontSize: "0.9rem", minHeight: 44 }
           }
+        ), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            type: "button",
+            "aria-label": "Toggle negative",
+            onClick: () => setEntryVal((v) => v.startsWith("-") ? v.slice(1) : "-" + v),
+            style: { ...btn(th, { background: th.card2 }), width: 40, minHeight: 44, padding: 0, fontSize: "0.9rem", fontWeight: 700, flexShrink: 0, touchAction: "manipulation" }
+          },
+          "\xB1"
         ), /* @__PURE__ */ React.createElement(
           "button",
           {

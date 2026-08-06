@@ -24755,7 +24755,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.46";
+const APP_VERSION = "v19.48";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32927,7 +32927,10 @@ function OpsTasks({ stores, th, user }) {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
-    if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) input.capture = "environment";
+    // No `capture` attribute — leaving it off is what makes iOS/Android show their
+    // native picker with BOTH "Take Photo" and "Choose from Library" options.
+    // Setting capture="environment" (the old behavior) skips that picker and jumps
+    // straight into the camera, with no way to pick an existing photo.
     input.style.cssText = "position:absolute;opacity:0;pointer-events:none";
     input.onchange = async (e) => {
       if (document.body.contains(input)) document.body.removeChild(input);
@@ -33262,12 +33265,23 @@ function OpsTasks({ stores, th, user }) {
                               <>
                                 <span style={{ flex: 1, fontSize: "0.85rem" }}>{item.label}</span>
                                 {item.min_val != null && <span style={{ fontSize: "0.68rem", color: th.muted, whiteSpace: "nowrap" }}>{item.min_val}–{item.max_val}{item.unit}</span>}
+                                {/* iOS's decimal keypad (inputMode="decimal") has no minus key at all — freezers
+                                    read well below 0°F, so a plain number field can't record that on a phone.
+                                    A separate ± toggle button sidesteps the keyboard limitation entirely. */}
                                 <input type="number" inputMode="decimal"
                                   value={localVal !== undefined ? localVal : (existing?.value != null ? String(existing.value) : "")}
                                   onChange={(e) => setLocalAnswers((prev) => ({ ...prev, [key]: e.target.value }))}
                                   onBlur={(e) => { const v = e.target.value; if (v !== "" && !done && busyId !== tk.id) submitAnswer(tk, item, equip, { value: Number(v) }); }}
                                   disabled={done || busyId === tk.id}
                                   style={{ ...inp(th), width: 80, fontSize: "0.85rem", borderColor: outRange ? "#e03131" : undefined }} />
+                                <button type="button" aria-label="Toggle negative" disabled={done || busyId === tk.id}
+                                  onClick={() => {
+                                    const cur = localVal !== undefined ? localVal : (existing?.value != null ? String(existing.value) : "");
+                                    const next = cur.startsWith("-") ? cur.slice(1) : ("-" + cur);
+                                    setLocalAnswers((prev) => ({ ...prev, [key]: next }));
+                                    if (next !== "" && next !== "-" && !done && busyId !== tk.id) submitAnswer(tk, item, equip, { value: Number(next) });
+                                  }}
+                                  style={{ ...btn(th, { background: th.card2 }), width: 34, minHeight: 34, padding: 0, fontSize: "0.85rem", fontWeight: 700, flexShrink: 0, touchAction: "manipulation" }}>±</button>
                                 {outRange && <span style={{ color: "#e03131", fontSize: "0.8rem" }}>⚠</span>}
                                 {existing?.in_range === true && <span style={{ color: "#2f9e44", fontSize: "0.8rem" }}>✓</span>}
                               </>
@@ -33347,6 +33361,10 @@ function OpsTasks({ stores, th, user }) {
                       <>
                         <input type="number" inputMode="decimal" autoFocus value={entryVal} onChange={(e) => setEntryVal(e.target.value)}
                           placeholder={`Reading${tk.unit ? " (" + tk.unit + ")" : ""}`} style={{ ...inp(th), flex: 1, fontSize: "0.9rem", minHeight: 44 }} />
+                        {/* iOS's decimal keypad has no minus key — needed for below-0°F freezer readings. */}
+                        <button type="button" aria-label="Toggle negative"
+                          onClick={() => setEntryVal((v) => v.startsWith("-") ? v.slice(1) : ("-" + v))}
+                          style={{ ...btn(th, { background: th.card2 }), width: 40, minHeight: 44, padding: 0, fontSize: "0.9rem", fontWeight: 700, flexShrink: 0, touchAction: "manipulation" }}>±</button>
                         <button onClick={() => completeTask(tk, entryVal === "" ? null : Number(entryVal))} disabled={busyId === tk.id}
                           style={{ ...btn(th), fontSize: "0.85rem", padding: "0.55rem 1rem", minHeight: 44, touchAction: "manipulation" }}>Save</button>
                         <button onClick={() => { setOpenEntry(null); setEntryVal(""); }} aria-label="Cancel"
