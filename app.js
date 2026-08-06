@@ -15634,7 +15634,7 @@ ${t2.slice(0, 300)}`);
       if (h < 24) return `${h}h ago`;
       return `${Math.floor(h / 24)}d ago`;
     };
-    const sendTicketNotification = (t) => {
+    const sendTicketNotification = async (t) => {
       const storeEmail = stores.find((s) => String(s.pc) === String(t.storePC))?.email || null;
       const emails = [
         ...(ticketNotifyEmails || []).filter((e) => e && e.includes("@")),
@@ -15736,7 +15736,9 @@ ${t2.slice(0, 300)}`);
         }
         if (u && u.pushNotify && u.id) pushIds.push(u.id);
       }
-      for (const raw of ticketNotifyPhones || []) {
+      const freshPhones = await cloudLoad("pcg_ticket_notify_phones_v1").catch(() => null);
+      const phoneList = Array.isArray(freshPhones) && freshPhones.length > 0 ? freshPhones : ticketNotifyPhones || [];
+      for (const raw of phoneList) {
         const d = String(raw || "").replace(/\D/g, "");
         if (d.length >= 10 && !smsNumbers.includes(d)) smsNumbers.push(d);
       }
@@ -19464,7 +19466,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.39";
+  var APP_VERSION = "v19.40";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -31846,6 +31848,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const cloudGlobalNotifyLoaded = useRef(false);
     const cloudTicketNotifyLoaded = useRef(false);
     const cloudTicketNotifyPhonesLoaded = useRef(false);
+    const skipNextTicketNotifyPhonesSave = useRef(false);
     const projectsUserEdited = useRef(false);
     const dailyReportsUserEdited = useRef(false);
     const prevDailyReportsRef = useRef([]);
@@ -32812,13 +32815,20 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     useEffect(() => {
       cloudLoad("pcg_ticket_notify_phones_v1").then((data) => {
         cloudTicketNotifyPhonesLoaded.current = true;
-        if (data && Array.isArray(data) && data.length > 0) setTicketNotifyPhones(data);
+        if (data && Array.isArray(data) && data.length > 0) {
+          skipNextTicketNotifyPhonesSave.current = true;
+          setTicketNotifyPhones(data);
+        }
       }).catch(() => {
         cloudTicketNotifyPhonesLoaded.current = true;
       });
     }, []);
     useEffect(() => {
       if (!cloudTicketNotifyPhonesLoaded.current) return;
+      if (skipNextTicketNotifyPhonesSave.current) {
+        skipNextTicketNotifyPhonesSave.current = false;
+        return;
+      }
       if (ticketNotifyPhones.length === 0) return;
       cloudSave("pcg_ticket_notify_phones_v1", ticketNotifyPhones);
     }, [ticketNotifyPhones]);

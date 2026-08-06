@@ -19289,7 +19289,7 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   // Text message alongside the email notification — same trigger (new ticket created),
   // same recipient list source (Admin · Notifications · Ticket SMS Numbers), just a
   // shorter message since SMS has no room for photos/description formatting.
-  const sendTicketNotification = (t) => {
+  const sendTicketNotification = async (t) => {
     const storeEmail = stores.find(s => String(s.pc) === String(t.storePC))?.email || null;
     const emails = [
       ...(ticketNotifyEmails || []).filter(e => e && e.includes("@")),
@@ -19403,6 +19403,13 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
     // same list — each per-user account opted into smsNotify, plus the admin-
     // curated Ticket SMS Numbers list (Admin · Notifications) — deduped by
     // normalized digits so a number in both places only gets texted once.
+    // The phones list is re-fetched fresh from cloud here rather than trusting
+    // the ticketNotifyPhones prop — that prop loads async on mount, so a
+    // ticket submitted in the first moment or two after the app opens can
+    // race ahead of the cloud fetch and dispatch against a stale/empty local
+    // list, silently sending 0 texts while the email (a separate path) still
+    // goes out fine. Confirmed this is possible; falls back to the prop if
+    // the fresh fetch itself fails.
     const smsNumbers = [];
     const pushIds = [];
     for (const email of emails) {
@@ -19410,7 +19417,9 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
       if (u && u.smsNotify && u.phone) { const d = u.phone.replace(/\D/g,""); if (d.length >= 10) smsNumbers.push(d); }
       if (u && u.pushNotify && u.id) pushIds.push(u.id);
     }
-    for (const raw of (ticketNotifyPhones || [])) {
+    const freshPhones = await cloudLoad('pcg_ticket_notify_phones_v1').catch(() => null);
+    const phoneList = Array.isArray(freshPhones) && freshPhones.length > 0 ? freshPhones : (ticketNotifyPhones || []);
+    for (const raw of phoneList) {
       const d = String(raw || "").replace(/\D/g, "");
       if (d.length >= 10 && !smsNumbers.includes(d)) smsNumbers.push(d);
     }
@@ -24615,7 +24624,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.39";
+const APP_VERSION = "v19.40";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -42470,6 +42479,7 @@ function PCGPortal() {
   const cloudGlobalNotifyLoaded = useRef(false);
   const cloudTicketNotifyLoaded = useRef(false);
   const cloudTicketNotifyPhonesLoaded = useRef(false);
+  const skipNextTicketNotifyPhonesSave = useRef(false);
   const projectsUserEdited = useRef(false);
   const dailyReportsUserEdited = useRef(false);
   // Previous dailyReports snapshot for diffing in the per-report save effect
@@ -43509,11 +43519,19 @@ function PCGPortal() {
   useEffect(() => {
     cloudLoad('pcg_ticket_notify_phones_v1').then(data => {
       cloudTicketNotifyPhonesLoaded.current = true;
-      if (data && Array.isArray(data) && data.length > 0) setTicketNotifyPhones(data);
+      if (data && Array.isArray(data) && data.length > 0) {
+        // The state update below re-triggers the save-effect right after this
+        // load resolves — without this flag it immediately re-saves the exact
+        // data it just loaded, stamping a fresh savedAt with no real edit
+        // behind it (misleading — looked like a new save that never happened).
+        skipNextTicketNotifyPhonesSave.current = true;
+        setTicketNotifyPhones(data);
+      }
     }).catch(() => { cloudTicketNotifyPhonesLoaded.current = true; });
   }, []);
   useEffect(() => {
     if (!cloudTicketNotifyPhonesLoaded.current) return;
+    if (skipNextTicketNotifyPhonesSave.current) { skipNextTicketNotifyPhonesSave.current = false; return; }
     if (ticketNotifyPhones.length === 0) return;
     cloudSave('pcg_ticket_notify_phones_v1', ticketNotifyPhones);
   }, [ticketNotifyPhones]);
