@@ -42,7 +42,7 @@ import { getStore } from '@netlify/blobs';
 
 export const config = { schedule: '0 4 * * *' };
 
-const APIS = {
+export const APIS = {
   p227: {
     host:   'pos-ra.dunkindonuts.com',
     path:   '/p227',
@@ -58,7 +58,7 @@ const APIS = {
 };
 
 // Keep in sync with schedule-alerts.mjs / labor-cron.mjs / pos-negative-cron.mjs (CLAUDE.md gotcha #9).
-const STORES = [
+export const STORES = [
   { pc:'339616', paycor:'193919', name:'Wadsworth',       district:1 },
   { pc:'340794', paycor:'193904', name:'Front',           district:1 },
   { pc:'351099', paycor:'193900', name:'Sonic',           district:2 },
@@ -107,7 +107,7 @@ const STORES = [
   { pc:'356316', paycor:'193889', name:"BJ's",            district:8 },
 ];
 
-function callUpstream(cfg, endpoint, body) {
+export function callUpstream(cfg, endpoint, body) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
     const req = https.request({
@@ -148,7 +148,7 @@ function callPaycorProxyOnce(action, payload) {
     req.end();
   });
 }
-async function callPaycorProxy(action, payload) {
+export async function callPaycorProxy(action, payload) {
   let result;
   try {
     result = await callPaycorProxyOnce(action, payload);
@@ -164,7 +164,7 @@ async function callPaycorProxy(action, payload) {
 
 // Paycor paginates /employees via continuationToken (same as labor-cron.mjs's
 // fetchAllPages for this identical endpoint) — loop until it stops returning one.
-async function fetchAllEmployees(legalEntityId) {
+export async function fetchAllEmployees(legalEntityId) {
   let records = [];
   let continuationToken;
   do {
@@ -180,7 +180,7 @@ async function fetchAllEmployees(legalEntityId) {
 
 // Same fallback chain as labor-cron.mjs's computeHoursFromPunches — not every
 // punch carries a pre-computed hours field.
-function punchHours(p) {
+export function punchHours(p) {
   if (p.hourAmount != null) return p.hourAmount;
   if (p.hoursAmount != null) return p.hoursAmount;
   const inMs = new Date(p.punchIn || p.inActualPunch || 0).getTime();
@@ -195,7 +195,7 @@ function etDate(offsetDays) {
   return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, '0')}-${String(et.getDate()).padStart(2, '0')}`;
 }
 
-function toET(utc) {
+export function toET(utc) {
   try { return new Date(utc.endsWith('Z') ? utc : utc + 'Z').toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/New_York' }); }
   catch { return '--'; }
 }
@@ -219,7 +219,7 @@ function isBiweekBoundary(busDt) {
   return diffDays >= 0 && diffDays % 14 === 0;
 }
 // Inclusive date range of `days` dates ending at endDateStr, ascending.
-function dateRangeEndingAt(endDateStr, days) {
+export function dateRangeEndingAt(endDateStr, days) {
   const end = parseDateOnly(endDateStr);
   const dates = [];
   for (let i = days - 1; i >= 0; i--) {
@@ -230,7 +230,7 @@ function dateRangeEndingAt(endDateStr, days) {
   return dates;
 }
 
-async function saveDaySnapshot(busDt, storeResults) {
+export async function saveDaySnapshot(busDt, storeResults) {
   try {
     await getBlobStore().setJSON(`pcg_tips_snapshot_${busDt}`, { savedAt: new Date().toISOString(), data: storeResults });
   } catch (e) { console.warn('[tips-report-cron] snapshot save failed:', e.message); }
@@ -414,7 +414,7 @@ async function sendReportEmail(to, subject, html, buffer, filename) {
   return { sent: false };
 }
 
-function getBlobStore() {
+export function getBlobStore() {
   return getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 }
 

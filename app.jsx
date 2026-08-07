@@ -2,6 +2,7 @@
 import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG, BTN } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
+import { canViewTipsReport } from './src/tips-access.mjs';
 import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-negative-shared.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
@@ -8175,6 +8176,13 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const [viewMode, setViewMode] = React.useState('day'); // 'day' | 'week'
   // When localDate matches busDt AND day mode, use parent's storeData. Otherwise fetch our own.
   const [overrideLive, setOverrideLive] = React.useState(null);
+  // Tips is always computed live below (from the same checks fetch that builds the
+  // hourly chart), regardless of standalone/date-override — but only STORED into
+  // overrideLive in those specific modes, to avoid nudging Net Sales/etc. out of
+  // sync with the shared 46-store grid cache in the default admin day view. Tips
+  // has no such shared cache to stay in sync with, so it's kept separate here and
+  // always shown once computed, in every view (admin browsing included).
+  const [tipsForPeriod, setTipsForPeriod] = React.useState(null);
 
   // Week range (Sun-Sat) containing localDate
   const weekRange = React.useMemo(() => {
@@ -8316,6 +8324,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
     setTenderData(null); setMenuData(null); setOrderData(null); setHourlyData(null); setWeekTotals(null);
     // In week mode OR when localDate differs from parent busDt, we need to fetch our own operations totals
     setOverrideLive(null);
+    setTipsForPeriod(null);
 
     const api = pc === '345986' ? 'p227' : 'p228';
     const fetchEndpoint = async (endpoint, body) => {
@@ -8373,6 +8382,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       for (const day of perDay) {
         for (const c of (day.checks?.guestChecks || [])) aggOps.tips += c.tipTotal || 0;
       }
+      setTipsForPeriod(aggOps.tips);
       // In week mode, ALWAYS override. In day mode, only override if localDate !== busDt.
       // Standalone (manager Pulse) has no parent storeData, so always self-populate.
       if (isWeek || localDate !== busDt || standalone) {
@@ -8784,7 +8794,10 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
             // Only present when d came from this component's own aggOps (standalone /
             // week mode / date override) — the parent-supplied storeData path (default
             // AdminPulse day view) doesn't fetch tipTotal, so d.tips is undefined there.
-            ...(d.tips != null ? [{ label:'Tips', value: fmtUSD(d.tips), color: '#63e6be' }] : []),
+            // Always from tipsForPeriod (computed live on every view), not d.tips —
+            // the default admin day view displays `d` from the shared grid cache
+            // (storeData[pc]), which never carries tips at all.
+            ...(tipsForPeriod != null ? [{ label:'Tips', value: fmtUSD(tipsForPeriod), color: '#63e6be' }] : []),
             { label:'Discounts', value: fmtUSD(d.discounts), color: '#f06595' },
             { label:'Void Rate', value: voidPct.toFixed(2)+'%', color: voidPct > 1 ? '#ff6b6b' : '#69db7c' },
             { label:'Tax',       value: fmtUSD(d.tax),       color: '#20c997' },
@@ -16145,6 +16158,62 @@ function PnlAccessPanel({ th, user, users, showAlert }) {
   );
 }
 
+// Same pattern as PnlAccessPanel above, but inverted: Tips Report is ON for
+// everyone with Finance access by default — this is a BLOCK-list (people
+// explicitly turned off), not an allow-list. Blob: pcg_tips_report_access_v1.
+function TipsReportAccessPanel({ th, user, users, showAlert }) {
+  const [blocked, setBlocked] = useState(null);
+  const [input, setInput] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    cloudLoad('pcg_tips_report_access_v1')
+      .then(d => setBlocked(Array.isArray(d?.blocked) ? d.blocked : []))
+      .catch(() => setBlocked([]));
+  }, []);
+
+  const persist = async (next) => {
+    setSaving(true);
+    const ok = await cloudSave('pcg_tips_report_access_v1', { blocked: next, updatedAt: new Date().toISOString(), updatedBy: user?.username || user?.email || 'unknown' });
+    setSaving(false);
+    if (ok) { setBlocked(next); showAlert && showAlert('Tips Report access updated', 'success'); }
+    else showAlert && showAlert('Failed to save Tips Report access', 'error');
+  };
+  const block = () => {
+    const id = normalizeId(input);
+    if (!id) return;
+    if ((blocked || []).map(normalizeId).includes(id)) { setInput(''); return; }
+    persist([...(blocked || []), id]); setInput('');
+  };
+  const unblock = (id) => persist((blocked || []).filter(b => normalizeId(b) !== normalizeId(id)));
+  const nameFor = (id) => {
+    const n = normalizeId(id);
+    const u = (users || []).find(u => normalizeId(u.username) === n || normalizeId(u.email) === n);
+    return u ? u.name : id;
+  };
+
+  if (blocked === null) return <div style={{ ...card(th), padding: '1rem', marginBottom: '1.25rem' }}>Loading Tips Report access…</div>;
+  return (
+    <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
+      <div style={{ fontWeight: 800, fontFamily: "'Raleway'", color: th.text, marginBottom: '0.25rem' }}>💵 Tips Report Access</div>
+      <div style={{ color: th.muted, fontSize: '0.8rem', marginBottom: '0.9rem' }}>Everyone with the Finance tab can see the Tips Report by default. Add someone here to turn it off just for them.</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.9rem' }}>
+        {(blocked || []).length === 0 && <span style={{ color: th.muted, fontSize: '0.8rem' }}>Nobody is blocked.</span>}
+        {(blocked || []).map(id => (
+          <span key={id} style={{ fontSize: '0.78rem', padding: '0.25rem 0.5rem 0.25rem 0.6rem', borderRadius: '0.5rem', background: '#ef444418', color: th.text, border: '1px solid #ef444455', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+            {nameFor(id)}
+            <button onClick={() => unblock(id)} disabled={saving} title="Restore access" style={{ border: 'none', background: 'none', color: '#22c55e', cursor: 'pointer', fontWeight: 800, fontSize: '0.95rem', lineHeight: 1, padding: 0 }}>×</button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') block(); }} placeholder="Block by email or username" style={{ ...inp(th), flex: 1 }} />
+        <button onClick={block} disabled={saving || !input.trim()} style={{ ...btn(th), opacity: (saving || !input.trim()) ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Block'}</button>
+      </div>
+    </div>
+  );
+}
+
 function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
@@ -17737,6 +17806,9 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
 
       {/* P&L data access — managers only */}
       {canManagePnlAccess(user) && <div style={{ marginBottom: '1.1rem' }}><PnlAccessPanel th={th} user={user} users={users} showAlert={showAlert} /></div>}
+
+      {/* Tips Report access — any full admin (exec/IT) can manage */}
+      {isFullAdmin(user) && <div style={{ marginBottom: '1.1rem' }}><TipsReportAccessPanel th={th} user={user} users={users} showAlert={showAlert} /></div>}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
         {roles.map(rt => {
@@ -24755,7 +24827,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.53";
+const APP_VERSION = "v19.55";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -36401,7 +36473,7 @@ const TileGrid = ({ title, tiles, color, th, isMobile, onNavigate, pinnedNavIds,
 // "My P&L" tab is untouched — they only ever had P&L of these five, so there's nothing
 // to consolidate for them.
 function AdminFinance({ stores, districts, th, user, users, drillInStore, onClearDrillIn, showAlert, isMobile,
-  cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl,
+  cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, canTipsReport,
   pinnedNavIds, togglePinNav, cashMissingCount }) {
   const isAdmin = isFullAdmin(user);
   const isOfficeStaff = user?.userType === 'office_staff';
@@ -36455,6 +36527,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
     { id: 'cash', icon: <HubIcon color={FIN} d={<><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20M6 15h4"/></>} />, name: 'Cash Management', sub: 'Deposit tracking, alerts, and POS reconciliation.', badge: cashMissingCount > 0 ? `${cashMissingCount} missing` : null, show: canCash },
     { id: 'recon', icon: <HubIcon color={FIN} d={<><path d="M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3"/></>} />, name: 'Reconciliation', sub: 'Snapshot vs. live sales compare, WTD differences by store.', show: isAdmin },
     { id: 'expenses', icon: <HubIcon color={FIN} d={<><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z"/><path d="M9 10v6M15 10v6"/></>} />, name: 'Expense Log', sub: 'All ticket expenses — filter, approve, reject.', badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin },
+    { id: 'tips', icon: <HubIcon color={FIN} d={<><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5"/></>} />, name: 'Tips Report', sub: 'Biweekly per-employee tip distribution, ready for Paycor.', show: canTipsReport },
   ].filter(t => t.show);
 
   return (
@@ -36532,8 +36605,237 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
           {viewMode === 'cash' && canCash && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {viewMode === 'recon' && isAdmin && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {viewMode === 'expenses' && isAdmin && <ExpenseLogSection th={th} user={user} standalone />}
+          {viewMode === 'tips' && canTipsReport && <TipsReportBuilder th={th} stores={stores} />}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Tips Report Builder (Finance tab) ───────────────────────────────────────
+// Built fresh from scratch (2026-08-07) after the previous version of this
+// feature was reverted for making LIVE Pulse calls on open, which broke during
+// a real Pulse outage. This version makes NO live POS/Paycor calls at all —
+// it only ever reads pcg_tips_snapshot_{date} blobs that tips-report-cron-
+// background.mjs already writes every night (kept ~40 days). Fully isolated
+// from the rest of the app: its own module-scope helpers, no shared state.
+const TIPS_SNAPSHOT_RETENTION_DAYS = 40;
+
+function tipsParseISODate(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+function tipsFormatISODate(dt) { return dt.toISOString().slice(0, 10); }
+function tipsAddDays(dt, n) { return new Date(dt.getTime() + n * 86400000); }
+function tipsRound2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
+const TIPS_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const TIPS_DOW_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const TIPS_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function tipsSheetNameFor(dt, start) {
+  const offset = Math.round((dt.getTime() - start.getTime()) / 86400000);
+  const week = Math.floor(offset / 7) + 1;
+  return `Wk${week} ${TIPS_DOW[dt.getUTCDay()]} ${dt.getUTCMonth() + 1}-${dt.getUTCDate()}`;
+}
+
+// One store's crew tip shares for one day — same hours-weighted formula
+// tips-report-cron-background.mjs's buildWorkbook uses (pool ÷ total crew
+// hours × each person's hours). Returns [] for a store with no data that day.
+function tipsRecordsForStore(s) {
+  const pool = tipsRound2(s.tipPool || 0);
+  const storeLabel = `${s.name} (${s.pc})`;
+  if (s.crewStatus !== 'ok') return [{ district: s.district, store: storeLabel, employee: null, tips: 0, noData: true }];
+  if (!s.crew || s.crew.length === 0) return [{ district: s.district, store: storeLabel, employee: null, tips: 0, noData: false }];
+  const totalHours = s.crew.reduce((sum, c) => sum + c.hours, 0);
+  const hourlyRate = totalHours > 0 ? pool / totalHours : 0;
+  return s.crew.map(c => ({ district: s.district, store: storeLabel, employee: c.name, tips: tipsRound2(hourlyRate * c.hours) }));
+}
+
+// Builds one day's sheet rows: title, header, employee rows grouped by store
+// with a per-store subtotal row, then a grand total row.
+function tipsBuildDaySheetAOA(dt, dayStoreResults) {
+  const title = `Daily Tips by Employee — ${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}, ${dt.getUTCFullYear()}`;
+  const rows = [[title], [], ['District', 'Store', 'Employee', 'Tips']];
+  let grandTotal = 0;
+  for (const s of dayStoreResults) {
+    const recs = tipsRecordsForStore(s);
+    if (recs.length === 1 && recs[0].employee == null) {
+      rows.push([recs[0].district, recs[0].store, recs[0].noData ? '(no data this day)' : '(no crew punches found)', 0]);
+      continue;
+    }
+    const startRow = rows.length;
+    recs.forEach(r => rows.push([r.district, r.store, r.employee, r.tips]));
+    const subtotal = tipsRound2(recs.reduce((sum, r) => sum + r.tips, 0));
+    rows.push([null, `${recs[0].store} — TOTAL`, null, subtotal]);
+    grandTotal = tipsRound2(grandTotal + subtotal);
+    void startRow; // (kept for readability/symmetry with the merge-free layout)
+  }
+  rows.push([], [null, 'PAY DAY GRAND TOTAL', null, grandTotal]);
+  return rows;
+}
+
+// Sums each store/employee's tips across every day fetched so far, for the
+// "Pay Period Totals" sheet — same shape as tipsBuildDaySheetAOA's rows.
+function tipsBuildPeriodTotalsAOA(start, end, snapshots) {
+  const map = new Map(); // "store||employee" -> {district, store, employee, tips}
+  const storeOrder = [];
+  for (const dayResults of snapshots) {
+    if (!dayResults) continue;
+    for (const s of dayResults) {
+      for (const r of tipsRecordsForStore(s)) {
+        if (r.employee == null) continue;
+        const key = r.store + '||' + r.employee;
+        if (!map.has(key)) { map.set(key, { district: r.district, store: r.store, employee: r.employee, tips: 0 }); if (!storeOrder.includes(r.store)) storeOrder.push(r.store); }
+        map.get(key).tips = tipsRound2(map.get(key).tips + r.tips);
+      }
+    }
+  }
+  const byStore = {};
+  for (const rec of map.values()) (byStore[rec.store] = byStore[rec.store] || []).push(rec);
+
+  const title = `Pay Period Totals — ${TIPS_MONTHS[start.getUTCMonth()]} ${start.getUTCDate()} to ${TIPS_MONTHS[end.getUTCMonth()]} ${end.getUTCDate()}, ${end.getUTCFullYear()} (for Paycor entry)`;
+  const rows = [[title], [], ['District', 'Store', 'Employee', 'Pay Period Tips']];
+  let grandTotal = 0;
+  for (const store of storeOrder) {
+    const recs = byStore[store].sort((a, b) => a.employee.localeCompare(b.employee));
+    recs.forEach(r => rows.push([r.district, r.store, r.employee, r.tips]));
+    const subtotal = tipsRound2(recs.reduce((sum, r) => sum + r.tips, 0));
+    rows.push([null, `${store} — TOTAL`, null, subtotal]);
+    grandTotal = tipsRound2(grandTotal + subtotal);
+  }
+  rows.push([], [null, 'PAY PERIOD GRAND TOTAL', null, grandTotal]);
+  return { rows, grandTotal, storeCount: storeOrder.length };
+}
+
+function tipsAoaToSheet(XLSX, rows) {
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 28 }, { wch: 14 }];
+  if (rows.length && rows[0].length) ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
+  for (let r = 0; r < rows.length; r++) {
+    const val = rows[r] && rows[r][3];
+    if (typeof val === 'number') { const ref = XLSX.utils.encode_cell({ r, c: 3 }); if (ws[ref]) ws[ref].z = '$#,##0.00'; }
+  }
+  return ws;
+}
+
+function TipsReportBuilder({ th, stores }) {
+  const todayStr = tipsFormatISODate(new Date());
+  const [periodStart, setPeriodStart] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [dayInfo, setDayInfo] = useState(null); // [{date, filled, total, stores, employees, missing}]
+  const [snapshots, setSnapshots] = useState(null); // raw array, index-aligned with the 14 dates
+  const [grandTotal, setGrandTotal] = useState(0);
+
+  const start = periodStart ? tipsParseISODate(periodStart) : null;
+  const end = start ? tipsAddDays(start, 13) : null;
+  const daysOld = start ? Math.round((tipsParseISODate(todayStr).getTime() - start.getTime()) / 86400000) : 0;
+  const tooOld = start && daysOld > TIPS_SNAPSHOT_RETENTION_DAYS;
+
+  const load = async () => {
+    if (!start) return;
+    setLoading(true); setError(null); setSnapshots(null); setDayInfo(null);
+    try {
+      const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+      const loaded = await Promise.all(dates.map(d => cloudLoad('pcg_tips_snapshot_' + d).catch(() => null)));
+      const info = dates.map((d, i) => {
+        const data = loaded[i];
+        if (!data) return { date: d, filled: false };
+        let employees = 0, storeSet = new Set(), total = 0;
+        for (const s of data) {
+          for (const r of tipsRecordsForStore(s)) {
+            if (r.employee != null) { employees++; total = tipsRound2(total + r.tips); storeSet.add(r.store); }
+          }
+        }
+        return { date: d, filled: true, employees, stores: storeSet.size, total };
+      });
+      setSnapshots(loaded);
+      setDayInfo(info);
+      setGrandTotal(tipsRound2(info.reduce((sum, d) => sum + (d.total || 0), 0)));
+    } catch (e) {
+      setError(e.message || 'Failed to load tips data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const download = () => {
+    const XLSX = window.XLSX;
+    if (!XLSX) { setError('SheetJS library not loaded — please refresh the page.'); return; }
+    if (!snapshots || !start) return;
+    const dates = Array.from({ length: 14 }, (_, i) => tipsAddDays(start, i));
+    const wb = XLSX.utils.book_new();
+    const { rows: periodRows } = tipsBuildPeriodTotalsAOA(start, end, snapshots);
+    XLSX.utils.book_append_sheet(wb, tipsAoaToSheet(XLSX, periodRows), 'Pay Period Totals');
+    dates.forEach((dt, i) => {
+      const dayResults = snapshots[i];
+      const rows = dayResults ? tipsBuildDaySheetAOA(dt, dayResults) : [[`${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}, ${dt.getUTCFullYear()} — no data saved for this day`]];
+      XLSX.utils.book_append_sheet(wb, tipsAoaToSheet(XLSX, rows), tipsSheetNameFor(dt, start));
+    });
+    XLSX.writeFile(wb, `Biweekly_Tips_Report_${tipsFormatISODate(start)}_to_${tipsFormatISODate(end)}.xlsx`);
+  };
+
+  const filledCount = dayInfo ? dayInfo.filter(d => d.filled).length : 0;
+  const missingDates = dayInfo ? dayInfo.filter(d => !d.filled).map(d => d.date) : [];
+
+  return (
+    <div>
+      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '0.4rem' }}>Tips Report</h2>
+      <p style={{ color: th.muted, fontSize: '0.85rem', marginBottom: '1.25rem', maxWidth: '52ch', lineHeight: 1.5 }}>
+        Pulls the pay period's tip data straight from what's already saved each night — no files to upload, nothing fetched live. Pick the first day of the pay period below.
+      </p>
+
+      <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.35rem' }}>Pay period start date</div>
+          <input type="date" value={periodStart} max={todayStr} onChange={e => { setPeriodStart(e.target.value); setSnapshots(null); setDayInfo(null); setError(null); }} style={{ ...inp(th), width: 200 }} />
+        </div>
+        <button onClick={load} disabled={!periodStart || loading} style={{ ...btn(th), opacity: (!periodStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Load period'}</button>
+        {start && (
+          <span style={{ fontSize: '0.8rem', color: th.muted }}>
+            Covers {TIPS_DOW_FULL[start.getUTCDay()]}, {TIPS_MONTHS[start.getUTCMonth()]} {start.getUTCDate()} – {TIPS_DOW_FULL[end.getUTCDay()]}, {TIPS_MONTHS[end.getUTCMonth()]} {end.getUTCDate()}, {end.getUTCFullYear()}
+          </span>
+        )}
+      </div>
+
+      {tooOld && (
+        <div style={{ ...card(th), borderLeft: '4px solid #f59e0b', padding: '0.9rem 1.1rem', marginBottom: '1.25rem', fontSize: '0.82rem', color: th.text }}>
+          That start date is {daysOld} days ago — daily snapshots are only kept for about {TIPS_SNAPSHOT_RETENTION_DAYS} days, so some or all of this period's data may already be gone. Try a more recent pay period.
+        </div>
+      )}
+
+      {error && (
+        <div style={{ ...card(th), borderLeft: '4px solid #ef4444', padding: '0.9rem 1.1rem', marginBottom: '1.25rem', fontSize: '0.82rem', color: th.text }}>{error}</div>
+      )}
+
+      {dayInfo && (
+        <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.9rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text }}>Pay period progress</div>
+            <div style={{ fontSize: '0.8rem', color: th.muted }}>{filledCount} / 14 days found · <strong style={{ color: th.text }}>${grandTotal.toFixed(2)}</strong> so far</div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.4rem', marginBottom: missingDates.length ? '0.9rem' : 0 }}>
+            {dayInfo.map(d => {
+              const dt = tipsParseISODate(d.date);
+              return (
+                <div key={d.date} title={d.filled ? `${d.employees} employees, ${d.stores} stores, $${(d.total || 0).toFixed(2)}` : 'No data saved for this day'}
+                  style={{ borderRadius: 8, border: `1px solid ${d.filled ? '#22c55e55' : th.cardBorder}`, background: d.filled ? '#22c55e14' : th.card2, padding: '0.5rem 0.3rem', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.62rem', fontWeight: 700, color: d.filled ? '#16a34a' : th.muted, textTransform: 'uppercase' }}>{TIPS_DOW[dt.getUTCDay()]}</div>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.text, marginTop: 2 }}>{dt.getUTCMonth() + 1}/{dt.getUTCDate()}</div>
+                </div>
+              );
+            })}
+          </div>
+          {missingDates.length > 0 && (
+            <div style={{ fontSize: '0.76rem', color: '#f59e0b' }}>No saved data for: {missingDates.join(', ')} — either before the nightly report existed, or that night's run didn't complete.</div>
+          )}
+          <button onClick={download} style={{ ...btn(th, { background: '#1B8F5C' }), marginTop: '1rem' }}>Download workbook</button>
+        </div>
+      )}
+
+      <div style={{ fontSize: '0.75rem', color: th.muted, lineHeight: 1.6 }}>
+        The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period — that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.
+      </div>
     </div>
   );
 }
@@ -42938,6 +43240,10 @@ function PCGPortal() {
   useEffect(() => { cloudLoad('pcg_pnl_access_v1').then(d => { if (Array.isArray(d?.allowed)) setPnlAllowed(d.allowed); }).catch(() => {}); }, []);
   const canPnl = canViewPnl(user, pnlAllowed);
   const canManagePnl = canManagePnlAccess(user);
+  // Tips Report access: on for everyone by default, minus anyone on the block list.
+  const [tipsBlocked, setTipsBlocked] = useState([]);
+  useEffect(() => { cloudLoad('pcg_tips_report_access_v1').then(d => { if (Array.isArray(d?.blocked)) setTipsBlocked(d.blocked); }).catch(() => {}); }, []);
+  const canTipsReport = canViewTipsReport(user, tipsBlocked);
   const [dealAuth, setDealAuth] = useState({ token: null, role: null, loaded: false });
   useEffect(() => {
     if (!user) { setDealAuth({ token: null, role: null, loaded: false }); return; }
@@ -45620,7 +45926,7 @@ function PCGPortal() {
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
-          {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
+          {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} canTipsReport={canTipsReport} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
           {tab === "ops-hub" && (() => {
             const OPS = '#2F6FA8';
             const opsTiles = [
