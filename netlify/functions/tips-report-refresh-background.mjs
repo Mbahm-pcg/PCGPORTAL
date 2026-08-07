@@ -11,6 +11,11 @@
 // nightly cron's own weekly/biweekly rollups and to the in-app Tips Report.
 import { STORES, APIS, callUpstream, callPaycorProxy, fetchAllEmployees, punchHours, toET, saveDaySnapshot, getBlobStore, dateRangeEndingAt } from './tips-report-cron-background.mjs';
 
+// 46 stores sequential (Phase 2) takes minutes — well past Netlify's ~26s
+// synchronous function limit. Must be a background function (202 immediately,
+// no body); caller polls pcg_tips_snapshot_{busDt} via storage.mjs afterward.
+export const config = { background: true };
+
 export default async (request) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
