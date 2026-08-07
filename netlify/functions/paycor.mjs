@@ -128,14 +128,14 @@ async function getAccessToken() {
 
 // ── Paycor API Call ──────────────────────────────────────────────────────────
 
-async function callPaycor(path, method = 'GET') {
+async function callPaycor(path, method = 'GET', body = null) {
   const token = await getAccessToken();
   const subscriptionKey = process.env.PAYCOR_SUBSCRIPTION_KEY;
 
   const res = await httpsRequest(PAYCOR_API_HOST, `/v1${path}`, method, {
     Authorization: `Bearer ${token}`,
     'Ocp-Apim-Subscription-Key': subscriptionKey,
-  });
+  }, body);
 
   // If we get 401, token might be stale — clear cache and retry once
   if (res.status === 401) {
@@ -145,7 +145,7 @@ async function callPaycor(path, method = 'GET') {
     return await httpsRequest(PAYCOR_API_HOST, `/v1${path}`, method, {
       Authorization: `Bearer ${newToken}`,
       'Ocp-Apim-Subscription-Key': subscriptionKey,
-    });
+    }, body);
   }
 
   return res;
@@ -330,6 +330,39 @@ export default async (request, context) => {
       if (endDate) params.push(`endDate=${endDate}`);
       if (params.length) path += '?' + params.join('&');
       const res = await callPaycor(path);
+      return new Response(JSON.stringify(res.data), { status: res.status, headers });
+    }
+
+    // ── Write: create scheduling shift(s) ──────────────────────────────────────
+    // POST /v1/legalentities/{legalEntityId}/schedulingShifts
+    // Body: { ignoreWarnings: bool, shifts: [{ employeeId, scheduleGroupId, schedulingJobId,
+    //          startDateTime, endDateTime, title?, notes?, ... }] }
+    // Response includes shiftId + warningsOrErrors per shift (e.g. overlap warnings) —
+    // ignoreWarnings:true makes those non-blocking rather than rejecting the request.
+    if (action === 'createSchedulingShifts') {
+      const { legalEntityId, shifts, ignoreWarnings = true } = payload;
+      if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+      if (!Array.isArray(shifts) || shifts.length === 0) return new Response(JSON.stringify({ error: 'Missing shifts array' }), { status: 400, headers });
+      const res = await callPaycor(`/legalentities/${legalEntityId}/schedulingShifts`, 'POST', { ignoreWarnings, shifts });
+      return new Response(JSON.stringify(res.data), { status: res.status, headers });
+    }
+
+    // ── Write: update an existing scheduling shift ──────────────────────────────
+    // PUT /v1/legalentities/{legalEntityId}/schedulingShifts/{shiftId}
+    if (action === 'updateSchedulingShift') {
+      const { legalEntityId, shiftId, shift, ignoreWarnings = true } = payload;
+      if (!legalEntityId || !shiftId) return new Response(JSON.stringify({ error: 'Missing legalEntityId or shiftId' }), { status: 400, headers });
+      if (!shift) return new Response(JSON.stringify({ error: 'Missing shift' }), { status: 400, headers });
+      const res = await callPaycor(`/legalentities/${legalEntityId}/schedulingShifts/${shiftId}`, 'PUT', { ignoreWarnings, ...shift });
+      return new Response(JSON.stringify(res.data), { status: res.status, headers });
+    }
+
+    // ── Write: delete a scheduling shift ────────────────────────────────────────
+    // DELETE /v1/legalentities/{legalEntityId}/schedulingShifts/{shiftId}
+    if (action === 'deleteSchedulingShift') {
+      const { legalEntityId, shiftId } = payload;
+      if (!legalEntityId || !shiftId) return new Response(JSON.stringify({ error: 'Missing legalEntityId or shiftId' }), { status: 400, headers });
+      const res = await callPaycor(`/legalentities/${legalEntityId}/schedulingShifts/${shiftId}`, 'DELETE');
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
 
