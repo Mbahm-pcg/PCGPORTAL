@@ -2,7 +2,6 @@
 import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG, BTN } from './src/icons.jsx';
 import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
-import { canViewTipsReport } from './src/tips-access.mjs';
 import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-negative-shared.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
@@ -16158,62 +16157,6 @@ function PnlAccessPanel({ th, user, users, showAlert }) {
   );
 }
 
-// Same pattern as PnlAccessPanel above, but inverted: Tips Report is ON for
-// everyone with Finance access by default — this is a BLOCK-list (people
-// explicitly turned off), not an allow-list. Blob: pcg_tips_report_access_v1.
-function TipsReportAccessPanel({ th, user, users, showAlert }) {
-  const [blocked, setBlocked] = useState(null);
-  const [input, setInput] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    cloudLoad('pcg_tips_report_access_v1')
-      .then(d => setBlocked(Array.isArray(d?.blocked) ? d.blocked : []))
-      .catch(() => setBlocked([]));
-  }, []);
-
-  const persist = async (next) => {
-    setSaving(true);
-    const ok = await cloudSave('pcg_tips_report_access_v1', { blocked: next, updatedAt: new Date().toISOString(), updatedBy: user?.username || user?.email || 'unknown' });
-    setSaving(false);
-    if (ok) { setBlocked(next); showAlert && showAlert('Tips Report access updated', 'success'); }
-    else showAlert && showAlert('Failed to save Tips Report access', 'error');
-  };
-  const block = () => {
-    const id = normalizeId(input);
-    if (!id) return;
-    if ((blocked || []).map(normalizeId).includes(id)) { setInput(''); return; }
-    persist([...(blocked || []), id]); setInput('');
-  };
-  const unblock = (id) => persist((blocked || []).filter(b => normalizeId(b) !== normalizeId(id)));
-  const nameFor = (id) => {
-    const n = normalizeId(id);
-    const u = (users || []).find(u => normalizeId(u.username) === n || normalizeId(u.email) === n);
-    return u ? u.name : id;
-  };
-
-  if (blocked === null) return <div style={{ ...card(th), padding: '1rem', marginBottom: '1.25rem' }}>Loading Tips Report access…</div>;
-  return (
-    <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
-      <div style={{ fontWeight: 800, fontFamily: "'Raleway'", color: th.text, marginBottom: '0.25rem' }}>💵 Tips Report Access</div>
-      <div style={{ color: th.muted, fontSize: '0.8rem', marginBottom: '0.9rem' }}>Everyone with the Finance tab can see the Tips Report by default. Add someone here to turn it off just for them.</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.9rem' }}>
-        {(blocked || []).length === 0 && <span style={{ color: th.muted, fontSize: '0.8rem' }}>Nobody is blocked.</span>}
-        {(blocked || []).map(id => (
-          <span key={id} style={{ fontSize: '0.78rem', padding: '0.25rem 0.5rem 0.25rem 0.6rem', borderRadius: '0.5rem', background: '#ef444418', color: th.text, border: '1px solid #ef444455', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-            {nameFor(id)}
-            <button onClick={() => unblock(id)} disabled={saving} title="Restore access" style={{ border: 'none', background: 'none', color: '#22c55e', cursor: 'pointer', fontWeight: 800, fontSize: '0.95rem', lineHeight: 1, padding: 0 }}>×</button>
-          </span>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
-        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') block(); }} placeholder="Block by email or username" style={{ ...inp(th), flex: 1 }} />
-        <button onClick={block} disabled={saving || !input.trim()} style={{ ...btn(th), opacity: (saving || !input.trim()) ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Block'}</button>
-      </div>
-    </div>
-  );
-}
-
 function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
@@ -17758,6 +17701,46 @@ const ROLE_META = {
   kiosk_upload: { label: 'Kiosk Upload',   admin: false, scope: 'Upload-only kiosk — no portal access.' },
 };
 
+// Sub-items inside each "hub" tile-grid tab, for the Access matrix's expand/
+// collapse view — mirrors the tile ids/labels in the ops-hub/team-hub/
+// system-hub blocks in PCGPortal's render, and AdminFinance's own tiles.
+// Keep these in sync if a hub's tile list ever changes.
+const HUB_SUBITEMS = {
+  'ops-hub': [
+    { id: 'tasks', label: 'Tasks' },
+    { id: 'pulse', label: 'Pulse' },
+    { id: 'analytics', label: 'Analytics' },
+    { id: 'anomalies', label: 'Anomalies' },
+    { id: 'scorecard', label: 'DM Scorecard' },
+    { id: 'audits', label: 'Audits' },
+  ],
+  'team-hub': [
+    { id: 'locations', label: 'Locations' },
+    { id: 'impact', label: 'Impact Radar' },
+    { id: 'projects', label: 'Projects' },
+    { id: 'deals', label: 'Deal Pipeline' },
+    { id: 'users', label: 'Users' },
+  ],
+  'system-hub': [
+    { id: 'admin', label: 'Admin' },
+    { id: 'email', label: 'Email' },
+    { id: 'reports', label: 'Reports' },
+  ],
+  finance: [
+    { id: 'pnl', label: 'P&L' },
+    { id: 'ndcp', label: 'NDCP Orders' },
+    { id: 'cash', label: 'Cash Management' },
+    { id: 'recon', label: 'Reconciliation' },
+    { id: 'expenses', label: 'Expense Log' },
+    { id: 'tips', label: 'Tips Report' },
+  ],
+};
+// Shared by PCGPortal's hub tile arrays and AdminFinance — a sub-item defaults
+// to visible (matches the top-level toggle's own default-on semantics) unless
+// explicitly turned off for that role via a compound "hubId:subId" key in the
+// same accessOverrides object the top-level toggles already use.
+const accessSubOn = (overrides, rt, hubId, subId) => (overrides?.[rt]?.[`${hubId}:${subId}`]) !== false;
+
 // ── Access Matrix — who can see what + per-role visibility toggles ──────────
 function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, showAlert }) {
   const roles = Object.keys(ROLE_META);
@@ -17765,6 +17748,15 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
   (users || []).forEach(u => { const t = u.userType || 'unknown'; userCounts[t] = (userCounts[t] || 0) + 1; });
   const KIOSK = new Set(['kiosk_pulse', 'kiosk_upload']);
   const ov = accessOverrides || {};
+  // Which hub tiles (ops-hub/team-hub/system-hub/finance) are expanded to show
+  // their individual sub-items — shared across every role's card, since it's
+  // the same hub either way; only the toggle state underneath differs per role.
+  const [expandedHubs, setExpandedHubs] = useState(new Set());
+  const toggleHubExpanded = (hubId) => setExpandedHubs(prev => {
+    const next = new Set(prev);
+    if (next.has(hubId)) next.delete(hubId); else next.add(hubId);
+    return next;
+  });
 
   // A section is locked-on (cannot be toggled off) if it's the Admin tab for a
   // full-admin role, or Tickets/Tasks for a Store Tablet (its whole purpose — the
@@ -17808,8 +17800,6 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
       {canManagePnlAccess(user) && <div style={{ marginBottom: '1.1rem' }}><PnlAccessPanel th={th} user={user} users={users} showAlert={showAlert} /></div>}
 
       {/* Tips Report access — any full admin (exec/IT) can manage */}
-      {isFullAdmin(user) && <div style={{ marginBottom: '1.1rem' }}><TipsReportAccessPanel th={th} user={user} users={users} showAlert={showAlert} /></div>}
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
         {roles.map(rt => {
           const meta = ROLE_META[rt];
@@ -17838,24 +17828,62 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
                   {tabs.map(t => {
                     const on = isOn(rt, t.id);
                     const locked = isLocked(rt, t.id);
+                    const hasSub = !!HUB_SUBITEMS[t.id];
+                    const expanded = expandedHubs.has(t.id);
                     return (
-                      <button key={t.id} onClick={() => toggle(rt, t.id)} title={locked ? 'Locked — always visible for this role' : on ? 'Click to hide' : 'Click to show'} style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-                        fontSize: '0.68rem', fontWeight: 600, fontFamily: "'Source Sans 3'",
-                        cursor: locked ? 'default' : 'pointer',
-                        color: on ? th.text : th.muted,
-                        textDecoration: on ? 'none' : 'line-through',
-                        opacity: on ? 1 : 0.55,
-                        background: on ? (th.card2 || th.card) : 'transparent',
-                        border: `1px solid ${on ? th.cardBorder : `${th.muted}55`}`,
-                        borderRadius: RADIUS.chip, padding: '0.18rem 0.5rem', transition: 'all .12s',
-                      }}>
-                        <span style={{ fontSize: '0.6rem' }}>{locked ? '🔒' : on ? '●' : '○'}</span>{t.label}
-                      </button>
+                      <span key={t.id} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        <button onClick={() => toggle(rt, t.id)} title={locked ? 'Locked — always visible for this role' : on ? 'Click to hide' : 'Click to show'} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                          fontSize: '0.68rem', fontWeight: 600, fontFamily: "'Source Sans 3'",
+                          cursor: locked ? 'default' : 'pointer',
+                          color: on ? th.text : th.muted,
+                          textDecoration: on ? 'none' : 'line-through',
+                          opacity: on ? 1 : 0.55,
+                          background: on ? (th.card2 || th.card) : 'transparent',
+                          border: `1px solid ${on ? th.cardBorder : `${th.muted}55`}`,
+                          borderRadius: hasSub ? '999px 0 0 999px' : RADIUS.chip, padding: '0.18rem 0.5rem', transition: 'all .12s',
+                        }}>
+                          <span style={{ fontSize: '0.6rem' }}>{locked ? '🔒' : on ? '●' : '○'}</span>{t.label}
+                        </button>
+                        {hasSub && (
+                          <button onClick={() => toggleHubExpanded(t.id)} title={expanded ? 'Collapse individual items' : 'Expand to see and toggle individual items'} style={{
+                            fontSize: '0.6rem', color: th.muted, cursor: 'pointer', padding: '0.18rem 0.4rem',
+                            background: on ? (th.card2 || th.card) : 'transparent',
+                            border: `1px solid ${on ? th.cardBorder : `${th.muted}55`}`, borderLeft: 'none',
+                            borderRadius: '0 999px 999px 0',
+                          }}>{expanded ? '▾' : '▸'}</button>
+                        )}
+                      </span>
                     );
                   })}
                 </div>
               )}
+              {/* Expanded hub sub-items — indented, one block per expanded hub this role has. */}
+              {tabs.filter(t => HUB_SUBITEMS[t.id] && expandedHubs.has(t.id)).map(t => {
+                const hubOn = isOn(rt, t.id);
+                return (
+                  <div key={t.id + '-sub'} style={{ marginTop: '0.5rem', paddingLeft: '0.75rem', borderLeft: `2px solid ${th.cardBorder}`, display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                    {HUB_SUBITEMS[t.id].map(sub => {
+                      const subOn = isOn(rt, `${t.id}:${sub.id}`);
+                      return (
+                        <button key={sub.id} disabled={!hubOn} onClick={() => toggle(rt, `${t.id}:${sub.id}`)}
+                          title={!hubOn ? `${t.label} is hidden for this role — sub-items won't matter until it's shown` : subOn ? 'Click to hide' : 'Click to show'}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.65rem', fontWeight: 600, fontFamily: "'Source Sans 3'",
+                            cursor: hubOn ? 'pointer' : 'not-allowed',
+                            color: (subOn && hubOn) ? th.text : th.muted,
+                            textDecoration: subOn ? 'none' : 'line-through',
+                            opacity: hubOn ? (subOn ? 1 : 0.55) : 0.35,
+                            background: (subOn && hubOn) ? (th.card3 || th.card2 || th.card) : 'transparent',
+                            border: `1px solid ${th.muted}44`, borderRadius: RADIUS.chip, padding: '0.15rem 0.45rem', transition: 'all .12s',
+                          }}>
+                          <span style={{ fontSize: '0.55rem' }}>{subOn ? '●' : '○'}</span>{sub.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
           );
         })}
@@ -24827,7 +24855,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.56";
+const APP_VERSION = "v19.57";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -36473,13 +36501,14 @@ const TileGrid = ({ title, tiles, color, th, isMobile, onNavigate, pinnedNavIds,
 // "My P&L" tab is untouched — they only ever had P&L of these five, so there's nothing
 // to consolidate for them.
 function AdminFinance({ stores, districts, th, user, users, drillInStore, onClearDrillIn, showAlert, isMobile,
-  cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, canTipsReport,
+  cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides,
   pinnedNavIds, togglePinNav, cashMissingCount }) {
   const isAdmin = isFullAdmin(user);
   const isOfficeStaff = user?.userType === 'office_staff';
   const isDM = user?.userType === 'dm';
   const canNdcp = isAdmin || isOfficeStaff;
   const canCash = isAdmin || isOfficeStaff || isDM;
+  const finSub = (id) => accessSubOn(accessOverrides, user?.userType, 'finance', id);
 
   const [viewMode, setViewMode] = useState('overview');
 
@@ -36522,12 +36551,12 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
 
   const FIN = '#1B8F5C';
   const tiles = [
-    { id: 'pnl', icon: <HubIcon color={FIN} d={<><path d="M3 3v18h18M7 16l4-6 3 3 5-7"/></>} />, name: 'P&L', sub: 'Ranked store table — revenue, labor %, COGS %, contribution, margin.', show: canPnl },
-    { id: 'ndcp', icon: <HubIcon color={FIN} d={<><path d="M21 8 12 3 3 8l9 5 9-5Z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></>} />, name: 'NDCP Orders', sub: 'Supply orders, revisions, weekly and district breakdowns.', show: canNdcp },
-    { id: 'cash', icon: <HubIcon color={FIN} d={<><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20M6 15h4"/></>} />, name: 'Cash Management', sub: 'Deposit tracking, alerts, and POS reconciliation.', badge: cashMissingCount > 0 ? `${cashMissingCount} missing` : null, show: canCash },
-    { id: 'recon', icon: <HubIcon color={FIN} d={<><path d="M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3"/></>} />, name: 'Reconciliation', sub: 'Snapshot vs. live sales compare, WTD differences by store.', show: isAdmin },
-    { id: 'expenses', icon: <HubIcon color={FIN} d={<><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z"/><path d="M9 10v6M15 10v6"/></>} />, name: 'Expense Log', sub: 'All ticket expenses — filter, approve, reject.', badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin },
-    { id: 'tips', icon: <HubIcon color={FIN} d={<><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5"/></>} />, name: 'Tips Report', sub: 'Biweekly per-employee tip distribution, ready for Paycor.', show: canTipsReport },
+    { id: 'pnl', icon: <HubIcon color={FIN} d={<><path d="M3 3v18h18M7 16l4-6 3 3 5-7"/></>} />, name: 'P&L', sub: 'Ranked store table — revenue, labor %, COGS %, contribution, margin.', show: canPnl && finSub('pnl') },
+    { id: 'ndcp', icon: <HubIcon color={FIN} d={<><path d="M21 8 12 3 3 8l9 5 9-5Z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></>} />, name: 'NDCP Orders', sub: 'Supply orders, revisions, weekly and district breakdowns.', show: canNdcp && finSub('ndcp') },
+    { id: 'cash', icon: <HubIcon color={FIN} d={<><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20M6 15h4"/></>} />, name: 'Cash Management', sub: 'Deposit tracking, alerts, and POS reconciliation.', badge: cashMissingCount > 0 ? `${cashMissingCount} missing` : null, show: canCash && finSub('cash') },
+    { id: 'recon', icon: <HubIcon color={FIN} d={<><path d="M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3"/></>} />, name: 'Reconciliation', sub: 'Snapshot vs. live sales compare, WTD differences by store.', show: isAdmin && finSub('recon') },
+    { id: 'expenses', icon: <HubIcon color={FIN} d={<><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z"/><path d="M9 10v6M15 10v6"/></>} />, name: 'Expense Log', sub: 'All ticket expenses — filter, approve, reject.', badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin && finSub('expenses') },
+    { id: 'tips', icon: <HubIcon color={FIN} d={<><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5"/></>} />, name: 'Tips Report', sub: 'Biweekly per-employee tip distribution, ready for Paycor.', show: finSub('tips') },
   ].filter(t => t.show);
 
   return (
@@ -36605,7 +36634,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
           {viewMode === 'cash' && canCash && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {viewMode === 'recon' && isAdmin && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {viewMode === 'expenses' && isAdmin && <ExpenseLogSection th={th} user={user} standalone />}
-          {viewMode === 'tips' && canTipsReport && <TipsReportBuilder th={th} stores={stores} />}
+          {viewMode === 'tips' && finSub('tips') && <TipsReportBuilder th={th} stores={stores} />}
         </div>
       )}
     </div>
@@ -43240,10 +43269,6 @@ function PCGPortal() {
   useEffect(() => { cloudLoad('pcg_pnl_access_v1').then(d => { if (Array.isArray(d?.allowed)) setPnlAllowed(d.allowed); }).catch(() => {}); }, []);
   const canPnl = canViewPnl(user, pnlAllowed);
   const canManagePnl = canManagePnlAccess(user);
-  // Tips Report access: on for everyone by default, minus anyone on the block list.
-  const [tipsBlocked, setTipsBlocked] = useState([]);
-  useEffect(() => { cloudLoad('pcg_tips_report_access_v1').then(d => { if (Array.isArray(d?.blocked)) setTipsBlocked(d.blocked); }).catch(() => {}); }, []);
-  const canTipsReport = canViewTipsReport(user, tipsBlocked);
   const [dealAuth, setDealAuth] = useState({ token: null, role: null, loaded: false });
   useEffect(() => {
     if (!user) { setDealAuth({ token: null, role: null, loaded: false }); return; }
@@ -45926,38 +45951,38 @@ function PCGPortal() {
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
-          {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} canTipsReport={canTipsReport} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
+          {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} accessOverrides={accessOverrides} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
           {tab === "ops-hub" && (() => {
             const OPS = '#2F6FA8';
             const opsTiles = [
-              { id: 'tasks', name: 'Tasks', sub: 'Checklists, GPS-verified completions, DM escalation.', show: isFullAdmin(user) || isOfficeStaff || isDM || isManager, icon: <><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></> },
-              { id: 'pulse', name: 'Pulse', sub: 'Live sales monitoring, Labor tab, weekly trends.', show: isFullAdmin(user) || isOfficeStaff || isDM, icon: <path d="M3 12h4l2-7 4 14 2-7h6"/> },
-              { id: 'analytics', name: 'Analytics', sub: 'Sales data and performance metrics, network-wide.', show: isFullAdmin(user) || isOfficeStaff || isDM, icon: <><path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7"/></> },
-              { id: 'anomalies', name: 'Anomalies', sub: 'Unusual sales or labor patterns vs. day-of-week baseline.', show: isFullAdmin(user) || isOfficeStaff || isDM, icon: <path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/> },
-              { id: 'scorecard', name: 'DM Scorecard', sub: 'Weekly DM ranking — labor, sales growth, ticket health.', show: isFullAdmin(user), icon: <><path d="M12 15a5 5 0 0 0 5-5V5a5 5 0 0 0-10 0v5a5 5 0 0 0 5 5Z"/><path d="M4 10a8 8 0 0 0 16 0M12 18v4"/></> },
-              { id: 'audits', name: 'Audits', sub: 'Field operations audits — conduct, review, score.', show: auditCanView(user) || safeCanView(user), icon: <><path d="M9 11.5 11 13.5 15.5 9"/><rect x="3" y="4" width="18" height="17" rx="2"/></> },
+              { id: 'tasks', name: 'Tasks', sub: 'Checklists, GPS-verified completions, DM escalation.', show: (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'tasks'), icon: <><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></> },
+              { id: 'pulse', name: 'Pulse', sub: 'Live sales monitoring, Labor tab, weekly trends.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'pulse'), icon: <path d="M3 12h4l2-7 4 14 2-7h6"/> },
+              { id: 'analytics', name: 'Analytics', sub: 'Sales data and performance metrics, network-wide.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'analytics'), icon: <><path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7"/></> },
+              { id: 'anomalies', name: 'Anomalies', sub: 'Unusual sales or labor patterns vs. day-of-week baseline.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'anomalies'), icon: <path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/> },
+              { id: 'scorecard', name: 'DM Scorecard', sub: 'Weekly DM ranking — labor, sales growth, ticket health.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'scorecard'), icon: <><path d="M12 15a5 5 0 0 0 5-5V5a5 5 0 0 0-10 0v5a5 5 0 0 0 5 5Z"/><path d="M4 10a8 8 0 0 0 16 0M12 18v4"/></> },
+              { id: 'audits', name: 'Audits', sub: 'Field operations audits — conduct, review, score.', show: (auditCanView(user) || safeCanView(user)) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'audits'), icon: <><path d="M9 11.5 11 13.5 15.5 9"/><rect x="3" y="4" width="18" height="17" rx="2"/></> },
             ].filter(t => t.show);
             return <TileGrid title="Operations" tiles={opsTiles} color={OPS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
           })()}
           {tab === "team-hub" && (() => {
             const TEAM = '#7C5CD9';
             const teamTiles = [
-              { id: 'locations', name: 'Locations', sub: 'Store roster — table, cards, and map, one filter bar.', show: isFullAdmin(user) || isOfficeStaff || isDM, icon: <><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/></> },
-              { id: 'impact', name: 'Impact Radar', sub: 'Competitive intelligence — nearby openings and closures.', show: isFullAdmin(user) || isOfficeStaff, icon: <><circle cx="12" cy="12" r="9"/><path d="M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18M3 12h18"/></> },
-              { id: 'projects', name: 'Projects', sub: 'Construction pipeline, vendors, permits, inspections.', show: canViewProjects(user), icon: <><path d="M3 21h18M6 21V9l6-4 6 4v12M10 21v-6h4v6"/></> },
-              { id: 'deals', name: 'Deal Pipeline', sub: 'Site acquisition deals and critical-date reminders.', show: canDeals, icon: <><path d="M7 12h4l2 3 2-6 2 3h3"/><rect x="2" y="5" width="20" height="14" rx="2"/></> },
+              { id: 'locations', name: 'Locations', sub: 'Store roster — table, cards, and map, one filter bar.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'locations'), icon: <><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/></> },
+              { id: 'impact', name: 'Impact Radar', sub: 'Competitive intelligence — nearby openings and closures.', show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'impact'), icon: <><circle cx="12" cy="12" r="9"/><path d="M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18M3 12h18"/></> },
+              { id: 'projects', name: 'Projects', sub: 'Construction pipeline, vendors, permits, inspections.', show: canViewProjects(user) && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'projects'), icon: <><path d="M3 21h18M6 21V9l6-4 6 4v12M10 21v-6h4v6"/></> },
+              { id: 'deals', name: 'Deal Pipeline', sub: 'Site acquisition deals and critical-date reminders.', show: canDeals && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'deals'), icon: <><path d="M7 12h4l2 3 2-6 2 3h3"/><rect x="2" y="5" width="20" height="14" rx="2"/></> },
               // Exec/IT manage users via Admin, not a separate tab — only office_staff has a
               // standalone "users" route/tab entry today, so only show this tile for them.
-              { id: 'users', name: 'Users', sub: 'Accounts, roles, and access management.', show: isOfficeStaff, icon: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6"/></> },
+              { id: 'users', name: 'Users', sub: 'Accounts, roles, and access management.', show: isOfficeStaff && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'users'), icon: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6"/></> },
             ].filter(t => t.show);
             return <TileGrid title="Team & Sites" tiles={teamTiles} color={TEAM} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
           })()}
           {tab === "system-hub" && (() => {
             const SYS = '#726A5C';
             const sysTiles = [
-              { id: 'admin', name: 'Admin', sub: 'Users, role access, audit log, system data.', show: isFullAdmin(user), icon: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></>},
-              { id: 'email', name: 'Email', sub: 'Shared inbox and outbound email from the portal.', show: isFullAdmin(user) || isOfficeStaff, icon: <><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/></> },
-              { id: 'reports', name: 'Reports', sub: 'Dashboards, decks, and scheduled reports from Orion.', show: true, icon: <><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></> },
+              { id: 'admin', name: 'Admin', sub: 'Users, role access, audit log, system data.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'system-hub', 'admin'), icon: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></>},
+              { id: 'email', name: 'Email', sub: 'Shared inbox and outbound email from the portal.', show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, 'system-hub', 'email'), icon: <><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/></> },
+              { id: 'reports', name: 'Reports', sub: 'Dashboards, decks, and scheduled reports from Orion.', show: accessSubOn(accessOverrides, user?.userType, 'system-hub', 'reports'), icon: <><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></> },
             ].filter(t => t.show);
             return <TileGrid title="System" tiles={sysTiles} color={SYS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
           })()}

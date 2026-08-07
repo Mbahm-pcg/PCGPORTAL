@@ -183,13 +183,6 @@
     return pnlIds(user).some((id) => list.includes(id));
   };
 
-  // src/tips-access.mjs
-  var tipsIds = (user) => [user && user.username, user && user.email].map(normalizeId).filter(Boolean);
-  var canViewTipsReport = (user, blocked) => {
-    const list = Array.isArray(blocked) ? blocked.map(normalizeId) : [];
-    return !tipsIds(user).some((id) => list.includes(id));
-  };
-
   // src/pos-negative-shared.mjs
   function isGenuineRefund(check) {
     return Math.abs(check.returnTtl || 0) > 0 || (check.detailLines || []).some((l) => l.menuItem?.returnFlag);
@@ -14262,43 +14255,6 @@ ${t2.slice(0, 300)}`);
       if (e.key === "Enter") add();
     }, placeholder: "Add by email or username", style: { ...inp(th), flex: 1 } }), /* @__PURE__ */ React.createElement("button", { onClick: add, disabled: saving || !input.trim(), style: { ...btn(th), opacity: saving || !input.trim() ? 0.6 : 1 } }, saving ? "Saving\u2026" : "Add")));
   }
-  function TipsReportAccessPanel({ th, user, users, showAlert: showAlert2 }) {
-    const [blocked, setBlocked] = useState(null);
-    const [input, setInput] = useState("");
-    const [saving, setSaving] = useState(false);
-    useEffect(() => {
-      cloudLoad("pcg_tips_report_access_v1").then((d) => setBlocked(Array.isArray(d?.blocked) ? d.blocked : [])).catch(() => setBlocked([]));
-    }, []);
-    const persist = async (next) => {
-      setSaving(true);
-      const ok = await cloudSave("pcg_tips_report_access_v1", { blocked: next, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), updatedBy: user?.username || user?.email || "unknown" });
-      setSaving(false);
-      if (ok) {
-        setBlocked(next);
-        showAlert2 && showAlert2("Tips Report access updated", "success");
-      } else showAlert2 && showAlert2("Failed to save Tips Report access", "error");
-    };
-    const block = () => {
-      const id = normalizeId(input);
-      if (!id) return;
-      if ((blocked || []).map(normalizeId).includes(id)) {
-        setInput("");
-        return;
-      }
-      persist([...blocked || [], id]);
-      setInput("");
-    };
-    const unblock = (id) => persist((blocked || []).filter((b) => normalizeId(b) !== normalizeId(id)));
-    const nameFor = (id) => {
-      const n = normalizeId(id);
-      const u = (users || []).find((u2) => normalizeId(u2.username) === n || normalizeId(u2.email) === n);
-      return u ? u.name : id;
-    };
-    if (blocked === null) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1.25rem" } }, "Loading Tips Report access\u2026");
-    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontFamily: "'Raleway'", color: th.text, marginBottom: "0.25rem" } }, "\u{1F4B5} Tips Report Access"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", marginBottom: "0.9rem" } }, "Everyone with the Finance tab can see the Tips Report by default. Add someone here to turn it off just for them."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.9rem" } }, (blocked || []).length === 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, "Nobody is blocked."), (blocked || []).map((id) => /* @__PURE__ */ React.createElement("span", { key: id, style: { fontSize: "0.78rem", padding: "0.25rem 0.5rem 0.25rem 0.6rem", borderRadius: "0.5rem", background: "#ef444418", color: th.text, border: "1px solid #ef444455", display: "inline-flex", alignItems: "center", gap: "0.4rem" } }, nameFor(id), /* @__PURE__ */ React.createElement("button", { onClick: () => unblock(id), disabled: saving, title: "Restore access", style: { border: "none", background: "none", color: "#22c55e", cursor: "pointer", fontWeight: 800, fontSize: "0.95rem", lineHeight: 1, padding: 0 } }, "\xD7")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("input", { value: input, onChange: (e) => setInput(e.target.value), onKeyDown: (e) => {
-      if (e.key === "Enter") block();
-    }, placeholder: "Block by email or username", style: { ...inp(th), flex: 1 } }), /* @__PURE__ */ React.createElement("button", { onClick: block, disabled: saving || !input.trim(), style: { ...btn(th), opacity: saving || !input.trim() ? 0.6 : 1 } }, saving ? "Saving\u2026" : "Block")));
-  }
   function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
     const [newEmail, setNewEmail] = useState("");
     const [newTicketEmail, setNewTicketEmail] = useState("");
@@ -15057,6 +15013,37 @@ ${t2.slice(0, 300)}`);
     kiosk_pulse: { label: "Kiosk TV", admin: false, scope: "Pulse TV display only \u2014 no portal access." },
     kiosk_upload: { label: "Kiosk Upload", admin: false, scope: "Upload-only kiosk \u2014 no portal access." }
   };
+  var HUB_SUBITEMS = {
+    "ops-hub": [
+      { id: "tasks", label: "Tasks" },
+      { id: "pulse", label: "Pulse" },
+      { id: "analytics", label: "Analytics" },
+      { id: "anomalies", label: "Anomalies" },
+      { id: "scorecard", label: "DM Scorecard" },
+      { id: "audits", label: "Audits" }
+    ],
+    "team-hub": [
+      { id: "locations", label: "Locations" },
+      { id: "impact", label: "Impact Radar" },
+      { id: "projects", label: "Projects" },
+      { id: "deals", label: "Deal Pipeline" },
+      { id: "users", label: "Users" }
+    ],
+    "system-hub": [
+      { id: "admin", label: "Admin" },
+      { id: "email", label: "Email" },
+      { id: "reports", label: "Reports" }
+    ],
+    finance: [
+      { id: "pnl", label: "P&L" },
+      { id: "ndcp", label: "NDCP Orders" },
+      { id: "cash", label: "Cash Management" },
+      { id: "recon", label: "Reconciliation" },
+      { id: "expenses", label: "Expense Log" },
+      { id: "tips", label: "Tips Report" }
+    ]
+  };
+  var accessSubOn = (overrides, rt, hubId, subId) => overrides?.[rt]?.[`${hubId}:${subId}`] !== false;
   function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, showAlert: showAlert2 }) {
     const roles = Object.keys(ROLE_META);
     const userCounts = {};
@@ -15066,6 +15053,13 @@ ${t2.slice(0, 300)}`);
     });
     const KIOSK = /* @__PURE__ */ new Set(["kiosk_pulse", "kiosk_upload"]);
     const ov = accessOverrides || {};
+    const [expandedHubs, setExpandedHubs] = useState(/* @__PURE__ */ new Set());
+    const toggleHubExpanded = (hubId) => setExpandedHubs((prev) => {
+      const next = new Set(prev);
+      if (next.has(hubId)) next.delete(hubId);
+      else next.add(hubId);
+      return next;
+    });
     const isLocked = (rt, tabId) => tabId === "admin" && (rt === "executive" || rt === "it") || rt === "store_tablet" && (tabId === "tickets" || tabId === "tasks");
     const isOn = (rt, tabId) => ov[rt]?.[tabId] !== false;
     const toggle = (rt, tabId) => {
@@ -15083,7 +15077,7 @@ ${t2.slice(0, 300)}`);
       });
     };
     const hiddenCount = Object.values(ov).reduce((n, m) => n + Object.values(m || {}).filter((v) => v === false).length, 0);
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#0ea5e9", { padding: "0.85rem 1rem", marginBottom: "1.1rem", display: "flex", gap: "0.6rem", alignItems: "flex-start" }) }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, "\u{1F510}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, "Tap any section chip to ", /* @__PURE__ */ React.createElement("strong", null, "show / hide"), " it for that role. Changes save automatically and apply to everyone in that role network-wide. Hidden sections (", /* @__PURE__ */ React.createElement("span", { style: { textDecoration: "line-through", opacity: 0.6 } }, "dimmed"), ") disappear from their sidebar on next refresh. Universal tabs (Dashboard, Chat, Notes\u2026) are always available and aren't listed here.", hiddenCount > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " ", /* @__PURE__ */ React.createElement("strong", null, hiddenCount, " section", hiddenCount !== 1 ? "s" : "", " currently hidden.")))), canManagePnlAccess(user) && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement(PnlAccessPanel, { th, user, users, showAlert: showAlert2 })), isFullAdmin(user) && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement(TipsReportAccessPanel, { th, user, users, showAlert: showAlert2 })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.85rem" } }, roles.map((rt) => {
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#0ea5e9", { padding: "0.85rem 1rem", marginBottom: "1.1rem", display: "flex", gap: "0.6rem", alignItems: "flex-start" }) }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, "\u{1F510}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, "Tap any section chip to ", /* @__PURE__ */ React.createElement("strong", null, "show / hide"), " it for that role. Changes save automatically and apply to everyone in that role network-wide. Hidden sections (", /* @__PURE__ */ React.createElement("span", { style: { textDecoration: "line-through", opacity: 0.6 } }, "dimmed"), ") disappear from their sidebar on next refresh. Universal tabs (Dashboard, Chat, Notes\u2026) are always available and aren't listed here.", hiddenCount > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " ", /* @__PURE__ */ React.createElement("strong", null, hiddenCount, " section", hiddenCount !== 1 ? "s" : "", " currently hidden.")))), canManagePnlAccess(user) && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement(PnlAccessPanel, { th, user, users, showAlert: showAlert2 })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.85rem" } }, roles.map((rt) => {
       const meta = ROLE_META[rt];
       const seen = /* @__PURE__ */ new Set();
       const tabs = rt === "store_tablet" ? [{ id: "tickets", label: "Tickets" }, { id: "tasks", label: "Tasks" }] : (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: "000000" })).filter((t) => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
@@ -15091,7 +15085,9 @@ ${t2.slice(0, 300)}`);
       return /* @__PURE__ */ React.createElement("div", { key: rt, style: card(th, { padding: "1rem 1.15rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { ...sectionTitle(th) } }, meta.label), meta.admin && /* @__PURE__ */ React.createElement("span", { style: pill("#ef4444") }, "ADMIN"), /* @__PURE__ */ React.createElement("span", { style: pill("#94a3b8") }, userCounts[rt] || 0, " user", (userCounts[rt] || 0) !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.7rem", color: th.muted } }, KIOSK.has(rt) ? "\u2014" : `${visibleN}/${tabs.length} visible`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginBottom: tabs.length ? "0.6rem" : 0 } }, meta.scope), tabs.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.35rem" } }, tabs.map((t) => {
         const on = isOn(rt, t.id);
         const locked = isLocked(rt, t.id);
-        return /* @__PURE__ */ React.createElement("button", { key: t.id, onClick: () => toggle(rt, t.id), title: locked ? "Locked \u2014 always visible for this role" : on ? "Click to hide" : "Click to show", style: {
+        const hasSub = !!HUB_SUBITEMS[t.id];
+        const expanded = expandedHubs.has(t.id);
+        return /* @__PURE__ */ React.createElement("span", { key: t.id, style: { display: "inline-flex", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggle(rt, t.id), title: locked ? "Locked \u2014 always visible for this role" : on ? "Click to hide" : "Click to show", style: {
           display: "inline-flex",
           alignItems: "center",
           gap: "0.3rem",
@@ -15104,11 +15100,53 @@ ${t2.slice(0, 300)}`);
           opacity: on ? 1 : 0.55,
           background: on ? th.card2 || th.card : "transparent",
           border: `1px solid ${on ? th.cardBorder : `${th.muted}55`}`,
-          borderRadius: RADIUS.chip,
+          borderRadius: hasSub ? "999px 0 0 999px" : RADIUS.chip,
           padding: "0.18rem 0.5rem",
           transition: "all .12s"
-        } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem" } }, locked ? "\u{1F512}" : on ? "\u25CF" : "\u25CB"), t.label);
-      })));
+        } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem" } }, locked ? "\u{1F512}" : on ? "\u25CF" : "\u25CB"), t.label), hasSub && /* @__PURE__ */ React.createElement("button", { onClick: () => toggleHubExpanded(t.id), title: expanded ? "Collapse individual items" : "Expand to see and toggle individual items", style: {
+          fontSize: "0.6rem",
+          color: th.muted,
+          cursor: "pointer",
+          padding: "0.18rem 0.4rem",
+          background: on ? th.card2 || th.card : "transparent",
+          border: `1px solid ${on ? th.cardBorder : `${th.muted}55`}`,
+          borderLeft: "none",
+          borderRadius: "0 999px 999px 0"
+        } }, expanded ? "\u25BE" : "\u25B8"));
+      })), tabs.filter((t) => HUB_SUBITEMS[t.id] && expandedHubs.has(t.id)).map((t) => {
+        const hubOn = isOn(rt, t.id);
+        return /* @__PURE__ */ React.createElement("div", { key: t.id + "-sub", style: { marginTop: "0.5rem", paddingLeft: "0.75rem", borderLeft: `2px solid ${th.cardBorder}`, display: "flex", flexWrap: "wrap", gap: "0.3rem" } }, HUB_SUBITEMS[t.id].map((sub) => {
+          const subOn = isOn(rt, `${t.id}:${sub.id}`);
+          return /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              key: sub.id,
+              disabled: !hubOn,
+              onClick: () => toggle(rt, `${t.id}:${sub.id}`),
+              title: !hubOn ? `${t.label} is hidden for this role \u2014 sub-items won't matter until it's shown` : subOn ? "Click to hide" : "Click to show",
+              style: {
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.25rem",
+                fontSize: "0.65rem",
+                fontWeight: 600,
+                fontFamily: "'Source Sans 3'",
+                cursor: hubOn ? "pointer" : "not-allowed",
+                color: subOn && hubOn ? th.text : th.muted,
+                textDecoration: subOn ? "none" : "line-through",
+                opacity: hubOn ? subOn ? 1 : 0.55 : 0.35,
+                background: subOn && hubOn ? th.card3 || th.card2 || th.card : "transparent",
+                border: `1px solid ${th.muted}44`,
+                borderRadius: RADIUS.chip,
+                padding: "0.15rem 0.45rem",
+                transition: "all .12s"
+              }
+            },
+            /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem" } }, subOn ? "\u25CF" : "\u25CB"),
+            sub.label
+          );
+        }));
+      }));
     })));
   }
   var TASK_SHIFTS = ["", "1 AM", "5 AM", "9 AM", "1 PM", "5 PM", "9 PM", "AM", "Noon", "PM"];
@@ -20144,7 +20182,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.56";
+  var APP_VERSION = "v19.57";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -27961,7 +27999,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     cashPOS,
     setCashPOS,
     canPnl,
-    canTipsReport,
+    accessOverrides,
     pinnedNavIds,
     togglePinNav,
     cashMissingCount
@@ -27971,6 +28009,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const isDM = user?.userType === "dm";
     const canNdcp = isAdmin || isOfficeStaff;
     const canCash = isAdmin || isOfficeStaff || isDM;
+    const finSub = (id) => accessSubOn(accessOverrides, user?.userType, "finance", id);
     const [viewMode, setViewMode] = useState("overview");
     const [pnlOv, setPnlOv] = useState(null);
     const [expPending, setExpPending] = useState(null);
@@ -28010,12 +28049,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [pnlOv]);
     const FIN = "#1B8F5C";
     const tiles = [
-      { id: "pnl", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 3v18h18M7 16l4-6 3 3 5-7" })) }), name: "P&L", sub: "Ranked store table \u2014 revenue, labor %, COGS %, contribution, margin.", show: canPnl },
-      { id: "ndcp", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M21 8 12 3 3 8l9 5 9-5Z" }), /* @__PURE__ */ React.createElement("path", { d: "M3 8v8l9 5 9-5V8M12 13v8" })) }), name: "NDCP Orders", sub: "Supply orders, revisions, weekly and district breakdowns.", show: canNdcp },
-      { id: "cash", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "2", y: "6", width: "20", height: "12", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M2 10h20M6 15h4" })) }), name: "Cash Management", sub: "Deposit tracking, alerts, and POS reconciliation.", badge: cashMissingCount > 0 ? `${cashMissingCount} missing` : null, show: canCash },
-      { id: "recon", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3" })) }), name: "Reconciliation", sub: "Snapshot vs. live sales compare, WTD differences by store.", show: isAdmin },
-      { id: "expenses", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6l1 4H8l1-4Z" }), /* @__PURE__ */ React.createElement("path", { d: "M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z" }), /* @__PURE__ */ React.createElement("path", { d: "M9 10v6M15 10v6" })) }), name: "Expense Log", sub: "All ticket expenses \u2014 filter, approve, reject.", badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin },
-      { id: "tips", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5" })) }), name: "Tips Report", sub: "Biweekly per-employee tip distribution, ready for Paycor.", show: canTipsReport }
+      { id: "pnl", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 3v18h18M7 16l4-6 3 3 5-7" })) }), name: "P&L", sub: "Ranked store table \u2014 revenue, labor %, COGS %, contribution, margin.", show: canPnl && finSub("pnl") },
+      { id: "ndcp", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M21 8 12 3 3 8l9 5 9-5Z" }), /* @__PURE__ */ React.createElement("path", { d: "M3 8v8l9 5 9-5V8M12 13v8" })) }), name: "NDCP Orders", sub: "Supply orders, revisions, weekly and district breakdowns.", show: canNdcp && finSub("ndcp") },
+      { id: "cash", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "2", y: "6", width: "20", height: "12", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M2 10h20M6 15h4" })) }), name: "Cash Management", sub: "Deposit tracking, alerts, and POS reconciliation.", badge: cashMissingCount > 0 ? `${cashMissingCount} missing` : null, show: canCash && finSub("cash") },
+      { id: "recon", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3" })) }), name: "Reconciliation", sub: "Snapshot vs. live sales compare, WTD differences by store.", show: isAdmin && finSub("recon") },
+      { id: "expenses", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6l1 4H8l1-4Z" }), /* @__PURE__ */ React.createElement("path", { d: "M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z" }), /* @__PURE__ */ React.createElement("path", { d: "M9 10v6M15 10v6" })) }), name: "Expense Log", sub: "All ticket expenses \u2014 filter, approve, reject.", badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin && finSub("expenses") },
+      { id: "tips", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5" })) }), name: "Tips Report", sub: "Biweekly per-employee tip distribution, ready for Paycor.", show: finSub("tips") }
     ].filter((t) => t.show);
     return /* @__PURE__ */ React.createElement("div", null, viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", { onClick: () => setViewMode("overview"), style: { display: "inline-flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", fontWeight: 700, color: O, cursor: "pointer", marginBottom: "1rem" } }, "\u2190 Back to Finance"), /* @__PURE__ */ React.createElement("div", { style: { display: viewMode === "overview" ? "block" : "none" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "1rem" } }, "Finance Overview"), canPnl && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #3b82f6" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, overview ? fmtDollars(overview.revenue) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Revenue (MTD)")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: `3px solid ${overview && overview.marginPct >= 30 ? "#22c55e" : "#ef4444"}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: overview && overview.marginPct >= 30 ? "#22c55e" : th.text } }, overview ? fmtPct(overview.marginPct) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Margin %")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #f59e0b", cursor: "pointer" }, onClick: () => setViewMode("expenses") }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, expPending != null ? expPending : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Pending Expense Approvals"))), overview && overview.districtRows.length > 0 && (() => {
       const vals = overview.districtRows.map((d) => d.marginPct);
@@ -28042,7 +28081,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         pinned: pinnedNavIds?.includes(t.id),
         onTogglePin: togglePinNav ? () => togglePinNav(t.id) : void 0
       }
-    ))))), viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", null, viewMode === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn }), viewMode === "ndcp" && canNdcp && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), viewMode === "cash" && canCash && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }), viewMode === "recon" && isAdmin && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert: showAlert2 }), viewMode === "expenses" && isAdmin && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), viewMode === "tips" && canTipsReport && /* @__PURE__ */ React.createElement(TipsReportBuilder, { th, stores })));
+    ))))), viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", null, viewMode === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn }), viewMode === "ndcp" && canNdcp && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), viewMode === "cash" && canCash && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }), viewMode === "recon" && isAdmin && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert: showAlert2 }), viewMode === "expenses" && isAdmin && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), viewMode === "tips" && finSub("tips") && /* @__PURE__ */ React.createElement(TipsReportBuilder, { th, stores })));
   }
   var TIPS_SNAPSHOT_RETENTION_DAYS = 40;
   function tipsParseISODate(s) {
@@ -32895,14 +32934,6 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, []);
     const canPnl = canViewPnl(user, pnlAllowed);
     const canManagePnl = canManagePnlAccess(user);
-    const [tipsBlocked, setTipsBlocked] = useState([]);
-    useEffect(() => {
-      cloudLoad("pcg_tips_report_access_v1").then((d) => {
-        if (Array.isArray(d?.blocked)) setTipsBlocked(d.blocked);
-      }).catch(() => {
-      });
-    }, []);
-    const canTipsReport = canViewTipsReport(user, tipsBlocked);
     const [dealAuth, setDealAuth] = useState({ token: null, role: null, loaded: false });
     useEffect(() => {
       if (!user) {
@@ -35450,35 +35481,35 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" || tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, canTipsReport, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
+    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
       const OPS = "#2F6FA8";
       const opsTiles = [
-        { id: "tasks", name: "Tasks", sub: "Checklists, GPS-verified completions, DM escalation.", show: isFullAdmin(user) || isOfficeStaff || isDM || isManager, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "m9 11 3 3L22 4" }), /* @__PURE__ */ React.createElement("path", { d: "M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" })) },
-        { id: "pulse", name: "Pulse", sub: "Live sales monitoring, Labor tab, weekly trends.", show: isFullAdmin(user) || isOfficeStaff || isDM, icon: /* @__PURE__ */ React.createElement("path", { d: "M3 12h4l2-7 4 14 2-7h6" }) },
-        { id: "analytics", name: "Analytics", sub: "Sales data and performance metrics, network-wide.", show: isFullAdmin(user) || isOfficeStaff || isDM, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 3v18h18M7 16v-4M12 16V8M17 16v-7" })) },
-        { id: "anomalies", name: "Anomalies", sub: "Unusual sales or labor patterns vs. day-of-week baseline.", show: isFullAdmin(user) || isOfficeStaff || isDM, icon: /* @__PURE__ */ React.createElement("path", { d: "M13 2 3 14h8l-1 8 10-12h-8l1-8Z" }) },
-        { id: "scorecard", name: "DM Scorecard", sub: "Weekly DM ranking \u2014 labor, sales growth, ticket health.", show: isFullAdmin(user), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 15a5 5 0 0 0 5-5V5a5 5 0 0 0-10 0v5a5 5 0 0 0 5 5Z" }), /* @__PURE__ */ React.createElement("path", { d: "M4 10a8 8 0 0 0 16 0M12 18v4" })) },
-        { id: "audits", name: "Audits", sub: "Field operations audits \u2014 conduct, review, score.", show: auditCanView(user) || safeCanView(user), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M9 11.5 11 13.5 15.5 9" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "4", width: "18", height: "17", rx: "2" })) }
+        { id: "tasks", name: "Tasks", sub: "Checklists, GPS-verified completions, DM escalation.", show: (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "tasks"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "m9 11 3 3L22 4" }), /* @__PURE__ */ React.createElement("path", { d: "M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" })) },
+        { id: "pulse", name: "Pulse", sub: "Live sales monitoring, Labor tab, weekly trends.", show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "pulse"), icon: /* @__PURE__ */ React.createElement("path", { d: "M3 12h4l2-7 4 14 2-7h6" }) },
+        { id: "analytics", name: "Analytics", sub: "Sales data and performance metrics, network-wide.", show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "analytics"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 3v18h18M7 16v-4M12 16V8M17 16v-7" })) },
+        { id: "anomalies", name: "Anomalies", sub: "Unusual sales or labor patterns vs. day-of-week baseline.", show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "anomalies"), icon: /* @__PURE__ */ React.createElement("path", { d: "M13 2 3 14h8l-1 8 10-12h-8l1-8Z" }) },
+        { id: "scorecard", name: "DM Scorecard", sub: "Weekly DM ranking \u2014 labor, sales growth, ticket health.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "scorecard"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 15a5 5 0 0 0 5-5V5a5 5 0 0 0-10 0v5a5 5 0 0 0 5 5Z" }), /* @__PURE__ */ React.createElement("path", { d: "M4 10a8 8 0 0 0 16 0M12 18v4" })) },
+        { id: "audits", name: "Audits", sub: "Field operations audits \u2014 conduct, review, score.", show: (auditCanView(user) || safeCanView(user)) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "audits"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M9 11.5 11 13.5 15.5 9" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "4", width: "18", height: "17", rx: "2" })) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement(TileGrid, { title: "Operations", tiles: opsTiles, color: OPS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
     })(), tab === "team-hub" && (() => {
       const TEAM = "#7C5CD9";
       const teamTiles = [
-        { id: "locations", name: "Locations", sub: "Store roster \u2014 table, cards, and map, one filter bar.", show: isFullAdmin(user) || isOfficeStaff || isDM, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10", r: "2.5" })) },
-        { id: "impact", name: "Impact Radar", sub: "Competitive intelligence \u2014 nearby openings and closures.", show: isFullAdmin(user) || isOfficeStaff, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18M3 12h18" })) },
-        { id: "projects", name: "Projects", sub: "Construction pipeline, vendors, permits, inspections.", show: canViewProjects(user), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 21h18M6 21V9l6-4 6 4v12M10 21v-6h4v6" })) },
-        { id: "deals", name: "Deal Pipeline", sub: "Site acquisition deals and critical-date reminders.", show: canDeals, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M7 12h4l2 3 2-6 2 3h3" }), /* @__PURE__ */ React.createElement("rect", { x: "2", y: "5", width: "20", height: "14", rx: "2" })) },
+        { id: "locations", name: "Locations", sub: "Store roster \u2014 table, cards, and map, one filter bar.", show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, "team-hub", "locations"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10", r: "2.5" })) },
+        { id: "impact", name: "Impact Radar", sub: "Competitive intelligence \u2014 nearby openings and closures.", show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, "team-hub", "impact"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18M3 12h18" })) },
+        { id: "projects", name: "Projects", sub: "Construction pipeline, vendors, permits, inspections.", show: canViewProjects(user) && accessSubOn(accessOverrides, user?.userType, "team-hub", "projects"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 21h18M6 21V9l6-4 6 4v12M10 21v-6h4v6" })) },
+        { id: "deals", name: "Deal Pipeline", sub: "Site acquisition deals and critical-date reminders.", show: canDeals && accessSubOn(accessOverrides, user?.userType, "team-hub", "deals"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M7 12h4l2 3 2-6 2 3h3" }), /* @__PURE__ */ React.createElement("rect", { x: "2", y: "5", width: "20", height: "14", rx: "2" })) },
         // Exec/IT manage users via Admin, not a separate tab — only office_staff has a
         // standalone "users" route/tab entry today, so only show this tile for them.
-        { id: "users", name: "Users", sub: "Accounts, roles, and access management.", show: isOfficeStaff, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "8", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 20a6.5 6.5 0 0 1 13 0" }), /* @__PURE__ */ React.createElement("path", { d: "M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6" })) }
+        { id: "users", name: "Users", sub: "Accounts, roles, and access management.", show: isOfficeStaff && accessSubOn(accessOverrides, user?.userType, "team-hub", "users"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "8", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 20a6.5 6.5 0 0 1 13 0" }), /* @__PURE__ */ React.createElement("path", { d: "M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6" })) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement(TileGrid, { title: "Team & Sites", tiles: teamTiles, color: TEAM, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
     })(), tab === "system-hub" && (() => {
       const SYS = "#726A5C";
       const sysTiles = [
-        { id: "admin", name: "Admin", sub: "Users, role access, audit log, system data.", show: isFullAdmin(user), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "3" }), /* @__PURE__ */ React.createElement("path", { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" })) },
-        { id: "email", name: "Email", sub: "Shared inbox and outbound email from the portal.", show: isFullAdmin(user) || isOfficeStaff, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "2", y: "4", width: "20", height: "16", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "m2 6 10 7 10-7" })) },
-        { id: "reports", name: "Reports", sub: "Dashboards, decks, and scheduled reports from Orion.", show: true, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" }), /* @__PURE__ */ React.createElement("path", { d: "M14 2v6h6M9 13h6M9 17h6" })) }
+        { id: "admin", name: "Admin", sub: "Users, role access, audit log, system data.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "system-hub", "admin"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "3" }), /* @__PURE__ */ React.createElement("path", { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" })) },
+        { id: "email", name: "Email", sub: "Shared inbox and outbound email from the portal.", show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, "system-hub", "email"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "2", y: "4", width: "20", height: "16", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "m2 6 10 7 10-7" })) },
+        { id: "reports", name: "Reports", sub: "Dashboards, decks, and scheduled reports from Orion.", show: accessSubOn(accessOverrides, user?.userType, "system-hub", "reports"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" }), /* @__PURE__ */ React.createElement("path", { d: "M14 2v6h6M9 13h6M9 17h6" })) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement(TileGrid, { title: "System", tiles: sysTiles, color: SYS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
     })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {
