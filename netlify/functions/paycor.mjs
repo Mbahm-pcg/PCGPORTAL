@@ -19,6 +19,13 @@ let tokenCache = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// 20s timeout — comfortably under Netlify's ~26s sync-function ceiling, so a
+// hung Paycor API rejects cleanly in time for the caller's own try/catch to
+// handle it, instead of Netlify's platform killing the whole invocation and
+// returning a raw 504 with no chance for our own error handling to run.
+// Confirmed directly via Netlify function logs: a real Paycor outage caused
+// 85+ consecutive ~30s hangs here, each surfacing as an unhandled 504/500
+// with no useful error message and no chance to retry cleanly upstream.
 function httpsRequest(hostname, path, method, headers, body) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : null;
@@ -45,6 +52,7 @@ function httpsRequest(hostname, path, method, headers, body) {
       });
     });
     req.on('error', reject);
+    req.setTimeout(20000, () => req.destroy(new Error('Paycor API request timed out')));
     if (data) req.write(data);
     req.end();
   });
@@ -99,6 +107,7 @@ async function getAccessToken() {
           });
         });
         req.on('error', reject);
+        req.setTimeout(20000, () => req.destroy(new Error('Paycor token refresh timed out')));
         req.write(formBody);
         req.end();
       });

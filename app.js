@@ -19711,20 +19711,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setRefreshing(true);
       try {
-        let liveLabor = null;
-        try {
-          const res = await fetch("/.netlify/functions/labor-refresh", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ storePC: pc })
-          });
-          const json = res.ok ? await res.json().catch(() => null) : null;
-          if (json?.ok && !json?.skipped) {
-            liveLabor = { today: { laborDollars: json.laborDollars, sales: json.sales, laborPct: json.laborPct, currentlyClockedIn: json.currentlyClockedIn || 0 } };
-            setLabor(liveLabor);
-          }
-        } catch {
-        }
+        const liveLaborPromise = fetch("/.netlify/functions/labor-refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ storePC: pc })
+        }).then((res) => res.ok ? res.json() : null).catch(() => null);
         const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -19732,12 +19723,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }).then((r) => r.ok ? r.json() : null).catch(() => null);
         const [opsRes, laborBlob, checkRes, storeBlobData] = await Promise.all([
           fetchOpsTotals(pc, todayStr).catch(() => null),
-          liveLabor ? Promise.resolve(null) : cloudLoad("pcg_labor_v1").catch(() => null),
+          cloudLoad("pcg_labor_v1").catch(() => null),
           pulsePost("getGuestChecks", { include: "guestChecks" }),
           cloudLoad(`pcg_labor_store_${pc}`).catch(() => null)
         ]);
         if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
-        if (!liveLabor && laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
+        if (laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
         if (storeBlobData?.daily?.[0]?.employees?.length) {
           setWorkers(storeBlobData.daily[0].employees.filter((e) => e.hoursToday > 0).map((e) => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
         }
@@ -19771,6 +19762,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         if (empList.length > 0) {
           setWorkers(empList.filter((e) => e.hoursToday > 0).map((e) => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
         }
+        liveLaborPromise.then(async (json) => {
+          if (!json?.ok || json?.skipped) return;
+          setLabor({ today: { laborDollars: json.laborDollars, sales: json.sales, laborPct: json.laborPct, currentlyClockedIn: json.currentlyClockedIn || 0 } });
+          const fresh = await cloudLoad(`pcg_labor_store_${pc}`).catch(() => null);
+          if (!fresh) return;
+          setStoreBlob(fresh);
+          const empList2 = fresh.daily?.[0]?.employees || [];
+          if (empList2.length > 0) {
+            setWorkers(empList2.filter((e) => e.hoursToday > 0).map((e) => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
+          }
+        }).catch(() => {
+        });
       } catch {
       }
       setLoading(false);
@@ -20182,7 +20185,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.57";
+  var APP_VERSION = "v19.58";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

@@ -24185,53 +24185,46 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     setRefreshing(true);
     try {
       // Live labor refresh for this store — real per-employee pay rates + a true
-      // "currently punched in" count, computed fresh right now via labor-refresh
-      // (a scoped, unscheduled function — labor-cron itself can't be called
-      // directly from the client since it's schedule-configured and Netlify's
-      // edge blocks all external POSTs to scheduled functions). This is the
-      // exact same source Pulse's Labor sub-tab uses (LaborDrillDown), so this
-      // tile and that tab can't disagree the way the old hourly-cached
-      // pcg_labor_v1 blob used to. Runs every load, not just on manual refresh —
-      // single-store scoped calls are cheap.
-      let liveLabor = null;
-      try {
-        const res = await fetch('/.netlify/functions/labor-refresh', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ storePC: pc }),
-        });
-        const json = res.ok ? await res.json().catch(() => null) : null;
-        if (json?.ok && !json?.skipped) {
-          liveLabor = { today: { laborDollars: json.laborDollars, sales: json.sales, laborPct: json.laborPct, currentlyClockedIn: json.currentlyClockedIn || 0 } };
-          setLabor(liveLabor);
-        }
-      } catch {}
+      // "currently punched in" count, computed fresh via labor-refresh (a scoped,
+      // unscheduled function — labor-cron itself can't be called directly from the
+      // client since it's schedule-configured and Netlify's edge blocks all
+      // external POSTs to scheduled functions). Fired here but deliberately NOT
+      // awaited before the critical-path fetch below: it's a live multi-hop
+      // Paycor scrape (POS sales -> employees -> scheduling shifts -> pay rates),
+      // and awaiting it first was blocking first paint on every mount and every
+      // 10-min auto-refresh. Desktop Admin views never pay this cost — they just
+      // read the cron-maintained pcg_labor_v1 blob, which is now this screen's
+      // first-paint source too. This promise just upgrades `labor` (and the
+      // per-employee hours list) in place once it lands, below.
+      const liveLaborPromise = fetch('/.netlify/functions/labor-refresh', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storePC: pc }),
+      }).then(res => res.ok ? res.json() : null).catch(() => null);
       const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra }),
       }).then(r => r.ok ? r.json() : null).catch(() => null);
 
-      // Critical path only — today's sales, labor, hourly chart, store history. These
-      // are the only numbers the screen shows on first paint, so they're the only ones
-      // that gate `loading`. "vs last year" and yesterday's total (only needed if the
-      // manager taps into day-cycling) are fetched separately below, AFTER first paint —
-      // never shown wrong, just filled in a beat later. (The old 7th call here loaded
+      // Critical path only — today's sales, labor (cached blob — fast), hourly
+      // chart, store history. These are the only numbers the screen shows on
+      // first paint, so they're the only ones that gate `loading`. "vs last
+      // year" and yesterday's total (only needed if the manager taps into
+      // day-cycling) are fetched separately below, AFTER first paint — never
+      // shown wrong, just filled in a beat later. (The old 7th call here loaded
       // announcements into state that nothing in this redesign actually renders anymore
       // — removed outright rather than deferred, since fetching data nobody reads isn't
       // worth even a background request.)
       const [opsRes, laborBlob, checkRes, storeBlobData] = await Promise.all([
         fetchOpsTotals(pc, todayStr).catch(() => null),
-        liveLabor ? Promise.resolve(null) : cloudLoad('pcg_labor_v1').catch(() => null),
+        cloudLoad('pcg_labor_v1').catch(() => null),
         pulsePost('getGuestChecks', { include: 'guestChecks' }),
         cloudLoad(`pcg_labor_store_${pc}`).catch(() => null),
       ]);
 
       if (opsRes?.revenueCenters) setSales(sumRVC(opsRes.revenueCenters));
-      // Only fall back to the hourly-cached network blob if the live scoped
-      // refresh above didn't succeed (e.g. Paycor timeout) — liveLabor already
-      // set the authoritative numbers.
-      if (!liveLabor && laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
-      // storeBlobData was just re-fetched after the scoped refresh wrote it, so
-      // it already reflects today's fresh per-employee hours when liveLabor loaded.
+      // First-paint labor number — the cached network blob. Upgraded to the true
+      // live scoped figure below once liveLaborPromise resolves.
+      if (laborBlob?.stores?.[pc]) setLabor(laborBlob.stores[pc]);
       if (storeBlobData?.daily?.[0]?.employees?.length) {
         setWorkers(storeBlobData.daily[0].employees.filter(e => e.hoursToday > 0).map(e => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
       }
@@ -24269,6 +24262,22 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       if (empList.length > 0) {
         setWorkers(empList.filter(e => e.hoursToday > 0).map(e => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
       }
+      // Upgrade with the true live scoped Paycor numbers once they land — replaces
+      // the cached blob's labor figure, and re-reads the store blob (labor-refresh
+      // just wrote fresher per-employee hours into it) so the workers list picks
+      // up today's real hours too. Resolves well after first paint already
+      // happened below, so nothing wrong is ever shown — just upgraded a beat later.
+      liveLaborPromise.then(async (json) => {
+        if (!json?.ok || json?.skipped) return;
+        setLabor({ today: { laborDollars: json.laborDollars, sales: json.sales, laborPct: json.laborPct, currentlyClockedIn: json.currentlyClockedIn || 0 } });
+        const fresh = await cloudLoad(`pcg_labor_store_${pc}`).catch(() => null);
+        if (!fresh) return;
+        setStoreBlob(fresh);
+        const empList = fresh.daily?.[0]?.employees || [];
+        if (empList.length > 0) {
+          setWorkers(empList.filter(e => e.hoursToday > 0).map(e => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
+        }
+      }).catch(() => {});
     } catch {}
     setLoading(false);
     setRefreshing(false);
@@ -24855,7 +24864,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.57";
+const APP_VERSION = "v19.58";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
