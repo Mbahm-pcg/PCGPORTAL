@@ -19610,6 +19610,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [carouselPage, setCarouselPage] = useState(0);
     const touchStartX = useRef(null);
     const carouselInnerRef = useRef(null);
+    const fetchTokenRef = useRef(0);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [lastRefresh, setLastRefresh] = useState(null);
@@ -19709,6 +19710,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
         return;
       }
+      const myFetchToken = ++fetchTokenRef.current;
       setRefreshing(true);
       try {
         const liveLaborPromise = fetch("/.netlify/functions/labor-refresh", {
@@ -19763,10 +19765,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           setWorkers(empList.filter((e) => e.hoursToday > 0).map((e) => ({ name: e.name, role: e.role, hoursToday: e.hoursToday })));
         }
         liveLaborPromise.then(async (json) => {
+          if (fetchTokenRef.current !== myFetchToken) return;
           if (!json?.ok || json?.skipped) return;
           setLabor({ today: { laborDollars: json.laborDollars, sales: json.sales, laborPct: json.laborPct, currentlyClockedIn: json.currentlyClockedIn || 0 } });
           const fresh = await cloudLoad(`pcg_labor_store_${pc}`).catch(() => null);
-          if (!fresh) return;
+          if (!fresh || fetchTokenRef.current !== myFetchToken) return;
           setStoreBlob(fresh);
           const empList2 = fresh.daily?.[0]?.employees || [];
           if (empList2.length > 0) {
@@ -19790,6 +19793,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [pc, todayStr]);
     useEffect(() => {
       fetchAll();
+      return () => {
+        fetchTokenRef.current++;
+      };
     }, [fetchAll]);
     useEffect(() => {
       const t = setInterval(fetchAll, 10 * 60 * 1e3);
@@ -20185,7 +20191,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.58";
+  var APP_VERSION = "v19.59";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

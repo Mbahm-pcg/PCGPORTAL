@@ -24105,6 +24105,14 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const [carouselPage, setCarouselPage] = useState(0);
   const touchStartX = useRef(null);
   const carouselInnerRef = useRef(null);
+  // Guards the deferred liveLaborPromise upgrade in fetchAll below against two
+  // races: (1) the 10-min auto-refresh firing a newer fetchAll while an older,
+  // slow one (live Paycor scrape) is still in flight — without this, the older
+  // call's late resolution can overwrite the newer call's fresher state; (2) the
+  // component unmounting (switching to Tickets/Tasks/Pulse/full portal/logout)
+  // before that same slow scrape resolves. Each fetchAll bumps this to a unique
+  // value; the upgrade only applies if its own value is still current.
+  const fetchTokenRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
@@ -24182,6 +24190,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
 
   const fetchAll = useCallback(async (withLaborRefresh = false) => {
     if (!pc) { setLoading(false); return; }
+    const myFetchToken = ++fetchTokenRef.current;
     setRefreshing(true);
     try {
       // Live labor refresh for this store — real per-employee pay rates + a true
@@ -24267,11 +24276,15 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       // just wrote fresher per-employee hours into it) so the workers list picks
       // up today's real hours too. Resolves well after first paint already
       // happened below, so nothing wrong is ever shown — just upgraded a beat later.
+      // Guarded by fetchTokenRef so a slow/late resolution from an older fetchAll
+      // call (superseded by the 10-min auto-refresh, or outlived by an unmount)
+      // can't clobber newer state or set state on an unmounted component.
       liveLaborPromise.then(async (json) => {
+        if (fetchTokenRef.current !== myFetchToken) return;
         if (!json?.ok || json?.skipped) return;
         setLabor({ today: { laborDollars: json.laborDollars, sales: json.sales, laborPct: json.laborPct, currentlyClockedIn: json.currentlyClockedIn || 0 } });
         const fresh = await cloudLoad(`pcg_labor_store_${pc}`).catch(() => null);
-        if (!fresh) return;
+        if (!fresh || fetchTokenRef.current !== myFetchToken) return;
         setStoreBlob(fresh);
         const empList = fresh.daily?.[0]?.employees || [];
         if (empList.length > 0) {
@@ -24296,7 +24309,12 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
     }).catch(() => {});
   }, [pc, todayStr]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    fetchAll();
+    // Invalidates any in-flight fetchAll's deferred liveLaborPromise upgrade —
+    // covers both a real unmount and fetchAll's identity changing (pc/todayStr).
+    return () => { fetchTokenRef.current++; };
+  }, [fetchAll]);
   useEffect(() => {
     const t = setInterval(fetchAll, 10 * 60 * 1000);
     return () => clearInterval(t);
@@ -24864,7 +24882,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.58";
+const APP_VERSION = "v19.59";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
