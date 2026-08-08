@@ -419,6 +419,7 @@ export function getBlobStore() {
 }
 
 export default async (request) => {
+  const invocationStart = Date.now();
   // Manual catch-up runs can target a specific date: POST {"busDt":"YYYY-MM-DD"}.
   // Scheduled invocations have no body, so this falls back to yesterday-ET.
   let busDt = etDate(1);
@@ -455,22 +456,45 @@ export default async (request) => {
     }));
   }
 
-  // Phase 2: Paycor punches/employees — SEQUENTIAL, one store at a time. Our
-  // own paycor.mjs proxy caches its OAuth token in-memory per warm Lambda
-  // instance; firing this concurrently spins up multiple cold instances with
-  // no shared cache, all racing to refresh the same (single-use) refresh
-  // token — only one wins, the rest get rejected. Confirmed directly: a real
-  // overnight run failed on ~40 of 46 stores simultaneously with the same
-  // error the instant concurrency was introduced. Sequential avoids the race
-  // entirely; the 15-min background budget easily covers 46 stores one at a time.
+  // Phase 2: Paycor punches/employees — SEQUENTIAL, one store at a time, AND
+  // one call at a time within a store. Our own paycor.mjs proxy caches its
+  // OAuth token in-memory per warm Lambda instance; firing calls concurrently
+  // spins up multiple cold instances with no shared cache, all racing to
+  // refresh the same (single-use) refresh token — only one wins, the rest get
+  // rejected. Confirmed directly: a real overnight run failed on ~40 of 46
+  // stores simultaneously with the same error the instant concurrency was
+  // introduced across stores. That fix made the store loop sequential, but
+  // store 0's punches+employees calls were still fired together via
+  // Promise.all — the very first Paycor calls of a cold invocation, so they
+  // could still race each other exactly the same way (seen directly: store 0
+  // failing crewStatus while every later store succeeded once the token was
+  // cached). Awaiting punches before employees removes that too.
+  //
+  // Time-budgeted: confirmed via a real overnight run (Netlify function logs,
+  // 2026-08-08) that Paycor's own API can go unresponsive for 30+ minutes
+  // straight — 85 consecutive calls to our paycor.mjs proxy each hung the
+  // full ~30s before failing with a 504. At 46 stores × up to 2 sequential
+  // calls each, that alone exceeds Netlify's 15-min background function
+  // ceiling, and Netlify kills the whole invocation mid-loop. Because
+  // saveDaySnapshot()/the email below only ran AFTER this loop fully
+  // finished, that overnight run lost 100% of its work — Phase 1's Pulse
+  // data included — and sent nothing. Bailing out of the loop once we're
+  // within a safe margin of the ceiling guarantees whatever's done so far
+  // (still saved + emailed below) survives even a total Paycor outage,
+  // instead of an all-or-nothing loss.
+  const PHASE2_BUDGET_MS = 11 * 60 * 1000; // leaves ~4min for save/email/rollups
+  let phase2TimedOut = false;
   for (let idx = 0; idx < STORES.length; idx++) {
+    if (Date.now() - invocationStart > PHASE2_BUDGET_MS) {
+      phase2TimedOut = true;
+      console.warn(`[tips-report-cron] Phase 2 time budget hit at store ${idx}/${STORES.length} (${STORES[idx].name}) — saving/emailing what's done, skipping the rest`);
+      break;
+    }
     const s = STORES[idx];
     let crew = [], crewStatus = 'error';
     try {
-      const [punchesRaw, empList] = await Promise.all([
-        callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt }),
-        fetchAllEmployees(s.paycor),
-      ]);
+      const punchesRaw = await callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt });
+      const empList = await fetchAllEmployees(s.paycor);
       const punchData = JSON.parse(punchesRaw || '{}');
       const punches = Array.isArray(punchData.records) ? punchData.records : (Array.isArray(punchData) ? punchData : []);
       const empByGuid = {};
@@ -518,13 +542,16 @@ export default async (request) => {
 
   const recipient = (process.env.TIPS_REPORT_EMAIL || 'ahmed@peoplecapitalgroup.com').split(',').map(s => s.trim()).filter(Boolean);
 
-  async function buildAndSend(periodLabel, filenameTag, storeResultsForPeriod, subjectPrefix, missingDates) {
+  async function buildAndSend(periodLabel, filenameTag, storeResultsForPeriod, subjectPrefix, missingDates, extraNote) {
     const { buffer, grandTotal, grandCount } = buildWorkbook(periodLabel, storeResultsForPeriod);
     const filename = `PCG-Tips-Report-${filenameTag}.xlsx`;
     const storesWithTips = storeResultsForPeriod.filter(s => s.status === 'ok' && s.rows.length > 0).length;
     const storesWithErrors = storeResultsForPeriod.filter(s => s.status === 'error').length;
     const missingNote = missingDates && missingDates.length
       ? `<p style="margin:0 0 8px;font-size:13px;color:#b45309;">Note: ${missingDates.length} day(s) in this period have no saved data — either before this report existed, or that night's run didn't complete (${missingDates.join(', ')}).</p>`
+      : '';
+    const extraNoteHtml = extraNote
+      ? `<p style="margin:0 0 8px;font-size:13px;color:#b45309;">${extraNote}</p>`
       : '';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -535,6 +562,7 @@ export default async (request) => {
           <p style="margin: 0 0 8px; font-size: 14px;">Total tips: <strong>$${grandTotal.toFixed(2)}</strong> across <strong>${grandCount}</strong> checks.</p>
           <p style="margin: 0 0 8px; font-size: 14px; color: #666;">${storesWithTips} of ${STORES.length} stores had tips recorded${storesWithErrors ? `; ${storesWithErrors} store(s) could not be reached` : ''}.</p>
           ${missingNote}
+          ${extraNoteHtml}
           <p style="margin: 16px 0 0; font-size: 13px; color: #999;">Attached (${filename}): "By Employee" sheet divides each store's tip pool by hours worked in this period (GM/Store Managers excluded) and pays each person by their own hours.</p>
         </div>
       </div>
@@ -544,7 +572,10 @@ export default async (request) => {
     return { grandTotal, grandCount, storesWithTips, storesWithErrors, email: emailResult };
   }
 
-  const dailyResult = await buildAndSend(busDt, busDt, storeResults, 'PCG Tips Report — Daily');
+  const phase2TimeoutNote = phase2TimedOut
+    ? `Paycor was unresponsive partway through tonight's run, so employee/hours data stops partway through the store list — the dollar totals above are still complete, but the "By Employee" split is incomplete for the stores that weren't reached.`
+    : undefined;
+  const dailyResult = await buildAndSend(busDt, busDt, storeResults, 'PCG Tips Report — Daily', undefined, phase2TimeoutNote);
 
   let weeklyResult = null, biweeklyResult = null;
   if (isWeekBoundary(busDt)) {
