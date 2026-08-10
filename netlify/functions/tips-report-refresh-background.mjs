@@ -32,6 +32,7 @@ export default async (request) => {
   }
 
   console.log(`[tips-report-refresh] backfilling ${busDt} across ${STORES.length} stores`);
+  const invocationStart = Date.now();
   const storeResults = new Array(STORES.length);
 
   // Phase 1: Pulse tip totals — batched, no shared auth state.
@@ -60,8 +61,16 @@ export default async (request) => {
   }
 
   // Phase 2: Paycor punches/employees — sequential, same reasoning as the
-  // scheduled cron (concurrent calls race the same refresh token).
+  // scheduled cron (concurrent calls race the same refresh token). Same
+  // wall-clock budget guard as the scheduled cron too — if Paycor goes
+  // unresponsive mid-backfill, save whatever succeeded instead of losing the
+  // whole run to Netlify's 15-min background ceiling.
+  const PHASE2_BUDGET_MS = 11 * 60 * 1000;
   for (let idx = 0; idx < STORES.length; idx++) {
+    if (Date.now() - invocationStart > PHASE2_BUDGET_MS) {
+      console.warn(`[tips-report-refresh] Phase 2 time budget hit at store ${idx}/${STORES.length} (${STORES[idx].name}) — saving what's done, skipping the rest`);
+      break;
+    }
     const s = STORES[idx];
     let crew = [], crewStatus = 'error';
     try {

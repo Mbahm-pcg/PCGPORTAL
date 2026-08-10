@@ -131,6 +131,13 @@ export function callUpstream(cfg, endpoint, body) {
 // on failure/5xx — Paycor's own gateway genuinely returns transient 504s (seen
 // directly: same store, same call, succeeded on one attempt and 504'd on the
 // next), same real-world flakiness labor-cron.mjs already retries around.
+// Timeout kept short (15s, was 45s) on purpose: confirmed via a real overnight
+// run (2026-08-08/09) that when Paycor goes genuinely unresponsive, it hangs
+// the FULL timeout on every call, not just a few — 85 consecutive calls each
+// ate the old 45s before failing. With Phase 2's fixed wall-clock budget below,
+// every extra second a hung store burns is a store later in the list that
+// never gets attempted at all. A shorter timeout means more stores get a shot
+// within the same budget when Paycor is having a bad night.
 function callPaycorProxyOnce(action, payload) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ action, ...payload });
@@ -143,7 +150,11 @@ function callPaycorProxyOnce(action, payload) {
       res.on('end', () => resolve({ status: res.statusCode, raw }));
     });
     req.on('error', reject);
-    req.setTimeout(45000, () => req.destroy(new Error('paycor proxy request timed out')));
+    req.setTimeout(15000, () => {
+      const err = new Error('paycor proxy request timed out');
+      err.isTimeout = true;
+      req.destroy(err);
+    });
     req.write(body);
     req.end();
   });
@@ -153,6 +164,12 @@ export async function callPaycorProxy(action, payload) {
   try {
     result = await callPaycorProxyOnce(action, payload);
   } catch (err) {
+    // A hang gets ONE fast attempt, not a retry — a store that's genuinely
+    // unresponsive is very likely to hang again immediately, and retrying
+    // just doubles the wasted time on that one store for nothing. A real
+    // (non-hang) network error still gets retried once, since those tend to
+    // clear up immediately (confirmed: same store/call succeeded on retry).
+    if (err.isTimeout) throw err;
     result = await callPaycorProxyOnce(action, payload); // retry once on network error
     return result.raw;
   }
