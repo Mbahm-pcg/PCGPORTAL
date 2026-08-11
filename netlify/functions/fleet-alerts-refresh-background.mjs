@@ -4,18 +4,19 @@
 // labor-refresh.mjs and tips-report-cron-background.mjs/-refresh-background.mjs)
 // — this unscheduled sibling exists purely to make it reachable on demand,
 // e.g. to send today's reminder immediately instead of waiting for tomorrow's
-// scheduled run.
+// scheduled run. Background (not synchronous): fetching users + sending push/
+// email/SMS to every admin role for every due vehicle hit the ~10-26s
+// synchronous function ceiling on a real run (confirmed directly — the plain
+// version timed out even with only one vehicle actually due).
+export const config = { background: true };
+
 import { runFleetAlerts } from './fleet-alerts-cron.mjs';
 
 export default async (request) => {
-  const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Content-Type': 'application/json' };
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
-
   try {
     const summary = await runFleetAlerts();
-    return new Response(JSON.stringify(summary), { status: 200, headers });
+    console.log('[fleet-alerts-refresh] done:', JSON.stringify(summary));
   } catch (err) {
     console.error('[fleet-alerts-refresh] error:', err.message);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500, headers });
   }
 };
