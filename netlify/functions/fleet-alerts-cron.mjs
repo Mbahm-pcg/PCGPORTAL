@@ -145,12 +145,30 @@ export async function runFleetAlerts() {
       const emails = recipients.map(u => u.email).filter(Boolean).filter((e, i, a) => a.indexOf(e) === i);
       const phones = recipients.map(u => u.phone).filter(Boolean).filter((p, i, a) => a.indexOf(p) === i);
 
-      await sendPushToUsers(pushUserIds, subMap, { title, body, url: 'https://pcg-ops.netlify.app', tag: `fleet-${car.vin}-${field.key}`, icon: '/icon-192.png' });
+      // Isolated per field: one bad push/email/SMS call must not kill the rest
+      // of the batch — confirmed directly (2026-08-11) that an uncaught error
+      // partway through one vehicle's fields aborted the ENTIRE run before it
+      // ever reached blobSave, silently losing every later car/field (and the
+      // sent-key bookkeeping for what HAD already gone out).
+      try {
+        await sendPushToUsers(pushUserIds, subMap, { title, body, url: 'https://pcg-ops.netlify.app', tag: `fleet-${car.vin}-${field.key}`, icon: '/icon-192.png' });
+      } catch (err) {
+        console.error(`[fleet-alerts] ${vehicleLabel} ${field.label} push error:`, err.message);
+      }
       if (emails.length) {
-        await sendEmail(emails, title, `<p>${body}</p><p style="margin-top:14px;color:#888;font-size:13px;">Vehicle: ${vehicleLabel} (VIN ${car.vin})</p>`);
+        try {
+          const status = await sendEmail(emails, title, `<p>${body}</p><p style="margin-top:14px;color:#888;font-size:13px;">Vehicle: ${vehicleLabel} (VIN ${car.vin})</p>`);
+          if (status < 200 || status >= 300) console.error(`[fleet-alerts] ${vehicleLabel} ${field.label} email HTTP ${status} (to ${emails.join(', ')})`);
+        } catch (err) {
+          console.error(`[fleet-alerts] ${vehicleLabel} ${field.label} email error:`, err.message);
+        }
       }
       if (phones.length) {
-        await sendSms(phones, `${title}\n${body}`);
+        try {
+          await sendSms(phones, `${title}\n${body}`);
+        } catch (err) {
+          console.error(`[fleet-alerts] ${vehicleLabel} ${field.label} sms error:`, err.message);
+        }
       }
 
       newSentKeys.push(key);
