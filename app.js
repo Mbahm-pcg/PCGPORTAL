@@ -8934,7 +8934,9 @@ ${pendingEmail.emails.join("\n")}`,
       // Always from tipsForPeriod (computed live on every view), not d.tips —
       // the default admin day view displays `d` from the shared grid cache
       // (storeData[pc]), which never carries tips at all.
-      ...tipsForPeriod != null ? [{ label: "Tips", value: fmtUSD(tipsForPeriod), color: "#63e6be" }] : [],
+      // Exact to the cent (not rounded like the other bubbles) so it can be
+      // compared directly against the Tips Report spreadsheet at a glance.
+      ...tipsForPeriod != null ? [{ label: "Tips", value: "$" + tipsForPeriod.toFixed(2), color: "#63e6be" }] : [],
       { label: "Discounts", value: fmtUSD(d.discounts), color: "#f06595" },
       { label: "Void Rate", value: voidPct.toFixed(2) + "%", color: voidPct > 1 ? "#ff6b6b" : "#69db7c" },
       { label: "Tax", value: fmtUSD(d.tax), color: "#20c997" },
@@ -10601,6 +10603,24 @@ ${pendingEmail.emails.join("\n")}`,
     const [weekLoading, setWeekLoading] = useState(false);
     const [dayStoreCache, setDayStoreCache] = useState({});
     const [collapsed, setCollapsed] = useState(/* @__PURE__ */ new Set());
+    const [tipsSnapshot, setTipsSnapshot] = useState(null);
+    useEffect(() => {
+      let alive = true;
+      setTipsSnapshot(null);
+      cloudLoad(`pcg_tips_snapshot_${busDt}`).then((d) => {
+        if (!alive) return;
+        const map = {};
+        (Array.isArray(d) ? d : []).forEach((r) => {
+          if (r?.pc) map[r.pc] = r.tipPool;
+        });
+        setTipsSnapshot(map);
+      }).catch(() => {
+        if (alive) setTipsSnapshot({});
+      });
+      return () => {
+        alive = false;
+      };
+    }, [busDt]);
     const [pulseView, setPulseView] = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
     const [weatherForecast, setWeatherForecast] = useState(null);
     const [networkReviews, setNetworkReviews] = useState(null);
@@ -11201,7 +11221,7 @@ ${t2.slice(0, 300)}`);
           /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, textTransform: "uppercase" } }, "Sales"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 700, color: isOk ? th.text : th.muted } }, isOk ? fmtUSD(live.data.netSales) : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, textTransform: "uppercase" } }, "Labor"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 700, color: lPct != null ? laborColor(lPct) : th.muted } }, lPct != null ? fmtPct(lPct) : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, textTransform: "uppercase" } }, "Guests"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 700, color: isOk ? "#74c0fc" : th.muted } }, isOk ? fmtNum(live.data.guests) : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, textTransform: "uppercase" } }, "Avg Chk"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 700, color: isOk ? "#ffd43b" : th.muted } }, isOk ? fmtAvg(live.data.avgCheck) : "\u2014")))
         );
       }));
-    })) : /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", { style: { position: "sticky", top: 0, zIndex: 2 } }, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `2px solid ${th.cardBorder}`, background: th.card } }, ["Store", "City", "Status", "Net Sales", "Labor", "Guests", "Avg Check"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thS, textAlign: h === "Store" || h === "City" || h === "Status" ? "left" : "right" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, distNums.map((distNum) => {
+    })) : /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", { style: { position: "sticky", top: 0, zIndex: 2 } }, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `2px solid ${th.cardBorder}`, background: th.card } }, ["Store", "City", "Status", "Net Sales", "Labor", "Guests", "Tips", "Avg Check"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thS, textAlign: h === "Store" || h === "City" || h === "Status" ? "left" : "right" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, distNums.map((distNum) => {
       const distRows = allRows.filter((s) => s.district === distNum).sort((a, b) => (b.live?.data?.netSales || 0) - (a.live?.data?.netSales || 0));
       if (!distRows.length) return null;
       const distOk = distRows.filter((s) => s.live?.status === "ok");
@@ -11211,6 +11231,7 @@ ${t2.slice(0, 300)}`);
         forecast: a.forecast + (s.live.data.forecast || 0)
       }), { netSales: 0, guests: 0, forecast: 0 });
       distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
+      const distTips = tipsSnapshot ? distRows.reduce((sum, s) => sum + (tipsSnapshot[s.pc] || 0), 0) : null;
       const distLaborRows = distRows.map((s) => laborData?.stores?.[s.pc]?.today).filter(Boolean);
       const distLaborSales = distLaborRows.reduce((sum, t) => sum + (t.sales || 0), 0);
       const distLaborDollars = distLaborRows.reduce((sum, t) => sum + (t.laborDollars || 0), 0);
@@ -11264,6 +11285,7 @@ ${t2.slice(0, 300)}`);
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", fontWeight: 800, color: G } }, fmtUSD(distTotals.netSales)),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", fontWeight: 700, color: distLaborColor } }, distLaborPct != null ? fmtPct(distLaborPct) : "\u2014"),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#74c0fc", fontWeight: 700 } }, fmtNum(distTotals.guests)),
+        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#63e6be", fontWeight: 700 } }, distTips != null ? fmtUSD(distTips) : "\u2014"),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#ffd43b", fontWeight: 700 } }, fmtAvg(distTotals.avgCheck))
       ), !isCollapsed && distRows.map((s, i) => {
         const live = s.live;
@@ -11298,6 +11320,7 @@ ${t2.slice(0, 300)}`);
             return /* @__PURE__ */ React.createElement("span", { style: { color: lColor } }, fmtPct(lPct));
           })()),
           /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: isOk ? "#74c0fc" : th.muted } }, isOk ? fmtNum(live.data.guests) : "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: isOk && tipsSnapshot?.[s.pc] != null ? "#63e6be" : th.muted } }, isOk && tipsSnapshot?.[s.pc] != null ? fmtUSD(tipsSnapshot[s.pc]) : "\u2014"),
           /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: isOk ? "#ffd43b" : th.muted } }, isOk ? fmtAvg(live.data.avgCheck) : "\u2014")
         );
       }));
@@ -20508,7 +20531,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.82";
+  var APP_VERSION = "v19.83";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

@@ -9065,7 +9065,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
             // Always from tipsForPeriod (computed live on every view), not d.tips —
             // the default admin day view displays `d` from the shared grid cache
             // (storeData[pc]), which never carries tips at all.
-            ...(tipsForPeriod != null ? [{ label:'Tips', value: fmtUSD(tipsForPeriod), color: '#63e6be' }] : []),
+            // Exact to the cent (not rounded like the other bubbles) so it can be
+            // compared directly against the Tips Report spreadsheet at a glance.
+            ...(tipsForPeriod != null ? [{ label:'Tips', value: '$' + tipsForPeriod.toFixed(2), color: '#63e6be' }] : []),
             { label:'Discounts', value: fmtUSD(d.discounts), color: '#f06595' },
             { label:'Void Rate', value: voidPct.toFixed(2)+'%', color: voidPct > 1 ? '#ff6b6b' : '#69db7c' },
             { label:'Tax',       value: fmtUSD(d.tax),       color: '#20c997' },
@@ -11581,6 +11583,23 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   const [weekLoading,  setWeekLoading]  = useState(false);
   const [dayStoreCache,setDayStoreCache]= useState({});      // date → fetchDate() result (memoize per-day per-store)
   const [collapsed,   setCollapsed]  = useState(new Set());
+  // Store Breakdown's Tips column reads the same daily snapshot the Tips
+  // Report itself is built from (pcg_tips_snapshot_{busDt}) rather than a
+  // fresh live Pulse fetch per store — that data is already generated and
+  // saved once nightly, so this is a single blob read instead of ~46 more
+  // API calls just to populate one column.
+  const [tipsSnapshot, setTipsSnapshot] = useState(null); // pc -> tipPool
+  useEffect(() => {
+    let alive = true;
+    setTipsSnapshot(null);
+    cloudLoad(`pcg_tips_snapshot_${busDt}`).then(d => {
+      if (!alive) return;
+      const map = {};
+      (Array.isArray(d) ? d : []).forEach(r => { if (r?.pc) map[r.pc] = r.tipPool; });
+      setTipsSnapshot(map);
+    }).catch(() => { if (alive) setTipsSnapshot({}); });
+    return () => { alive = false; };
+  }, [busDt]);
   const [pulseView,   setPulseView]  = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
   const [weatherForecast, setWeatherForecast] = useState(null);
   const [networkReviews, setNetworkReviews] = useState(null);
@@ -12318,7 +12337,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.78rem' }}>
               <thead style={{ position:'sticky', top:0, zIndex:2 }}>
                 <tr style={{ borderBottom:`2px solid ${th.cardBorder}`, background:th.card }}>
-                  {['Store','City','Status','Net Sales','Labor','Guests','Avg Check'].map(h => (
+                  {['Store','City','Status','Net Sales','Labor','Guests','Tips','Avg Check'].map(h => (
                     <th key={h} style={{ ...thS, textAlign: h==='Store'||h==='City'||h==='Status' ? 'left' : 'right' }}>{h}</th>
                   ))}
                 </tr>
@@ -12335,6 +12354,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                     forecast: a.forecast + (s.live.data.forecast || 0),
                   }), { netSales:0, guests:0, forecast:0 });
                   distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
+                  const distTips = tipsSnapshot ? distRows.reduce((sum, s) => sum + (tipsSnapshot[s.pc] || 0), 0) : null;
                   const distLaborRows = distRows.map(s => laborData?.stores?.[s.pc]?.today).filter(Boolean);
                   const distLaborSales = distLaborRows.reduce((sum, t) => sum + (t.sales || 0), 0);
                   const distLaborDollars = distLaborRows.reduce((sum, t) => sum + (t.laborDollars || 0), 0);
@@ -12380,6 +12400,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                         <td style={{ ...tdS, textAlign:'right', fontWeight:800, color:G }}>{fmtUSD(distTotals.netSales)}</td>
                         <td style={{ ...tdS, textAlign:'right', fontWeight:700, color:distLaborColor }}>{distLaborPct != null ? fmtPct(distLaborPct) : '—'}</td>
                         <td style={{ ...tdS, textAlign:'right', color:'#74c0fc', fontWeight:700 }}>{fmtNum(distTotals.guests)}</td>
+                        <td style={{ ...tdS, textAlign:'right', color:'#63e6be', fontWeight:700 }}>{distTips != null ? fmtUSD(distTips) : '—'}</td>
                         <td style={{ ...tdS, textAlign:'right', color:'#ffd43b', fontWeight:700 }}>{fmtAvg(distTotals.avgCheck)}</td>
                       </tr>
                       {/* Store rows */}
@@ -12422,6 +12443,9 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                             </td>
                             <td style={{ ...tdS, textAlign:'right', color: isOk ? '#74c0fc' : th.muted }}>
                               {isOk ? fmtNum(live.data.guests) : '—'}
+                            </td>
+                            <td style={{ ...tdS, textAlign:'right', color: isOk && tipsSnapshot?.[s.pc] != null ? '#63e6be' : th.muted }}>
+                              {isOk && tipsSnapshot?.[s.pc] != null ? fmtUSD(tipsSnapshot[s.pc]) : '—'}
                             </td>
                             <td style={{ ...tdS, textAlign:'right', color: isOk ? '#ffd43b' : th.muted }}>
                               {isOk ? fmtAvg(live.data.avgCheck) : '—'}
@@ -25274,7 +25298,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.82";
+const APP_VERSION = "v19.83";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
