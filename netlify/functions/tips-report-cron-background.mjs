@@ -1,5 +1,9 @@
-// tips-report-cron-background.mjs — Runs nightly, 12am ET, right after the
-// prior business day fully closes. Always sends a DAILY tips report; on the
+// tips-report-cron-background.mjs — Runs nightly, 3am ET (moved from 12am ET
+// — confirmed directly, 2026-08-11, that some stores' Pulse guest checks
+// aren't fully closed/settled at exactly midnight, e.g. Montgomeryville's tip
+// pool grew from $18.69 at a 12am capture to $19.75 checking Pulse later that
+// same morning; 3am gives every store's last late-closing transactions time
+// to settle first). Always sends a DAILY tips report; on the
 // Sunday each Sun–Sat pay week closes, also sends a WEEKLY rollup; every other
 // Sunday (anchored to the real Aug 2–15, 2026 period, confirmed against
 // Paycor's own "Bi-weekly" pay-group frequency) also sends a BIWEEKLY rollup
@@ -40,7 +44,7 @@ import https from 'node:https';
 import XLSX from 'xlsx';
 import { getStore } from '@netlify/blobs';
 
-export const config = { schedule: '0 4 * * *' };
+export const config = { schedule: '0 7 * * *' };
 
 export const APIS = {
   p227: {
@@ -515,15 +519,11 @@ export default async (request) => {
     console.warn('[tips-report-cron] Paycor warm-up call failed (continuing — store 0 just loses the head start):', err.message);
   }
 
-  const PHASE2_BUDGET_MS = 11 * 60 * 1000; // leaves ~4min for save/email/rollups
-  let phase2TimedOut = false;
-  for (let idx = 0; idx < STORES.length; idx++) {
-    if (Date.now() - invocationStart > PHASE2_BUDGET_MS) {
-      phase2TimedOut = true;
-      console.warn(`[tips-report-cron] Phase 2 time budget hit at store ${idx}/${STORES.length} (${STORES[idx].name}) — saving/emailing what's done, skipping the rest`);
-      break;
-    }
-    const s = STORES[idx];
+  // Matched by Paycor's own GUID (employeeId on the punch === id on the
+  // employee record) — no cross-system name-matching needed. Hours are
+  // summed per employee (a split shift shows as multiple punch rows) so
+  // the tip pool can be divided by hours worked, not headcount.
+  async function fetchStoreCrew(s) {
     let crew = [], crewStatus = 'error';
     try {
       const punchesRaw = await callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt });
@@ -533,10 +533,6 @@ export default async (request) => {
       const empByGuid = {};
       empList.forEach(e => { if (e && e.id) empByGuid[e.id] = e; });
 
-      // Matched by Paycor's own GUID (employeeId on the punch === id on the
-      // employee record) — no cross-system name-matching needed. Hours are
-      // summed per employee (a split shift shows as multiple punch rows) so
-      // the tip pool can be divided by hours worked, not headcount.
       const hoursByGuid = {};
       punches.forEach(p => {
         if (!p.employeeId) return;
@@ -561,8 +557,43 @@ export default async (request) => {
     } catch (err) {
       console.error(`[tips-report-cron] ${s.name} crew error:`, err.message);
     }
+    return { crew, crewStatus };
+  }
+
+  const PHASE2_BUDGET_MS = 11 * 60 * 1000; // leaves ~4min for save/email/rollups
+  let phase2TimedOut = false;
+  for (let idx = 0; idx < STORES.length; idx++) {
+    if (Date.now() - invocationStart > PHASE2_BUDGET_MS) {
+      phase2TimedOut = true;
+      console.warn(`[tips-report-cron] Phase 2 time budget hit at store ${idx}/${STORES.length} (${STORES[idx].name}) — saving/emailing what's done, skipping the rest`);
+      break;
+    }
+    const { crew, crewStatus } = await fetchStoreCrew(STORES[idx]);
     storeResults[idx].crew = crew;
     storeResults[idx].crewStatus = crewStatus;
+  }
+
+  // Automatic retry pass(es): individually retrying just the stores that
+  // failed proved far more likely to succeed than the original batch attempt
+  // (confirmed directly during manual recovery, 2026-08-11) — far fewer total
+  // Paycor calls per pass gives intermittent flakiness much less surface area
+  // to land on. Budget-guarded same as the main loop; stops early once
+  // nothing's left to retry.
+  const MAX_RETRY_PASSES = 3;
+  for (let pass = 1; pass <= MAX_RETRY_PASSES; pass++) {
+    const failedIdxs = storeResults.map((r, i) => r.crewStatus === 'error' ? i : -1).filter(i => i !== -1);
+    if (failedIdxs.length === 0) break;
+    if (Date.now() - invocationStart > PHASE2_BUDGET_MS) {
+      console.warn(`[tips-report-cron] Retry pass ${pass}: time budget hit — ${failedIdxs.length} store(s) still failing, leaving as-is`);
+      break;
+    }
+    console.log(`[tips-report-cron] Retry pass ${pass}: re-attempting ${failedIdxs.length} failed store(s): ${failedIdxs.map(i => STORES[i].name).join(', ')}`);
+    for (const idx of failedIdxs) {
+      if (Date.now() - invocationStart > PHASE2_BUDGET_MS) break;
+      const { crew, crewStatus } = await fetchStoreCrew(STORES[idx]);
+      storeResults[idx].crew = crew;
+      storeResults[idx].crewStatus = crewStatus;
+    }
   }
 
   // Cache today's snapshot BEFORE building/sending anything — weekly/biweekly

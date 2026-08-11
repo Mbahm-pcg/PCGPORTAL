@@ -125,7 +125,7 @@
 # suffix got cut off mid-way with no email sent. Manual test/catch-up run:
 # POST /.netlify/functions/tips-report-cron-background (optional {"busDt":"YYYY-MM-DD"}).
 [functions.tips-report-cron-background]
-  schedule = "0 4 * * *"
+  schedule = "0 7 * * *"
 
 # KB article embedding — triggered manually after article approval
 [functions.kb-embed]
