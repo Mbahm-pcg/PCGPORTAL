@@ -7968,7 +7968,7 @@
       /* @__PURE__ */ React.createElement("animate", { attributeName: "stroke-dasharray", values: "400 800", repeatCount: "indefinite", dur: "2.4s" })
     ));
   }
-  function TrendChart({ data, G, th, onBarClick }) {
+  function TrendChart({ data, G, th, onBarClick, containerStyle }) {
     const rawMax = Math.max(...data.map((d) => d.netSales), 1);
     const STEP = 25e3;
     const chartMax = Math.max(1e5, Math.ceil(rawMax / STEP) * STEP);
@@ -7985,7 +7985,9 @@
       background: th.card2,
       borderRadius: "0.75rem",
       border: `1px solid ${G}22`,
-      marginBottom: "1.125rem"
+      marginBottom: "1.125rem",
+      boxSizing: "border-box",
+      ...containerStyle
     } }, /* @__PURE__ */ React.createElement("div", { style: {
       fontSize: "0.72rem",
       fontWeight: 700,
@@ -8065,6 +8067,147 @@
       }),
       /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: `${G}44`, strokeWidth: 1.5 })
     )));
+  }
+  function ComplaintsLeaderboardCard({ stores, users, th, setPulseView, containerStyle, filterPcs, title }) {
+    const [leaderboard, setLeaderboard] = React.useState(null);
+    const [error, setError] = React.useState(null);
+    const [emailingPc, setEmailingPc] = React.useState(null);
+    const [pendingEmail, setPendingEmail] = React.useState(null);
+    const [emailResult, setEmailResult] = React.useState(null);
+    React.useEffect(() => {
+      let alive = true;
+      (async () => {
+        try {
+          const res = await fetch("/.netlify/functions/case-watch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ networkSummary: true })
+          });
+          const json = await res.json().catch(() => null);
+          if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+          if (alive) setLeaderboard(Array.isArray(json?.leaderboard) ? json.leaderboard : []);
+        } catch (err) {
+          if (alive) setError(err.message || "Failed to load complaints.");
+        }
+      })();
+      return () => {
+        alive = false;
+      };
+    }, []);
+    const scoped = filterPcs ? (leaderboard || []).filter((row) => filterPcs.has(String(row.store_pc))) : leaderboard || [];
+    const top5 = scoped.slice(0, 5);
+    const findStore = (pc) => stores.find((s) => String(s.pc) === String(pc));
+    const storeName = (pc) => findStore(pc)?.name || `PC ${pc}`;
+    const normName = (s) => (s || "").toLowerCase().replace(/[^a-z]/g, "");
+    function findRecipients(row) {
+      const store = findStore(row.store_pc);
+      if (!store) return null;
+      const dm = (users || []).find((u) => u.active !== false && u.userType === "dm" && String(u.district) === String(store.district)) || (users || []).find((u) => u.active !== false && u.userType === "dm" && normName(u.name) === normName(store.dmName));
+      const mgr = (users || []).find((u) => u.active !== false && u.userType === "manager" && (String(u.storePC) === String(store.pc) || normName(u.name) === normName(store.mgr)));
+      const emails = [dm?.email, mgr?.email || store.email].filter(Boolean).filter((e, i, a) => a.indexOf(e) === i);
+      return { store, emails };
+    }
+    function startEmailStoreSummary(row) {
+      const found = findRecipients(row);
+      if (!found) return;
+      if (found.emails.length === 0) {
+        setEmailResult({ ok: false, message: `No DM or manager email on file for ${found.store.name}.` });
+        return;
+      }
+      setPendingEmail({ row, store: found.store, emails: found.emails });
+    }
+    async function confirmEmailStoreSummary() {
+      const { row, store, emails } = pendingEmail;
+      setPendingEmail(null);
+      setEmailingPc(row.store_pc);
+      try {
+        const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+        const categoryRows = (row.categories || []).map((c) => `<tr><td style="padding:4px 10px;border-bottom:1px solid #eee;">${escapeHtml(c.name)}</td><td style="padding:4px 10px;border-bottom:1px solid #eee;text-align:right;">${escapeHtml(c.count)}</td></tr>`).join("");
+        const body = `
+        <p><strong>${store.name}</strong> has <strong>${row.count}</strong> guest complaint${row.count !== 1 ? "s" : ""} logged so far this month${row.worstCount > 0 ? `, including <strong style="color:#e03131;">${row.worstCount} rated worst-tier</strong>` : ""}.</p>
+        <table style="border-collapse:collapse;width:100%;margin-top:10px;font-size:13px;">
+          <tr style="background:#f5f5f5;"><th style="padding:4px 10px;text-align:left;">Reason</th><th style="padding:4px 10px;text-align:right;">Count</th></tr>
+          ${categoryRows}
+        </table>
+        <p style="margin-top:14px;">Full detail is in the Portal under Pulse \u2192 ${store.name} \u2192 Complaints.</p>
+      `;
+        const res = await fetch("/.netlify/functions/notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: emails, subject: `Complaint Summary \u2014 ${store.name} (${row.count} this month)`, body })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setEmailResult({ ok: true, message: `Sent to ${emails.join(", ")}.` });
+      } catch (err) {
+        setEmailResult({ ok: false, message: "Could not send email: " + err.message });
+      } finally {
+        setEmailingPc(null);
+      }
+    }
+    return /* @__PURE__ */ React.createElement("div", { style: {
+      padding: "1rem 1.25rem",
+      background: th.card2,
+      borderRadius: "0.75rem",
+      border: `1px solid #e0303122`,
+      marginBottom: "1.125rem",
+      boxSizing: "border-box",
+      ...containerStyle
+    } }, /* @__PURE__ */ React.createElement("div", { style: {
+      fontSize: "0.72rem",
+      fontWeight: 700,
+      color: "#e03131",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: "0.75rem"
+    } }, "\u{1F4E3} ", title || "Top Complaints This Month"), error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, padding: "0.5rem 0" } }, "Couldn't load: ", error), !error && leaderboard === null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, padding: "0.5rem 0" } }, "Loading\u2026"), !error && leaderboard !== null && top5.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, padding: "0.5rem 0" } }, "\u{1F389} No complaints logged yet this month."), !error && top5.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem" } }, top5.map((row, i) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: row.store_pc,
+        onClick: () => setPulseView({ level: "store", pc: row.store_pc, initialTab: "complaints" }),
+        style: { display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", padding: "0.35rem 0.4rem", borderRadius: "0.4rem" }
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 800, color: th.muted, width: "1.1rem", flexShrink: 0 } }, i + 1),
+      /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, storeName(row.store_pc)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, row.topCategory ? `Mostly: ${row.topCategory}` : "No category on file", row.worstCount > 0 ? ` \xB7 ${row.worstCount} worst` : "")),
+      /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: (e) => {
+            e.stopPropagation();
+            startEmailStoreSummary(row);
+          },
+          disabled: emailingPc === row.store_pc,
+          title: `Email this store's DM and manager the complaint summary`,
+          style: { background: "none", border: "none", cursor: emailingPc === row.store_pc ? "default" : "pointer", color: th.muted, fontSize: "0.95rem", padding: "0.2rem", flexShrink: 0, opacity: emailingPc === row.store_pc ? 0.5 : 1 }
+        },
+        emailingPc === row.store_pc ? "\u23F3" : "\u2709\uFE0F"
+      ),
+      /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.95rem", fontWeight: 800, color: "#e03131", flexShrink: 0 } }, row.count)
+    ))), pendingEmail && /* @__PURE__ */ React.createElement(
+      PortalConfirmModal,
+      {
+        th,
+        title: "Send complaint summary?",
+        message: `Send this month's complaint summary for ${pendingEmail.store.name} to:
+${pendingEmail.emails.join("\n")}`,
+        confirmLabel: "Send",
+        onConfirm: confirmEmailStoreSummary,
+        onCancel: () => setPendingEmail(null)
+      }
+    ), emailResult && /* @__PURE__ */ React.createElement(
+      PortalConfirmModal,
+      {
+        th,
+        title: emailResult.ok ? "Sent" : "Couldn't send",
+        message: emailResult.message,
+        confirmLabel: "OK",
+        onConfirm: () => setEmailResult(null),
+        onCancel: () => setEmailResult(null),
+        hideCancel: true
+      }
+    ));
+  }
+  function PortalConfirmModal({ th, title, message, confirmLabel = "OK", onConfirm, onCancel, hideCancel = false }) {
+    return /* @__PURE__ */ React.createElement("div", { onClick: onCancel, style: { position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "1rem", width: "min(420px, 92vw)", padding: "1.25rem 1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: "1rem", marginBottom: "0.6rem" } }, title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, lineHeight: 1.6, whiteSpace: "pre-wrap" } }, message), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, !hideCancel && /* @__PURE__ */ React.createElement("button", { onClick: onCancel, style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: onConfirm, style: { ...btn(th) } }, confirmLabel))));
   }
   function ManagerPulse({ stores, th, user, txnDeepLinkRef, initialTab }) {
     const G = "#00d084";
@@ -8180,6 +8323,64 @@
         row[dp] > 0 ? Math.round(row[dp]).toLocaleString() : "\xB7"
       )));
     })))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, marginTop: "0.6rem" } }, "Outlined cell = each category's peak daypart. Deeper blue = more units."));
+  }
+  var CASE_TIER_LABEL = { fyi: "FYI Guest Contact", guest_contact: "Guest Contact", second_escalation: "Second Escalation", unknown: "Unknown" };
+  var CASE_SEVERITY_COLOR = { worst: "#e03131", concerning: "#f76707", attention: "#f59f00", minor: "#868e96" };
+  function StoreComplaintsTab({ pc, th }) {
+    const [cases, setCases] = React.useState(null);
+    const [error, setError] = React.useState(null);
+    const [openCase, setOpenCase] = React.useState(null);
+    React.useEffect(() => {
+      let alive = true;
+      setCases(null);
+      setError(null);
+      (async () => {
+        try {
+          const res = await fetch("/.netlify/functions/case-watch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ storePc: pc })
+          });
+          const json = await res.json().catch(() => null);
+          if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+          const list = Array.isArray(json?.cases) ? json.cases : [];
+          list.sort((a, b) => (b.date_in_sent || "").localeCompare(a.date_in_sent || ""));
+          if (alive) setCases(list);
+        } catch (err) {
+          if (alive) setError(err.message || "Failed to load complaints.");
+        }
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [pc]);
+    if (error) {
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: "#e03131", fontSize: "0.85rem", marginTop: "1rem" } }, "Couldn't load complaints: ", error);
+    }
+    if (cases === null) {
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "1rem" } }, "\u23F3 Loading complaints\u2026");
+    }
+    if (cases.length === 0) {
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "1rem" } }, "\u{1F389} No complaints on file for this store.");
+    }
+    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, cases.length, " case", cases.length !== 1 ? "s" : "", " this month \xB7 from Case Watch"), cases.map((c) => {
+      const sevColor = CASE_SEVERITY_COLOR[c.severity_label] || th.muted;
+      const preview = (c.customer_complaint || "").replace(/\s+/g, " ").trim();
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: c.case_id,
+          onClick: () => setOpenCase(c),
+          style: { ...card(th), padding: "0.75rem 1rem", borderLeft: `4px solid ${sevColor}`, cursor: "pointer" }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center", minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, color: sevColor, background: `${sevColor}18`, border: `1px solid ${sevColor}44`, borderRadius: "999px", padding: "0.15rem 0.55rem", flexShrink: 0 } }, c.severity_label || "minor"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted, flexShrink: 0 } }, CASE_TIER_LABEL[c.case_tier] || c.case_tier)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted, flexShrink: 0 } }, c.date_in_sent || "\u2014")),
+        preview && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.4rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, preview)
+      );
+    }), openCase && /* @__PURE__ */ React.createElement(CaseDetailModal, { c: openCase, th, onClose: () => setOpenCase(null) }));
+  }
+  function CaseDetailModal({ c, th, onClose }) {
+    const sevColor = CASE_SEVERITY_COLOR[c.severity_label] || th.muted;
+    return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3vh 1rem", overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "1rem", width: "min(700px, 96vw)", maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "1rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}`, gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, color: sevColor, background: `${sevColor}18`, border: `1px solid ${sevColor}44`, borderRadius: "999px", padding: "0.15rem 0.55rem" } }, c.severity_label || "minor"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, CASE_TIER_LABEL[c.case_tier] || c.case_tier), c.complaint_category && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "\xB7 ", c.complaint_category)), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: "1rem" } }, c.case_id), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.15rem" } }, c.date_in_sent || "Date unknown")), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { background: "none", border: "none", color: th.muted, fontSize: "1.4rem", lineHeight: 1, cursor: "pointer", flexShrink: 0 } }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem 1.25rem", overflowY: "auto" } }, c.customer_complaint && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, lineHeight: 1.6, whiteSpace: "pre-wrap" } }, c.customer_complaint), c.comments && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.75rem", fontStyle: "italic", whiteSpace: "pre-wrap" } }, c.comments), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginTop: "1rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, c.customer_name || "Unknown guest", c.email ? ` \xB7 ${c.email}` : "", c.phone ? ` \xB7 ${c.phone}` : ""))));
   }
   function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null, txnDeepLinkRef = null, initialTab = "sales" }) {
     const s = stores.find((st) => st.pc === pc);
@@ -8741,7 +8942,7 @@
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
       { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null },
       ...upsellEntry ? [{ label: "Upsell Rate", value: upsellEntry.upsellRate.toFixed(1) + "%", color: "#22d3ee", sub: upsellEntry.date }] : []
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: isNarrow ? "column" : "row", gap: isNarrow ? "0.6rem" : "1rem" } }, !(storeTab === "labor" && !isNarrow) && /* @__PURE__ */ React.createElement("div", { style: isNarrow ? { display: "flex", flexDirection: "row", gap: "0.4rem", overflowX: "auto", flexShrink: 0, paddingBottom: "0.25rem", WebkitOverflowScrolling: "touch" } : { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0, overflowY: "auto" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "labor", label: "\u{1F477} Labor" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }].map((t) => /* @__PURE__ */ React.createElement(
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: isNarrow ? "column" : "row", gap: isNarrow ? "0.6rem" : "1rem" } }, !(storeTab === "labor" && !isNarrow) && /* @__PURE__ */ React.createElement("div", { style: isNarrow ? { display: "flex", flexDirection: "row", gap: "0.4rem", overflowX: "auto", flexShrink: 0, paddingBottom: "0.25rem", WebkitOverflowScrolling: "touch" } : { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0, overflowY: "auto" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "labor", label: "\u{1F477} Labor" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }, { id: "complaints", label: "\u{1F4E3} Complaints" }].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -9128,7 +9329,7 @@
         review.themes?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.2rem", marginTop: "0.25rem" } }, review.themes.map((t) => /* @__PURE__ */ React.createElement("span", { key: t, style: { fontSize: "0.55rem", padding: "0.05rem 0.3rem", borderRadius: 999, background: th.card2, color: th.muted } }, t))),
         review.text && !isOpen && review.text.length > 200 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: "#8b5cf6", marginTop: "0.15rem", fontWeight: 600 } }, "tap to read more")
       );
-    }))), storeTab === "driveThru" && (() => {
+    }))), storeTab === "complaints" && /* @__PURE__ */ React.createElement(StoreComplaintsTab, { pc, th }), storeTab === "driveThru" && (() => {
       const svcSec = (chk) => chk.opnUTC && chk.clsdUTC ? Math.round((new Date(chk.clsdUTC.endsWith("Z") ? chk.clsdUTC : chk.clsdUTC + "Z") - new Date(chk.opnUTC.endsWith("Z") ? chk.opnUTC : chk.opnUTC + "Z")) / 1e3) : null;
       const isDT = (chk) => {
         const n = (txnOTMap[chk.otNum] || "").toLowerCase();
@@ -9457,7 +9658,7 @@
       );
     })()))));
   }
-  function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView, laborData }) {
+  function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users }) {
     const laborColor2 = (pct) => pct == null ? th.muted : pct <= 22.9 ? "#22c55e" : pct <= 25.9 ? "#f59e0b" : "#ef4444";
     const laborLabel = (pct) => pct == null ? "\u2014" : pct <= 22.9 ? "On Target" : pct <= 25.9 ? "Watch" : "Over";
     const distStores = stores.filter((s) => s.district === distNum);
@@ -9906,6 +10107,16 @@
         style: { background: th.card2, color: G, border: `1px solid ${G}55`, borderRadius: "0.5rem", padding: "0.4rem 0.65rem", fontSize: "0.85rem", fontFamily: "'Raleway'", fontWeight: 700, cursor: "pointer", outline: "none" }
       }
     ), viewMode === "day" && localDate !== busDt && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setLocalDate(busDt), style: { background: "none", border: "none", color: th.muted, fontSize: "0.65rem", cursor: "pointer", fontFamily: "'Source Sans 3'", textDecoration: "underline" } }, "\u2190 Back to today")))))), /* @__PURE__ */ React.createElement(
+      ComplaintsLeaderboardCard,
+      {
+        stores: distStores,
+        users,
+        th,
+        setPulseView,
+        filterPcs: new Set(distStores.map((s) => String(s.pc))),
+        title: `Top Complaints This Month \u2014 ${distLabel}`
+      }
+    ), /* @__PURE__ */ React.createElement(
       "div",
       {
         style: { background: th.card, borderRadius: "0.9rem", padding: "1.25rem 1.4rem", border: `1px solid ${th.cardBorder}`, marginBottom: "0.75rem", transition: "all .2s cubic-bezier(.4,0,.2,1)" },
@@ -10394,6 +10605,8 @@
     const [weatherForecast, setWeatherForecast] = useState(null);
     const [networkReviews, setNetworkReviews] = useState(null);
     const cdRef = useRef(null);
+    const frameRef = React.useRef(null);
+    const frameH = useFrameHeight(frameRef);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
     const dmStoreCount = activePCs.length;
     useEffect(() => {
@@ -10403,7 +10616,10 @@
       }
     }, [drillInStore]);
     useEffect(() => {
-      if (pulseView !== "network") window.scrollTo(0, 0);
+      if (pulseView !== "network") {
+        window.scrollTo(0, 0);
+        frameRef.current?.scrollTo(0, 0);
+      }
     }, [pulseView]);
     const localDateStr2 = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
     function getWeekDates(dateStr) {
@@ -10700,7 +10916,7 @@ ${t2.slice(0, 300)}`);
       next.has(d) ? next.delete(d) : next.add(d);
       return next;
     });
-    return /* @__PURE__ */ React.createElement("div", null, pulseView !== "network" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.5rem", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPulseView("network"), style: { background: "none", border: "none", color: G, cursor: "pointer", fontWeight: 600, fontFamily: "'Source Sans 3'", fontSize: "0.8rem" } }, "Network"), pulseView.level === "district" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, districtLabel(pulseView.num))), pulseView.level === "store" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    return /* @__PURE__ */ React.createElement("div", { ref: frameRef, style: { height: isMobile ? "auto" : frameH || "calc(100vh - 200px)", overflowY: isMobile ? "visible" : "auto", overflowX: "clip", minHeight: 360 } }, pulseView !== "network" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.5rem", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPulseView("network"), style: { background: "none", border: "none", color: G, cursor: "pointer", fontWeight: 600, fontFamily: "'Source Sans 3'", fontSize: "0.8rem" } }, "Network"), pulseView.level === "district" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, districtLabel(pulseView.num))), pulseView.level === "store" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
       const s = stores.find((st) => st.pc === pulseView.pc);
       if (s?.district) setPulseView({ level: "district", num: s.district });
     }, style: { background: "none", border: "none", color: G, cursor: "pointer", fontWeight: 600, fontFamily: "'Source Sans 3'", fontSize: "0.8rem" } }, "District ", stores.find((st) => st.pc === pulseView.pc)?.district || "?"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u203A"), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, stores.find((st) => st.pc === pulseView.pc)?.name || pulseView.pc))), pulseView?.level !== "store" && /* @__PURE__ */ React.createElement("div", { style: {
@@ -10930,7 +11146,18 @@ ${t2.slice(0, 300)}`);
       const nonOpen = stores.filter((s) => s.status !== "Open" && (!isDMUser || Number(s.district) === dmDistrict));
       if (!nonOpen.length) return null;
       return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem", padding: "0.6rem 0.85rem", background: "#fd7e1418", borderLeft: `3px solid #fd7e14`, borderRadius: "0.375rem", fontSize: "0.78rem", color: th.muted, lineHeight: 1.5 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: "#fd7e14" } }, "Note:"), " ", nonOpen.map((s) => /* @__PURE__ */ React.createElement("span", { key: s.pc }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, s.name), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", padding: "1px 4px", borderRadius: 3, fontWeight: 600, color: "#fff", background: s.status === "Remodel" ? "#fd7e14" : s.status === "Temp Closed" ? "#dc3545" : "#6c757d" } }, s.status))).reduce((a, b) => [a, ", ", b]), " \u2014 ", "totals may be lower due to ", nonOpen.length === 1 ? "this store" : "these stores", " not operating at full capacity.");
-    })(), pulseView === "network" && hasWTD && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: (dateKey) => setBusDt(dateKey) }), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView, laborData }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { key: pulseView.pc, pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user, users, laborData, txnDeepLinkRef }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in ${districtLabel(dmDistrict)}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
+    })(), pulseView === "network" && hasWTD && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "stretch" } }, /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: (dateKey) => setBusDt(dateKey), containerStyle: { flex: "1 1 0", minWidth: 320 } }), /* @__PURE__ */ React.createElement(
+      ComplaintsLeaderboardCard,
+      {
+        stores,
+        users,
+        th,
+        setPulseView,
+        containerStyle: { flex: "1 1 0", minWidth: 320 },
+        filterPcs: dmPCSet,
+        title: isDMUser ? "Top Complaints This Month \u2014 Your District" : void 0
+      }
+    )), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { key: pulseView.pc, pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user, users, laborData, txnDeepLinkRef, initialTab: pulseView.initialTab || "sales" }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in ${districtLabel(dmDistrict)}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
       const dPct = (idx + 1) / arr.length;
       const isDone = progress / 100 >= dPct;
       const isActive = progress / 100 >= idx / arr.length && progress / 100 < dPct;
@@ -20191,7 +20418,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.59";
+  var APP_VERSION = "v19.74";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -28196,6 +28423,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [dayInfo, setDayInfo] = useState(null);
     const [snapshots, setSnapshots] = useState(null);
     const [grandTotal, setGrandTotal] = useState(0);
+    const [missingCheck, setMissingCheck] = useState(null);
     const start = periodStart ? tipsParseISODate(periodStart) : null;
     const end = start ? tipsAddDays(start, 13) : null;
     const daysOld = start ? Math.round((tipsParseISODate(todayStr).getTime() - start.getTime()) / 864e5) : 0;
@@ -28206,6 +28434,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setError(null);
       setSnapshots(null);
       setDayInfo(null);
+      setMissingCheck(null);
       try {
         const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
         const loaded = await Promise.all(dates.map((d) => cloudLoad("pcg_tips_snapshot_" + d).catch(() => null)));
@@ -28253,11 +28482,66 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const filledCount = dayInfo ? dayInfo.filter((d) => d.filled).length : 0;
     const missingDates = dayInfo ? dayInfo.filter((d) => !d.filled).map((d) => d.date) : [];
+    const isExcludedManager = (jobTitle) => /general\s*manager|store\s*manager/i.test(jobTitle || "") && !/assist|asst/i.test(jobTitle || "");
+    const checkMissingEmployees = async () => {
+      if (!snapshots || !start) return;
+      setMissingCheck({ loading: true, results: null, error: null });
+      try {
+        const crewNamesByStore = {};
+        for (const dayResults of snapshots || []) {
+          if (!dayResults) continue;
+          for (const s of dayResults) {
+            if (!crewNamesByStore[s.pc]) crewNamesByStore[s.pc] = /* @__PURE__ */ new Set();
+            (s.crew || []).forEach((c) => crewNamesByStore[s.pc].add(c.name));
+          }
+        }
+        const storeList = (stores || []).filter((s) => s.paycor);
+        const results = [];
+        const BATCH = 6;
+        for (let i = 0; i < storeList.length; i += BATCH) {
+          const batch = storeList.slice(i, i + BATCH);
+          await Promise.all(batch.map(async (store) => {
+            try {
+              let records = [], continuationToken;
+              do {
+                const res = await fetch("/.netlify/functions/paycor", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "employees", legalEntityId: store.paycor, ...continuationToken ? { continuationToken } : {} })
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const json = await res.json().catch(() => null);
+                const page = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
+                records = records.concat(page);
+                continuationToken = json?.continuationToken || json?.nextToken || null;
+                if (!page.length) continuationToken = null;
+              } while (continuationToken);
+              const crewNames = crewNamesByStore[store.pc] || /* @__PURE__ */ new Set();
+              const missing = [];
+              records.forEach((e) => {
+                if (e?.statusData?.status !== "Active") return;
+                if (isExcludedManager(e?.positionData?.jobTitle)) return;
+                const name = `${(e.firstName || "").trim()} ${(e.lastName || "").trim()}`.trim();
+                if (name && !crewNames.has(name)) missing.push(name);
+              });
+              if (missing.length) results.push({ pc: store.pc, name: store.name, district: store.district, missing: missing.sort() });
+            } catch (err) {
+              results.push({ pc: store.pc, name: store.name, district: store.district, fetchError: err.message });
+            }
+          }));
+        }
+        results.sort((a, b) => (a.district || 0) - (b.district || 0) || a.name.localeCompare(b.name));
+        setMissingCheck({ loading: false, results, error: null });
+      } catch (e) {
+        setMissingCheck({ loading: false, results: null, error: e.message || "Check failed." });
+      }
+    };
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "0.4rem" } }, "Tips Report"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.85rem", marginBottom: "1.25rem", maxWidth: "52ch", lineHeight: 1.5 } }, "Pulls the pay period's tip data straight from what's already saved each night \u2014 no files to upload, nothing fetched live. Pick the first day of the pay period below."), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem", display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.35rem" } }, "Pay period start date"), /* @__PURE__ */ React.createElement("input", { type: "date", value: periodStart, max: todayStr, onChange: (e) => {
       setPeriodStart(e.target.value);
       setSnapshots(null);
       setDayInfo(null);
       setError(null);
+      setMissingCheck(null);
     }, style: { ...inp(th), width: 200 } })), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !periodStart || loading, style: { ...btn(th), opacity: !periodStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Load period"), start && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, "Covers ", TIPS_DOW_FULL[start.getUTCDay()], ", ", TIPS_MONTHS[start.getUTCMonth()], " ", start.getUTCDate(), " \u2013 ", TIPS_DOW_FULL[end.getUTCDay()], ", ", TIPS_MONTHS[end.getUTCMonth()], " ", end.getUTCDate(), ", ", end.getUTCFullYear())), tooOld && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderLeft: "4px solid #f59e0b", padding: "0.9rem 1.1rem", marginBottom: "1.25rem", fontSize: "0.82rem", color: th.text } }, "That start date is ", daysOld, " days ago \u2014 daily snapshots are only kept for about ", TIPS_SNAPSHOT_RETENTION_DAYS, " days, so some or all of this period's data may already be gone. Try a more recent pay period."), error && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderLeft: "4px solid #ef4444", padding: "0.9rem 1.1rem", marginBottom: "1.25rem", fontSize: "0.82rem", color: th.text } }, error), dayInfo && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.9rem", flexWrap: "wrap", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "Pay period progress"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, filledCount, " / 14 days found \xB7 ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "$", grandTotal.toFixed(2)), " so far")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "0.4rem", marginBottom: missingDates.length ? "0.9rem" : 0 } }, dayInfo.map((d) => {
       const dt = tipsParseISODate(d.date);
       return /* @__PURE__ */ React.createElement(
@@ -28270,7 +28554,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: d.filled ? "#16a34a" : th.muted, textTransform: "uppercase" } }, TIPS_DOW[dt.getUTCDay()]),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, marginTop: 2 } }, dt.getUTCMonth() + 1, "/", dt.getUTCDate())
       );
-    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "No saved data for: ", missingDates.join(", "), " \u2014 either before the nightly report existed, or that night's run didn't complete."), /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }), marginTop: "1rem" } }, "Download workbook")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
+    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "No saved data for: ", missingDates.join(", "), " \u2014 either before the nightly report existed, or that night's run didn't complete."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"))), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
   }
   function renderAnalystMarkdown(text, th) {
     if (!text) return null;

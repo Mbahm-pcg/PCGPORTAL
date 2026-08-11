@@ -7926,7 +7926,7 @@ function HeartbeatLine() {
 }
 
 // ─── Trend Bar Chart ─────────────────────────────────────────────────────────
-function TrendChart({ data, G, th, onBarClick }) {
+function TrendChart({ data, G, th, onBarClick, containerStyle }) {
   const rawMax = Math.max(...data.map(d => d.netSales), 1);
   // Round ceiling up to nearest $25k, minimum $100k
   const STEP = 25000;
@@ -7942,7 +7942,7 @@ function TrendChart({ data, G, th, onBarClick }) {
   }
   return (
     <div style={{ padding:'1rem 1.25rem', background: th.card2, borderRadius:'0.75rem',
-      border:`1px solid ${G}22`, marginBottom:'1.125rem' }}>
+      border:`1px solid ${G}22`, marginBottom:'1.125rem', boxSizing: 'border-box', ...containerStyle }}>
       <div style={{ fontSize:'0.72rem', fontWeight:700, color:G, letterSpacing:1.5,
         textTransform:'uppercase', marginBottom:'0.75rem' }}>📈 Weekly Sales Trend (Sun–Sat)</div>
       <div style={{ overflowX: 'auto', overflow: 'visible' }}>
@@ -7995,6 +7995,172 @@ function TrendChart({ data, G, th, onBarClick }) {
           {/* Baseline */}
           <line x1={0} y1={H} x2={totalW} y2={H} stroke={`${G}44`} strokeWidth={1.5} />
         </svg>
+      </div>
+    </div>
+  );
+}
+
+// ─── Complaints Leaderboard ──────────────────────────────────────────────────
+// Network-wide "which stores have the most complaints, and why" card, sitting
+// beside the Trend Chart on the Pulse network view. Pulls a pre-aggregated
+// summary from case-watch.mjs (current calendar month only, same scope as the
+// per-store Complaints tab) rather than fetching every case client-side.
+function ComplaintsLeaderboardCard({ stores, users, th, setPulseView, containerStyle, filterPcs, title }) {
+  const [leaderboard, setLeaderboard] = React.useState(null); // null = loading, [] = loaded empty
+  const [error, setError] = React.useState(null);
+  const [emailingPc, setEmailingPc] = React.useState(null);
+  // pending = {store, row, recipients} awaiting confirm; result = {ok, message} to show after send
+  const [pendingEmail, setPendingEmail] = React.useState(null);
+  const [emailResult, setEmailResult] = React.useState(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch('/.netlify/functions/case-watch', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ networkSummary: true }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+        if (alive) setLeaderboard(Array.isArray(json?.leaderboard) ? json.leaderboard : []);
+      } catch (err) {
+        if (alive) setError(err.message || 'Failed to load complaints.');
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // A DM's district view passes filterPcs (that district's store PCs) so the
+  // leaderboard only shows their own stores — the underlying fetch is always
+  // network-wide (aggregated once, server-side), filtering just narrows what's
+  // displayed rather than requiring a second scoped query.
+  const scoped = filterPcs ? (leaderboard || []).filter(row => filterPcs.has(String(row.store_pc))) : (leaderboard || []);
+  const top5 = scoped.slice(0, 5);
+  const findStore = pc => stores.find(s => String(s.pc) === String(pc));
+  const storeName = pc => findStore(pc)?.name || `PC ${pc}`;
+
+  // DM lookup tries district match first (schedule-alerts.mjs's approach), then
+  // falls back to matching the store's own dmName field against the user's
+  // name — district match alone missed some DMs (stale/mismatched district
+  // value on their user record), but every store's dmName is kept current.
+  // Manager lookup mirrors the same district/name fallback pattern.
+  const normName = s => (s || '').toLowerCase().replace(/[^a-z]/g, '');
+  function findRecipients(row) {
+    const store = findStore(row.store_pc);
+    if (!store) return null;
+    const dm = (users || []).find(u => u.active !== false && u.userType === 'dm' && String(u.district) === String(store.district))
+      || (users || []).find(u => u.active !== false && u.userType === 'dm' && normName(u.name) === normName(store.dmName));
+    const mgr = (users || []).find(u => u.active !== false && u.userType === 'manager' && (
+      String(u.storePC) === String(store.pc) || normName(u.name) === normName(store.mgr)
+    ));
+    const emails = [dm?.email, mgr?.email || store.email].filter(Boolean).filter((e, i, a) => a.indexOf(e) === i);
+    return { store, emails };
+  }
+
+  function startEmailStoreSummary(row) {
+    const found = findRecipients(row);
+    if (!found) return;
+    if (found.emails.length === 0) { setEmailResult({ ok: false, message: `No DM or manager email on file for ${found.store.name}.` }); return; }
+    setPendingEmail({ row, store: found.store, emails: found.emails });
+  }
+
+  async function confirmEmailStoreSummary() {
+    const { row, store, emails } = pendingEmail;
+    setPendingEmail(null);
+    setEmailingPc(row.store_pc);
+    try {
+      // Category names come from free-text cells in the Google Sheet, not a
+      // fixed list — escape before interpolating into the HTML email so a
+      // stray "<" or "&" in someone's sheet entry can't break the table or
+      // inject markup into a message sent externally to a DM/manager.
+      const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+      const categoryRows = (row.categories || []).map(c => `<tr><td style="padding:4px 10px;border-bottom:1px solid #eee;">${escapeHtml(c.name)}</td><td style="padding:4px 10px;border-bottom:1px solid #eee;text-align:right;">${escapeHtml(c.count)}</td></tr>`).join('');
+      const body = `
+        <p><strong>${store.name}</strong> has <strong>${row.count}</strong> guest complaint${row.count !== 1 ? 's' : ''} logged so far this month${row.worstCount > 0 ? `, including <strong style="color:#e03131;">${row.worstCount} rated worst-tier</strong>` : ''}.</p>
+        <table style="border-collapse:collapse;width:100%;margin-top:10px;font-size:13px;">
+          <tr style="background:#f5f5f5;"><th style="padding:4px 10px;text-align:left;">Reason</th><th style="padding:4px 10px;text-align:right;">Count</th></tr>
+          ${categoryRows}
+        </table>
+        <p style="margin-top:14px;">Full detail is in the Portal under Pulse → ${store.name} → Complaints.</p>
+      `;
+      const res = await fetch('/.netlify/functions/notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: emails, subject: `Complaint Summary — ${store.name} (${row.count} this month)`, body }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setEmailResult({ ok: true, message: `Sent to ${emails.join(', ')}.` });
+    } catch (err) {
+      setEmailResult({ ok: false, message: 'Could not send email: ' + err.message });
+    } finally {
+      setEmailingPc(null);
+    }
+  }
+
+  return (
+    <div style={{ padding:'1rem 1.25rem', background: th.card2, borderRadius:'0.75rem',
+      border:`1px solid #e0303122`, marginBottom:'1.125rem', boxSizing: 'border-box', ...containerStyle }}>
+      <div style={{ fontSize:'0.72rem', fontWeight:700, color:'#e03131', letterSpacing:1.5,
+        textTransform:'uppercase', marginBottom:'0.75rem' }}>📣 {title || 'Top Complaints This Month'}</div>
+      {error && <div style={{ fontSize:'0.78rem', color:th.muted, padding:'0.5rem 0' }}>Couldn't load: {error}</div>}
+      {!error && leaderboard === null && <div style={{ fontSize:'0.78rem', color:th.muted, padding:'0.5rem 0' }}>Loading…</div>}
+      {!error && leaderboard !== null && top5.length === 0 && (
+        <div style={{ fontSize:'0.78rem', color:th.muted, padding:'0.5rem 0' }}>🎉 No complaints logged yet this month.</div>
+      )}
+      {!error && top5.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+          {top5.map((row, i) => (
+            <div key={row.store_pc} onClick={() => setPulseView({ level: 'store', pc: row.store_pc, initialTab: 'complaints' })}
+              style={{ display:'flex', alignItems:'center', gap:'0.6rem', cursor:'pointer', padding:'0.35rem 0.4rem', borderRadius:'0.4rem' }}>
+              <span style={{ fontSize:'0.75rem', fontWeight:800, color:th.muted, width:'1.1rem', flexShrink:0 }}>{i+1}</span>
+              <div style={{ minWidth:0, flex:1 }}>
+                <div style={{ fontSize:'0.82rem', fontWeight:700, color:th.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{storeName(row.store_pc)}</div>
+                <div style={{ fontSize:'0.7rem', color:th.muted, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                  {row.topCategory ? `Mostly: ${row.topCategory}` : 'No category on file'}
+                  {row.worstCount > 0 ? ` · ${row.worstCount} worst` : ''}
+                </div>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); startEmailStoreSummary(row); }}
+                disabled={emailingPc === row.store_pc}
+                title={`Email this store's DM and manager the complaint summary`}
+                style={{ background:'none', border:'none', cursor: emailingPc === row.store_pc ? 'default' : 'pointer', color: th.muted, fontSize:'0.95rem', padding:'0.2rem', flexShrink:0, opacity: emailingPc === row.store_pc ? 0.5 : 1 }}>
+                {emailingPc === row.store_pc ? '⏳' : '✉️'}
+              </button>
+              <span style={{ fontSize:'0.95rem', fontWeight:800, color:'#e03131', flexShrink:0 }}>{row.count}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {pendingEmail && (
+        <PortalConfirmModal th={th}
+          title="Send complaint summary?"
+          message={`Send this month's complaint summary for ${pendingEmail.store.name} to:\n${pendingEmail.emails.join('\n')}`}
+          confirmLabel="Send" onConfirm={confirmEmailStoreSummary} onCancel={() => setPendingEmail(null)} />
+      )}
+      {emailResult && (
+        <PortalConfirmModal th={th}
+          title={emailResult.ok ? 'Sent' : "Couldn't send"}
+          message={emailResult.message}
+          confirmLabel="OK" onConfirm={() => setEmailResult(null)} onCancel={() => setEmailResult(null)} hideCancel />
+      )}
+    </div>
+  );
+}
+
+// Small themed confirm/alert dialog — matches the app's other modal overlays
+// (dark blur backdrop, card(th) surface) instead of the browser's native
+// window.confirm/alert, which look jarringly out of place against the app UI.
+function PortalConfirmModal({ th, title, message, confirmLabel = 'OK', onConfirm, onCancel, hideCancel = false }) {
+  return (
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '1rem', width: 'min(420px, 92vw)', padding: '1.25rem 1.4rem' }}>
+        <div style={{ fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: '1rem', marginBottom: '0.6rem' }}>{title}</div>
+        <div style={{ fontSize: '0.85rem', color: th.muted, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{message}</div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', marginTop: '1.25rem' }}>
+          {!hideCancel && <button onClick={onCancel} style={{ ...btn(th), background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.text }}>Cancel</button>}
+          <button onClick={onConfirm} style={{ ...btn(th) }}>{confirmLabel}</button>
+        </div>
       </div>
     </div>
   );
@@ -8146,6 +8312,109 @@ function DaypartMatrix({ pc, th }) {
       </div>
       <div style={{ fontSize:'0.64rem', color:th.muted, marginTop:'0.6rem' }}>
         Outlined cell = each category's peak daypart. Deeper blue = more units.
+      </div>
+    </div>
+  );
+}
+
+// Guest complaints for one store, from the separate "Case Watch" project
+// (dunkincert.netlify.app / dunkin-case-tracker repo — syncs a Google Sheet
+// into Supabase). Read-only: the Portal never writes here, and doesn't touch
+// that project's Google Sheets sync at all — case-watch.mjs just queries the
+// same Supabase `cases` table Case Watch's own dashboard reads from.
+const CASE_TIER_LABEL = { fyi: 'FYI Guest Contact', guest_contact: 'Guest Contact', second_escalation: 'Second Escalation', unknown: 'Unknown' };
+const CASE_SEVERITY_COLOR = { worst: '#e03131', concerning: '#f76707', attention: '#f59f00', minor: '#868e96' };
+function StoreComplaintsTab({ pc, th }) {
+  const [cases, setCases] = React.useState(null); // null = loading, [] = loaded empty
+  const [error, setError] = React.useState(null);
+  const [openCase, setOpenCase] = React.useState(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    setCases(null); setError(null);
+    (async () => {
+      try {
+        const res = await fetch('/.netlify/functions/case-watch', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storePc: pc }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+        const list = Array.isArray(json?.cases) ? json.cases : [];
+        // Case Watch's own API sort is by severity first — re-sort here so the
+        // newest complaint is always on top, which is what a store view wants.
+        list.sort((a, b) => (b.date_in_sent || '').localeCompare(a.date_in_sent || ''));
+        if (alive) setCases(list);
+      } catch (err) {
+        if (alive) setError(err.message || 'Failed to load complaints.');
+      }
+    })();
+    return () => { alive = false; };
+  }, [pc]);
+
+  if (error) {
+    return <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: '#e03131', fontSize: '0.85rem', marginTop: '1rem' }}>Couldn't load complaints: {error}</div>;
+  }
+  if (cases === null) {
+    return <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem', marginTop: '1rem' }}>⏳ Loading complaints…</div>;
+  }
+  if (cases.length === 0) {
+    return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem', marginTop: '1rem' }}>🎉 No complaints on file for this store.</div>;
+  }
+
+  return (
+    <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+      <div style={{ fontSize: '0.72rem', color: th.muted }}>{cases.length} case{cases.length !== 1 ? 's' : ''} this month · from Case Watch</div>
+      {cases.map(c => {
+        const sevColor = CASE_SEVERITY_COLOR[c.severity_label] || th.muted;
+        // Card shows a one-line preview only — full text (often a pasted email,
+        // sometimes 1000+ characters) opens in the modal on click instead.
+        const preview = (c.customer_complaint || '').replace(/\s+/g, ' ').trim();
+        return (
+          <div key={c.case_id} onClick={() => setOpenCase(c)}
+            style={{ ...card(th), padding: '0.75rem 1rem', borderLeft: `4px solid ${sevColor}`, cursor: 'pointer' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', minWidth: 0 }}>
+                <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, color: sevColor, background: `${sevColor}18`, border: `1px solid ${sevColor}44`, borderRadius: '999px', padding: '0.15rem 0.55rem', flexShrink: 0 }}>{c.severity_label || 'minor'}</span>
+                <span style={{ fontSize: '0.7rem', color: th.muted, flexShrink: 0 }}>{CASE_TIER_LABEL[c.case_tier] || c.case_tier}</span>
+              </div>
+              <span style={{ fontSize: '0.7rem', color: th.muted, flexShrink: 0 }}>{c.date_in_sent || '—'}</span>
+            </div>
+            {preview && (
+              <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.4rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview}</div>
+            )}
+          </div>
+        );
+      })}
+      {openCase && <CaseDetailModal c={openCase} th={th} onClose={() => setOpenCase(null)} />}
+    </div>
+  );
+}
+
+function CaseDetailModal({ c, th, onClose }) {
+  const sevColor = CASE_SEVERITY_COLOR[c.severity_label] || th.muted;
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '3vh 1rem', overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '1rem', width: 'min(700px, 96vw)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '1rem 1.25rem', borderBottom: `1px solid ${th.cardBorder}`, gap: '0.75rem' }}>
+          <div>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.35rem' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, color: sevColor, background: `${sevColor}18`, border: `1px solid ${sevColor}44`, borderRadius: '999px', padding: '0.15rem 0.55rem' }}>{c.severity_label || 'minor'}</span>
+              <span style={{ fontSize: '0.72rem', color: th.muted }}>{CASE_TIER_LABEL[c.case_tier] || c.case_tier}</span>
+              {c.complaint_category && <span style={{ fontSize: '0.72rem', color: th.muted }}>· {c.complaint_category}</span>}
+            </div>
+            <div style={{ fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: '1rem' }}>{c.case_id}</div>
+            <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.15rem' }}>{c.date_in_sent || 'Date unknown'}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '1.4rem', lineHeight: 1, cursor: 'pointer', flexShrink: 0 }}>×</button>
+        </div>
+        <div style={{ padding: '1rem 1.25rem', overflowY: 'auto' }}>
+          {c.customer_complaint && <div style={{ fontSize: '0.85rem', color: th.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{c.customer_complaint}</div>}
+          {c.comments && <div style={{ fontSize: '0.8rem', color: th.muted, marginTop: '0.75rem', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>{c.comments}</div>}
+          <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '1rem', paddingTop: '0.75rem', borderTop: `1px solid ${th.cardBorder}` }}>
+            {c.customer_name || 'Unknown guest'}{c.email ? ` · ${c.email}` : ''}{c.phone ? ` · ${c.phone}` : ''}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -8826,7 +9095,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         <div style={isNarrow
           ? { display:'flex', flexDirection:'row', gap:'0.4rem', overflowX:'auto', flexShrink:0, paddingBottom:'0.25rem', WebkitOverflowScrolling:'touch' }
           : { display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, overflowY:'auto' }}>
-          {[{id:'sales',label:'📊 Sales'},{id:'labor',label:'👷 Labor'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'}].map((t) => (
+          {[{id:'sales',label:'📊 Sales'},{id:'labor',label:'👷 Labor'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'},{id:'complaints',label:'📣 Complaints'}].map((t) => (
             <button key={t.id} onClick={() => {
                 setStoreTab(t.id);
                 if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
@@ -9503,6 +9772,8 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       {/* ════ END REVIEWS TAB ════ */}
       </>}
 
+      {storeTab === 'complaints' && <StoreComplaintsTab pc={pc} th={th} />}
+
       {/* ════ DRIVE-THRU TAB ════ */}
       {storeTab === 'driveThru' && (() => {
         const svcSec = chk => chk.opnUTC && chk.clsdUTC
@@ -10073,7 +10344,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
 }
 
 // ─── District Detail ─────────────────────────────────────────────────────────
-function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView, laborData }) {
+function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users }) {
   const laborColor = pct => pct == null ? th.muted : pct <= 22.9 ? '#22c55e' : pct <= 25.9 ? '#f59e0b' : '#ef4444';
   const laborLabel = pct => pct == null ? '—' : pct <= 22.9 ? 'On Target' : pct <= 25.9 ? 'Watch' : 'Over';
   const distStores = stores.filter(s => s.district === distNum);
@@ -10556,6 +10827,10 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
           </div>
         </div>
       </div>
+
+      {/* Complaints leaderboard, scoped to this district's stores only */}
+      <ComplaintsLeaderboardCard stores={distStores} users={users} th={th} setPulseView={setPulseView}
+        filterPcs={new Set(distStores.map(s => String(s.pc)))} title={`Top Complaints This Month — ${distLabel}`} />
 
       {/* Sales hero card */}
       <div style={{ background:th.card, borderRadius:'0.9rem', padding:'1.25rem 1.4rem', border:`1px solid ${th.cardBorder}`, marginBottom:'0.75rem', transition:'all .2s cubic-bezier(.4,0,.2,1)' }}
@@ -11310,6 +11585,13 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   const [weatherForecast, setWeatherForecast] = useState(null);
   const [networkReviews, setNetworkReviews] = useState(null);
   const cdRef = useRef(null);
+  // Section 1 (global sidebar + header) stays put; Section 2 (this entire Pulse
+  // view — trend/complaints row, grids, drill-in detail, everything) scrolls
+  // internally instead of the whole page. Same fixed-frame pattern as Users,
+  // Locations, Store Detail, Task Manager. Skipped on phones — the fixed frame
+  // + internal scroll gets cramped there, so mobile just flows down the page.
+  const frameRef = React.useRef(null);
+  const frameH = useFrameHeight(frameRef);
 
   const activePCs = stores
     .filter(s => s.status === 'Open')
@@ -11329,7 +11611,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   // store click would otherwise land mid/bottom of the new view). Deliberately not on
   // the way back to network — keep the user's place in the grid, and never yank the
   // unattended kiosk TV (which lives on the network view) to the top.
-  useEffect(() => { if (pulseView !== "network") window.scrollTo(0, 0); }, [pulseView]);
+  useEffect(() => { if (pulseView !== "network") { window.scrollTo(0, 0); frameRef.current?.scrollTo(0, 0); } }, [pulseView]);
 
   // Get Sun–Sat week dates up to and including today (not busDt, so clicking
   // a past day doesn't shrink the week). dateStr picks which week.
@@ -11650,7 +11932,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   });
 
   return (
-    <div>
+    <div ref={frameRef} style={{ height: isMobile ? 'auto' : (frameH || 'calc(100vh - 200px)'), overflowY: isMobile ? 'visible' : 'auto', overflowX: 'clip', minHeight: 360 }}>
       {/* ── Breadcrumb ── */}
       {pulseView !== "network" && (
         <div style={{ display:'flex', alignItems:'center', gap:'0.375rem', marginBottom:'0.5rem', fontSize:'0.8rem' }}>
@@ -11893,19 +12175,23 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
         );
       })()}
 
-      {/* ── Trend Chart ── */}
+      {/* ── Trend Chart + Complaints Leaderboard — equal width & height siblings ── */}
       {pulseView === "network" && hasWTD && trendData.some(d => d.hasData) && (
-        <TrendChart data={trendData} G={G} th={th} onBarClick={(dateKey) => setBusDt(dateKey)} />
+        <div style={{ display:'flex', gap:'1rem', flexWrap:'wrap', alignItems:'stretch' }}>
+          <TrendChart data={trendData} G={G} th={th} onBarClick={(dateKey) => setBusDt(dateKey)} containerStyle={{ flex: '1 1 0', minWidth: 320 }} />
+          <ComplaintsLeaderboardCard stores={stores} users={users} th={th} setPulseView={setPulseView} containerStyle={{ flex: '1 1 0', minWidth: 320 }}
+            filterPcs={dmPCSet} title={isDMUser ? 'Top Complaints This Month — Your District' : undefined} />
+        </div>
       )}
 
       {/* ── District Detail View ── */}
       {pulseView?.level === "district" && loaded.length > 0 && (
-        <DistrictDetail distNum={pulseView.num} stores={stores} storeData={storeData} busDt={busDt} districts={districts} th={th} G={G} setPulseView={setPulseView} laborData={laborData} />
+        <DistrictDetail distNum={pulseView.num} stores={stores} storeData={storeData} busDt={busDt} districts={districts} th={th} G={G} setPulseView={setPulseView} laborData={laborData} users={users} />
       )}
 
       {/* ── Store Detail View ── */}
       {pulseView?.level === "store" && loaded.length > 0 && (
-        <StoreDetail key={pulseView.pc} pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} users={users} laborData={laborData} txnDeepLinkRef={txnDeepLinkRef} />
+        <StoreDetail key={pulseView.pc} pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} users={users} laborData={laborData} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseView.initialTab || 'sales'} />
       )}
 
 
@@ -24882,7 +25168,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.59";
+const APP_VERSION = "v19.74";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -36782,6 +37068,12 @@ function TipsReportBuilder({ th, stores }) {
   const [dayInfo, setDayInfo] = useState(null); // [{date, filled, total, stores, employees, missing}]
   const [snapshots, setSnapshots] = useState(null); // raw array, index-aligned with the 14 dates
   const [grandTotal, setGrandTotal] = useState(0);
+  // On-demand only (button click, not automatic on load) — this is the one live
+  // Paycor call this page makes, deliberately opt-in. The saved snapshots only
+  // ever record people who DID have punches; there's no saved record of who's
+  // on the active roster but absent, so finding that requires asking Paycor
+  // directly for each store's current employee list to diff against.
+  const [missingCheck, setMissingCheck] = useState(null); // null | { loading, results, error }
 
   const start = periodStart ? tipsParseISODate(periodStart) : null;
   const end = start ? tipsAddDays(start, 13) : null;
@@ -36790,7 +37082,7 @@ function TipsReportBuilder({ th, stores }) {
 
   const load = async () => {
     if (!start) return;
-    setLoading(true); setError(null); setSnapshots(null); setDayInfo(null);
+    setLoading(true); setError(null); setSnapshots(null); setDayInfo(null); setMissingCheck(null);
     try {
       const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
       const loaded = await Promise.all(dates.map(d => cloudLoad('pcg_tips_snapshot_' + d).catch(() => null)));
@@ -36834,6 +37126,71 @@ function TipsReportBuilder({ th, stores }) {
   const filledCount = dayInfo ? dayInfo.filter(d => d.filled).length : 0;
   const missingDates = dayInfo ? dayInfo.filter(d => !d.filled).map(d => d.date) : [];
 
+  // Same GM/Store Manager exclusion the tip pool itself uses (tipsRecordsForStore's
+  // caller / tips-report-cron-background.mjs) — flagging an intentionally-excluded
+  // manager as "missing tips" would just be a false alarm, not a real gap.
+  const isExcludedManager = (jobTitle) => /general\s*manager|store\s*manager/i.test(jobTitle || '') && !/assist|asst/i.test(jobTitle || '');
+
+  const checkMissingEmployees = async () => {
+    if (!snapshots || !start) return;
+    setMissingCheck({ loading: true, results: null, error: null });
+    try {
+      // Every name that showed up with hours ANYWHERE in the loaded period, per store.
+      const crewNamesByStore = {};
+      for (const dayResults of (snapshots || [])) {
+        if (!dayResults) continue;
+        for (const s of dayResults) {
+          if (!crewNamesByStore[s.pc]) crewNamesByStore[s.pc] = new Set();
+          (s.crew || []).forEach(c => crewNamesByStore[s.pc].add(c.name));
+        }
+      }
+
+      const storeList = (stores || []).filter(s => s.paycor);
+      const results = [];
+      const BATCH = 6;
+      for (let i = 0; i < storeList.length; i += BATCH) {
+        const batch = storeList.slice(i, i + BATCH);
+        await Promise.all(batch.map(async (store) => {
+          try {
+            let records = [], continuationToken;
+            do {
+              const res = await fetch('/.netlify/functions/paycor', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'employees', legalEntityId: store.paycor, ...(continuationToken ? { continuationToken } : {}) }),
+              });
+              // A non-OK response (e.g. the documented Paycor token-mutex race) must
+              // not be treated as "this store has zero employees" — that silently
+              // drops the store from results as if it were checked and clean, when
+              // it was never actually retrieved. Throw so it lands as a fetchError.
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json().catch(() => null);
+              const page = Array.isArray(json?.records) ? json.records : (Array.isArray(json) ? json : []);
+              records = records.concat(page);
+              continuationToken = json?.continuationToken || json?.nextToken || null;
+              if (!page.length) continuationToken = null;
+            } while (continuationToken);
+
+            const crewNames = crewNamesByStore[store.pc] || new Set();
+            const missing = [];
+            records.forEach(e => {
+              if (e?.statusData?.status !== 'Active') return;
+              if (isExcludedManager(e?.positionData?.jobTitle)) return;
+              const name = `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim();
+              if (name && !crewNames.has(name)) missing.push(name);
+            });
+            if (missing.length) results.push({ pc: store.pc, name: store.name, district: store.district, missing: missing.sort() });
+          } catch (err) {
+            results.push({ pc: store.pc, name: store.name, district: store.district, fetchError: err.message });
+          }
+        }));
+      }
+      results.sort((a, b) => (a.district || 0) - (b.district || 0) || a.name.localeCompare(b.name));
+      setMissingCheck({ loading: false, results, error: null });
+    } catch (e) {
+      setMissingCheck({ loading: false, results: null, error: e.message || 'Check failed.' });
+    }
+  };
+
   return (
     <div>
       <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '0.4rem' }}>Tips Report</h2>
@@ -36844,7 +37201,7 @@ function TipsReportBuilder({ th, stores }) {
       <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.35rem' }}>Pay period start date</div>
-          <input type="date" value={periodStart} max={todayStr} onChange={e => { setPeriodStart(e.target.value); setSnapshots(null); setDayInfo(null); setError(null); }} style={{ ...inp(th), width: 200 }} />
+          <input type="date" value={periodStart} max={todayStr} onChange={e => { setPeriodStart(e.target.value); setSnapshots(null); setDayInfo(null); setError(null); setMissingCheck(null); }} style={{ ...inp(th), width: 200 }} />
         </div>
         <button onClick={load} disabled={!periodStart || loading} style={{ ...btn(th), opacity: (!periodStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Load period'}</button>
         {start && (
@@ -36885,7 +37242,38 @@ function TipsReportBuilder({ th, stores }) {
           {missingDates.length > 0 && (
             <div style={{ fontSize: '0.76rem', color: '#f59e0b' }}>No saved data for: {missingDates.join(', ')} — either before the nightly report existed, or that night's run didn't complete.</div>
           )}
-          <button onClick={download} style={{ ...btn(th, { background: '#1B8F5C' }), marginTop: '1rem' }}>Download workbook</button>
+          <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+            <button onClick={download} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Download workbook</button>
+            <button onClick={checkMissingEmployees} disabled={missingCheck?.loading} style={{ ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 }}>
+              {missingCheck?.loading ? 'Checking Paycor rosters…' : 'Check for missing employees'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {missingCheck && (
+        <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.4rem' }}>Active employees with no tips this period</div>
+          <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.9rem', lineHeight: 1.5 }}>
+            Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing — worth a quick check before finalizing.
+          </div>
+          {missingCheck.loading && <div style={{ fontSize: '0.8rem', color: th.muted }}>Checking {(stores || []).filter(s => s.paycor).length} stores…</div>}
+          {missingCheck.error && <div style={{ fontSize: '0.82rem', color: '#ef4444' }}>{missingCheck.error}</div>}
+          {!missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && (
+            <div style={{ fontSize: '0.82rem', color: '#16a34a' }}>Every active employee has recorded hours somewhere in this period. Nothing to flag.</div>
+          )}
+          {!missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+              {missingCheck.results.map(r => (
+                <div key={r.pc} style={{ borderLeft: `3px solid ${r.fetchError ? '#f59e0b' : '#ef4444'}`, paddingLeft: '0.75rem' }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: th.text }}>District {r.district} · {r.name} ({r.pc})</div>
+                  {r.fetchError
+                    ? <div style={{ fontSize: '0.76rem', color: '#f59e0b' }}>Couldn't check this store's roster: {r.fetchError}</div>
+                    : <div style={{ fontSize: '0.8rem', color: th.text }}>{r.missing.join(', ')}</div>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
