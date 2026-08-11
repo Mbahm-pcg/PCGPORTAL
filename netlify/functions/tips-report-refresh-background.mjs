@@ -9,7 +9,22 @@
 // does NOT send the daily/weekly/biweekly email — this only rebuilds and
 // saves the one day's pcg_tips_snapshot_{busDt} blob so it's available to the
 // nightly cron's own weekly/biweekly rollups and to the in-app Tips Report.
-import { STORES, APIS, callUpstream, callPaycorProxy, fetchAllEmployees, punchHours, toET, saveDaySnapshot, loadDaySnapshot, getBlobStore, dateRangeEndingAt } from './tips-report-cron-background.mjs';
+import { STORES, APIS, callUpstream, callPaycorProxy, fetchAllEmployees, punchHours, toET, saveDaySnapshot, getBlobStore, dateRangeEndingAt } from './tips-report-cron-background.mjs';
+
+// Deliberately NOT using tips-report-cron-background.mjs's loadDaySnapshot —
+// it memoizes per busDt in a module-level Map that survives across
+// invocations on a warm serverless instance. Confirmed directly (2026-08-11):
+// firing several single-store targeted backfills back-to-back hit the same
+// warm instance, so a later store's merge read a STALE cached copy of the
+// snapshot from before an earlier store's fix had been saved, and silently
+// overwrote that earlier fix with the old (bad) data. The targeted-merge path
+// below must always see the true latest blob, so it reads uncached.
+async function loadDaySnapshotUncached(busDt) {
+  try {
+    const raw = await getBlobStore().get(`pcg_tips_snapshot_${busDt}`, { type: 'json' });
+    return raw?.data || null;
+  } catch { return null; }
+}
 
 // 46 stores sequential (Phase 2) takes minutes — well past Netlify's ~26s
 // synchronous function limit. Must be a background function (202 immediately,
@@ -136,7 +151,7 @@ export default async (request) => {
   // (possibly already-good) data is left untouched.
   let finalResults = storeResults;
   if (targetPc) {
-    const existing = await loadDaySnapshot(busDt);
+    const existing = await loadDaySnapshotUncached(busDt);
     const existingArr = Array.isArray(existing) ? existing : [];
     finalResults = existingArr.some(s => String(s.pc) === targetPc)
       ? existingArr.map(s => String(s.pc) === targetPc ? storeResults[0] : s)
