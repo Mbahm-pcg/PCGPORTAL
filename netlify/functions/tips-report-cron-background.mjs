@@ -256,7 +256,7 @@ export async function saveDaySnapshot(busDt, storeResults) {
 // weekly (7-day) and biweekly (14-day) rollups overlap on 7 of those days;
 // without this they'd each re-fetch those same 7 snapshot blobs separately.
 const snapshotCache = new Map();
-async function loadDaySnapshot(busDt) {
+export async function loadDaySnapshot(busDt) {
   if (snapshotCache.has(busDt)) return snapshotCache.get(busDt);
   let result;
   try {
