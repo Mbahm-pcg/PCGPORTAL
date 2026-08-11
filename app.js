@@ -10783,10 +10783,6 @@ ${t2.slice(0, 300)}`);
     }
     const handleManualRefresh = () => {
       loadAll();
-      if (isFullAdmin(user)) {
-        fetch("/.netlify/functions/labor-cron-background", { method: "POST" }).catch(() => {
-        });
-      }
     };
     const wtdAutoLoaded = useRef(false);
     const lastWtdWeek = useRef("");
@@ -20512,7 +20508,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.80";
+  var APP_VERSION = "v19.82";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -22609,7 +22605,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [storeHistories, setStoreHistories] = React.useState({});
     const [loading, setLoading] = React.useState(true);
     const [loadingStores, setLoadingStores] = React.useState(false);
-    const [refreshing, setRefreshing] = React.useState(false);
     const [filterType, setFilterType] = React.useState("all");
     const O2 = "#FF671F";
     const loadLaborData = React.useCallback((blob) => {
@@ -22622,29 +22617,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       }).catch(() => setLoading(false));
     }, [loadLaborData]);
-    const handleRefresh = async () => {
-      setRefreshing(true);
-      const prevUpdated = laborMeta?.lastUpdated || "";
-      try {
-        fetch("/.netlify/functions/labor-cron-background", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ manual: true })
-        }).catch(() => {
-        });
-        for (let i = 0; i < 36; i++) {
-          await new Promise((r) => setTimeout(r, 5e3));
-          const fresh = await cloudLoad("pcg_labor_v1");
-          if (fresh?.lastUpdated && fresh.lastUpdated !== prevUpdated) {
-            loadLaborData(fresh);
-            setStoreHistories({});
-            break;
-          }
-        }
-      } catch {
-      }
-      setRefreshing(false);
-    };
     React.useEffect(() => {
       if (!laborData) return;
       const candidates = stores.filter((s) => (s.status === "Open" || s.status === "Remodel") && laborData[s.pc]?.today != null).slice(0, 25);
@@ -22766,16 +22738,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const salesCount = anomalies.filter((a) => a.subtype === "sales").length;
     const laborCount = anomalies.filter((a) => a.subtype === "labor").length;
     const shiftsCount = anomalies.filter((a) => a.subtype === "shifts").length;
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.25rem", color: th.text } }, "\u{1F50D} Anomaly Detection"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.2rem" } }, "Rolling 4-week baselines \xB7 day-of-week aware \xB7 ", stores.filter((s) => s.status === "Open").length, " stores monitored")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" } }, (loading || loadingStores) && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\u23F3 Computing baselines\u2026"), !loading && !loadingStores && critCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: "#ef4444", background: "#ef444420", border: "1px solid #ef444440", borderRadius: "1rem", padding: "0.2rem 0.6rem" } }, "\u{1F534} ", critCount, " critical"), !loading && !loadingStores && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, anomalies.length, " anomal", anomalies.length === 1 ? "y" : "ies"), laborMeta?.lastUpdated && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7 ", new Date(laborMeta.lastUpdated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: handleRefresh,
-        disabled: refreshing || loading,
-        style: { display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 700, padding: "0.3rem 0.75rem", borderRadius: "0.5rem", border: `1px solid ${O2}55`, background: refreshing ? th.card2 : O2 + "18", color: refreshing ? th.muted : O2, cursor: refreshing ? "default" : "pointer", fontFamily: "'Source Sans 3'", opacity: loading ? 0.5 : 1 }
-      },
-      /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", animation: refreshing ? "spin 1s linear infinite" : "none" } }, "\u21BA"),
-      refreshing ? "Refreshing\u2026" : "Refresh"
-    ))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginTop: "0.875rem", flexWrap: "wrap" } }, [
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.25rem", color: th.text } }, "\u{1F50D} Anomaly Detection"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.2rem" } }, "Rolling 4-week baselines \xB7 day-of-week aware \xB7 ", stores.filter((s) => s.status === "Open").length, " stores monitored")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" } }, (loading || loadingStores) && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\u23F3 Computing baselines\u2026"), !loading && !loadingStores && critCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: "#ef4444", background: "#ef444420", border: "1px solid #ef444440", borderRadius: "1rem", padding: "0.2rem 0.6rem" } }, "\u{1F534} ", critCount, " critical"), !loading && !loadingStores && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, anomalies.length, " anomal", anomalies.length === 1 ? "y" : "ies"), laborMeta?.lastUpdated && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7 ", new Date(laborMeta.lastUpdated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginTop: "0.875rem", flexWrap: "wrap" } }, [
       { id: "all", label: `All (${anomalies.length})` },
       { id: "sales", label: `\u{1F4C9} Sales (${salesCount})` },
       { id: "labor", label: `\u26A0\uFE0F Labor (${laborCount})` },
@@ -25287,7 +25250,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [selectedStore]);
     const [timeFilter, setTimeFilter] = useState("today");
     const [districtFilter, setDistrictFilter] = useState("all");
-    const [refreshing, setRefreshing] = useState(false);
     const [forecastData, setForecastData] = useState({});
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
@@ -25410,28 +25372,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [laborData]);
-    const handleRefresh = async () => {
-      setRefreshing(true);
-      const prevUpdated = laborData?.lastUpdated || "";
-      try {
-        fetch("/.netlify/functions/labor-cron-background", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ manual: true })
-        }).catch(() => {
-        });
-        for (let i = 0; i < 36; i++) {
-          await new Promise((r) => setTimeout(r, 5e3));
-          const fresh = await cloudLoad("pcg_labor_v1");
-          if (fresh?.lastUpdated && fresh.lastUpdated !== prevUpdated) {
-            setLaborData(fresh);
-            break;
-          }
-        }
-      } catch {
-      }
-      setRefreshing(false);
-    };
     if (selectedStore) {
       return /* @__PURE__ */ React.createElement(
         LaborDrillDown,
@@ -25468,7 +25408,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { label: "Total Sales", value: fmtDollars(summary.sales), color: "#FF671F", sub: `${filtered.length} stores` },
       { label: "Scheduled Now", value: String(summary.scheduledNow || summary.employeesOnClock || 0), color: "#FF671F", sub: `${summary.overtimeCount || 0} on overtime` }
     ];
-    return /* @__PURE__ */ React.createElement("div", null, error && /* @__PURE__ */ React.createElement("div", { style: { background: "#ff980020", border: "1px solid #ff9800", borderRadius: "0.5rem", padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ff9800", fontSize: "0.875rem" } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Labor"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "Updated ", timeAgo(laborData?.lastUpdated)), isFullAdmin(user) && /* @__PURE__ */ React.createElement("button", { onClick: handleRefresh, disabled: refreshing, style: { ...btn(th, { padding: "0.4rem 0.8rem", fontSize: "0.75rem", opacity: refreshing ? 0.5 : 1 }) } }, refreshing ? "Refreshing..." : "Refresh"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, kpiCards.map((k, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.85rem 1rem", textAlign: "center", position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: 3, background: k.color, opacity: 0.85 } }), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th, { fontSize: "0.6rem" }) } }, k.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.4rem", fontWeight: 700, color: k.color, marginTop: "0.15rem", fontFamily: "'Source Sans 3'" } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, marginTop: "0.1rem", fontWeight: 600 } }, k.sub)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}` } }, ["today", "wtd"].map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => setTimeFilter(t), style: {
+    return /* @__PURE__ */ React.createElement("div", null, error && /* @__PURE__ */ React.createElement("div", { style: { background: "#ff980020", border: "1px solid #ff9800", borderRadius: "0.5rem", padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ff9800", fontSize: "0.875rem" } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Labor"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "Updated ", timeAgo(laborData?.lastUpdated)))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, kpiCards.map((k, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.85rem 1rem", textAlign: "center", position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: 3, background: k.color, opacity: 0.85 } }), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th, { fontSize: "0.6rem" }) } }, k.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.4rem", fontWeight: 700, color: k.color, marginTop: "0.15rem", fontFamily: "'Source Sans 3'" } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, marginTop: "0.1rem", fontWeight: 600 } }, k.sub)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}` } }, ["today", "wtd"].map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => setTimeFilter(t), style: {
       background: timeFilter === t ? "#FF671F" : th.card,
       color: timeFilter === t ? "#fff" : th.text,
       border: "none",

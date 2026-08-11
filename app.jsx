@@ -11769,19 +11769,11 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
     setTesting(false);
   }
 
-  // Manual "⚡ Refresh" clicks restart Labor too, not just Sales — fire-and-forget POST to
-  // the background labor-cron wrapper (always runs the full ~45-store scheduled refresh,
-  // 15-min window, ignores any body). Deliberately NOT wired into loadAll() itself, since
-  // that also fires on mount and on the 5-min auto-refresh timer — hammering Paycor that
-  // often for all stores would be wasteful; only an explicit human click restarts labor.
-  // Restricted to exec/IT — it's a network-wide, 45-store Paycor scan, not something a
-  // DM/manager clicking Refresh on their own store's Pulse view should be able to trigger.
-  // DM/managers still get their own store's sales data refreshed via loadAll().
+  // Manual "⚡ Refresh" only restarts Sales now — the labor-cron manual-restart
+  // trigger was removed everywhere in the app (Pulse/Labor/Anomalies) so labor
+  // data only ever refreshes on its own schedule, not via ad-hoc clicks.
   const handleManualRefresh = () => {
     loadAll();
-    if (isFullAdmin(user)) {
-      fetch('/.netlify/functions/labor-cron-background', { method: 'POST' }).catch(() => {});
-    }
   };
 
   // Auto-load today's data on mount, then auto-load WTD
@@ -25282,7 +25274,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.80";
+const APP_VERSION = "v19.82";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -28370,7 +28362,6 @@ function AnomaliesTab({ stores, th, user, setTab }) {
   const [storeHistories, setStoreHistories] = React.useState({});
   const [loading,        setLoading]        = React.useState(true);
   const [loadingStores,  setLoadingStores]  = React.useState(false);
-  const [refreshing,     setRefreshing]     = React.useState(false);
   const [filterType,     setFilterType]     = React.useState('all');
   const O = '#FF671F';
 
@@ -28385,28 +28376,6 @@ function AnomaliesTab({ stores, th, user, setTab }) {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [loadLaborData]);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    const prevUpdated = laborMeta?.lastUpdated || '';
-    try {
-      fetch('/.netlify/functions/labor-cron-background', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manual: true }),
-      }).catch(() => {});
-      // Poll every 5s for up to 3 min until blob updates
-      for (let i = 0; i < 36; i++) {
-        await new Promise(r => setTimeout(r, 5000));
-        const fresh = await cloudLoad('pcg_labor_v1');
-        if (fresh?.lastUpdated && fresh.lastUpdated !== prevUpdated) {
-          loadLaborData(fresh);
-          setStoreHistories({}); // clear cached histories so they reload
-          break;
-        }
-      }
-    } catch {}
-    setRefreshing(false);
-  };
 
   React.useEffect(() => {
     if (!laborData) return;
@@ -28549,11 +28518,6 @@ function AnomaliesTab({ stores, th, user, setTab }) {
             {!loading && !loadingStores && critCount > 0 && <span style={{ fontSize:'0.72rem', fontWeight:700, color:'#ef4444', background:'#ef444420', border:'1px solid #ef444440', borderRadius:'1rem', padding:'0.2rem 0.6rem' }}>🔴 {critCount} critical</span>}
             {!loading && !loadingStores && <span style={{ fontSize:'0.72rem', color:th.muted }}>{anomalies.length} anomal{anomalies.length===1?'y':'ies'}</span>}
             {laborMeta?.lastUpdated && <span style={{ fontSize:'0.68rem', color:th.muted }}>· {new Date(laborMeta.lastUpdated).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</span>}
-            <button onClick={handleRefresh} disabled={refreshing || loading}
-              style={{ display:'flex', alignItems:'center', gap:'0.3rem', fontSize:'0.72rem', fontWeight:700, padding:'0.3rem 0.75rem', borderRadius:'0.5rem', border:`1px solid ${O}55`, background:refreshing ? th.card2 : O+'18', color:refreshing ? th.muted : O, cursor: refreshing ? 'default' : 'pointer', fontFamily:"'Source Sans 3'", opacity: loading ? 0.5 : 1 }}>
-              <span style={{ display:'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↺</span>
-              {refreshing ? 'Refreshing…' : 'Refresh'}
-            </button>
           </div>
         </div>
         <div style={{ display:'flex', gap:'0.4rem', marginTop:'0.875rem', flexWrap:'wrap' }}>
@@ -32524,7 +32488,6 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
   useEffect(() => { if (selectedStore) window.scrollTo(0, 0); }, [selectedStore]);
   const [timeFilter, setTimeFilter] = useState('today');
   const [districtFilter, setDistrictFilter] = useState('all');
-  const [refreshing, setRefreshing] = useState(false);
   const [forecastData, setForecastData] = useState({}); // pc → { loaded, days }
 
   const isDM = user?.userType === 'dm';
@@ -32659,29 +32622,6 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
     return () => { cancelled = true; };
   }, [laborData]);
 
-  // Manual refresh — triggers background cron then polls blob for fresh data
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    const prevUpdated = laborData?.lastUpdated || '';
-    try {
-      // Fire-and-forget: trigger background function (returns 202 immediately)
-      fetch('/.netlify/functions/labor-cron-background', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manual: true }),
-      }).catch(() => {});
-      // Poll blob every 5s for up to 3 minutes until lastUpdated changes
-      for (let i = 0; i < 36; i++) {
-        await new Promise(r => setTimeout(r, 5000));
-        const fresh = await cloudLoad('pcg_labor_v1');
-        if (fresh?.lastUpdated && fresh.lastUpdated !== prevUpdated) {
-          setLaborData(fresh);
-          break;
-        }
-      }
-    } catch {}
-    setRefreshing(false);
-  };
-
   // If a store is selected, show drill-down
   if (selectedStore) {
     return <LaborDrillDown
@@ -32739,12 +32679,6 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
         <h2 style={{ ...pageTitle(th), margin: 0 }}>Labor</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <span style={{ fontSize: '0.75rem', color: th.muted }}>Updated {timeAgo(laborData?.lastUpdated)}</span>
-          {/* Manual labor refresh triggers a Paycor background re-pull — limit to exec/IT only. */}
-          {isFullAdmin(user) && (
-            <button onClick={handleRefresh} disabled={refreshing} style={{ ...btn(th, { padding: '0.4rem 0.8rem', fontSize: '0.75rem', opacity: refreshing ? 0.5 : 1 }) }}>
-              {refreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
-          )}
         </div>
       </div>
 
