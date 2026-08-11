@@ -72,7 +72,13 @@ async function sendPushToUsers(userIds, subs, payload) {
 
 function sendEmail(to, subject, html) {
   return new Promise((resolve) => {
-    const body = JSON.stringify({ from: 'PCG Portal <alerts@peoplecapitalgroup.com>', to: Array.isArray(to) ? to : [to], subject, html });
+    // Same verified sender notify.mjs uses — confirmed directly (2026-08-11)
+    // that the hardcoded 'alerts@peoplecapitalgroup.com' address this was
+    // copied from (schedule-alerts.mjs's pattern) isn't a verified Resend
+    // sender, so every fleet-alert email was silently rejected while push and
+    // SMS went out fine.
+    const FROM = process.env.NOTIFY_FROM || 'PCG Portal <noreply@pcgops.com>';
+    const body = JSON.stringify({ from: FROM, to: Array.isArray(to) ? to : [to], subject, html });
     const req = https.request({
       hostname: 'api.resend.com', port: 443, path: '/emails', method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
