@@ -2,7 +2,10 @@
 // Runs daily. Checks every vehicle in the fleet Supabase project for
 // registration/inspection/insurance dates coming due, and sends push + email
 // + SMS at 30/14/7/1 days out to that vehicle's operator (matched by name to
-// a Portal user) plus every IT/exec/office staff/construction/maintenance user.
+// a Portal user, pushed to directly) plus whoever's on the manually-managed
+// email/phone list at Admin > Notifications > Car (pcg_fleet_notify_v1) —
+// same plain-list pattern as Project/Ticket notifications, since that list
+// intentionally supports people without a Portal account.
 // Saves a sent-alert log to pcg_fleet_alerts_v1 so the same (vehicle, field,
 // due date, threshold) combo never re-fires — keying on the due date itself
 // (not just the threshold) means a renewed/updated due date on the source
@@ -18,7 +21,6 @@ export const config = { schedule: '0 11 * * *' }; // 6/7am ET daily
 // a vehicle 10 days out matches 14 (not 30), and one due tomorrow matches 1.
 // Descending order would match 30 for anything <=30 and never reach the rest.
 const THRESHOLDS = [1, 7, 14, 30];
-const NOTIFY_ROLES = new Set(['it', 'executive', 'office_staff', 'construction', 'maintenance']);
 const DUE_FIELDS = [
   { key: 'registration_expiration', label: 'Registration' },
   { key: 'inspection_expiration',   label: 'Inspection' },
@@ -112,11 +114,12 @@ export async function runFleetAlerts() {
   const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   et.setHours(0, 0, 0, 0);
 
-  const [cars, users, subs, log] = await Promise.all([
+  const [cars, users, subs, log, fleetNotify] = await Promise.all([
     fetchCars(),
     fetchUsers(),
     blobLoad('pcg_push_subscriptions_v1'),
     blobLoad('pcg_fleet_alerts_v1'),
+    blobLoad('pcg_fleet_notify_v1'),
   ]);
 
   const userList = Array.isArray(users) ? users : [];
@@ -124,13 +127,25 @@ export async function runFleetAlerts() {
   const sentKeys = new Set(log?.sent || []);
   const newSentKeys = [...sentKeys];
   let totalAlerted = 0;
+  // Admin-managed manual list (Admin > Notifications > Car) — plain
+  // email/phone entries, same pattern as Project/Ticket, since this
+  // intentionally supports people without a Portal account. The vehicle's own
+  // operator is looked up separately below and always gets added on top.
+  const manualEmails = Array.isArray(fleetNotify?.emails) ? fleetNotify.emails : [];
+  const manualPhones = Array.isArray(fleetNotify?.phones) ? fleetNotify.phones : [];
 
   for (const car of cars) {
     if (car.sold) continue; // no longer ours — nothing to remind anyone about
     const operator = userList.find(u => u.active !== false && normName(u.name) === normName(car.operator));
-    const admins = userList.filter(u => u.active !== false && NOTIFY_ROLES.has(u.userType));
-    const recipients = [operator, ...admins].filter(Boolean).filter((u, i, a) => a.findIndex(x => x.id === u.id) === i);
-    if (recipients.length === 0) continue;
+    const emailSet = new Set(manualEmails.map(e => e.toLowerCase()));
+    const phoneSet = new Set(manualPhones);
+    const pushUserIds = [];
+    if (operator) {
+      pushUserIds.push(String(operator.id));
+      if (operator.email) emailSet.add(operator.email.toLowerCase());
+      if (operator.phone) phoneSet.add(operator.phone);
+    }
+    if (emailSet.size === 0 && phoneSet.size === 0 && pushUserIds.length === 0) continue;
 
     for (const field of DUE_FIELDS) {
       const dueDate = car[field.key];
@@ -147,9 +162,8 @@ export async function runFleetAlerts() {
       const title = `🚗 ${field.label} due in ${daysOut} day${daysOut !== 1 ? 's' : ''} — ${vehicleLabel}`;
       const body = `Due ${dueDate}${car.plate ? ` · Plate ${car.plate}` : ''}${car.operator ? ` · Operator: ${car.operator}` : ''}`;
 
-      const pushUserIds = recipients.map(u => String(u.id));
-      const emails = recipients.map(u => u.email).filter(Boolean).filter((e, i, a) => a.indexOf(e) === i);
-      const phones = recipients.map(u => u.phone).filter(Boolean).filter((p, i, a) => a.indexOf(p) === i);
+      const emails = [...emailSet];
+      const phones = [...phoneSet];
 
       // Isolated per field: one bad push/email/SMS call must not kill the rest
       // of the batch — confirmed directly (2026-08-11) that an uncaught error
@@ -179,7 +193,7 @@ export async function runFleetAlerts() {
 
       newSentKeys.push(key);
       totalAlerted++;
-      console.log(`[fleet-alerts] ${vehicleLabel}: ${field.label} due ${dueDate} (${daysOut}d) — alerted ${recipients.length} recipient(s): ${recipients.map(r => r.name).join(', ')}`);
+      console.log(`[fleet-alerts] ${vehicleLabel}: ${field.label} due ${dueDate} (${daysOut}d) — emails: ${emails.join(', ') || 'none'}; phones: ${phones.length}; push: ${pushUserIds.length}${operator ? ` (operator: ${operator.name})` : ''}`);
     }
   }
 

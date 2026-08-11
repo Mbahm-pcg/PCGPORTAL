@@ -16443,6 +16443,109 @@ function PnlAccessPanel({ th, user, users, showAlert }) {
   );
 }
 
+// Who gets fleet (company vehicle) due-date reminders — exec/IT/office staff/
+// construction/maintenance by default (matches fleet-alerts-cron.mjs's
+// NOTIFY_ROLES), with an opt-out list so specific people can be excluded
+// without having to remove their role or account. Exclude-list rather than
+// allow-list since most people in these roles SHOULD get it — the ask was
+// "it's going to the right group, just drop a few people," not "start from
+// nobody." — superseded: now a plain manually-managed email/phone list, same
+// pattern as Project/Ticket, since those intentionally include people who
+// aren't Portal users at all (vendors, external contacts).
+function FleetAlertAccessPanel({ th, user, showAlert }) {
+  const [emails, setEmails] = useState(null);
+  const [phones, setPhones] = useState(null);
+  const [newEmail, setNewEmail] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    cloudLoad('pcg_fleet_notify_v1')
+      .then(d => { setEmails(Array.isArray(d?.emails) ? d.emails : []); setPhones(Array.isArray(d?.phones) ? d.phones : []); })
+      .catch(() => { setEmails([]); setPhones([]); });
+  }, []);
+
+  const persist = async (nextEmails, nextPhones) => {
+    setSaving(true);
+    const ok = await cloudSave('pcg_fleet_notify_v1', { emails: nextEmails, phones: nextPhones, updatedAt: new Date().toISOString(), updatedBy: user?.username || user?.email || 'unknown' });
+    setSaving(false);
+    if (ok) { setEmails(nextEmails); setPhones(nextPhones); }
+    else showAlert && showAlert('Failed to save fleet alert recipients', 'error');
+  };
+  const addEmail = () => {
+    const email = newEmail.trim().toLowerCase();
+    if (!email || !email.includes('@')) { showAlert && showAlert('Enter a valid email', 'error'); return; }
+    if ((emails || []).map(e => e.toLowerCase()).includes(email)) { setNewEmail(''); return; }
+    persist([...(emails || []), newEmail.trim()], phones || []);
+    setNewEmail('');
+  };
+  const removeEmail = (idx) => persist((emails || []).filter((_, i) => i !== idx), phones || []);
+  const addPhone = () => {
+    if (!newPhone.trim()) return;
+    persist(emails || [], [...(phones || []), newPhone.trim()]);
+    setNewPhone('');
+  };
+  const removePhone = (idx) => persist(emails || [], (phones || []).filter((_, i) => i !== idx));
+
+  if (emails === null) return <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading fleet alert recipients…</div>;
+  return (
+    <div>
+      <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
+        These email addresses and phone numbers receive company vehicle due-date reminders (registration/inspection/insurance). The vehicle's own operator (matched from the fleet database) always gets notified too, regardless of this list.
+      </p>
+      <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+        {(emails || []).length === 0 && (
+          <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No fleet alert emails configured.</div>
+        )}
+        {(emails || []).map((email, idx) => (
+          <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
+                {email.charAt(0).toUpperCase()}
+              </span>
+              <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
+            </div>
+            <button onClick={() => removeEmail(idx)} disabled={saving} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: "0.5rem" }}>
+        <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") addEmail(); }} />
+        <button onClick={addEmail} disabled={saving} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
+      </div>
+
+      {/* Fleet SMS Numbers */}
+      <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+          <span style={{ fontSize: "1.125rem" }}>📱</span>
+          <span style={{ fontWeight: 700, fontSize: "0.95rem", color: th.text }}>Fleet SMS Numbers</span>
+          <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(phones || []).length})</span>
+        </div>
+        <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+          {(phones || []).length === 0 && (
+            <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No fleet SMS numbers configured.</div>
+          )}
+          {(phones || []).map((phone, idx) => (
+            <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" }}>📱</span>
+                <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{formatPhone(phone)}</span>
+              </div>
+              <button onClick={() => removePhone(idx)} disabled={saving} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <input style={{ ...inp(th), flex: 1 }} placeholder="(555) 123-4567" value={newPhone} onChange={e => setNewPhone(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addPhone(); }} />
+          <button onClick={addPhone} disabled={saving} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
@@ -16452,8 +16555,10 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [logOpen, setLogOpen] = useState(false);
   const [pushSubs, setPushSubs] = useState(null);
   const [notifyInfoOpen, setNotifyInfoOpen] = useState(false);
-  const [globalNotifyOpen, setGlobalNotifyOpen] = useState(false);
-  const [ticketNotifyOpen, setTicketNotifyOpen] = useState(false);
+  // Notifications tab is split into pill sub-tabs (Project / Ticket / Car…)
+  // instead of stacked collapsible cards — only the selected one's content
+  // renders below the pill row.
+  const [notifSubTab, setNotifSubTab] = useState('project');
   const [userNotifsOpen, setUserNotifsOpen] = useState(false);
 
   // ── Orion Report Settings ──────────────────────────────────────────
@@ -16587,17 +16692,29 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       {/* ── Tab: Notifications ── */}
       {settingsTab === 'notifications' && <>
 
-      {/* Global Notify List */}
-      <div style={accentCard(th, "#ffffff", { padding: "1.5rem", marginBottom: "1.25rem" })}>
-        <div onClick={() => setGlobalNotifyOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: globalNotifyOpen ? "0.25rem" : 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ fontSize: "1.125rem" }}>📧</span>
-            <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Global Project Notifications</span>
-            <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({globalNotifyEmails.length})</span>
-          </div>
-          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{globalNotifyOpen ? "▲ Hide" : "▼ Show"}</span>
+      {/* Pill sub-tabs — one "who gets notified about X" section per pill,
+          instead of stacking every section as its own collapsible card. */}
+      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+          {[
+            { id: 'project', icon: '📧', label: 'Project', count: globalNotifyEmails.length },
+            { id: 'ticket',  icon: '🎫', label: 'Ticket',  count: (ticketNotifyEmails || []).length },
+            ...(isFullAdmin(user) ? [{ id: 'fleet', icon: '🚗', label: 'Car', count: null }] : []),
+          ].map(t => (
+            <button key={t.id} onClick={() => setNotifSubTab(t.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1.1rem', borderRadius: '999px',
+                border: `1px solid ${notifSubTab === t.id ? O : th.cardBorder}`,
+                background: notifSubTab === t.id ? O + '18' : 'transparent',
+                color: notifSubTab === t.id ? O : th.text, fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
+              }}>
+              <span>{t.icon}</span>{t.label}{t.count != null && <span style={{ fontSize: '0.7rem', color: th.muted, fontWeight: 500 }}>({t.count})</span>}
+            </button>
+          ))}
         </div>
-        {globalNotifyOpen && <>
+
+      {/* Project */}
+      {notifSubTab === 'project' && <>
           <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
             These email addresses receive notifications for <strong>all projects</strong> — phase changes, new projects, deadline alerts, and checklist updates.
             Individual projects can also have their own additional notify emails.
@@ -16623,20 +16740,10 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               onKeyDown={e => { if (e.key === "Enter") addEmail(); }} />
             <button onClick={addEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
           </div>
-        </>}
-      </div>
+      </>}
 
-      {/* Ticket Notify List */}
-      <div style={accentCard(th, "#f59e0b", { padding: "1.5rem", marginBottom: "1.25rem" })}>
-        <div onClick={() => setTicketNotifyOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: ticketNotifyOpen ? "0.25rem" : 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ fontSize: "1.125rem" }}>🎫</span>
-            <span style={{ fontWeight: 700, fontSize: "1rem", color: th.text }}>Ticket Notifications</span>
-            <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(ticketNotifyEmails || []).length})</span>
-          </div>
-          <span style={{ color: th.muted, fontSize: "0.85rem" }}>{ticketNotifyOpen ? "▲ Hide" : "▼ Show"}</span>
-        </div>
-        {ticketNotifyOpen && <>
+      {/* Ticket */}
+      {notifSubTab === 'ticket' && <>
           <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
             These email addresses receive notifications when a new service ticket is created. Separate from the global project list — add or remove anyone here.
           </p>
@@ -16692,7 +16799,10 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               <button onClick={addTicketPhone} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
             </div>
           </div>
-        </>}
+      </>}
+
+      {/* Car / Fleet — full admins only */}
+      {notifSubTab === 'fleet' && isFullAdmin(user) && <FleetAlertAccessPanel th={th} user={user} users={users} showAlert={showAlert} />}
       </div>
 
       {/* Test Notifications */}
@@ -18084,6 +18194,10 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
 
       {/* P&L data access — managers only */}
       {canManagePnlAccess(user) && <div style={{ marginBottom: '1.1rem' }}><PnlAccessPanel th={th} user={user} users={users} showAlert={showAlert} /></div>}
+
+      {/* Fleet alert recipients moved → Admin · Notifications tab, alongside
+          Global Project / Ticket Notifications (all "who gets notified" settings
+          live together there now). */}
 
       {/* Tips Report access — any full admin (exec/IT) can manage */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
@@ -25168,7 +25282,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.76";
+const APP_VERSION = "v19.80";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
