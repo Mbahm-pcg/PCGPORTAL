@@ -1,8 +1,8 @@
 // fleet-alerts-cron.mjs — Company Vehicle Due-Date Reminders
 // Runs daily. Checks every vehicle in the fleet Supabase project for
 // registration/inspection/insurance dates coming due, and sends push + email
-// + SMS at 30/14/7 days out to that vehicle's operator (matched by name to a
-// Portal user) plus every IT/exec/office staff/construction/maintenance user.
+// + SMS at 30/14/7/1 days out to that vehicle's operator (matched by name to
+// a Portal user) plus every IT/exec/office staff/construction/maintenance user.
 // Saves a sent-alert log to pcg_fleet_alerts_v1 so the same (vehicle, field,
 // due date, threshold) combo never re-fires — keying on the due date itself
 // (not just the threshold) means a renewed/updated due date on the source
@@ -14,7 +14,10 @@ import { getStore } from '@netlify/blobs';
 
 export const config = { schedule: '0 11 * * *' }; // 6/7am ET daily
 
-const THRESHOLDS = [30, 14, 7];
+// Ascending — .find() below needs the SMALLEST threshold still >= daysOut, so
+// a vehicle 10 days out matches 14 (not 30), and one due tomorrow matches 1.
+// Descending order would match 30 for anything <=30 and never reach the rest.
+const THRESHOLDS = [1, 7, 14, 30];
 const NOTIFY_ROLES = new Set(['it', 'executive', 'office_staff', 'construction', 'maintenance']);
 const DUE_FIELDS = [
   { key: 'registration_expiration', label: 'Registration' },
@@ -22,7 +25,7 @@ const DUE_FIELDS = [
   { key: 'insurance_expiration',    label: 'Insurance' },
 ];
 
-function getBlobStore() {
+export function getBlobStore() {
   return getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 }
 async function blobLoad(key) {
@@ -94,76 +97,85 @@ function sendSms(numbers, message) {
 const daysUntil = (dateStr, today) => Math.round((new Date(dateStr + 'T12:00:00') - today) / 86400000);
 const normName = s => (s || '').toLowerCase().replace(/[^a-z]/g, '');
 
-export default async (request) => {
-  const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Content-Type': 'application/json' };
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
-
+// Shared by both the scheduled cron and fleet-alerts-refresh.mjs (the manual-
+// trigger sibling — Netlify's edge blocks direct external POST to any
+// config.schedule function, same reason every other cron in this codebase
+// has one of these).
+export async function runFleetAlerts() {
   const now = new Date();
   const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   et.setHours(0, 0, 0, 0);
 
-  try {
-    const [cars, users, subs, log] = await Promise.all([
-      fetchCars(),
-      fetchUsers(),
-      blobLoad('pcg_push_subscriptions_v1'),
-      blobLoad('pcg_fleet_alerts_v1'),
-    ]);
+  const [cars, users, subs, log] = await Promise.all([
+    fetchCars(),
+    fetchUsers(),
+    blobLoad('pcg_push_subscriptions_v1'),
+    blobLoad('pcg_fleet_alerts_v1'),
+  ]);
 
-    const userList = Array.isArray(users) ? users : [];
-    const subMap = subs && typeof subs === 'object' ? subs : {};
-    const sentKeys = new Set(log?.sent || []);
-    const newSentKeys = [...sentKeys];
-    let totalAlerted = 0;
+  const userList = Array.isArray(users) ? users : [];
+  const subMap = subs && typeof subs === 'object' ? subs : {};
+  const sentKeys = new Set(log?.sent || []);
+  const newSentKeys = [...sentKeys];
+  let totalAlerted = 0;
 
-    for (const car of cars) {
-      if (car.sold) continue; // no longer ours — nothing to remind anyone about
-      const operator = userList.find(u => u.active !== false && normName(u.name) === normName(car.operator));
-      const admins = userList.filter(u => u.active !== false && NOTIFY_ROLES.has(u.userType));
-      const recipients = [operator, ...admins].filter(Boolean).filter((u, i, a) => a.findIndex(x => x.id === u.id) === i);
-      if (recipients.length === 0) continue;
+  for (const car of cars) {
+    if (car.sold) continue; // no longer ours — nothing to remind anyone about
+    const operator = userList.find(u => u.active !== false && normName(u.name) === normName(car.operator));
+    const admins = userList.filter(u => u.active !== false && NOTIFY_ROLES.has(u.userType));
+    const recipients = [operator, ...admins].filter(Boolean).filter((u, i, a) => a.findIndex(x => x.id === u.id) === i);
+    if (recipients.length === 0) continue;
 
-      for (const field of DUE_FIELDS) {
-        const dueDate = car[field.key];
-        if (!dueDate) continue;
-        const daysOut = daysUntil(dueDate, et);
-        if (daysOut < 0) continue; // already expired — a fresh reminder is stale, not useful
+    for (const field of DUE_FIELDS) {
+      const dueDate = car[field.key];
+      if (!dueDate) continue;
+      const daysOut = daysUntil(dueDate, et);
+      if (daysOut < 0) continue; // already expired — a fresh reminder is stale, not useful
 
-        const threshold = THRESHOLDS.find(t => daysOut <= t);
-        if (threshold == null) continue;
-        const key = `${car.vin}_${field.key}_${dueDate}_${threshold}`;
-        if (sentKeys.has(key)) continue;
+      const threshold = THRESHOLDS.find(t => daysOut <= t);
+      if (threshold == null) continue;
+      const key = `${car.vin}_${field.key}_${dueDate}_${threshold}`;
+      if (sentKeys.has(key)) continue;
 
-        const vehicleLabel = car.automobile_details || `${car.year || ''} ${car.color || ''}`.trim() || car.plate || car.vin;
-        const title = `🚗 ${field.label} due in ${daysOut} day${daysOut !== 1 ? 's' : ''} — ${vehicleLabel}`;
-        const body = `Due ${dueDate}${car.plate ? ` · Plate ${car.plate}` : ''}${car.operator ? ` · Operator: ${car.operator}` : ''}`;
+      const vehicleLabel = car.automobile_details || `${car.year || ''} ${car.color || ''}`.trim() || car.plate || car.vin;
+      const title = `🚗 ${field.label} due in ${daysOut} day${daysOut !== 1 ? 's' : ''} — ${vehicleLabel}`;
+      const body = `Due ${dueDate}${car.plate ? ` · Plate ${car.plate}` : ''}${car.operator ? ` · Operator: ${car.operator}` : ''}`;
 
-        const pushUserIds = recipients.map(u => String(u.id));
-        const emails = recipients.map(u => u.email).filter(Boolean).filter((e, i, a) => a.indexOf(e) === i);
-        const phones = recipients.map(u => u.phone).filter(Boolean).filter((p, i, a) => a.indexOf(p) === i);
+      const pushUserIds = recipients.map(u => String(u.id));
+      const emails = recipients.map(u => u.email).filter(Boolean).filter((e, i, a) => a.indexOf(e) === i);
+      const phones = recipients.map(u => u.phone).filter(Boolean).filter((p, i, a) => a.indexOf(p) === i);
 
-        await sendPushToUsers(pushUserIds, subMap, { title, body, url: 'https://pcg-ops.netlify.app', tag: `fleet-${car.vin}-${field.key}`, icon: '/icon-192.png' });
-        if (emails.length) {
-          await sendEmail(emails, title, `<p>${body}</p><p style="margin-top:14px;color:#888;font-size:13px;">Vehicle: ${vehicleLabel} (VIN ${car.vin})</p>`);
-        }
-        if (phones.length) {
-          await sendSms(phones, `${title}\n${body}`);
-        }
-
-        newSentKeys.push(key);
-        totalAlerted++;
-        console.log(`[fleet-alerts] ${vehicleLabel}: ${field.label} due ${dueDate} (${daysOut}d) — alerted ${recipients.length} recipient(s)`);
+      await sendPushToUsers(pushUserIds, subMap, { title, body, url: 'https://pcg-ops.netlify.app', tag: `fleet-${car.vin}-${field.key}`, icon: '/icon-192.png' });
+      if (emails.length) {
+        await sendEmail(emails, title, `<p>${body}</p><p style="margin-top:14px;color:#888;font-size:13px;">Vehicle: ${vehicleLabel} (VIN ${car.vin})</p>`);
       }
+      if (phones.length) {
+        await sendSms(phones, `${title}\n${body}`);
+      }
+
+      newSentKeys.push(key);
+      totalAlerted++;
+      console.log(`[fleet-alerts] ${vehicleLabel}: ${field.label} due ${dueDate} (${daysOut}d) — alerted ${recipients.length} recipient(s): ${recipients.map(r => r.name).join(', ')}`);
     }
+  }
 
-    // Keep the sent-key log from growing forever — a year of daily runs across
-    // ~13 vehicles × 3 fields × 3 thresholds is nowhere near enough entries to
-    // need aggressive pruning, but cap it as a backstop.
-    const prunedKeys = newSentKeys.slice(-2000);
-    await blobSave('pcg_fleet_alerts_v1', { sent: prunedKeys, lastRun: now.toISOString() });
+  // Keep the sent-key log from growing forever — a year of daily runs across
+  // ~13 vehicles × 3 fields × 4 thresholds is nowhere near enough entries to
+  // need aggressive pruning, but cap it as a backstop.
+  const prunedKeys = newSentKeys.slice(-2000);
+  await blobSave('pcg_fleet_alerts_v1', { sent: prunedKeys, lastRun: now.toISOString() });
 
-    const summary = { ok: true, carsChecked: cars.length, alertsSent: totalAlerted };
-    console.log('[fleet-alerts] done:', JSON.stringify(summary));
+  const summary = { ok: true, carsChecked: cars.length, alertsSent: totalAlerted };
+  console.log('[fleet-alerts] done:', JSON.stringify(summary));
+  return summary;
+}
+
+export default async (request) => {
+  const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Content-Type': 'application/json' };
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+
+  try {
+    const summary = await runFleetAlerts();
     return new Response(JSON.stringify(summary), { status: 200, headers });
   } catch (err) {
     console.error('[fleet-alerts] error:', err.message);
