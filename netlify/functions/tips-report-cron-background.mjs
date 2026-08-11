@@ -499,6 +499,22 @@ export default async (request) => {
   // within a safe margin of the ceiling guarantees whatever's done so far
   // (still saved + emailed below) survives even a total Paycor outage,
   // instead of an all-or-nothing loss.
+  // Warm-up call: whichever store lands at idx 0 pays a cost none of the others
+  // do — it's the very first Paycor call of a cold invocation, so our own
+  // paycor.mjs proxy has no cached OAuth token yet and must fetch one before it
+  // can even start the real request. Confirmed directly (Wadsworth, 2026-08-10):
+  // idx-0 alone came back crewStatus:'error' while every later store that
+  // night succeeded — a slow-but-legitimate cold start gets misclassified as a
+  // "hang" by the 15s timeout and (correctly, for an actually-unresponsive
+  // Paycor) never retried. Firing one throwaway call before the timed loop
+  // starts absorbs that one-time cost outside of any store's own budget, so
+  // store 0 hits the loop with an already-warm token exactly like store 1+ do.
+  try {
+    await callPaycorProxy('employees', { legalEntityId: STORES[0].paycor });
+  } catch (err) {
+    console.warn('[tips-report-cron] Paycor warm-up call failed (continuing — store 0 just loses the head start):', err.message);
+  }
+
   const PHASE2_BUDGET_MS = 11 * 60 * 1000; // leaves ~4min for save/email/rollups
   let phase2TimedOut = false;
   for (let idx = 0; idx < STORES.length; idx++) {

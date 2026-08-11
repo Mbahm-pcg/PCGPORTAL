@@ -65,6 +65,18 @@ export default async (request) => {
   // wall-clock budget guard as the scheduled cron too — if Paycor goes
   // unresponsive mid-backfill, save whatever succeeded instead of losing the
   // whole run to Netlify's 15-min background ceiling.
+  // Warm-up call — same reasoning as tips-report-cron-background.mjs: store 0
+  // pays the cost of a cold OAuth token fetch inside our own paycor.mjs proxy
+  // that no later store has to pay, and a slow-but-legitimate cold start can
+  // eat the whole 15s timeout and get misclassified as a genuine Paycor hang.
+  // One throwaway call before the timed loop starts absorbs that cost outside
+  // any store's own budget.
+  try {
+    await callPaycorProxy('employees', { legalEntityId: STORES[0].paycor });
+  } catch (err) {
+    console.warn('[tips-report-refresh] Paycor warm-up call failed (continuing — store 0 just loses the head start):', err.message);
+  }
+
   const PHASE2_BUDGET_MS = 11 * 60 * 1000;
   for (let idx = 0; idx < STORES.length; idx++) {
     if (Date.now() - invocationStart > PHASE2_BUDGET_MS) {
@@ -74,10 +86,13 @@ export default async (request) => {
     const s = STORES[idx];
     let crew = [], crewStatus = 'error';
     try {
-      const [punchesRaw, empList] = await Promise.all([
-        callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt }),
-        fetchAllEmployees(s.paycor),
-      ]);
+      // Sequential, not Promise.all — matches tips-report-cron-background.mjs's
+      // fix for the same race: firing punches+employees together makes them
+      // the first two Paycor calls of a cold invocation, which can race each
+      // other for the same single-use refresh token (confirmed directly on
+      // that file; this sibling backfill function had the same bug).
+      const punchesRaw = await callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt });
+      const empList = await fetchAllEmployees(s.paycor);
       const punchData = JSON.parse(punchesRaw || '{}');
       const punches = Array.isArray(punchData.records) ? punchData.records : (Array.isArray(punchData) ? punchData : []);
       const empByGuid = {};
