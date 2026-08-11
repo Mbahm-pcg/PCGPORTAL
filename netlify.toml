@@ -103,6 +103,10 @@
 [functions.schedule-alerts]
   schedule = "0 10 * * 1,4"
 
+# Fleet (company vehicle) due-date reminders — daily 6/7am ET
+[functions.fleet-alerts-cron]
+  schedule = "0 11 * * *"
+
 # Audit CAP escalation — daily 7am ET: flip overdue, digest owners, escalate VP/DM
 [functions.audit-cap-cron]
   schedule = "0 11 * * *"

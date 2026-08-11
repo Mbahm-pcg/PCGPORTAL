@@ -25168,7 +25168,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.74";
+const APP_VERSION = "v19.75";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -42372,6 +42372,41 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
   return null;
 }
 
+// ── Fleet due-date calendar events ───────────────────────────────────────────
+// Company vehicle registration/inspection/insurance due dates, read-only from
+// a separate Supabase project (fleet.mjs). Restricted to the roles that
+// actually deal with vehicles/equipment — DMs/managers/vendors/auditors don't
+// see these even though they do see the Calendar tab itself.
+const FLEET_CALENDAR_ROLES = new Set(['it', 'executive', 'office_staff', 'construction', 'maintenance']);
+const FLEET_DUE_FIELDS = [
+  { key: 'registration_expiration', label: 'Registration', icon: '🚗' },
+  { key: 'inspection_expiration',   label: 'Inspection',   icon: '🔍' },
+  { key: 'insurance_expiration',    label: 'Insurance',    icon: '🛡️' },
+];
+function useFleetCalendarEvents(user) {
+  const canSee = !!user && FLEET_CALENDAR_ROLES.has(user.userType);
+  const [cars, setCars] = React.useState([]);
+  React.useEffect(() => {
+    if (!canSee) return;
+    let alive = true;
+    fetch('/.netlify/functions/fleet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      .then(r => r.json()).then(j => { if (alive && Array.isArray(j?.cars)) setCars(j.cars); }).catch(() => {});
+    return () => { alive = false; };
+  }, [canSee]);
+  return React.useMemo(() => {
+    if (!canSee) return [];
+    const events = [];
+    cars.filter(c => !c.sold).forEach(c => {
+      const label = c.automobile_details || `${c.year || ''} ${c.color || ''}`.trim() || c.plate || c.vin;
+      FLEET_DUE_FIELDS.forEach(f => {
+        if (!c[f.key]) return;
+        events.push({ date: c[f.key], type: 'fleet', id: `${c.vin}_${f.key}`, title: `${f.label} due — ${label}`, icon: f.icon, operator: c.operator, plate: c.plate });
+      });
+    });
+    return events;
+  }, [cars, canSee]);
+}
+
 // ── Portal Calendar — tickets, equipment schedules, projects, todos ──────────
 function PortalCalendar({ th, user, stores, todos, projects }) {
   const O = '#FF671F';
@@ -42484,6 +42519,8 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     return schedules;
   }, [schedules, user, stores]);
 
+  const fleetEvents = useFleetCalendarEvents(user);
+
   const eventMap = React.useMemo(() => {
     const map = {};
     const add = (d, evt) => { if (!d) return; if (!map[d]) map[d]=[]; map[d].push(evt); };
@@ -42530,8 +42567,13 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
       if (t.dueDate) add(t.dueDate, { type:'todo', id:t.id, title:t.text||t.title||'Task' });
     });
 
+    // Fleet due dates (registration/inspection/insurance) — already role-gated
+    // inside useFleetCalendarEvents, so fleetEvents is empty for roles that
+    // shouldn't see them.
+    fleetEvents.forEach(e => add(e.date, e));
+
     return map;
-  }, [myTickets, mySchedules, myProjects, myTodos, year, month, user?.userType, isDM]);
+  }, [myTickets, mySchedules, myProjects, myTodos, fleetEvents, year, month, user?.userType, isDM]);
 
   const selectedEvents = selectedDay ? (eventMap[selectedDay]||[]) : [];
   const priorityColor = p => p==='Emergency'?'#ef4444': p==='High'?'#f97316': p==='Medium'?'#3b82f6':'#22c55e';
@@ -42540,9 +42582,11 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     if (e.type==='schedule')                return '#a855f7';
     if (e.type==='project'||e.type==='project_end') return '#14b8a6';
     if (e.type==='project_dunkin')          return '#ff6b00';
+    if (e.type==='fleet')                   return '#0ea5e9';
     return priorityColor(e.priority);
   };
   const eventIcon = e => {
+    if (e.type==='fleet')         return e.icon || '🚗';
     if (e.type==='todo')          return '📝';
     if (e.type==='schedule')      return '🔧';
     if (e.type==='project')       return '🏗️';
@@ -42627,11 +42671,12 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
                   : selectedEvents.map((e,i)=>(
                     <div key={i} style={{ background:th.card2, border:`1px solid ${th.cardBorder}`, borderRadius:10, padding:'0.6rem 0.7rem', marginBottom:'0.5rem', borderLeft:`3px solid ${eventColor(e)}` }}>
                       <div style={{ fontSize:'0.62rem', fontWeight:700, color:eventColor(e), marginBottom:3 }}>
-                        {eventIcon(e)} {e.type==='ticket'?'Ticket': e.type==='ticket_due'?'Due Date': e.type==='schedule'?'Equipment Check': e.type==='project'?'Project Start': e.type==='project_end'?'Project End': e.type==='project_dunkin'?"Dunkin' Completion":'Task'}
+                        {eventIcon(e)} {e.type==='ticket'?'Ticket': e.type==='ticket_due'?'Due Date': e.type==='schedule'?'Equipment Check': e.type==='project'?'Project Start': e.type==='project_end'?'Project End': e.type==='project_dunkin'?"Dunkin' Completion": e.type==='fleet'?'Vehicle Due Date':'Task'}
                       </div>
                       <div style={{ fontWeight:700, fontSize:'0.83rem', color:th.text }}>{e.title}</div>
                       {e.store && <div style={{ fontSize:'0.72rem', color:th.muted, marginTop:2 }}>{e.store}</div>}
                       {e.category && <div style={{ fontSize:'0.68rem', color:th.muted, marginTop:2 }}>{e.category} · {e.freq}</div>}
+                      {e.type==='fleet' && (e.operator || e.plate) && <div style={{ fontSize:'0.68rem', color:th.muted, marginTop:2 }}>{[e.operator && `Operator: ${e.operator}`, e.plate && `Plate: ${e.plate}`].filter(Boolean).join(' · ')}</div>}
                     </div>
                   ))
                 }
@@ -42660,7 +42705,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
           <div style={{ ...card(th), padding:'0.75rem 1rem' }}>
             <div style={{ fontFamily:"'Raleway'", fontWeight:700, fontSize:'0.78rem', color:th.text, marginBottom:'0.5rem' }}>Legend</div>
             <div style={{ display:'flex', flexWrap:'wrap', gap: isMobile ? '0.4rem 0.75rem' : 0 }}>
-              {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],...(isFullAdmin(user)?[['#a855f7','🔧 Equipment check']]:[]),['#14b8a6','🏗️ Project'],[O,'📝 Task/Todo']].map(([c,l])=>(
+              {[['#ef4444','Emergency ticket'],['#f97316','High priority'],['#3b82f6','Medium ticket'],...(isFullAdmin(user)?[['#a855f7','🔧 Equipment check']]:[]),['#14b8a6','🏗️ Project'],[O,'📝 Task/Todo'],...(FLEET_CALENDAR_ROLES.has(user?.userType)?[['#0ea5e9','🚗 Vehicle due date']]:[])].map(([c,l])=>(
                 <div key={l} style={{ display:'flex', alignItems:'center', gap:'0.4rem', marginBottom: isMobile ? 0 : '0.3rem' }}>
                   <div style={{ width:10, height:10, borderRadius:'50%', background:c, flexShrink:0 }} />
                   <span style={{ fontSize:'0.7rem', color:th.muted }}>{l}</span>
@@ -42778,6 +42823,8 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
     return schedules;
   }, [schedules, user, stores]);
 
+  const fleetEvents = useFleetCalendarEvents(user);
+
   // Build event map: { "YYYY-MM-DD": [...events] }
   const eventMap = React.useMemo(() => {
     const map = {};
@@ -42826,11 +42873,18 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
         else break;
       }
     });
+
+    // Fleet due dates (registration/inspection/insurance) — already role-gated
+    // inside useFleetCalendarEvents; maintenance is one of the gated roles.
+    fleetEvents.forEach(e => addEvent(e.date, e));
+
     return map;
-  }, [tickets, schedules, year, month]);
+  }, [tickets, schedules, fleetEvents, year, month]);
 
   const selectedEvents = selectedDay ? (eventMap[selectedDay] || []) : [];
   const priorityColor = p => p === 'High' ? '#ef4444' : p === 'Medium' ? '#f59e0b' : '#22c55e';
+  const fleetEventColor = '#0ea5e9';
+  const typeColor = e => e.type === 'ticket' ? priorityColor(e.priority) : e.type === 'fleet' ? fleetEventColor : O;
 
   const handleAdd = async () => {
     if (!form.title.trim()) return;
@@ -42903,10 +42957,10 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
                   <div style={{ fontFamily: "'Raleway'", fontWeight: isToday ? 900 : 600, fontSize: '0.85rem', color: isToday ? '#fff' : th.text, background: isToday ? O : 'transparent', width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 3 }}>{day}</div>
                   {events.slice(0, 3).map((e, ei) => (
                     <div key={ei} style={{ fontSize: '0.62rem', fontWeight: 600, padding: '2px 5px', borderRadius: 4, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                      background: e.type === 'ticket' ? `${priorityColor(e.priority)}20` : `${O}18`,
-                      color: e.type === 'ticket' ? priorityColor(e.priority) : O,
-                      borderLeft: `2px solid ${e.type === 'ticket' ? priorityColor(e.priority) : O}` }}>
-                      {e.title}
+                      background: `${typeColor(e)}20`,
+                      color: typeColor(e),
+                      borderLeft: `2px solid ${typeColor(e)}` }}>
+                      {e.type === 'fleet' ? `${e.icon} ` : ''}{e.title}
                     </div>
                   ))}
                   {events.length > 3 && <div style={{ fontSize: '0.58rem', color: th.muted, marginTop: 1 }}>+{events.length - 3} more</div>}
@@ -42934,13 +42988,14 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
                 ) : selectedEvents.map((e, i) => (
                   <div key={i} style={{ background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: '0.6rem 0.7rem', marginBottom: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: 3 }}>
-                      <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: e.type === 'ticket' ? `${priorityColor(e.priority)}22` : `${O}18`, color: e.type === 'ticket' ? priorityColor(e.priority) : O }}>{e.type === 'ticket' ? e.priority : e.category}</span>
+                      <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: `${typeColor(e)}22`, color: typeColor(e) }}>{e.type === 'ticket' ? e.priority : e.type === 'fleet' ? 'Vehicle' : e.category}</span>
                       {e.type === 'ticket' && <span style={{ fontSize: '0.58rem', color: th.muted }}>{e.subtype === 'due' ? '📅 Due date' : '🔧 Started'}</span>}
                       {e.type === 'schedule' && <span style={{ fontSize: '0.58rem', color: th.muted }}>{FREQ_LABELS[e.freq]}</span>}
                     </div>
-                    <div style={{ fontWeight: 700, fontSize: '0.83rem', color: th.text }}>{e.title}</div>
+                    <div style={{ fontWeight: 700, fontSize: '0.83rem', color: th.text }}>{e.type === 'fleet' ? `${e.icon} ` : ''}{e.title}</div>
                     {e.store && <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: 2 }}>{e.store}</div>}
                     {e.type === 'ticket' && <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: 2 }}>Status: {e.status}</div>}
+                    {e.type === 'fleet' && (e.operator || e.plate) && <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: 2 }}>{[e.operator && `Operator: ${e.operator}`, e.plate && `Plate: ${e.plate}`].filter(Boolean).join(' · ')}</div>}
                     {e.type === 'schedule' && <button onClick={() => deleteSchedule(e.id)} style={{ marginTop: 5, background: 'none', border: `1px solid ${th.cardBorder}`, borderRadius: 6, color: '#ef4444', fontSize: '0.66rem', padding: '2px 7px', cursor: 'pointer' }}>Remove</button>}
                     {e.type === 'todo' && setTodos && (
                       <button onClick={() => {
@@ -42964,10 +43019,10 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
                     <div key={`${d}${i}`} onClick={() => setSelectedDay(d)} style={{ display: 'flex', gap: '0.55rem', alignItems: 'flex-start', padding: '0.45rem 0', borderBottom: `1px solid ${th.cardBorder}`, cursor: 'pointer' }}>
                       <div style={{ minWidth: 32, textAlign: 'center', flexShrink: 0 }}>
                         <div style={{ fontSize: '0.58rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase' }}>{new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short'})}</div>
-                        <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1rem', color: e.type === 'ticket' ? priorityColor(e.priority) : O, lineHeight: 1.1 }}>{new Date(d+'T12:00:00').getDate()}</div>
+                        <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1rem', color: typeColor(e), lineHeight: 1.1 }}>{new Date(d+'T12:00:00').getDate()}</div>
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</div>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.type === 'fleet' ? `${e.icon} ` : ''}{e.title}</div>
                         <div style={{ fontSize: '0.68rem', color: th.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.store}</div>
                       </div>
                     </div>
