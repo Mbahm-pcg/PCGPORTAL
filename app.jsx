@@ -25168,7 +25168,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.75";
+const APP_VERSION = "v19.76";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -26940,12 +26940,30 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
       const r = await portalChangePassword(profileForm.currentPassword, profileForm.newPassword);
       if (!r.ok) { setProfileMsg({ type:"error", text: r.error || "Could not change password — check your current password." }); return; }
     }
-    // Contact/notification fields only — no password ever stored client-side.
-    const notifUpdate = { email: profileForm.email, phone: profileForm.phone, emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify };
-    setUsers(us => us.map(u => u.id === user.id ? { ...u, ...notifUpdate } : u));
-    setUser(prev => ({ ...prev, ...notifUpdate }));
-    setProfileMsg({ type:"success", text:"Profile updated!" });
-    setTimeout(onClose, 1200);
+    // Email/phone persist server-side (users.mjs allows a user to self-edit
+    // just these two fields regardless of role) — previously this only ever
+    // updated local React state, so it looked saved but never actually
+    // reached Neon: a refresh, another device, or Admin > Users still showed
+    // the old value, and anything reading the Users table server-side (e.g.
+    // the fleet due-date reminders) never saw it either.
+    // emailNotify/smsNotify/pushNotify have no backing column in the users
+    // table at all yet — still client-only, unrelated to this fix.
+    try {
+      const res = await fetch('/.netlify/functions/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'update', id: user.id, patch: { email: profileForm.email, phone: profileForm.phone } }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { setProfileMsg({ type: "error", text: json.error || `Could not save (${res.status}).` }); return; }
+      const notifUpdate = { emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify };
+      setUsers(us => us.map(u => u.id === user.id ? { ...u, ...json.user, ...notifUpdate } : u));
+      setUser(prev => ({ ...prev, ...json.user, ...notifUpdate }));
+      setProfileMsg({ type:"success", text:"Profile updated!" });
+      setTimeout(onClose, 1200);
+    } catch (err) {
+      setProfileMsg({ type: "error", text: "Could not save — check your connection and try again." });
+    }
   };
 
   return (

@@ -20418,7 +20418,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.75";
+  var APP_VERSION = "v19.76";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -21762,11 +21762,25 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           return;
         }
       }
-      const notifUpdate = { email: profileForm.email, phone: profileForm.phone, emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify };
-      setUsers((us) => us.map((u) => u.id === user.id ? { ...u, ...notifUpdate } : u));
-      setUser((prev) => ({ ...prev, ...notifUpdate }));
-      setProfileMsg({ type: "success", text: "Profile updated!" });
-      setTimeout(onClose, 1200);
+      try {
+        const res = await fetch("/.netlify/functions/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "update", id: user.id, patch: { email: profileForm.email, phone: profileForm.phone } })
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setProfileMsg({ type: "error", text: json.error || `Could not save (${res.status}).` });
+          return;
+        }
+        const notifUpdate = { emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify };
+        setUsers((us) => us.map((u) => u.id === user.id ? { ...u, ...json.user, ...notifUpdate } : u));
+        setUser((prev) => ({ ...prev, ...json.user, ...notifUpdate }));
+        setProfileMsg({ type: "success", text: "Profile updated!" });
+        setTimeout(onClose, 1200);
+      } catch (err) {
+        setProfileMsg({ type: "error", text: "Could not save \u2014 check your connection and try again." });
+      }
     };
     return /* @__PURE__ */ React.createElement(
       "div",

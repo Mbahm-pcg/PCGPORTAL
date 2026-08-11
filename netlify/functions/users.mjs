@@ -180,7 +180,14 @@ export default async (request) => {
 
       const [target] = await db`SELECT id, username, user_type, audits_access FROM users WHERE id = ${id}`;
       if (!target) return reply(404, { error: 'user not found' });
-      if (!canManage(claims, target.user_type)) return reply(403, { error: 'forbidden' });
+      // Any authenticated user may update their OWN contact info (the profile
+      // modal every role uses) even when their role wouldn't otherwise pass
+      // canManage — e.g. a DM/manager/construction/maintenance/vendor/auditor
+      // editing their own email/phone. Restricted to a safe field whitelist so
+      // this can't be used to self-promote a role or reactivate a locked account.
+      const SELF_EDIT_FIELDS = new Set(['email', 'phone']);
+      const isSelfEdit = claims && String(claims.sub) === String(id) && Object.keys(patch).every(k => SELF_EDIT_FIELDS.has(k));
+      if (!isSelfEdit && !canManage(claims, target.user_type)) return reply(403, { error: 'forbidden' });
       if (patch.userType && !canManage(claims, patch.userType)) return reply(403, { error: 'cannot assign this role' });
 
       // Username changes need their own uniqueness check (same rule `create` enforces
