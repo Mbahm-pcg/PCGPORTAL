@@ -209,7 +209,7 @@ export function punchHours(p) {
   return (inMs && outMs && outMs > inMs) ? (outMs - inMs) / 3600000 : 0;
 }
 
-function etDate(offsetDays) {
+export function etDate(offsetDays) {
   const now = new Date();
   const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   et.setDate(et.getDate() - offsetDays);
@@ -439,6 +439,60 @@ export function getBlobStore() {
   return getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 }
 
+// Matched by Paycor's own GUID (employeeId on the punch === id on the
+// employee record) — no cross-system name-matching needed. Hours are
+// summed per employee (a split shift shows as multiple punch rows) so
+// the tip pool can be divided by hours worked, not headcount. Module-scope
+// (not a closure) so tips-report-morning-sweep.mjs can reuse it to retry a
+// specific store without re-running the whole nightly function.
+export async function fetchStoreCrew(s, busDt) {
+  let crew = [], crewStatus = 'error';
+  try {
+    const punchesRaw = await callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt });
+    const empList = await fetchAllEmployees(s.paycor);
+    const punchData = JSON.parse(punchesRaw || '{}');
+    // Paycor error responses (e.g. "Forbidden — this Access Token does not
+    // have access to Legal Entity ID X", confirmed directly on Hatboro,
+    // 2026-08-12) are valid parseable JSON with no `records` array at all —
+    // NOT an empty array. Our own paycor.mjs proxy relays whatever status
+    // Paycor sent, but callPaycorProxy here only retries on 5xx, so a 4xx
+    // error body sails through and previously got silently treated as "zero
+    // punches found" (crewStatus: 'ok', crew: []) instead of a real failure
+    // — indistinguishable from a store that genuinely had nobody clock in.
+    if (!Array.isArray(punchData.records) && !Array.isArray(punchData) && (punchData.Title || punchData.CorrelationId)) {
+      throw new Error(`Paycor error response: ${punchData.Title || 'unknown'} — ${punchData.Detail || ''}`);
+    }
+    const punches = Array.isArray(punchData.records) ? punchData.records : (Array.isArray(punchData) ? punchData : []);
+    const empByGuid = {};
+    empList.forEach(e => { if (e && e.id) empByGuid[e.id] = e; });
+
+    const hoursByGuid = {};
+    punches.forEach(p => {
+      if (!p.employeeId) return;
+      hoursByGuid[p.employeeId] = (hoursByGuid[p.employeeId] || 0) + punchHours(p);
+    });
+    crew = Object.keys(hoursByGuid).map(guid => {
+      const e = empByGuid[guid];
+      const jobTitle = e?.positionData?.jobTitle || '';
+      return {
+        name: e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${guid.slice(0, 8)})`,
+        payrollId: e?.employeeNumber || e?.alternateEmployeeNumber || '',
+        hours: hoursByGuid[guid],
+        // Only General Managers / Store Managers are excluded — Asst
+        // Managers, Shift Leaders, and Crew Member all stay in the pool.
+        // The plain substring match alone would also catch "Assistant
+        // General Manager" (a real Paycor title in this data), so an
+        // "assist"/"asst" prefix explicitly opts the title back in.
+        isManager: /general\s*manager|store\s*manager/i.test(jobTitle) && !/assist|asst/i.test(jobTitle),
+      };
+    }).filter(c => !c.isManager && c.hours > 0);
+    crewStatus = 'ok';
+  } catch (err) {
+    console.error(`[tips-report-cron] ${s.name} crew error:`, err.message);
+  }
+  return { crew, crewStatus };
+}
+
 export default async (request) => {
   const invocationStart = Date.now();
   // Manual catch-up runs can target a specific date: POST {"busDt":"YYYY-MM-DD"}.
@@ -519,47 +573,6 @@ export default async (request) => {
     console.warn('[tips-report-cron] Paycor warm-up call failed (continuing — store 0 just loses the head start):', err.message);
   }
 
-  // Matched by Paycor's own GUID (employeeId on the punch === id on the
-  // employee record) — no cross-system name-matching needed. Hours are
-  // summed per employee (a split shift shows as multiple punch rows) so
-  // the tip pool can be divided by hours worked, not headcount.
-  async function fetchStoreCrew(s) {
-    let crew = [], crewStatus = 'error';
-    try {
-      const punchesRaw = await callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt });
-      const empList = await fetchAllEmployees(s.paycor);
-      const punchData = JSON.parse(punchesRaw || '{}');
-      const punches = Array.isArray(punchData.records) ? punchData.records : (Array.isArray(punchData) ? punchData : []);
-      const empByGuid = {};
-      empList.forEach(e => { if (e && e.id) empByGuid[e.id] = e; });
-
-      const hoursByGuid = {};
-      punches.forEach(p => {
-        if (!p.employeeId) return;
-        hoursByGuid[p.employeeId] = (hoursByGuid[p.employeeId] || 0) + punchHours(p);
-      });
-      crew = Object.keys(hoursByGuid).map(guid => {
-        const e = empByGuid[guid];
-        const jobTitle = e?.positionData?.jobTitle || '';
-        return {
-          name: e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${guid.slice(0, 8)})`,
-          payrollId: e?.employeeNumber || e?.alternateEmployeeNumber || '',
-          hours: hoursByGuid[guid],
-          // Only General Managers / Store Managers are excluded — Asst
-          // Managers, Shift Leaders, and Crew Member all stay in the pool.
-          // The plain substring match alone would also catch "Assistant
-          // General Manager" (a real Paycor title in this data), so an
-          // "assist"/"asst" prefix explicitly opts the title back in.
-          isManager: /general\s*manager|store\s*manager/i.test(jobTitle) && !/assist|asst/i.test(jobTitle),
-        };
-      }).filter(c => !c.isManager && c.hours > 0);
-      crewStatus = 'ok';
-    } catch (err) {
-      console.error(`[tips-report-cron] ${s.name} crew error:`, err.message);
-    }
-    return { crew, crewStatus };
-  }
-
   const PHASE2_BUDGET_MS = 11 * 60 * 1000; // leaves ~4min for save/email/rollups
   let phase2TimedOut = false;
   for (let idx = 0; idx < STORES.length; idx++) {
@@ -568,7 +581,7 @@ export default async (request) => {
       console.warn(`[tips-report-cron] Phase 2 time budget hit at store ${idx}/${STORES.length} (${STORES[idx].name}) — saving/emailing what's done, skipping the rest`);
       break;
     }
-    const { crew, crewStatus } = await fetchStoreCrew(STORES[idx]);
+    const { crew, crewStatus } = await fetchStoreCrew(STORES[idx], busDt);
     storeResults[idx].crew = crew;
     storeResults[idx].crewStatus = crewStatus;
   }
@@ -578,8 +591,14 @@ export default async (request) => {
   // (confirmed directly during manual recovery, 2026-08-11) — far fewer total
   // Paycor calls per pass gives intermittent flakiness much less surface area
   // to land on. Budget-guarded same as the main loop; stops early once
-  // nothing's left to retry.
-  const MAX_RETRY_PASSES = 3;
+  // nothing's left to retry. Raised from 3 to 6 (2026-08-12) — manual recovery
+  // that night needed up to 5 individual retries for one store, and each pass
+  // only re-touches whatever's still failing (a shrinking list), so there's
+  // budget headroom for more passes without risking the 15-min ceiling — a
+  // store stuck for a REASON (e.g. a permissions error, not flakiness) still
+  // can't hog the whole run since every store already got its first attempt
+  // before any retries happen at all.
+  const MAX_RETRY_PASSES = 6;
   for (let pass = 1; pass <= MAX_RETRY_PASSES; pass++) {
     const failedIdxs = storeResults.map((r, i) => r.crewStatus === 'error' ? i : -1).filter(i => i !== -1);
     if (failedIdxs.length === 0) break;
@@ -590,7 +609,7 @@ export default async (request) => {
     console.log(`[tips-report-cron] Retry pass ${pass}: re-attempting ${failedIdxs.length} failed store(s): ${failedIdxs.map(i => STORES[i].name).join(', ')}`);
     for (const idx of failedIdxs) {
       if (Date.now() - invocationStart > PHASE2_BUDGET_MS) break;
-      const { crew, crewStatus } = await fetchStoreCrew(STORES[idx]);
+      const { crew, crewStatus } = await fetchStoreCrew(STORES[idx], busDt);
       storeResults[idx].crew = crew;
       storeResults[idx].crewStatus = crewStatus;
     }

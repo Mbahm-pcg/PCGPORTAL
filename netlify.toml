@@ -127,6 +127,11 @@
 [functions.tips-report-cron-background]
   schedule = "0 7 * * *"
 
+# Retries only whatever's still crewStatus:'error' from the 7am report above,
+# a few hours later once any transient Paycor issue has often cleared.
+[functions.tips-report-morning-sweep-background]
+  schedule = "0 11 * * *"
+
 # KB article embedding — triggered manually after article approval
 [functions.kb-embed]
   timeout = 60
