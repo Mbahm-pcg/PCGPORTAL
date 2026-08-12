@@ -14596,6 +14596,75 @@ ${t2.slice(0, 300)}`);
       }
     ), /* @__PURE__ */ React.createElement("button", { onClick: addPhone, disabled: saving, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add"))));
   }
+  function ManualNotifyListPanel({ th, user, showAlert: showAlert2, blobKey, description, smsLabel }) {
+    const [emails, setEmails] = useState(null);
+    const [phones, setPhones] = useState(null);
+    const [newEmail, setNewEmail] = useState("");
+    const [newPhone, setNewPhone] = useState("");
+    const [saving, setSaving] = useState(false);
+    useEffect(() => {
+      cloudLoad(blobKey).then((d) => {
+        setEmails(Array.isArray(d?.emails) ? d.emails : []);
+        setPhones(Array.isArray(d?.phones) ? d.phones : []);
+      }).catch(() => {
+        setEmails([]);
+        setPhones([]);
+      });
+    }, [blobKey]);
+    const persist = async (nextEmails, nextPhones) => {
+      setSaving(true);
+      const ok = await cloudSave(blobKey, { emails: nextEmails, phones: nextPhones, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), updatedBy: user?.username || user?.email || "unknown" });
+      setSaving(false);
+      if (ok) {
+        setEmails(nextEmails);
+        setPhones(nextPhones);
+      } else showAlert2 && showAlert2("Failed to save recipients", "error");
+    };
+    const addEmail = () => {
+      const email = newEmail.trim().toLowerCase();
+      if (!email || !email.includes("@")) {
+        showAlert2 && showAlert2("Enter a valid email", "error");
+        return;
+      }
+      if ((emails || []).map((e) => e.toLowerCase()).includes(email)) {
+        setNewEmail("");
+        return;
+      }
+      persist([...emails || [], newEmail.trim()], phones || []);
+      setNewEmail("");
+    };
+    const removeEmail = (idx) => persist((emails || []).filter((_, i) => i !== idx), phones || []);
+    const addPhone = () => {
+      if (!newPhone.trim()) return;
+      persist(emails || [], [...phones || [], newPhone.trim()]);
+      setNewPhone("");
+    };
+    const removePhone = (idx) => persist(emails || [], (phones || []).filter((_, i) => i !== idx));
+    if (emails === null) return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading recipients\u2026");
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, description), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 } }, email.charAt(0).toUpperCase()), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, email)), /* @__PURE__ */ React.createElement("button", { onClick: () => removeEmail(idx), disabled: saving, style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        style: { ...inp(th), flex: 1 },
+        placeholder: "email@example.com",
+        value: newEmail,
+        onChange: (e) => setNewEmail(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") addEmail();
+        }
+      }
+    ), /* @__PURE__ */ React.createElement("button", { onClick: addEmail, disabled: saving, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F4F1}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, smsLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" } }, "\u{1F4F1}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, formatPhone(phone))), /* @__PURE__ */ React.createElement("button", { onClick: () => removePhone(idx), disabled: saving, style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        style: { ...inp(th), flex: 1 },
+        placeholder: "(555) 123-4567",
+        value: newPhone,
+        onChange: (e) => setNewPhone(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") addPhone();
+        }
+      }
+    ), /* @__PURE__ */ React.createElement("button", { onClick: addPhone, disabled: saving, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add"))));
+  }
   function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
     const [newEmail, setNewEmail] = useState("");
     const [newTicketEmail, setNewTicketEmail] = useState("");
@@ -14733,7 +14802,8 @@ ${t2.slice(0, 300)}`);
     } }, t.icon ? /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem" } }, t.icon, t.label) : t.label)))), settingsTab === "notifications" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginBottom: "1.25rem", flexWrap: "wrap" } }, [
       { id: "project", icon: "\u{1F4E7}", label: "Project", count: globalNotifyEmails.length },
       { id: "ticket", icon: "\u{1F3AB}", label: "Ticket", count: (ticketNotifyEmails || []).length },
-      ...isFullAdmin(user) ? [{ id: "fleet", icon: "\u{1F697}", label: "Car", count: null }] : []
+      ...isFullAdmin(user) ? [{ id: "fleet", icon: "\u{1F697}", label: "Car", count: null }] : [],
+      ...isFullAdmin(user) ? [{ id: "foodLicense", icon: "\u{1F4CB}", label: "Food License", count: null }] : []
     ].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -14789,7 +14859,17 @@ ${t2.slice(0, 300)}`);
           if (e.key === "Enter") addTicketPhone();
         }
       }
-    ), /* @__PURE__ */ React.createElement("button", { onClick: addTicketPhone, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add")))), notifSubTab === "fleet" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(FleetAlertAccessPanel, { th, user, users, showAlert: showAlert2 })), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("button", { onClick: addTicketPhone, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add")))), notifSubTab === "fleet" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(FleetAlertAccessPanel, { th, user, users, showAlert: showAlert2 }), notifSubTab === "foodLicense" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
+      {
+        th,
+        user,
+        showAlert: showAlert2,
+        blobKey: "pcg_food_license_notify_v1",
+        description: "These email addresses and phone numbers receive food license due-date reminders at 30/14/7 days out, for every store's food license on file.",
+        smsLabel: "Food License SMS Numbers"
+      }
+    )), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => {
@@ -20557,7 +20637,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.86";
+  var APP_VERSION = "v19.87";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

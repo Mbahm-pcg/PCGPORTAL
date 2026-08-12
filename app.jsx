@@ -16603,6 +16603,101 @@ function FleetAlertAccessPanel({ th, user, showAlert }) {
   );
 }
 
+// Food License due-date recipients — same manual email/phone list pattern as
+// Fleet, just a separate blob key. Generic version (not copy-pasted) since
+// this is now the second identical pattern; parameterized by blobKey/label
+// so a third one later doesn't need another near-duplicate component.
+function ManualNotifyListPanel({ th, user, showAlert, blobKey, description, smsLabel }) {
+  const [emails, setEmails] = useState(null);
+  const [phones, setPhones] = useState(null);
+  const [newEmail, setNewEmail] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    cloudLoad(blobKey)
+      .then(d => { setEmails(Array.isArray(d?.emails) ? d.emails : []); setPhones(Array.isArray(d?.phones) ? d.phones : []); })
+      .catch(() => { setEmails([]); setPhones([]); });
+  }, [blobKey]);
+
+  const persist = async (nextEmails, nextPhones) => {
+    setSaving(true);
+    const ok = await cloudSave(blobKey, { emails: nextEmails, phones: nextPhones, updatedAt: new Date().toISOString(), updatedBy: user?.username || user?.email || 'unknown' });
+    setSaving(false);
+    if (ok) { setEmails(nextEmails); setPhones(nextPhones); }
+    else showAlert && showAlert('Failed to save recipients', 'error');
+  };
+  const addEmail = () => {
+    const email = newEmail.trim().toLowerCase();
+    if (!email || !email.includes('@')) { showAlert && showAlert('Enter a valid email', 'error'); return; }
+    if ((emails || []).map(e => e.toLowerCase()).includes(email)) { setNewEmail(''); return; }
+    persist([...(emails || []), newEmail.trim()], phones || []);
+    setNewEmail('');
+  };
+  const removeEmail = (idx) => persist((emails || []).filter((_, i) => i !== idx), phones || []);
+  const addPhone = () => {
+    if (!newPhone.trim()) return;
+    persist(emails || [], [...(phones || []), newPhone.trim()]);
+    setNewPhone('');
+  };
+  const removePhone = (idx) => persist(emails || [], (phones || []).filter((_, i) => i !== idx));
+
+  if (emails === null) return <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading recipients…</div>;
+  return (
+    <div>
+      <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>{description}</p>
+      <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+        {(emails || []).length === 0 && (
+          <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No emails configured.</div>
+        )}
+        {(emails || []).map((email, idx) => (
+          <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
+                {email.charAt(0).toUpperCase()}
+              </span>
+              <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
+            </div>
+            <button onClick={() => removeEmail(idx)} disabled={saving} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: "0.5rem" }}>
+        <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") addEmail(); }} />
+        <button onClick={addEmail} disabled={saving} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
+      </div>
+
+      <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+          <span style={{ fontSize: "1.125rem" }}>📱</span>
+          <span style={{ fontWeight: 700, fontSize: "0.95rem", color: th.text }}>{smsLabel}</span>
+          <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(phones || []).length})</span>
+        </div>
+        <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+          {(phones || []).length === 0 && (
+            <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No SMS numbers configured.</div>
+          )}
+          {(phones || []).map((phone, idx) => (
+            <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" }}>📱</span>
+                <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{formatPhone(phone)}</span>
+              </div>
+              <button onClick={() => removePhone(idx)} disabled={saving} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <input style={{ ...inp(th), flex: 1 }} placeholder="(555) 123-4567" value={newPhone} onChange={e => setNewPhone(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addPhone(); }} />
+          <button onClick={addPhone} disabled={saving} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
@@ -16757,6 +16852,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             { id: 'project', icon: '📧', label: 'Project', count: globalNotifyEmails.length },
             { id: 'ticket',  icon: '🎫', label: 'Ticket',  count: (ticketNotifyEmails || []).length },
             ...(isFullAdmin(user) ? [{ id: 'fleet', icon: '🚗', label: 'Car', count: null }] : []),
+            ...(isFullAdmin(user) ? [{ id: 'foodLicense', icon: '📋', label: 'Food License', count: null }] : []),
           ].map(t => (
             <button key={t.id} onClick={() => setNotifSubTab(t.id)}
               style={{
@@ -16860,6 +16956,13 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
       {/* Car / Fleet — full admins only */}
       {notifSubTab === 'fleet' && isFullAdmin(user) && <FleetAlertAccessPanel th={th} user={user} users={users} showAlert={showAlert} />}
+
+      {/* Food License — full admins only */}
+      {notifSubTab === 'foodLicense' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} showAlert={showAlert} blobKey="pcg_food_license_notify_v1"
+          description="These email addresses and phone numbers receive food license due-date reminders at 30/14/7 days out, for every store's food license on file."
+          smsLabel="Food License SMS Numbers" />
+      )}
       </div>
 
       {/* Test Notifications */}
@@ -25339,7 +25442,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.86";
+const APP_VERSION = "v19.87";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

@@ -107,6 +107,10 @@
 [functions.fleet-alerts-cron]
   schedule = "0 11 * * *"
 
+# Store food license due-date reminders — daily 8am ET
+[functions.food-license-alerts-cron]
+  schedule = "0 12 * * *"
+
 # Audit CAP escalation — daily 7am ET: flip overdue, digest owners, escalate VP/DM
 [functions.audit-cap-cron]
   schedule = "0 11 * * *"
