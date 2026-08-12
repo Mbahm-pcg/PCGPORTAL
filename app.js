@@ -5710,6 +5710,23 @@
     const [copiedId, setCopiedId] = useState(null);
     const [cityData, setCityData] = useState(null);
     const [cityLoading, setCityLoading] = useState(false);
+    const [foodLicenses, setFoodLicenses] = useState({});
+    const [foodLicensesLoading, setFoodLicensesLoading] = useState(false);
+    const loadFoodLicenses = async () => {
+      setFoodLicensesLoading(true);
+      try {
+        const res = await fetch("/.netlify/functions/store-licenses", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = await res.json();
+        const map = {};
+        (data.licenses || []).forEach((l) => {
+          map[l.pc_number] = l.food_license_expiration;
+        });
+        setFoodLicenses(map);
+      } catch {
+        setFoodLicenses({});
+      }
+      setFoodLicensesLoading(false);
+    };
     const [toolsOpen, setToolsOpen] = useState(false);
     const [activeTool, setActiveTool] = useState(null);
     const [viewMode, setViewMode] = useState("list");
@@ -5834,7 +5851,7 @@
     const NextGenBadge = () => /* @__PURE__ */ React.createElement("span", { title: "Next-Gen Store", style: { fontSize: "0.65rem", fontWeight: 800, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: "#b197fc22", color: "#b197fc", letterSpacing: 0.5, border: "1px solid #b197fc44", whiteSpace: "nowrap" } }, "\u26A1 NXT");
     const BridgeBadge = () => /* @__PURE__ */ React.createElement("span", { title: "Bridge Remodel", style: { fontSize: "0.65rem", fontWeight: 800, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: "#ffa94d22", color: "#ffa94d", letterSpacing: 0.5, border: "1px solid #ffa94d44", whiteSpace: "nowrap" } }, "\u{1F309} BRIDGE");
     const BaskinBadge = () => /* @__PURE__ */ React.createElement("span", { title: "Baskin-Robbins co-brand", style: { fontSize: "0.65rem", fontWeight: 800, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: "#ff69b422", color: "#ff69b4", letterSpacing: 0.5, border: "1px solid #ff69b444", whiteSpace: "nowrap" } }, "\u{1F366} BR");
-    const COLS = "70px minmax(0,1.3fr) minmax(0,1.5fr) minmax(0,1.15fr) minmax(0,1fr) 92px 104px 132px";
+    const COLS = "70px minmax(0,1.3fr) minmax(0,1.5fr) 120px minmax(0,1.15fr) minmax(0,1fr) 92px 104px 132px";
     return /* @__PURE__ */ React.createElement("div", { className: "fade-in loc-frame", ref: frameRef, style: { height: frameH || void 0 } }, /* @__PURE__ */ React.createElement("style", null, `
         .loc-frame { display:flex; flex-direction:column; height:calc(100vh - 140px); overflow:hidden; }
         .loc-body { display:flex; gap:1.25rem; flex:1; min-height:0; }
@@ -5877,7 +5894,15 @@
       border: "none",
       borderRadius: "0.4rem",
       cursor: "pointer"
-    } }, v.label))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setToolsOpen((o) => !o), style: {
+    } }, v.label))), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: loadFoodLicenses,
+        disabled: foodLicensesLoading,
+        style: { ...btn(th, { padding: "0.55rem 0.9rem", fontSize: "0.78rem", fontWeight: 800, opacity: foodLicensesLoading ? 0.6 : 1 }) }
+      },
+      foodLicensesLoading ? "Loading\u2026" : "\u{1F354} Load Food Licenses"
+    ), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setToolsOpen((o) => !o), style: {
       ...btn(th),
       padding: "0.55rem 0.9rem",
       fontSize: "0.78rem",
@@ -6268,7 +6293,7 @@
           setSelectedStore(s);
         }, style: { background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", width: "100%" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.05rem", fontWeight: 700, color: th.text } }, s.name || "\u2014")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" } }, nxt && /* @__PURE__ */ React.createElement(NextGenBadge, null), s.isBaskin && /* @__PURE__ */ React.createElement(BaskinBadge, null), s.isBridge && /* @__PURE__ */ React.createElement(BridgeBadge, null))), /* @__PURE__ */ React.createElement("a", { href: mapsUrl, target: "_blank", rel: "noopener noreferrer", style: { fontSize: "0.82rem", color: th.text, textDecoration: "none", display: "block" } }, "\u{1F4CD} ", s.address, s.city ? `, ${s.city}` : "", " ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: s.state === "PA" ? "#74c0fc" : "#b197fc" } }, s.state), s.zip ? " " + s.zip : ""), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.55rem 0.85rem", paddingTop: "0.55rem", borderTop: `1px solid ${th.cardBorder}` } }, meta("District", s.district ? districtLabel(s.district, { short: true }) : "\u2014"), meta("Manager", s.mgrPhone ? /* @__PURE__ */ React.createElement("a", { href: `tel:${s.mgrPhone.replace(/\D/g, "")}`, style: { color: "#69db7c", textDecoration: "none" } }, "\u{1F4DE} ", mgrOf2(s) || "\u2014") : mgrOf2(s) || "\u2014"), meta("Asset", assetLabel(s.baseAsset))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: (e) => copyStoreInfo(s, e), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem", background: copiedId === s.id ? "#22c55e" : th.card3, color: copiedId === s.id ? "#fff" : th.muted, border: `1px solid ${copiedId === s.id ? "#22c55e" : th.cardBorder}` }) }, copiedId === s.id ? "\u2713 Copied" : "\u{1F4CB} Copy"), canEditLocs && /* @__PURE__ */ React.createElement("button", { onClick: () => setEditStore({ ...s }), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem" }) }, "\u270F\uFE0F Edit")));
       }), filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 40, textAlign: "center", color: th.muted } }, "No stores match filters."))
-    ) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: COLS, gap: "0.7rem", padding: "1rem 1.25rem", background: th.card2, borderBottom: "1px solid " + th.cardBorder, position: "sticky", top: 0, zIndex: 2 } }, /* @__PURE__ */ React.createElement(SortTh, { label: "PC #", col: "pc" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Property", col: "name" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Address", col: "address" }), !isDM && /* @__PURE__ */ React.createElement(SortTh, { label: "District Mgr", col: "dmName" }), isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Manager"), /* @__PURE__ */ React.createElement(SortTh, { label: "Manager", col: "mgr" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Asset", col: "assetType" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Status", col: "status" }), canEditLocs && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Edit")), filtered.map((s, i) => {
+    ) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: COLS, gap: "0.7rem", padding: "1rem 1.25rem", background: th.card2, borderBottom: "1px solid " + th.cardBorder, position: "sticky", top: 0, zIndex: 2 } }, /* @__PURE__ */ React.createElement(SortTh, { label: "PC #", col: "pc" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Property", col: "name" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Address", col: "address" }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Food License"), !isDM && /* @__PURE__ */ React.createElement(SortTh, { label: "District Mgr", col: "dmName" }), isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Manager"), /* @__PURE__ */ React.createElement(SortTh, { label: "Manager", col: "mgr" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Asset", col: "assetType" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Status", col: "status" }), canEditLocs && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Edit")), filtered.map((s, i) => {
       const ss = STATUS_STYLES[s.status] || STATUS_STYLES["Open"];
       const nxt = s.isNextGen;
       return /* @__PURE__ */ React.createElement(
@@ -6323,6 +6348,7 @@
           },
           s.address
         ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginTop: "0.1rem" } }, s.city && s.city + ", ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: s.state === "PA" ? "#74c0fc" : "#b197fc" } }, s.state), s.zip && " " + s.zip)),
+        /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, fontSize: "0.78rem" } }, Object.keys(foodLicenses).length === 0 ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontStyle: "italic" } }, "Not loaded") : !foodLicenses[s.pc] ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "None on file") : /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: new Date(foodLicenses[s.pc]) < /* @__PURE__ */ new Date() ? "#ef4444" : th.text } }, (/* @__PURE__ */ new Date(foodLicenses[s.pc] + "T12:00:00")).toLocaleDateString())),
         !isDM && /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.dmName || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, districtLabel(s.district))),
         isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 } }, mgrOf2(s) || "\u2014"),
         s.mgrPhone ? /* @__PURE__ */ React.createElement(
@@ -11285,7 +11311,7 @@ ${t2.slice(0, 300)}`);
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", fontWeight: 800, color: G } }, fmtUSD(distTotals.netSales)),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", fontWeight: 700, color: distLaborColor } }, distLaborPct != null ? fmtPct(distLaborPct) : "\u2014"),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#74c0fc", fontWeight: 700 } }, fmtNum(distTotals.guests)),
-        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#63e6be", fontWeight: 700 } }, distTips != null ? fmtUSD(distTips) : "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#63e6be", fontWeight: 700 } }, distTips != null ? "$" + distTips.toFixed(2) : "\u2014"),
         /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: "#ffd43b", fontWeight: 700 } }, fmtAvg(distTotals.avgCheck))
       ), !isCollapsed && distRows.map((s, i) => {
         const live = s.live;
@@ -11320,7 +11346,7 @@ ${t2.slice(0, 300)}`);
             return /* @__PURE__ */ React.createElement("span", { style: { color: lColor } }, fmtPct(lPct));
           })()),
           /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: isOk ? "#74c0fc" : th.muted } }, isOk ? fmtNum(live.data.guests) : "\u2014"),
-          /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: isOk && tipsSnapshot?.[s.pc] != null ? "#63e6be" : th.muted } }, isOk && tipsSnapshot?.[s.pc] != null ? fmtUSD(tipsSnapshot[s.pc]) : "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: isOk && tipsSnapshot?.[s.pc] != null ? "#63e6be" : th.muted } }, isOk && tipsSnapshot?.[s.pc] != null ? "$" + tipsSnapshot[s.pc].toFixed(2) : "\u2014"),
           /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", color: isOk ? "#ffd43b" : th.muted } }, isOk ? fmtAvg(live.data.avgCheck) : "\u2014")
         );
       }));
@@ -20531,7 +20557,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.83";
+  var APP_VERSION = "v19.86";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

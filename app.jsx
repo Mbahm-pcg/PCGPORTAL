@@ -4851,6 +4851,27 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
   const [copiedId,     setCopiedId]     = useState(null);
   const [cityData,     setCityData]     = useState(null);
   const [cityLoading,  setCityLoading]  = useState(false);
+  // Food License column — reads store_licenses, a table in the same "Auto-
+  // details" Supabase project fleet.mjs already uses, kept synced externally
+  // by pc_number -> food_license_expiration. One lightweight query gets every
+  // store at once (replaced an earlier version that filtered Philly's messy
+  // open-data business_licenses per store — this table is already clean and
+  // pre-matched, no per-store guessing needed).
+  const [foodLicenses,       setFoodLicenses]       = useState({}); // pc -> expirationdate string | null | 'error'
+  const [foodLicensesLoading,setFoodLicensesLoading] = useState(false);
+  const loadFoodLicenses = async () => {
+    setFoodLicensesLoading(true);
+    try {
+      const res = await fetch('/.netlify/functions/store-licenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = await res.json();
+      const map = {};
+      (data.licenses || []).forEach(l => { map[l.pc_number] = l.food_license_expiration; });
+      setFoodLicenses(map);
+    } catch {
+      setFoodLicenses({});
+    }
+    setFoodLicensesLoading(false);
+  };
   const [toolsOpen,    setToolsOpen]    = useState(false);
   const [activeTool,   setActiveTool]   = useState(null);
   // Map merged in as a view mode (List/Map) instead of its own tab — only for roles that
@@ -4997,10 +5018,10 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
     <span title="Baskin-Robbins co-brand" style={{ fontSize:"0.65rem", fontWeight:800, padding:"0.15rem 0.5rem", borderRadius:"0.25rem", background:"#ff69b422", color:"#ff69b4", letterSpacing:0.5, border:"1px solid #ff69b444", whiteSpace:"nowrap" }}>🍦 BR</span>
   );
 
-  // Columns: PC# | Property | Address | DM | Manager | Asset | Status | Actions
+  // Columns: PC# | Property | Address | Food License | DM | Manager | Asset | Status | Actions
   // minmax(0,…) lets the flexible tracks shrink below their content's min-content
   // width so long names/addresses ellipsize instead of forcing horizontal overflow.
-  const COLS = "70px minmax(0,1.3fr) minmax(0,1.5fr) minmax(0,1.15fr) minmax(0,1fr) 92px 104px 132px";
+  const COLS = "70px minmax(0,1.3fr) minmax(0,1.5fr) 120px minmax(0,1.15fr) minmax(0,1fr) 92px 104px 132px";
 
   return (
     <div className="fade-in loc-frame" ref={frameRef} style={{ height: frameH || undefined }}>
@@ -5077,6 +5098,11 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
             ))}
           </div>
         )}
+        {/* Food License column — one lightweight query, loads on demand */}
+        <button onClick={loadFoodLicenses} disabled={foodLicensesLoading}
+          style={{ ...btn(th, { padding: "0.55rem 0.9rem", fontSize: "0.78rem", fontWeight: 800, opacity: foodLicensesLoading ? 0.6 : 1 }) }}>
+          {foodLicensesLoading ? 'Loading…' : '🍔 Load Food Licenses'}
+        </button>
         {/* Tools dropdown (extensible: LOCATION_TOOLS) */}
         <div style={{ position: "relative" }}>
           <button onClick={() => setToolsOpen(o => !o)} style={{
@@ -5777,6 +5803,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
           <SortTh label="PC #"     col="pc"       />
           <SortTh label="Property" col="name"     />
           <SortTh label="Address"  col="address"  />
+          <span style={{ fontSize:"0.7rem", fontWeight:600, textTransform:"uppercase", letterSpacing:1, color:th.muted }}>Food License</span>
           {!isDM && <SortTh label="District Mgr" col="dmName" />}
           {isDM  && <span style={{ fontSize:"0.7rem", fontWeight:600, textTransform:"uppercase", letterSpacing:1, color:th.muted }}>Manager</span>}
           <SortTh label="Manager"  col="mgr"      />
@@ -5836,6 +5863,20 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
                 <div style={{ fontSize:"0.75rem", color:th.muted, marginTop:"0.1rem" }}>
                   {s.city && s.city+", "}<span style={{ fontWeight:700, color: s.state==="PA"?"#74c0fc":"#b197fc" }}>{s.state}</span>{s.zip && " "+s.zip}
                 </div>
+              </div>
+
+              {/* Food License — from store_licenses (Auto-details Supabase),
+                  loaded via "Load Food Licenses" above, not auto-fetched. */}
+              <div style={{ minWidth:0, fontSize:"0.78rem" }}>
+                {Object.keys(foodLicenses).length === 0 ? (
+                  <span style={{ color: th.muted, fontStyle: 'italic' }}>Not loaded</span>
+                ) : !foodLicenses[s.pc] ? (
+                  <span style={{ color: th.muted }}>None on file</span>
+                ) : (
+                  <span style={{ fontWeight: 700, color: new Date(foodLicenses[s.pc]) < new Date() ? '#ef4444' : th.text }}>
+                    {new Date(foodLicenses[s.pc] + 'T12:00:00').toLocaleDateString()}
+                  </span>
+                )}
               </div>
 
               {/* District Mgr (admin) or store Mgr col (DM view) */}
@@ -12400,7 +12441,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                         <td style={{ ...tdS, textAlign:'right', fontWeight:800, color:G }}>{fmtUSD(distTotals.netSales)}</td>
                         <td style={{ ...tdS, textAlign:'right', fontWeight:700, color:distLaborColor }}>{distLaborPct != null ? fmtPct(distLaborPct) : '—'}</td>
                         <td style={{ ...tdS, textAlign:'right', color:'#74c0fc', fontWeight:700 }}>{fmtNum(distTotals.guests)}</td>
-                        <td style={{ ...tdS, textAlign:'right', color:'#63e6be', fontWeight:700 }}>{distTips != null ? fmtUSD(distTips) : '—'}</td>
+                        <td style={{ ...tdS, textAlign:'right', color:'#63e6be', fontWeight:700 }}>{distTips != null ? '$' + distTips.toFixed(2) : '—'}</td>
                         <td style={{ ...tdS, textAlign:'right', color:'#ffd43b', fontWeight:700 }}>{fmtAvg(distTotals.avgCheck)}</td>
                       </tr>
                       {/* Store rows */}
@@ -12445,7 +12486,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                               {isOk ? fmtNum(live.data.guests) : '—'}
                             </td>
                             <td style={{ ...tdS, textAlign:'right', color: isOk && tipsSnapshot?.[s.pc] != null ? '#63e6be' : th.muted }}>
-                              {isOk && tipsSnapshot?.[s.pc] != null ? fmtUSD(tipsSnapshot[s.pc]) : '—'}
+                              {isOk && tipsSnapshot?.[s.pc] != null ? '$' + tipsSnapshot[s.pc].toFixed(2) : '—'}
                             </td>
                             <td style={{ ...tdS, textAlign:'right', color: isOk ? '#ffd43b' : th.muted }}>
                               {isOk ? fmtAvg(live.data.avgCheck) : '—'}
@@ -25298,7 +25339,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.83";
+const APP_VERSION = "v19.86";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
