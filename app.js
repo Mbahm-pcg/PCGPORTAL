@@ -8481,6 +8481,7 @@ ${pendingEmail.emails.join("\n")}`,
     const [cases, setCases] = React.useState(null);
     const [error, setError] = React.useState(null);
     const [openCase, setOpenCase] = React.useState(null);
+    const [commentCounts, setCommentCounts] = React.useState({});
     const canSeeContact = isFullAdmin(user) || user?.userType === "dm";
     React.useEffect(() => {
       let alive = true;
@@ -8505,6 +8506,24 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, []);
+    React.useEffect(() => {
+      if (!cases || cases.length === 0) return;
+      let alive = true;
+      fetch("/.netlify/functions/case-comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "list", caseIds: cases.map((c) => c.case_id) })
+      }).then((r) => r.json()).then((json) => {
+        if (!alive || !json?.ok) return;
+        const counts = {};
+        for (const cm of json.comments || []) counts[cm.case_id] = (counts[cm.case_id] || 0) + 1;
+        setCommentCounts(counts);
+      }).catch(() => {
+      });
+      return () => {
+        alive = false;
+      };
+    }, [cases, openCase]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || `Store #${pc}`;
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.3rem", color: th.text } }, "\u{1F6A8} Complaints"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: "0.2rem" } }, "Worst-tier guest complaints across the network this month, from Case Watch. Add internal comments to track follow-up.")), error && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: "#e03131", fontSize: "0.85rem" } }, "Couldn't load complaints: ", error), !error && cases === null && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "\u23F3 Loading\u2026"), !error && cases !== null && cases.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "\u{1F389} No worst-tier complaints logged yet this month."), !error && cases && cases.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, cases.map((c) => {
       const preview = (canSeeContact ? c.customer_complaint || "" : redactContactInfo(c.customer_complaint)).replace(/\s+/g, " ").trim();
@@ -8515,7 +8534,15 @@ ${pendingEmail.emails.join("\n")}`,
           onClick: () => setOpenCase(c),
           style: { ...card(th), padding: "0.85rem 1.1rem", borderLeft: `4px solid #e03131`, cursor: "pointer" }
         },
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center", minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 800, color: th.text } }, storeName(c.store_pc)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, CASE_TIER_LABEL[c.case_tier] || c.case_tier), c.complaint_category && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, "\xB7 ", c.complaint_category)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted, flexShrink: 0 } }, c.date_in_sent || "\u2014")),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center", minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 800, color: th.text } }, storeName(c.store_pc)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, CASE_TIER_LABEL[c.case_tier] || c.case_tier), c.complaint_category && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, "\xB7 ", c.complaint_category)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0 } }, commentCounts[c.case_id] > 0 && /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            title: `${commentCounts[c.case_id]} internal comment${commentCounts[c.case_id] !== 1 ? "s" : ""}`,
+            style: { display: "inline-flex", alignItems: "center", gap: "0.25rem", fontSize: "0.68rem", fontWeight: 700, color: O, background: `${O}18`, border: `1px solid ${O}44`, borderRadius: "999px", padding: "0.1rem 0.5rem" }
+          },
+          "\u{1F4AC} ",
+          commentCounts[c.case_id]
+        ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, c.date_in_sent || "\u2014"))),
         preview && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.4rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, preview)
       );
     })), openCase && /* @__PURE__ */ React.createElement(NetworkComplaintDetailModal, { c: openCase, th, user, stores, onClose: () => setOpenCase(null), showAlert: showAlert2 }));
@@ -20869,7 +20896,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.97";
+  var APP_VERSION = "v19.98";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

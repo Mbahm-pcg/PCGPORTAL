@@ -8584,6 +8584,7 @@ function NetworkComplaintsTab({ th, user, stores, showAlert }) {
   const [cases, setCases] = React.useState(null); // null = loading
   const [error, setError] = React.useState(null);
   const [openCase, setOpenCase] = React.useState(null);
+  const [commentCounts, setCommentCounts] = React.useState({}); // case_id -> count
   const canSeeContact = isFullAdmin(user) || user?.userType === 'dm';
 
   React.useEffect(() => {
@@ -8598,6 +8599,25 @@ function NetworkComplaintsTab({ th, user, stores, showAlert }) {
     }).catch(() => { if (alive) { setCases([]); setError('Failed to load complaints.'); } });
     return () => { alive = false; };
   }, []);
+
+  // One batch lookup for every visible case's comment count, so cards can show
+  // a "has activity" indicator without opening each one — refetched whenever
+  // the list changes (including after closing the detail modal, so posting a
+  // comment updates the badge immediately).
+  React.useEffect(() => {
+    if (!cases || cases.length === 0) return;
+    let alive = true;
+    fetch('/.netlify/functions/case-comments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list', caseIds: cases.map(c => c.case_id) }),
+    }).then(r => r.json()).then(json => {
+      if (!alive || !json?.ok) return;
+      const counts = {};
+      for (const cm of json.comments || []) counts[cm.case_id] = (counts[cm.case_id] || 0) + 1;
+      setCommentCounts(counts);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [cases, openCase]);
 
   const storeName = pc => stores?.find(s => String(s.pc) === String(pc))?.name || `Store #${pc}`;
 
@@ -8623,7 +8643,15 @@ function NetworkComplaintsTab({ th, user, stores, showAlert }) {
                     <span style={{ fontSize: '0.7rem', color: th.muted }}>{CASE_TIER_LABEL[c.case_tier] || c.case_tier}</span>
                     {c.complaint_category && <span style={{ fontSize: '0.7rem', color: th.muted }}>· {c.complaint_category}</span>}
                   </div>
-                  <span style={{ fontSize: '0.7rem', color: th.muted, flexShrink: 0 }}>{c.date_in_sent || '—'}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+                    {commentCounts[c.case_id] > 0 && (
+                      <span title={`${commentCounts[c.case_id]} internal comment${commentCounts[c.case_id] !== 1 ? 's' : ''}`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.68rem', fontWeight: 700, color: O, background: `${O}18`, border: `1px solid ${O}44`, borderRadius: '999px', padding: '0.1rem 0.5rem' }}>
+                        💬 {commentCounts[c.case_id]}
+                      </span>
+                    )}
+                    <span style={{ fontSize: '0.7rem', color: th.muted }}>{c.date_in_sent || '—'}</span>
+                  </div>
                 </div>
                 {preview && <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.4rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview}</div>}
               </div>
@@ -25726,7 +25754,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.97";
+const APP_VERSION = "v19.98";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
