@@ -16509,97 +16509,11 @@ function PnlAccessPanel({ th, user, users, showAlert }) {
 // nobody." — superseded: now a plain manually-managed email/phone list, same
 // pattern as Project/Ticket, since those intentionally include people who
 // aren't Portal users at all (vendors, external contacts).
-function FleetAlertAccessPanel({ th, user, showAlert }) {
-  const [emails, setEmails] = useState(null);
-  const [phones, setPhones] = useState(null);
-  const [newEmail, setNewEmail] = useState('');
-  const [newPhone, setNewPhone] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    cloudLoad('pcg_fleet_notify_v1')
-      .then(d => { setEmails(Array.isArray(d?.emails) ? d.emails : []); setPhones(Array.isArray(d?.phones) ? d.phones : []); })
-      .catch(() => { setEmails([]); setPhones([]); });
-  }, []);
-
-  const persist = async (nextEmails, nextPhones) => {
-    setSaving(true);
-    const ok = await cloudSave('pcg_fleet_notify_v1', { emails: nextEmails, phones: nextPhones, updatedAt: new Date().toISOString(), updatedBy: user?.username || user?.email || 'unknown' });
-    setSaving(false);
-    if (ok) { setEmails(nextEmails); setPhones(nextPhones); }
-    else showAlert && showAlert('Failed to save fleet alert recipients', 'error');
-  };
-  const addEmail = () => {
-    const email = newEmail.trim().toLowerCase();
-    if (!email || !email.includes('@')) { showAlert && showAlert('Enter a valid email', 'error'); return; }
-    if ((emails || []).map(e => e.toLowerCase()).includes(email)) { setNewEmail(''); return; }
-    persist([...(emails || []), newEmail.trim()], phones || []);
-    setNewEmail('');
-  };
-  const removeEmail = (idx) => persist((emails || []).filter((_, i) => i !== idx), phones || []);
-  const addPhone = () => {
-    if (!newPhone.trim()) return;
-    persist(emails || [], [...(phones || []), newPhone.trim()]);
-    setNewPhone('');
-  };
-  const removePhone = (idx) => persist(emails || [], (phones || []).filter((_, i) => i !== idx));
-
-  if (emails === null) return <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading fleet alert recipients…</div>;
+function FleetAlertAccessPanel({ th, user, users, showAlert }) {
   return (
-    <div>
-      <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
-        These email addresses and phone numbers receive company vehicle due-date reminders (registration/inspection/insurance). The vehicle's own operator (matched from the fleet database) always gets notified too, regardless of this list.
-      </p>
-      <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
-        {(emails || []).length === 0 && (
-          <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No fleet alert emails configured.</div>
-        )}
-        {(emails || []).map((email, idx) => (
-          <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
-                {email.charAt(0).toUpperCase()}
-              </span>
-              <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
-            </div>
-            <button onClick={() => removeEmail(idx)} disabled={saving} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
-          </div>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: "0.5rem" }}>
-        <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") addEmail(); }} />
-        <button onClick={addEmail} disabled={saving} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-      </div>
-
-      {/* Fleet SMS Numbers */}
-      <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-          <span style={{ fontSize: "1.125rem" }}>📱</span>
-          <span style={{ fontWeight: 700, fontSize: "0.95rem", color: th.text }}>Fleet SMS Numbers</span>
-          <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(phones || []).length})</span>
-        </div>
-        <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
-          {(phones || []).length === 0 && (
-            <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No fleet SMS numbers configured.</div>
-          )}
-          {(phones || []).map((phone, idx) => (
-            <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" }}>📱</span>
-                <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{formatPhone(phone)}</span>
-              </div>
-              <button onClick={() => removePhone(idx)} disabled={saving} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <input style={{ ...inp(th), flex: 1 }} placeholder="(555) 123-4567" value={newPhone} onChange={e => setNewPhone(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") addPhone(); }} />
-          <button onClick={addPhone} disabled={saving} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-        </div>
-      </div>
-    </div>
+    <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_fleet_notify_v1"
+      description="These email addresses and phone numbers receive company vehicle due-date reminders (registration/inspection/insurance). The vehicle's own operator (matched from the fleet database) always gets notified too, regardless of this list."
+      smsLabel="Fleet SMS Numbers" />
   );
 }
 
@@ -16607,45 +16521,144 @@ function FleetAlertAccessPanel({ th, user, showAlert }) {
 // Fleet, just a separate blob key. Generic version (not copy-pasted) since
 // this is now the second identical pattern; parameterized by blobKey/label
 // so a third one later doesn't need another near-duplicate component.
-function ManualNotifyListPanel({ th, user, showAlert, blobKey, description, smsLabel }) {
+function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, description, smsLabel }) {
   const [emails, setEmails] = useState(null);
   const [phones, setPhones] = useState(null);
+  // Parallel arrays: emailOwners[i]/phoneOwners[i] is the Portal user id that
+  // emails[i]/phones[i] came from via "add by name", or null for a
+  // manually-typed entry with no linked account. This is what lets removal
+  // and live-sync work by identity instead of by string matching, which
+  // breaks the moment someone edits their profile.
+  const [emailOwners, setEmailOwners] = useState(null);
+  const [phoneOwners, setPhoneOwners] = useState(null);
   const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
+  const [nameQuery, setNameQuery] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     cloudLoad(blobKey)
-      .then(d => { setEmails(Array.isArray(d?.emails) ? d.emails : []); setPhones(Array.isArray(d?.phones) ? d.phones : []); })
-      .catch(() => { setEmails([]); setPhones([]); });
+      .then(d => {
+        const nextEmails = Array.isArray(d?.emails) ? d.emails : [];
+        const nextPhones = Array.isArray(d?.phones) ? d.phones : [];
+        setEmails(nextEmails); setPhones(nextPhones);
+        setEmailOwners(Array.isArray(d?.emailOwners) && d.emailOwners.length === nextEmails.length ? d.emailOwners : nextEmails.map(() => null));
+        setPhoneOwners(Array.isArray(d?.phoneOwners) && d.phoneOwners.length === nextPhones.length ? d.phoneOwners : nextPhones.map(() => null));
+      })
+      .catch(() => { setEmails([]); setPhones([]); setEmailOwners([]); setPhoneOwners([]); });
   }, [blobKey]);
 
-  const persist = async (nextEmails, nextPhones) => {
+  const persist = async (nextEmails, nextPhones, nextEmailOwners, nextPhoneOwners) => {
     setSaving(true);
-    const ok = await cloudSave(blobKey, { emails: nextEmails, phones: nextPhones, updatedAt: new Date().toISOString(), updatedBy: user?.username || user?.email || 'unknown' });
+    const ok = await cloudSave(blobKey, { emails: nextEmails, phones: nextPhones, emailOwners: nextEmailOwners, phoneOwners: nextPhoneOwners, updatedAt: new Date().toISOString(), updatedBy: user?.username || user?.email || 'unknown' });
     setSaving(false);
-    if (ok) { setEmails(nextEmails); setPhones(nextPhones); }
+    if (ok) { setEmails(nextEmails); setPhones(nextPhones); setEmailOwners(nextEmailOwners); setPhoneOwners(nextPhoneOwners); }
     else showAlert && showAlert('Failed to save recipients', 'error');
   };
   const addEmail = () => {
     const email = newEmail.trim().toLowerCase();
     if (!email || !email.includes('@')) { showAlert && showAlert('Enter a valid email', 'error'); return; }
     if ((emails || []).map(e => e.toLowerCase()).includes(email)) { setNewEmail(''); return; }
-    persist([...(emails || []), newEmail.trim()], phones || []);
+    persist([...(emails || []), newEmail.trim()], phones || [], [...(emailOwners || []), null], phoneOwners || []);
     setNewEmail('');
   };
-  const removeEmail = (idx) => persist((emails || []).filter((_, i) => i !== idx), phones || []);
+  // Removing someone drops both their email and phone together when the
+  // entry was linked to a Portal user via "add by name" — matched by that
+  // user's id, not by the current string value, so it still works even if
+  // their profile was edited since being added.
+  const removeEmail = (idx) => {
+    const ownerId = (emailOwners || [])[idx];
+    const nextPhones = ownerId != null ? (phones || []).filter((_, i) => (phoneOwners || [])[i] !== ownerId) : (phones || []);
+    const nextPhoneOwners = ownerId != null ? (phoneOwners || []).filter(o => o !== ownerId) : (phoneOwners || []);
+    persist((emails || []).filter((_, i) => i !== idx), nextPhones, (emailOwners || []).filter((_, i) => i !== idx), nextPhoneOwners);
+  };
   const addPhone = () => {
     if (!newPhone.trim()) return;
-    persist(emails || [], [...(phones || []), newPhone.trim()]);
+    persist(emails || [], [...(phones || []), newPhone.trim()], emailOwners || [], [...(phoneOwners || []), null]);
     setNewPhone('');
   };
-  const removePhone = (idx) => persist(emails || [], (phones || []).filter((_, i) => i !== idx));
+  const removePhone = (idx) => {
+    const ownerId = (phoneOwners || [])[idx];
+    const nextEmails = ownerId != null ? (emails || []).filter((_, i) => (emailOwners || [])[i] !== ownerId) : (emails || []);
+    const nextEmailOwners = ownerId != null ? (emailOwners || []).filter(o => o !== ownerId) : (emailOwners || []);
+    persist(nextEmails, (phones || []).filter((_, i) => i !== idx), nextEmailOwners, (phoneOwners || []).filter((_, i) => i !== idx));
+  };
+
+  // Add-by-name: picking a Portal user adds their email AND phone together in
+  // one action, instead of copying each over by hand from Admin > Users.
+  const nameMatches = (users || []).filter(u => nameQuery.trim().length > 0
+    && (u.name || '').toLowerCase().includes(nameQuery.trim().toLowerCase())
+    && (u.email || u.phone)
+  ).slice(0, 8);
+  const addPerson = (u) => {
+    const nextEmails = u.email && !(emails || []).some(e => e.toLowerCase() === u.email.toLowerCase())
+      ? [...(emails || []), u.email] : (emails || []);
+    const nextEmailOwners = nextEmails === emails ? (emailOwners || []) : [...(emailOwners || []), u.id];
+    const nextPhones = u.phone && !(phones || []).includes(u.phone)
+      ? [...(phones || []), u.phone] : (phones || []);
+    const nextPhoneOwners = nextPhones === phones ? (phoneOwners || []) : [...(phoneOwners || []), u.id];
+    if (nextEmails === emails && nextPhones === phones) { setNameQuery(''); setShowSuggestions(false); return; }
+    persist(nextEmails, nextPhones, nextEmailOwners, nextPhoneOwners);
+    if (!u.email) showAlert && showAlert(`${u.name} added — no email on file, phone only`, 'success');
+    else if (!u.phone) showAlert && showAlert(`${u.name} added — no phone on file, email only`, 'success');
+    setNameQuery('');
+    setShowSuggestions(false);
+  };
+
+  // Live-sync: if a linked user's own email/phone changes (they edit their
+  // profile), the entry here should follow automatically instead of silently
+  // going stale — this list exists to notify a person, not a frozen string.
+  useEffect(() => {
+    if (!users || emails === null || phones === null) return;
+    let changed = false;
+    const nextEmails = (emails || []).map((e, i) => {
+      const ownerId = (emailOwners || [])[i];
+      if (ownerId == null) return e;
+      const owner = users.find(u => String(u.id) === String(ownerId));
+      if (owner?.email && owner.email.toLowerCase() !== e.toLowerCase()) { changed = true; return owner.email; }
+      return e;
+    });
+    const nextPhones = (phones || []).map((p, i) => {
+      const ownerId = (phoneOwners || [])[i];
+      if (ownerId == null) return p;
+      const owner = users.find(u => String(u.id) === String(ownerId));
+      if (owner?.phone && owner.phone.replace(/\D/g, '') !== p.replace(/\D/g, '')) { changed = true; return owner.phone; }
+      return p;
+    });
+    if (changed) persist(nextEmails, nextPhones, emailOwners, phoneOwners);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users, emails, phones, emailOwners, phoneOwners]);
 
   if (emails === null) return <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading recipients…</div>;
   return (
     <div>
       <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>{description}</p>
+
+      {/* Add by name — adds a matched Portal user's email + phone together */}
+      {users && (
+        <div style={{ position: 'relative', marginBottom: '1rem' }}>
+          <input style={{ ...inp(th), width: '100%' }} placeholder="🔎 Add by name (fills in email + phone together)"
+            value={nameQuery}
+            onChange={e => { setNameQuery(e.target.value); setShowSuggestions(true); }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)} />
+          {showSuggestions && nameMatches.length > 0 && (
+            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+              {nameMatches.map(u => (
+                <div key={u.id} onMouseDown={() => addPerson(u)}
+                  style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}` }}
+                  onMouseEnter={e => e.currentTarget.style.background = th.card2}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <div style={{ fontSize: '0.83rem', fontWeight: 700, color: th.text }}>{u.name}</div>
+                  <div style={{ fontSize: '0.7rem', color: th.muted }}>{[u.email, u.phone].filter(Boolean).join(' · ') || 'no email/phone on file'}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
         {(emails || []).length === 0 && (
           <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No emails configured.</div>
@@ -16698,10 +16711,12 @@ function ManualNotifyListPanel({ th, user, showAlert, blobKey, description, smsL
   );
 }
 
-function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
+function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
   const [newEmail, setNewEmail] = useState("");
   const [newTicketEmail, setNewTicketEmail] = useState("");
   const [newTicketPhone, setNewTicketPhone] = useState("");
+  const [ticketNameQuery, setTicketNameQuery] = useState("");
+  const [ticketShowSuggestions, setTicketShowSuggestions] = useState(false);
   const [notifyLog, setNotifyLog] = useState(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
@@ -16776,12 +16791,23 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
     if (!email || !email.includes("@")) { showAlert("error", "Enter a valid email"); return; }
     if ((ticketNotifyEmails || []).map(e => e.toLowerCase()).includes(email)) { showAlert("error", "Email already in ticket list"); return; }
     setTicketNotifyEmails(prev => [...(prev || []), newTicketEmail.trim()]);
+    setTicketNotifyEmailOwners(prev => [...(prev || []), null]);
     setNewTicketEmail("");
     showAlert("success", "Email added to ticket notify list");
   };
 
+  // Removing someone drops both their email and phone together when the
+  // entry was linked to a Portal user via "add by name" — matched by that
+  // user's id, not by the current string value, so it still works even if
+  // their profile was edited since being added.
   const removeTicketEmail = (idx) => {
+    const ownerId = (ticketNotifyEmailOwners || [])[idx];
+    if (ownerId != null) {
+      setTicketNotifyPhones(prev => (prev || []).filter((_, i) => (ticketNotifyPhoneOwners || [])[i] !== ownerId));
+      setTicketNotifyPhoneOwners(prev => (prev || []).filter(o => o !== ownerId));
+    }
     setTicketNotifyEmails(prev => prev.filter((_, i) => i !== idx));
+    setTicketNotifyEmailOwners(prev => (prev || []).filter((_, i) => i !== idx));
     showAlert("success", "Email removed from ticket list");
   };
 
@@ -16796,14 +16822,72 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
     const normalized = digits.length === 11 ? digits.slice(1) : digits;
     if ((ticketNotifyPhones || []).map(p => p.replace(/\D/g, "")).includes(normalized)) { showAlert("error", "Number already in ticket list"); return; }
     setTicketNotifyPhones(prev => [...(prev || []), normalized]);
+    setTicketNotifyPhoneOwners(prev => [...(prev || []), null]);
     setNewTicketPhone("");
     showAlert("success", "Number added to ticket SMS list");
   };
 
   const removeTicketPhone = (idx) => {
+    const ownerId = (ticketNotifyPhoneOwners || [])[idx];
+    if (ownerId != null) {
+      setTicketNotifyEmails(prev => (prev || []).filter((_, i) => (ticketNotifyEmailOwners || [])[i] !== ownerId));
+      setTicketNotifyEmailOwners(prev => (prev || []).filter(o => o !== ownerId));
+    }
     setTicketNotifyPhones(prev => prev.filter((_, i) => i !== idx));
+    setTicketNotifyPhoneOwners(prev => (prev || []).filter((_, i) => i !== idx));
     showAlert("success", "Number removed from ticket SMS list");
   };
+
+  // Add-by-name — same convenience as the Car/Food License panels: picking a
+  // Portal user adds their email AND phone together instead of copying each
+  // over by hand from Admin > Users.
+  const ticketNameMatches = (users || []).filter(u => ticketNameQuery.trim().length > 0
+    && (u.name || '').toLowerCase().includes(ticketNameQuery.trim().toLowerCase())
+    && (u.email || u.phone)
+  ).slice(0, 8);
+  const addTicketPerson = (u) => {
+    let added = false;
+    if (u.email && !(ticketNotifyEmails || []).map(e => e.toLowerCase()).includes(u.email.toLowerCase())) {
+      setTicketNotifyEmails(prev => [...(prev || []), u.email]);
+      setTicketNotifyEmailOwners(prev => [...(prev || []), u.id]);
+      added = true;
+    }
+    if (u.phone) {
+      const normalized = u.phone.replace(/\D/g, "");
+      const digits = normalized.length === 11 && normalized[0] === '1' ? normalized.slice(1) : normalized;
+      if (digits.length === 10 && !(ticketNotifyPhones || []).map(p => p.replace(/\D/g, "")).includes(digits)) {
+        setTicketNotifyPhones(prev => [...(prev || []), digits]);
+        setTicketNotifyPhoneOwners(prev => [...(prev || []), u.id]);
+        added = true;
+      }
+    }
+    if (added) showAlert("success", `${u.name} added to ticket notifications`);
+    setTicketNameQuery('');
+    setTicketShowSuggestions(false);
+  };
+
+  // Live-sync: if a linked user's own email/phone changes (profile edit),
+  // the ticket notify entry follows automatically instead of going stale.
+  useEffect(() => {
+    if (!users) return;
+    (ticketNotifyEmailOwners || []).forEach((ownerId, i) => {
+      if (ownerId == null) return;
+      const owner = users.find(u => String(u.id) === String(ownerId));
+      const current = (ticketNotifyEmails || [])[i];
+      if (owner?.email && current && owner.email.toLowerCase() !== current.toLowerCase()) {
+        setTicketNotifyEmails(prev => prev.map((e, idx) => idx === i ? owner.email : e));
+      }
+    });
+    (ticketNotifyPhoneOwners || []).forEach((ownerId, i) => {
+      if (ownerId == null) return;
+      const owner = users.find(u => String(u.id) === String(ownerId));
+      const current = (ticketNotifyPhones || [])[i];
+      if (owner?.phone && current && owner.phone.replace(/\D/g, '') !== current.replace(/\D/g, '')) {
+        setTicketNotifyPhones(prev => prev.map((p, idx) => idx === i ? owner.phone.replace(/\D/g, '') : p));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users, ticketNotifyEmailOwners, ticketNotifyPhoneOwners]);
 
   const [innerTab, setInnerTab] = React.useState('notifications');
   // When embedded inside AdminConsole, the active section is driven externally
@@ -16900,6 +16984,29 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>
             These email addresses receive notifications when a new service ticket is created. Separate from the global project list — add or remove anyone here.
           </p>
+
+          {/* Add by name — adds a matched Portal user's email + phone together */}
+          <div style={{ position: 'relative', marginBottom: '1rem' }}>
+            <input style={{ ...inp(th), width: '100%' }} placeholder="🔎 Add by name (fills in email + phone together)"
+              value={ticketNameQuery}
+              onChange={e => { setTicketNameQuery(e.target.value); setTicketShowSuggestions(true); }}
+              onFocus={() => setTicketShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setTicketShowSuggestions(false), 150)} />
+            {ticketShowSuggestions && ticketNameMatches.length > 0 && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+                {ticketNameMatches.map(u => (
+                  <div key={u.id} onMouseDown={() => addTicketPerson(u)}
+                    style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}` }}
+                    onMouseEnter={e => e.currentTarget.style.background = th.card2}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <div style={{ fontSize: '0.83rem', fontWeight: 700, color: th.text }}>{u.name}</div>
+                    <div style={{ fontSize: '0.7rem', color: th.muted }}>{[u.email, u.phone].filter(Boolean).join(' · ') || 'no email/phone on file'}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
             {(ticketNotifyEmails || []).length === 0 && (
               <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No ticket notify emails configured.</div>
@@ -16959,7 +17066,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
       {/* Food License — full admins only */}
       {notifSubTab === 'foodLicense' && isFullAdmin(user) && (
-        <ManualNotifyListPanel th={th} user={user} showAlert={showAlert} blobKey="pcg_food_license_notify_v1"
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_food_license_notify_v1"
           description="These email addresses and phone numbers receive food license due-date reminders at 30/14/7 days out, for every store's food license on file."
           smsLabel="Food License SMS Numbers" />
       )}
@@ -25442,7 +25549,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.87";
+const APP_VERSION = "v19.89";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -43870,6 +43977,11 @@ function PCGPortal() {
   const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter(e => e.toLowerCase() !== "sam@rgi.life");
   const [ticketNotifyEmails, setTicketNotifyEmails] = useState(() => { const s=loadFromStorage(); return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY; });
   const [ticketNotifyPhones, setTicketNotifyPhones] = useState(() => { const s=loadFromStorage(); return s?.ticketNotifyPhones || []; });
+  // Parallel arrays: which entries above were added via "add by name" (holds
+  // that Portal user's id) vs typed manually (null) — lets removing/editing
+  // one of a pair stay correct even after the linked user edits their profile.
+  const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState(() => { const s=loadFromStorage(); return s?.ticketNotifyEmailOwners || ticketNotifyEmails.map(() => null); });
+  const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState(() => { const s=loadFromStorage(); return s?.ticketNotifyPhoneOwners || ticketNotifyPhones.map(() => null); });
   const [chatChannels, setChatChannels] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatReadState, setChatReadState] = useState({});
@@ -43909,6 +44021,8 @@ function PCGPortal() {
   const cloudTicketNotifyLoaded = useRef(false);
   const cloudTicketNotifyPhonesLoaded = useRef(false);
   const skipNextTicketNotifyPhonesSave = useRef(false);
+  const cloudTicketNotifyOwnersLoaded = useRef(false);
+  const cloudTicketNotifyPhoneOwnersLoaded = useRef(false);
   const projectsUserEdited = useRef(false);
   const dailyReportsUserEdited = useRef(false);
   // Previous dailyReports snapshot for diffing in the per-report save effect
@@ -44416,8 +44530,8 @@ function PCGPortal() {
 
   // Auto-save all data to localStorage whenever anything changes
   useEffect(() => {
-    saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones });
-  }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones]);
+    saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners });
+  }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners]);
 
   // Save sales data separately (can be large)
   // Load from cloud on mount, fallback to localStorage
@@ -44964,6 +45078,28 @@ function PCGPortal() {
     if (ticketNotifyPhones.length === 0) return;
     cloudSave('pcg_ticket_notify_phones_v1', ticketNotifyPhones);
   }, [ticketNotifyPhones]);
+
+  // Cloud sync ticket notify owner links (which entries above track a Portal
+  // user id vs. were typed manually) — separate blobs so the plain email/phone
+  // arrays other code reads stay unchanged in shape.
+  useEffect(() => {
+    cloudLoad('pcg_ticket_notify_owners_v1').then(data => {
+      cloudTicketNotifyOwnersLoaded.current = true;
+      if (Array.isArray(data)) setTicketNotifyEmailOwners(data);
+    }).catch(() => { cloudTicketNotifyOwnersLoaded.current = true; });
+    cloudLoad('pcg_ticket_notify_phone_owners_v1').then(data => {
+      cloudTicketNotifyPhoneOwnersLoaded.current = true;
+      if (Array.isArray(data)) setTicketNotifyPhoneOwners(data);
+    }).catch(() => { cloudTicketNotifyPhoneOwnersLoaded.current = true; });
+  }, []);
+  useEffect(() => {
+    if (!cloudTicketNotifyOwnersLoaded.current) return;
+    cloudSave('pcg_ticket_notify_owners_v1', ticketNotifyEmailOwners);
+  }, [ticketNotifyEmailOwners]);
+  useEffect(() => {
+    if (!cloudTicketNotifyPhoneOwnersLoaded.current) return;
+    cloudSave('pcg_ticket_notify_phone_owners_v1', ticketNotifyPhoneOwners);
+  }, [ticketNotifyPhoneOwners]);
 
   // Cloud sync chat data
   const chatPollRef = useRef(null);
@@ -46697,7 +46833,7 @@ function PCGPortal() {
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
-          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} ticketNotifyEmailOwners={ticketNotifyEmailOwners} setTicketNotifyEmailOwners={setTicketNotifyEmailOwners} ticketNotifyPhoneOwners={ticketNotifyPhoneOwners} setTicketNotifyPhoneOwners={setTicketNotifyPhoneOwners} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} users={users} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}

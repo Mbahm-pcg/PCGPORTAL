@@ -14527,97 +14527,54 @@ ${t2.slice(0, 300)}`);
       if (e.key === "Enter") add();
     }, placeholder: "Add by email or username", style: { ...inp(th), flex: 1 } }), /* @__PURE__ */ React.createElement("button", { onClick: add, disabled: saving || !input.trim(), style: { ...btn(th), opacity: saving || !input.trim() ? 0.6 : 1 } }, saving ? "Saving\u2026" : "Add")));
   }
-  function FleetAlertAccessPanel({ th, user, showAlert: showAlert2 }) {
-    const [emails, setEmails] = useState(null);
-    const [phones, setPhones] = useState(null);
-    const [newEmail, setNewEmail] = useState("");
-    const [newPhone, setNewPhone] = useState("");
-    const [saving, setSaving] = useState(false);
-    useEffect(() => {
-      cloudLoad("pcg_fleet_notify_v1").then((d) => {
-        setEmails(Array.isArray(d?.emails) ? d.emails : []);
-        setPhones(Array.isArray(d?.phones) ? d.phones : []);
-      }).catch(() => {
-        setEmails([]);
-        setPhones([]);
-      });
-    }, []);
-    const persist = async (nextEmails, nextPhones) => {
-      setSaving(true);
-      const ok = await cloudSave("pcg_fleet_notify_v1", { emails: nextEmails, phones: nextPhones, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), updatedBy: user?.username || user?.email || "unknown" });
-      setSaving(false);
-      if (ok) {
-        setEmails(nextEmails);
-        setPhones(nextPhones);
-      } else showAlert2 && showAlert2("Failed to save fleet alert recipients", "error");
-    };
-    const addEmail = () => {
-      const email = newEmail.trim().toLowerCase();
-      if (!email || !email.includes("@")) {
-        showAlert2 && showAlert2("Enter a valid email", "error");
-        return;
-      }
-      if ((emails || []).map((e) => e.toLowerCase()).includes(email)) {
-        setNewEmail("");
-        return;
-      }
-      persist([...emails || [], newEmail.trim()], phones || []);
-      setNewEmail("");
-    };
-    const removeEmail = (idx) => persist((emails || []).filter((_, i) => i !== idx), phones || []);
-    const addPhone = () => {
-      if (!newPhone.trim()) return;
-      persist(emails || [], [...phones || [], newPhone.trim()]);
-      setNewPhone("");
-    };
-    const removePhone = (idx) => persist(emails || [], (phones || []).filter((_, i) => i !== idx));
-    if (emails === null) return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading fleet alert recipients\u2026");
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These email addresses and phone numbers receive company vehicle due-date reminders (registration/inspection/insurance). The vehicle's own operator (matched from the fleet database) always gets notified too, regardless of this list."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No fleet alert emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 } }, email.charAt(0).toUpperCase()), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, email)), /* @__PURE__ */ React.createElement("button", { onClick: () => removeEmail(idx), disabled: saving, style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
-      "input",
+  function FleetAlertAccessPanel({ th, user, users, showAlert: showAlert2 }) {
+    return /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
       {
-        style: { ...inp(th), flex: 1 },
-        placeholder: "email@example.com",
-        value: newEmail,
-        onChange: (e) => setNewEmail(e.target.value),
-        onKeyDown: (e) => {
-          if (e.key === "Enter") addEmail();
-        }
+        th,
+        user,
+        users,
+        showAlert: showAlert2,
+        blobKey: "pcg_fleet_notify_v1",
+        description: "These email addresses and phone numbers receive company vehicle due-date reminders (registration/inspection/insurance). The vehicle's own operator (matched from the fleet database) always gets notified too, regardless of this list.",
+        smsLabel: "Fleet SMS Numbers"
       }
-    ), /* @__PURE__ */ React.createElement("button", { onClick: addEmail, disabled: saving, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F4F1}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, "Fleet SMS Numbers"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No fleet SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" } }, "\u{1F4F1}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, formatPhone(phone))), /* @__PURE__ */ React.createElement("button", { onClick: () => removePhone(idx), disabled: saving, style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        style: { ...inp(th), flex: 1 },
-        placeholder: "(555) 123-4567",
-        value: newPhone,
-        onChange: (e) => setNewPhone(e.target.value),
-        onKeyDown: (e) => {
-          if (e.key === "Enter") addPhone();
-        }
-      }
-    ), /* @__PURE__ */ React.createElement("button", { onClick: addPhone, disabled: saving, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add"))));
+    );
   }
-  function ManualNotifyListPanel({ th, user, showAlert: showAlert2, blobKey, description, smsLabel }) {
+  function ManualNotifyListPanel({ th, user, users, showAlert: showAlert2, blobKey, description, smsLabel }) {
     const [emails, setEmails] = useState(null);
     const [phones, setPhones] = useState(null);
+    const [emailOwners, setEmailOwners] = useState(null);
+    const [phoneOwners, setPhoneOwners] = useState(null);
     const [newEmail, setNewEmail] = useState("");
     const [newPhone, setNewPhone] = useState("");
+    const [nameQuery, setNameQuery] = useState("");
+    const [showSuggestions, setShowSuggestions] = useState(false);
     const [saving, setSaving] = useState(false);
     useEffect(() => {
       cloudLoad(blobKey).then((d) => {
-        setEmails(Array.isArray(d?.emails) ? d.emails : []);
-        setPhones(Array.isArray(d?.phones) ? d.phones : []);
+        const nextEmails = Array.isArray(d?.emails) ? d.emails : [];
+        const nextPhones = Array.isArray(d?.phones) ? d.phones : [];
+        setEmails(nextEmails);
+        setPhones(nextPhones);
+        setEmailOwners(Array.isArray(d?.emailOwners) && d.emailOwners.length === nextEmails.length ? d.emailOwners : nextEmails.map(() => null));
+        setPhoneOwners(Array.isArray(d?.phoneOwners) && d.phoneOwners.length === nextPhones.length ? d.phoneOwners : nextPhones.map(() => null));
       }).catch(() => {
         setEmails([]);
         setPhones([]);
+        setEmailOwners([]);
+        setPhoneOwners([]);
       });
     }, [blobKey]);
-    const persist = async (nextEmails, nextPhones) => {
+    const persist = async (nextEmails, nextPhones, nextEmailOwners, nextPhoneOwners) => {
       setSaving(true);
-      const ok = await cloudSave(blobKey, { emails: nextEmails, phones: nextPhones, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), updatedBy: user?.username || user?.email || "unknown" });
+      const ok = await cloudSave(blobKey, { emails: nextEmails, phones: nextPhones, emailOwners: nextEmailOwners, phoneOwners: nextPhoneOwners, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), updatedBy: user?.username || user?.email || "unknown" });
       setSaving(false);
       if (ok) {
         setEmails(nextEmails);
         setPhones(nextPhones);
+        setEmailOwners(nextEmailOwners);
+        setPhoneOwners(nextPhoneOwners);
       } else showAlert2 && showAlert2("Failed to save recipients", "error");
     };
     const addEmail = () => {
@@ -14630,18 +14587,96 @@ ${t2.slice(0, 300)}`);
         setNewEmail("");
         return;
       }
-      persist([...emails || [], newEmail.trim()], phones || []);
+      persist([...emails || [], newEmail.trim()], phones || [], [...emailOwners || [], null], phoneOwners || []);
       setNewEmail("");
     };
-    const removeEmail = (idx) => persist((emails || []).filter((_, i) => i !== idx), phones || []);
+    const removeEmail = (idx) => {
+      const ownerId = (emailOwners || [])[idx];
+      const nextPhones = ownerId != null ? (phones || []).filter((_, i) => (phoneOwners || [])[i] !== ownerId) : phones || [];
+      const nextPhoneOwners = ownerId != null ? (phoneOwners || []).filter((o) => o !== ownerId) : phoneOwners || [];
+      persist((emails || []).filter((_, i) => i !== idx), nextPhones, (emailOwners || []).filter((_, i) => i !== idx), nextPhoneOwners);
+    };
     const addPhone = () => {
       if (!newPhone.trim()) return;
-      persist(emails || [], [...phones || [], newPhone.trim()]);
+      persist(emails || [], [...phones || [], newPhone.trim()], emailOwners || [], [...phoneOwners || [], null]);
       setNewPhone("");
     };
-    const removePhone = (idx) => persist(emails || [], (phones || []).filter((_, i) => i !== idx));
+    const removePhone = (idx) => {
+      const ownerId = (phoneOwners || [])[idx];
+      const nextEmails = ownerId != null ? (emails || []).filter((_, i) => (emailOwners || [])[i] !== ownerId) : emails || [];
+      const nextEmailOwners = ownerId != null ? (emailOwners || []).filter((o) => o !== ownerId) : emailOwners || [];
+      persist(nextEmails, (phones || []).filter((_, i) => i !== idx), nextEmailOwners, (phoneOwners || []).filter((_, i) => i !== idx));
+    };
+    const nameMatches = (users || []).filter(
+      (u) => nameQuery.trim().length > 0 && (u.name || "").toLowerCase().includes(nameQuery.trim().toLowerCase()) && (u.email || u.phone)
+    ).slice(0, 8);
+    const addPerson = (u) => {
+      const nextEmails = u.email && !(emails || []).some((e) => e.toLowerCase() === u.email.toLowerCase()) ? [...emails || [], u.email] : emails || [];
+      const nextEmailOwners = nextEmails === emails ? emailOwners || [] : [...emailOwners || [], u.id];
+      const nextPhones = u.phone && !(phones || []).includes(u.phone) ? [...phones || [], u.phone] : phones || [];
+      const nextPhoneOwners = nextPhones === phones ? phoneOwners || [] : [...phoneOwners || [], u.id];
+      if (nextEmails === emails && nextPhones === phones) {
+        setNameQuery("");
+        setShowSuggestions(false);
+        return;
+      }
+      persist(nextEmails, nextPhones, nextEmailOwners, nextPhoneOwners);
+      if (!u.email) showAlert2 && showAlert2(`${u.name} added \u2014 no email on file, phone only`, "success");
+      else if (!u.phone) showAlert2 && showAlert2(`${u.name} added \u2014 no phone on file, email only`, "success");
+      setNameQuery("");
+      setShowSuggestions(false);
+    };
+    useEffect(() => {
+      if (!users || emails === null || phones === null) return;
+      let changed = false;
+      const nextEmails = (emails || []).map((e, i) => {
+        const ownerId = (emailOwners || [])[i];
+        if (ownerId == null) return e;
+        const owner = users.find((u) => String(u.id) === String(ownerId));
+        if (owner?.email && owner.email.toLowerCase() !== e.toLowerCase()) {
+          changed = true;
+          return owner.email;
+        }
+        return e;
+      });
+      const nextPhones = (phones || []).map((p, i) => {
+        const ownerId = (phoneOwners || [])[i];
+        if (ownerId == null) return p;
+        const owner = users.find((u) => String(u.id) === String(ownerId));
+        if (owner?.phone && owner.phone.replace(/\D/g, "") !== p.replace(/\D/g, "")) {
+          changed = true;
+          return owner.phone;
+        }
+        return p;
+      });
+      if (changed) persist(nextEmails, nextPhones, emailOwners, phoneOwners);
+    }, [users, emails, phones, emailOwners, phoneOwners]);
     if (emails === null) return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading recipients\u2026");
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, description), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 } }, email.charAt(0).toUpperCase()), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, email)), /* @__PURE__ */ React.createElement("button", { onClick: () => removeEmail(idx), disabled: saving, style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, description), users && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        style: { ...inp(th), width: "100%" },
+        placeholder: "\u{1F50E} Add by name (fills in email + phone together)",
+        value: nameQuery,
+        onChange: (e) => {
+          setNameQuery(e.target.value);
+          setShowSuggestions(true);
+        },
+        onFocus: () => setShowSuggestions(true),
+        onBlur: () => setTimeout(() => setShowSuggestions(false), 150)
+      }
+    ), showSuggestions && nameMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.25)", overflow: "hidden" } }, nameMatches.map((u) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: u.id,
+        onMouseDown: () => addPerson(u),
+        style: { padding: "0.5rem 0.75rem", cursor: "pointer", borderBottom: `1px solid ${th.cardBorder}` },
+        onMouseEnter: (e) => e.currentTarget.style.background = th.card2,
+        onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.83rem", fontWeight: 700, color: th.text } }, u.name),
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, [u.email, u.phone].filter(Boolean).join(" \xB7 ") || "no email/phone on file")
+    )))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 } }, email.charAt(0).toUpperCase()), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, email)), /* @__PURE__ */ React.createElement("button", { onClick: () => removeEmail(idx), disabled: saving, style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         style: { ...inp(th), flex: 1 },
@@ -14665,10 +14700,12 @@ ${t2.slice(0, 300)}`);
       }
     ), /* @__PURE__ */ React.createElement("button", { onClick: addPhone, disabled: saving, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add"))));
   }
-  function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
+  function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
     const [newEmail, setNewEmail] = useState("");
     const [newTicketEmail, setNewTicketEmail] = useState("");
     const [newTicketPhone, setNewTicketPhone] = useState("");
+    const [ticketNameQuery, setTicketNameQuery] = useState("");
+    const [ticketShowSuggestions, setTicketShowSuggestions] = useState(false);
     const [notifyLog, setNotifyLog] = useState(null);
     const [logLoading, setLogLoading] = useState(false);
     const [logOpen, setLogOpen] = useState(false);
@@ -14750,11 +14787,18 @@ ${t2.slice(0, 300)}`);
         return;
       }
       setTicketNotifyEmails((prev) => [...prev || [], newTicketEmail.trim()]);
+      setTicketNotifyEmailOwners((prev) => [...prev || [], null]);
       setNewTicketEmail("");
       showAlert2("success", "Email added to ticket notify list");
     };
     const removeTicketEmail = (idx) => {
+      const ownerId = (ticketNotifyEmailOwners || [])[idx];
+      if (ownerId != null) {
+        setTicketNotifyPhones((prev) => (prev || []).filter((_, i) => (ticketNotifyPhoneOwners || [])[i] !== ownerId));
+        setTicketNotifyPhoneOwners((prev) => (prev || []).filter((o) => o !== ownerId));
+      }
       setTicketNotifyEmails((prev) => prev.filter((_, i) => i !== idx));
+      setTicketNotifyEmailOwners((prev) => (prev || []).filter((_, i) => i !== idx));
       showAlert2("success", "Email removed from ticket list");
     };
     const addTicketPhone = () => {
@@ -14770,13 +14814,62 @@ ${t2.slice(0, 300)}`);
         return;
       }
       setTicketNotifyPhones((prev) => [...prev || [], normalized]);
+      setTicketNotifyPhoneOwners((prev) => [...prev || [], null]);
       setNewTicketPhone("");
       showAlert2("success", "Number added to ticket SMS list");
     };
     const removeTicketPhone = (idx) => {
+      const ownerId = (ticketNotifyPhoneOwners || [])[idx];
+      if (ownerId != null) {
+        setTicketNotifyEmails((prev) => (prev || []).filter((_, i) => (ticketNotifyEmailOwners || [])[i] !== ownerId));
+        setTicketNotifyEmailOwners((prev) => (prev || []).filter((o) => o !== ownerId));
+      }
       setTicketNotifyPhones((prev) => prev.filter((_, i) => i !== idx));
+      setTicketNotifyPhoneOwners((prev) => (prev || []).filter((_, i) => i !== idx));
       showAlert2("success", "Number removed from ticket SMS list");
     };
+    const ticketNameMatches = (users || []).filter(
+      (u) => ticketNameQuery.trim().length > 0 && (u.name || "").toLowerCase().includes(ticketNameQuery.trim().toLowerCase()) && (u.email || u.phone)
+    ).slice(0, 8);
+    const addTicketPerson = (u) => {
+      let added = false;
+      if (u.email && !(ticketNotifyEmails || []).map((e) => e.toLowerCase()).includes(u.email.toLowerCase())) {
+        setTicketNotifyEmails((prev) => [...prev || [], u.email]);
+        setTicketNotifyEmailOwners((prev) => [...prev || [], u.id]);
+        added = true;
+      }
+      if (u.phone) {
+        const normalized = u.phone.replace(/\D/g, "");
+        const digits = normalized.length === 11 && normalized[0] === "1" ? normalized.slice(1) : normalized;
+        if (digits.length === 10 && !(ticketNotifyPhones || []).map((p) => p.replace(/\D/g, "")).includes(digits)) {
+          setTicketNotifyPhones((prev) => [...prev || [], digits]);
+          setTicketNotifyPhoneOwners((prev) => [...prev || [], u.id]);
+          added = true;
+        }
+      }
+      if (added) showAlert2("success", `${u.name} added to ticket notifications`);
+      setTicketNameQuery("");
+      setTicketShowSuggestions(false);
+    };
+    useEffect(() => {
+      if (!users) return;
+      (ticketNotifyEmailOwners || []).forEach((ownerId, i) => {
+        if (ownerId == null) return;
+        const owner = users.find((u) => String(u.id) === String(ownerId));
+        const current = (ticketNotifyEmails || [])[i];
+        if (owner?.email && current && owner.email.toLowerCase() !== current.toLowerCase()) {
+          setTicketNotifyEmails((prev) => prev.map((e, idx) => idx === i ? owner.email : e));
+        }
+      });
+      (ticketNotifyPhoneOwners || []).forEach((ownerId, i) => {
+        if (ownerId == null) return;
+        const owner = users.find((u) => String(u.id) === String(ownerId));
+        const current = (ticketNotifyPhones || [])[i];
+        if (owner?.phone && current && owner.phone.replace(/\D/g, "") !== current.replace(/\D/g, "")) {
+          setTicketNotifyPhones((prev) => prev.map((p, idx) => idx === i ? owner.phone.replace(/\D/g, "") : p));
+        }
+      });
+    }, [users, ticketNotifyEmailOwners, ticketNotifyPhoneOwners]);
     const [innerTab, setInnerTab] = React.useState("notifications");
     const settingsTab = embedSection || innerTab;
     const setSettingsTab = setInnerTab;
@@ -14837,7 +14930,31 @@ ${t2.slice(0, 300)}`);
           if (e.key === "Enter") addEmail();
         }
       }
-    ), /* @__PURE__ */ React.createElement("button", { onClick: addEmail, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add"))), notifSubTab === "ticket" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These email addresses receive notifications when a new service ticket is created. Separate from the global project list \u2014 add or remove anyone here."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (ticketNotifyEmails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No ticket notify emails configured."), (ticketNotifyEmails || []).map((email, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 } }, email.charAt(0).toUpperCase()), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, email)), /* @__PURE__ */ React.createElement("button", { onClick: () => removeTicketEmail(idx), style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("button", { onClick: addEmail, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add"))), notifSubTab === "ticket" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These email addresses receive notifications when a new service ticket is created. Separate from the global project list \u2014 add or remove anyone here."), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        style: { ...inp(th), width: "100%" },
+        placeholder: "\u{1F50E} Add by name (fills in email + phone together)",
+        value: ticketNameQuery,
+        onChange: (e) => {
+          setTicketNameQuery(e.target.value);
+          setTicketShowSuggestions(true);
+        },
+        onFocus: () => setTicketShowSuggestions(true),
+        onBlur: () => setTimeout(() => setTicketShowSuggestions(false), 150)
+      }
+    ), ticketShowSuggestions && ticketNameMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.25)", overflow: "hidden" } }, ticketNameMatches.map((u) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: u.id,
+        onMouseDown: () => addTicketPerson(u),
+        style: { padding: "0.5rem 0.75rem", cursor: "pointer", borderBottom: `1px solid ${th.cardBorder}` },
+        onMouseEnter: (e) => e.currentTarget.style.background = th.card2,
+        onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.83rem", fontWeight: 700, color: th.text } }, u.name),
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, [u.email, u.phone].filter(Boolean).join(" \xB7 ") || "no email/phone on file")
+    )))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (ticketNotifyEmails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No ticket notify emails configured."), (ticketNotifyEmails || []).map((email, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 } }, email.charAt(0).toUpperCase()), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, email)), /* @__PURE__ */ React.createElement("button", { onClick: () => removeTicketEmail(idx), style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         style: { ...inp(th), flex: 1 },
@@ -14864,6 +14981,7 @@ ${t2.slice(0, 300)}`);
       {
         th,
         user,
+        users,
         showAlert: showAlert2,
         blobKey: "pcg_food_license_notify_v1",
         description: "These email addresses and phone numbers receive food license due-date reminders at 30/14/7 days out, for every store's food license on file.",
@@ -20637,7 +20755,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.87";
+  var APP_VERSION = "v19.89";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -33346,6 +33464,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const s = loadFromStorage();
       return s?.ticketNotifyPhones || [];
     });
+    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState(() => {
+      const s = loadFromStorage();
+      return s?.ticketNotifyEmailOwners || ticketNotifyEmails.map(() => null);
+    });
+    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState(() => {
+      const s = loadFromStorage();
+      return s?.ticketNotifyPhoneOwners || ticketNotifyPhones.map(() => null);
+    });
     const [chatChannels, setChatChannels] = useState([]);
     const [chatMessages, setChatMessages] = useState([]);
     const [chatReadState, setChatReadState] = useState({});
@@ -33380,6 +33506,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const cloudTicketNotifyLoaded = useRef(false);
     const cloudTicketNotifyPhonesLoaded = useRef(false);
     const skipNextTicketNotifyPhonesSave = useRef(false);
+    const cloudTicketNotifyOwnersLoaded = useRef(false);
+    const cloudTicketNotifyPhoneOwnersLoaded = useRef(false);
     const projectsUserEdited = useRef(false);
     const dailyReportsUserEdited = useRef(false);
     const prevDailyReportsRef = useRef([]);
@@ -33863,8 +33991,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (!isMobile) setDrawerOpen(false);
     }, [isMobile]);
     useEffect(() => {
-      saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones });
-    }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones]);
+      saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners });
+    }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners]);
     useEffect(() => {
       setCloudStatus("loading");
       cloudLoadOrThrow("pcg_sales_v1").then((data) => {
@@ -34363,6 +34491,28 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ticketNotifyPhones.length === 0) return;
       cloudSave("pcg_ticket_notify_phones_v1", ticketNotifyPhones);
     }, [ticketNotifyPhones]);
+    useEffect(() => {
+      cloudLoad("pcg_ticket_notify_owners_v1").then((data) => {
+        cloudTicketNotifyOwnersLoaded.current = true;
+        if (Array.isArray(data)) setTicketNotifyEmailOwners(data);
+      }).catch(() => {
+        cloudTicketNotifyOwnersLoaded.current = true;
+      });
+      cloudLoad("pcg_ticket_notify_phone_owners_v1").then((data) => {
+        cloudTicketNotifyPhoneOwnersLoaded.current = true;
+        if (Array.isArray(data)) setTicketNotifyPhoneOwners(data);
+      }).catch(() => {
+        cloudTicketNotifyPhoneOwnersLoaded.current = true;
+      });
+    }, []);
+    useEffect(() => {
+      if (!cloudTicketNotifyOwnersLoaded.current) return;
+      cloudSave("pcg_ticket_notify_owners_v1", ticketNotifyEmailOwners);
+    }, [ticketNotifyEmailOwners]);
+    useEffect(() => {
+      if (!cloudTicketNotifyPhoneOwnersLoaded.current) return;
+      cloudSave("pcg_ticket_notify_phone_owners_v1", ticketNotifyPhoneOwners);
+    }, [ticketNotifyPhoneOwners]);
     const chatPollRef = useRef(null);
     const chatPollActive = useRef(false);
     useEffect(() => {
@@ -36023,7 +36173,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "reports", name: "Reports", sub: "Dashboards, decks, and scheduled reports from Orion.", show: accessSubOn(accessOverrides, user?.userType, "system-hub", "reports"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" }), /* @__PURE__ */ React.createElement("path", { d: "M14 2v6h6M9 13h6M9 17h6" })) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement(TileGrid, { title: "System", tiles: sysTiles, color: SYS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
-    })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {
+    })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {
       const ut = user?.userType;
       const roleDefaults = ut === "executive" || ut === "it" ? ["pulse", "labor", "chat"] : ut === "office_staff" ? ["pulse", "tickets", "chat"] : ut === "dm" ? ["tasks", "labor", "chat"] : ut === "manager" ? ["tasks", "chat", "tickets"] : ut === "maintenance" ? ["tickets", "calendar", "chat"] : ut === "construction" ? ["projects", "chat", "tickets"] : ut === "auditor" ? ["audits", "tickets", "chat"] : ["chat", "announcements", "tickets"];
       const savePins = (pins) => {
