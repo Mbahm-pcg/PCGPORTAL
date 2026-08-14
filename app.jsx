@@ -8365,10 +8365,21 @@ function DaypartMatrix({ pc, th }) {
 // same Supabase `cases` table Case Watch's own dashboard reads from.
 const CASE_TIER_LABEL = { fyi: 'FYI Guest Contact', guest_contact: 'Guest Contact', second_escalation: 'Second Escalation', unknown: 'Unknown' };
 const CASE_SEVERITY_COLOR = { worst: '#e03131', concerning: '#f76707', attention: '#f59f00', minor: '#868e96' };
-function StoreComplaintsTab({ pc, th }) {
+// Complaint text is often a pasted survey/email that has the customer's own
+// email/phone typed INSIDE the body (e.g. "Email: name@x.com"), not just in
+// the separate email/phone columns — those columns are already withheld from
+// non-privileged viewers, but the raw text has to be scrubbed too or it just
+// leaks the same info a different way.
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const PHONE_RE = /(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/g;
+function redactContactInfo(text) {
+  return (text || '').replace(EMAIL_RE, '[email hidden]').replace(PHONE_RE, '[phone hidden]');
+}
+function StoreComplaintsTab({ pc, th, user }) {
   const [cases, setCases] = React.useState(null); // null = loading, [] = loaded empty
   const [error, setError] = React.useState(null);
   const [openCase, setOpenCase] = React.useState(null);
+  const canSeeContact = isFullAdmin(user) || user?.userType === 'dm';
 
   React.useEffect(() => {
     let alive = true;
@@ -8410,7 +8421,7 @@ function StoreComplaintsTab({ pc, th }) {
         const sevColor = CASE_SEVERITY_COLOR[c.severity_label] || th.muted;
         // Card shows a one-line preview only — full text (often a pasted email,
         // sometimes 1000+ characters) opens in the modal on click instead.
-        const preview = (c.customer_complaint || '').replace(/\s+/g, ' ').trim();
+        const preview = (canSeeContact ? (c.customer_complaint || '') : redactContactInfo(c.customer_complaint)).replace(/\s+/g, ' ').trim();
         return (
           <div key={c.case_id} onClick={() => setOpenCase(c)}
             style={{ ...card(th), padding: '0.75rem 1rem', borderLeft: `4px solid ${sevColor}`, cursor: 'pointer' }}>
@@ -8427,12 +8438,18 @@ function StoreComplaintsTab({ pc, th }) {
           </div>
         );
       })}
-      {openCase && <CaseDetailModal c={openCase} th={th} onClose={() => setOpenCase(null)} />}
+      {openCase && <CaseDetailModal c={openCase} th={th} user={user} onClose={() => setOpenCase(null)} />}
     </div>
   );
 }
 
-function CaseDetailModal({ c, th, onClose }) {
+function CaseDetailModal({ c, th, onClose, user }) {
+  // Customer phone/email are withheld from managers/office staff — a manager
+  // could otherwise use a complaint record to look up and contact a customer
+  // directly, which is a real misuse risk this data was never meant to enable.
+  // Only exec/IT/DM (who oversee complaint handling, not day-to-day store ops)
+  // see the raw contact info.
+  const canSeeContact = isFullAdmin(user) || user?.userType === 'dm';
   const sevColor = CASE_SEVERITY_COLOR[c.severity_label] || th.muted;
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '3vh 1rem', overflowY: 'auto' }}>
@@ -8450,13 +8467,171 @@ function CaseDetailModal({ c, th, onClose }) {
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '1.4rem', lineHeight: 1, cursor: 'pointer', flexShrink: 0 }}>×</button>
         </div>
         <div style={{ padding: '1rem 1.25rem', overflowY: 'auto' }}>
-          {c.customer_complaint && <div style={{ fontSize: '0.85rem', color: th.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{c.customer_complaint}</div>}
-          {c.comments && <div style={{ fontSize: '0.8rem', color: th.muted, marginTop: '0.75rem', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>{c.comments}</div>}
+          {c.customer_complaint && <div style={{ fontSize: '0.85rem', color: th.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{canSeeContact ? c.customer_complaint : redactContactInfo(c.customer_complaint)}</div>}
+          {c.comments && <div style={{ fontSize: '0.8rem', color: th.muted, marginTop: '0.75rem', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>{canSeeContact ? c.comments : redactContactInfo(c.comments)}</div>}
           <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '1rem', paddingTop: '0.75rem', borderTop: `1px solid ${th.cardBorder}` }}>
-            {c.customer_name || 'Unknown guest'}{c.email ? ` · ${c.email}` : ''}{c.phone ? ` · ${c.phone}` : ''}
+            {c.customer_name || 'Unknown guest'}
+            {canSeeContact ? <>{c.email ? ` · ${c.email}` : ''}{c.phone ? ` · ${c.phone}` : ''}</> : (c.email || c.phone) && <span style={{ fontStyle: 'italic', opacity: 0.75 }}> · contact info hidden</span>}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Network Complaints (Operations hub, exec/IT/office staff only) ──────────
+// Worst-tier complaints across every store for the current month, with a
+// comment thread per case that writes through to Case Watch's own Supabase
+// (case-comments.mjs) — see that file's header for why it's a separate table
+// instead of the `cases.comments` column Case Watch's own sync owns.
+function NetworkComplaintDetailModal({ c, th, user, stores, onClose, showAlert }) {
+  const canSeeContact = isFullAdmin(user) || user?.userType === 'dm';
+  const sevColor = CASE_SEVERITY_COLOR[c.severity_label] || th.muted;
+  const storeName = stores?.find(s => String(s.pc) === String(c.store_pc))?.name;
+  const [comments, setComments] = React.useState(null); // null = loading
+  const [newComment, setNewComment] = React.useState('');
+  const [posting, setPosting] = React.useState(false);
+  const [loadError, setLoadError] = React.useState(null);
+
+  const loadComments = React.useCallback(() => {
+    setLoadError(null);
+    fetch('/.netlify/functions/case-comments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list', caseId: c.case_id }),
+    }).then(r => r.json()).then(json => {
+      if (json?.ok) setComments(json.comments || []);
+      else { setComments([]); setLoadError(json?.error || 'Failed to load comments.'); }
+    }).catch(() => { setComments([]); setLoadError('Failed to load comments.'); });
+  }, [c.case_id]);
+
+  React.useEffect(() => { loadComments(); }, [loadComments]);
+
+  const submitComment = async () => {
+    const text = newComment.trim();
+    if (!text) return;
+    setPosting(true);
+    try {
+      const res = await fetch('/.netlify/functions/case-comments', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add', caseId: c.case_id, authorName: user?.name || 'Unknown', commentText: text }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+      setComments(prev => [...(prev || []), json.comment]);
+      setNewComment('');
+    } catch (err) {
+      showAlert && showAlert('error', `Couldn't post comment: ${err.message}`);
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '3vh 1rem', overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '1rem', width: 'min(700px, 96vw)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '1rem 1.25rem', borderBottom: `1px solid ${th.cardBorder}`, gap: '0.75rem' }}>
+          <div>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.35rem' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, color: sevColor, background: `${sevColor}18`, border: `1px solid ${sevColor}44`, borderRadius: '999px', padding: '0.15rem 0.55rem' }}>{c.severity_label || 'minor'}</span>
+              <span style={{ fontSize: '0.72rem', color: th.muted }}>{CASE_TIER_LABEL[c.case_tier] || c.case_tier}</span>
+              {c.complaint_category && <span style={{ fontSize: '0.72rem', color: th.muted }}>· {c.complaint_category}</span>}
+            </div>
+            <div style={{ fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: '1rem' }}>{storeName ? `${storeName} · ` : ''}Store #{c.store_pc} — {c.case_id}</div>
+            <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.15rem' }}>{c.date_in_sent || 'Date unknown'}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '1.4rem', lineHeight: 1, cursor: 'pointer', flexShrink: 0 }}>×</button>
+        </div>
+        <div style={{ padding: '1rem 1.25rem', overflowY: 'auto' }}>
+          {c.customer_complaint && <div style={{ fontSize: '0.85rem', color: th.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{canSeeContact ? c.customer_complaint : redactContactInfo(c.customer_complaint)}</div>}
+          {c.comments && <div style={{ fontSize: '0.8rem', color: th.muted, marginTop: '0.75rem', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>{canSeeContact ? c.comments : redactContactInfo(c.comments)}</div>}
+          <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '1rem', paddingTop: '0.75rem', borderTop: `1px solid ${th.cardBorder}` }}>
+            {c.customer_name || 'Unknown guest'}
+            {canSeeContact ? <>{c.email ? ` · ${c.email}` : ''}{c.phone ? ` · ${c.phone}` : ''}</> : (c.email || c.phone) && <span style={{ fontStyle: 'italic', opacity: 0.75 }}> · contact info hidden</span>}
+          </div>
+
+          {/* Comment thread */}
+          <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: `1px solid ${th.cardBorder}` }}>
+            <div style={{ fontSize: '0.72rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.75rem' }}>💬 Internal Comments</div>
+            {comments === null && <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading comments…</div>}
+            {loadError && <div style={{ fontSize: '0.8rem', color: '#e03131' }}>{loadError}</div>}
+            {comments !== null && comments.length === 0 && !loadError && <div style={{ fontSize: '0.8rem', color: th.muted, fontStyle: 'italic' }}>No comments yet.</div>}
+            {comments && comments.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1rem' }}>
+                {comments.map(cm => (
+                  <div key={cm.id} style={{ background: th.card2, borderRadius: '0.5rem', padding: '0.6rem 0.8rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: th.text }}>{cm.author_name}</span>
+                      <span style={{ fontSize: '0.68rem', color: th.muted, flexShrink: 0 }}>{new Date(cm.created_at).toLocaleString()}</span>
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: th.text, whiteSpace: 'pre-wrap' }}>{cm.comment_text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+              <textarea value={newComment} onChange={e => setNewComment(e.target.value)} placeholder={`Commenting as ${user?.name || 'you'}…`}
+                rows={2} style={{ ...inp(th), flex: 1, resize: 'vertical', minHeight: 44 }}
+                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitComment(); }} />
+              <button onClick={submitComment} disabled={posting || !newComment.trim()} style={{ ...btn(th), padding: '0.55rem 1.1rem', opacity: posting || !newComment.trim() ? 0.6 : 1 }}>{posting ? '…' : 'Post'}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+function NetworkComplaintsTab({ th, user, stores, showAlert }) {
+  const [cases, setCases] = React.useState(null); // null = loading
+  const [error, setError] = React.useState(null);
+  const [openCase, setOpenCase] = React.useState(null);
+  const canSeeContact = isFullAdmin(user) || user?.userType === 'dm';
+
+  React.useEffect(() => {
+    let alive = true;
+    fetch('/.netlify/functions/case-watch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ networkWorst: true }),
+    }).then(r => r.json()).then(json => {
+      if (!alive) return;
+      if (json?.ok) setCases(json.cases || []);
+      else { setCases([]); setError(json?.error || 'Failed to load complaints.'); }
+    }).catch(() => { if (alive) { setCases([]); setError('Failed to load complaints.'); } });
+    return () => { alive = false; };
+  }, []);
+
+  const storeName = pc => stores?.find(s => String(s.pc) === String(pc))?.name || `Store #${pc}`;
+
+  return (
+    <div>
+      <div style={{ marginBottom: '1rem' }}>
+        <h1 style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.3rem', color: th.text }}>🚨 Complaints</h1>
+        <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: '0.2rem' }}>Worst-tier guest complaints across the network this month, from Case Watch. Add internal comments to track follow-up.</p>
+      </div>
+      {error && <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: '#e03131', fontSize: '0.85rem' }}>Couldn't load complaints: {error}</div>}
+      {!error && cases === null && <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>⏳ Loading…</div>}
+      {!error && cases !== null && cases.length === 0 && <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>🎉 No worst-tier complaints logged yet this month.</div>}
+      {!error && cases && cases.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+          {cases.map(c => {
+            const preview = (canSeeContact ? (c.customer_complaint || '') : redactContactInfo(c.customer_complaint)).replace(/\s+/g, ' ').trim();
+            return (
+              <div key={c.case_id} onClick={() => setOpenCase(c)}
+                style={{ ...card(th), padding: '0.85rem 1.1rem', borderLeft: `4px solid #e03131`, cursor: 'pointer' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', minWidth: 0 }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 800, color: th.text }}>{storeName(c.store_pc)}</span>
+                    <span style={{ fontSize: '0.7rem', color: th.muted }}>{CASE_TIER_LABEL[c.case_tier] || c.case_tier}</span>
+                    {c.complaint_category && <span style={{ fontSize: '0.7rem', color: th.muted }}>· {c.complaint_category}</span>}
+                  </div>
+                  <span style={{ fontSize: '0.7rem', color: th.muted, flexShrink: 0 }}>{c.date_in_sent || '—'}</span>
+                </div>
+                {preview && <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.4rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {openCase && <NetworkComplaintDetailModal c={openCase} th={th} user={user} stores={stores} onClose={() => setOpenCase(null)} showAlert={showAlert} />}
     </div>
   );
 }
@@ -9815,7 +9990,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       {/* ════ END REVIEWS TAB ════ */}
       </>}
 
-      {storeTab === 'complaints' && <StoreComplaintsTab pc={pc} th={th} />}
+      {storeTab === 'complaints' && <StoreComplaintsTab pc={pc} th={th} user={user} />}
 
       {/* ════ DRIVE-THRU TAB ════ */}
       {storeTab === 'driveThru' && (() => {
@@ -24184,6 +24359,7 @@ const computeRoleTabs = (user) => {
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
     { id: "email",     label: "Email",        icon: (c) => ICONS.mail(c) },
     { id: "admin",     label: "Admin",        icon: (c) => ICONS.settings(c) },
+    { id: "network-complaints", label: "Complaints", icon: (c) => ICONS.bell(c) },
     { id: "ops-hub",    label: "Operations",   icon: (c) => ICONS.schedule(c), noPinToggle: true },
     { id: "team-hub",   label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true },
     { id: "system-hub", label: "System",       icon: (c) => ICONS.folder(c), noPinToggle: true },
@@ -24205,6 +24381,7 @@ const computeRoleTabs = (user) => {
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
     { id: "email",     label: "Email",     icon: (c) => ICONS.mail(c) },
+    { id: "network-complaints", label: "Complaints", icon: (c) => ICONS.bell(c) },
     { id: "ops-hub",    label: "Operations",   icon: (c) => ICONS.schedule(c), noPinToggle: true },
     { id: "team-hub",   label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true },
     { id: "system-hub", label: "System",       icon: (c) => ICONS.folder(c), noPinToggle: true },
@@ -25549,7 +25726,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.93";
+const APP_VERSION = "v19.97";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -46460,6 +46637,7 @@ function PCGPortal() {
                 {tab === "users" && "User accounts and access management."}
                 {tab === "kb" && "Company guides, SOPs, training materials, and reference articles."}
                 {tab === "admin" && "Users, configuration, audit log, and system data."}
+                {tab === "network-complaints" && "Worst-tier guest complaints across the network this month — add internal comments."}
                 {tab === "email" && "Shared inbox and outbound email from the portal."}
                 {tab === "tickets"  && "Submit and track maintenance & service tickets."}
               </p>
@@ -46839,6 +47017,7 @@ function PCGPortal() {
               { id: 'anomalies', name: 'Anomalies', sub: 'Unusual sales or labor patterns vs. day-of-week baseline.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'anomalies'), icon: <path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/> },
               { id: 'scorecard', name: 'DM Scorecard', sub: 'Weekly DM ranking — labor, sales growth, ticket health.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'scorecard'), icon: <><path d="M12 15a5 5 0 0 0 5-5V5a5 5 0 0 0-10 0v5a5 5 0 0 0 5 5Z"/><path d="M4 10a8 8 0 0 0 16 0M12 18v4"/></> },
               { id: 'audits', name: 'Audits', sub: 'Field operations audits — conduct, review, score.', show: (auditCanView(user) || safeCanView(user)) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'audits'), icon: <><path d="M9 11.5 11 13.5 15.5 9"/><rect x="3" y="4" width="18" height="17" rx="2"/></> },
+              { id: 'network-complaints', name: 'Complaints', sub: 'Worst-tier guest complaints, network-wide — add comments.', show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'network-complaints'), icon: <><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></> },
             ].filter(t => t.show);
             return <TileGrid title="Operations" tiles={opsTiles} color={OPS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
           })()}
@@ -46871,6 +47050,7 @@ function PCGPortal() {
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && <NetworkComplaintsTab th={th} user={user} stores={stores} showAlert={showAlert} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} ticketNotifyEmailOwners={ticketNotifyEmailOwners} setTicketNotifyEmailOwners={setTicketNotifyEmailOwners} ticketNotifyPhoneOwners={ticketNotifyPhoneOwners} setTicketNotifyPhoneOwners={setTicketNotifyPhoneOwners} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} users={users} />}

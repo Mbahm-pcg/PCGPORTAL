@@ -111,6 +111,12 @@
 [functions.food-license-alerts-cron]
   schedule = "0 12 * * *"
 
+# Urgent complaint keyword scan (mold, health department, sick, sue, lawyer, etc.)
+# — every 15 min, so a serious complaint reaches Mike fast instead of waiting
+# for someone to browse the Complaints tab.
+[functions.case-watch-alerts-cron]
+  schedule = "*/15 * * * *"
+
 # Audit CAP escalation — daily 7am ET: flip overdue, digest owners, escalate VP/DM
 [functions.audit-cap-cron]
   schedule = "0 11 * * *"

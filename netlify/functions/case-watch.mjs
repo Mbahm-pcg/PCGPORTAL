@@ -40,10 +40,24 @@ export default async (request) => {
   }
 
   const body = await request.json().catch(() => ({}));
-  const { storePc, networkSummary } = body;
-  if (!storePc && !networkSummary) return new Response(JSON.stringify({ error: 'storePc required' }), { status: 400, headers });
+  const { storePc, networkSummary, networkWorst } = body;
+  if (!storePc && !networkSummary && !networkWorst) return new Response(JSON.stringify({ error: 'storePc required' }), { status: 400, headers });
 
   try {
+    if (networkWorst) {
+      // Network-wide "red" (worst-severity) board for the exec/IT/office-staff
+      // Complaints tab (Operations hub) — every store's worst-tier cases for
+      // the current month, full detail, so a comment thread can be attached.
+      const url = `${supabaseUrl}/rest/v1/cases?sheet_tab=eq.${encodeURIComponent(currentMonthTabName())}&severity_label=eq.worst&select=*&order=date_in_sent.desc`;
+      const res = await fetch(url, { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return new Response(JSON.stringify({ error: `Case Watch returned HTTP ${res.status}`, detail: detail.slice(0, 300) }), { status: 502, headers });
+      }
+      const cases = await res.json();
+      return new Response(JSON.stringify({ ok: true, cases }), { status: 200, headers });
+    }
+
     if (networkSummary) {
       // Network-wide "which stores have the most complaints" leaderboard —
       // pull every store's cases for the current month tab (just the fields
