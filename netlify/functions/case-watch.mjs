@@ -48,13 +48,18 @@ export default async (request) => {
       // Network-wide "red" (worst-severity) board for the exec/IT/office-staff
       // Complaints tab (Operations hub) — every store's worst-tier cases for
       // the current month, full detail, so a comment thread can be attached.
-      const url = `${supabaseUrl}/rest/v1/cases?sheet_tab=eq.${encodeURIComponent(currentMonthTabName())}&severity_label=eq.worst&select=*&order=date_in_sent.desc`;
+      // Excludes cases with no complaint text at all — a case can be scored
+      // "worst" purely from its tier (e.g. a "Second Escalation" with no
+      // description ever entered), which is real from Case Watch's own
+      // severity model but useless to show on this board with nothing to
+      // actually read or act on — confirmed directly (2026-08-14, CCC10954000).
+      const url = `${supabaseUrl}/rest/v1/cases?sheet_tab=eq.${encodeURIComponent(currentMonthTabName())}&severity_label=eq.worst&customer_complaint=not.is.null&select=*&order=date_in_sent.desc`;
       const res = await fetch(url, { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
         return new Response(JSON.stringify({ error: `Case Watch returned HTTP ${res.status}`, detail: detail.slice(0, 300) }), { status: 502, headers });
       }
-      const cases = await res.json();
+      const cases = (await res.json()).filter(c => (c.customer_complaint || '').trim().length > 0);
       return new Response(JSON.stringify({ ok: true, cases }), { status: 200, headers });
     }
 
