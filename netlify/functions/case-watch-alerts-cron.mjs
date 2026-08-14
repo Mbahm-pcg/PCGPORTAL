@@ -14,18 +14,28 @@ import { getStore } from '@netlify/blobs';
 export const config = { schedule: '*/15 * * * *' };
 
 // Grouped so the alert email/subject can say WHY it fired, not just "flagged".
-// Substring match, case-insensitive — keep entries lowercase.
+// Whole-word/phrase match, case-insensitive (see matchCategories) — plain
+// substring matching was tried first and immediately false-positived on
+// "sue" matching inside "issue" (one of the most common words in any
+// complaint), flooding Mike with ~90 bogus alerts on the very first run.
 const KEYWORD_CATEGORIES = [
-  { label: 'Legal Threat', words: ['sue', 'suing', 'lawsuit', 'lawyer', 'attorney', 'legal action', 'litigation', "i'll see you in court", 'class action'] },
+  { label: 'Legal Threat', words: ['sue', 'suing', 'sued', 'lawsuit', 'lawyer', 'attorney', 'legal action', 'litigation', "i'll see you in court", 'class action'] },
   { label: 'Health Department', words: ['health department', 'board of health', 'health inspector', 'file a complaint with the'] },
-  { label: 'Illness / Food Safety', words: ['food poisoning', 'poisoned', 'vomit', 'throwing up', 'nausea', 'nauseous', 'diarrhea', 'allergic reaction', 'anaphyla', 'hospital', 'hospitalized', 'ambulance', 'emergency room', ' er visit', 'got sick', 'made me sick', 'made us sick', 'made my son sick', 'made my daughter sick'] },
-  { label: 'Contamination', words: ['mold', 'moldy', 'roach', 'cockroach', 'rodent', ' mice ', ' rat ', 'maggot', 'foreign object', 'glass in my', 'metal in my', 'hair in my', 'plastic in my', 'bug in my', 'insect in my'] },
+  { label: 'Illness / Food Safety', words: ['food poisoning', 'poisoned', 'vomit', 'throwing up', 'nausea', 'nauseous', 'diarrhea', 'allergic reaction', 'anaphyla', 'hospital', 'hospitalized', 'ambulance', 'emergency room', 'er visit', 'got sick', 'made me sick', 'made us sick', 'made my son sick', 'made my daughter sick'] },
+  { label: 'Contamination', words: ['mold', 'moldy', 'roach', 'cockroach', 'rodent', 'mice', 'rat', 'maggot', 'foreign object', 'glass in my', 'metal in my', 'hair in my', 'plastic in my', 'bug in my', 'insect in my'] },
   { label: 'Injury', words: ['injured', 'injury', 'burned me', 'burnt me', 'third degree', 'cut myself', 'bleeding', 'broke a tooth', 'chipped my tooth'] },
 ];
 
+// Whole-word boundaries so "sue" doesn't match inside "issue", "rat" doesn't
+// match inside "restaurant/great", etc. Phrases (multi-word entries) still
+// work the same way — \b only needs to anchor the very first/last character.
+function wordMatch(text, phrase) {
+  const escaped = phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}\\b`, 'i').test(text);
+}
 function matchCategories(text) {
-  const t = ` ${(text || '').toLowerCase()} `;
-  return KEYWORD_CATEGORIES.filter(cat => cat.words.some(w => t.includes(w))).map(cat => cat.label);
+  const t = text || '';
+  return KEYWORD_CATEGORIES.filter(cat => cat.words.some(w => wordMatch(t, w))).map(cat => cat.label);
 }
 
 export function getBlobStore() {
@@ -62,7 +72,10 @@ async function fetchCurrentMonthCases() {
 
 // Deliberately Mike only, not the wider global notify list — explicit request
 // (2026-08-14) to keep these urgent legal/health/safety alerts limited to him.
-const ALERT_RECIPIENTS = ['Mike@PeopleCapitalGroup.com'];
+// TEMPORARY: swapped to Ahmed for testing the word-boundary fix (2026-08-14)
+// after the substring-match bug flooded Mike with ~90 false positives.
+// Switch back to Mike@PeopleCapitalGroup.com once confirmed clean.
+const ALERT_RECIPIENTS = ['ahmed@peoplecapitalgroup.com'];
 
 async function getRecipients() {
   return ALERT_RECIPIENTS;
