@@ -72,10 +72,9 @@ async function fetchCurrentMonthCases() {
 
 // Deliberately Mike only, not the wider global notify list — explicit request
 // (2026-08-14) to keep these urgent legal/health/safety alerts limited to him.
-// TEMPORARY: swapped to Ahmed for testing the word-boundary fix (2026-08-14)
-// after the substring-match bug flooded Mike with ~90 false positives.
-// Switch back to Mike@PeopleCapitalGroup.com once confirmed clean.
-const ALERT_RECIPIENTS = ['ahmed@peoplecapitalgroup.com'];
+// Word-boundary matching confirmed clean (4 genuine hits, 0 false positives)
+// against a temporary Ahmed test recipient before switching back to Mike.
+const ALERT_RECIPIENTS = ['Mike@PeopleCapitalGroup.com'];
 
 async function getRecipients() {
   return ALERT_RECIPIENTS;
