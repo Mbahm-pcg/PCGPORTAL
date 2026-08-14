@@ -19793,16 +19793,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
       { id: "pulse", label: "Pulse", icon: (c) => ICONS.pulse(c), green: true },
       { id: "finance", label: "Finance", icon: (c) => ICONS.dollar(c), cash: true },
-      { id: "impact", label: "Impact Radar", icon: (c) => ICONS.map(c) },
+      { id: "impact", label: "Impact Radar", icon: (c) => ICONS.search(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
-      { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
-      { id: "email", label: "Email", icon: "\u{1F4E7}" },
+      { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
+      { id: "email", label: "Email", icon: (c) => ICONS.mail(c) },
       { id: "admin", label: "Admin", icon: (c) => ICONS.settings(c) },
-      { id: "ops-hub", label: "Operations", icon: (c) => ICONS.analytics(c), noPinToggle: true },
-      { id: "team-hub", label: "Team & Sites", icon: (c) => ICONS.locations(c), noPinToggle: true },
-      { id: "system-hub", label: "System", icon: (c) => ICONS.settings(c), noPinToggle: true }
+      { id: "ops-hub", label: "Operations", icon: (c) => ICONS.schedule(c), noPinToggle: true },
+      { id: "team-hub", label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true },
+      { id: "system-hub", label: "System", icon: (c) => ICONS.folder(c), noPinToggle: true }
     ];
     if (ut === "office_staff") return [
       ...BASE_TABS,
@@ -19813,16 +19813,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
       { id: "pulse", label: "Pulse", icon: (c) => ICONS.pulse(c), green: true },
       { id: "finance", label: "Finance", icon: (c) => ICONS.dollar(c), cash: true },
-      { id: "impact", label: "Impact Radar", icon: (c) => ICONS.map(c) },
+      { id: "impact", label: "Impact Radar", icon: (c) => ICONS.search(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
-      { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
+      { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
       { id: "users", label: "Users", icon: (c) => ICONS.users(c) },
-      { id: "email", label: "Email", icon: "\u{1F4E7}" },
-      { id: "ops-hub", label: "Operations", icon: (c) => ICONS.analytics(c), noPinToggle: true },
-      { id: "team-hub", label: "Team & Sites", icon: (c) => ICONS.locations(c), noPinToggle: true },
-      { id: "system-hub", label: "System", icon: (c) => ICONS.settings(c), noPinToggle: true }
+      { id: "email", label: "Email", icon: (c) => ICONS.mail(c) },
+      { id: "ops-hub", label: "Operations", icon: (c) => ICONS.schedule(c), noPinToggle: true },
+      { id: "team-hub", label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true },
+      { id: "system-hub", label: "System", icon: (c) => ICONS.folder(c), noPinToggle: true }
     ];
     if (ut === "auditor") return [
       ...BASE_TABS,
@@ -19841,9 +19841,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
-      { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
-      { id: "ops-hub", label: "Operations", icon: (c) => ICONS.analytics(c), noPinToggle: true },
-      { id: "team-hub", label: "Team & Sites", icon: (c) => ICONS.locations(c), noPinToggle: true }
+      { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
+      { id: "ops-hub", label: "Operations", icon: (c) => ICONS.schedule(c), noPinToggle: true },
+      { id: "team-hub", label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true }
     ];
     if (ut === "manager") return [
       ...BASE_TABS,
@@ -19853,7 +19853,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "pnl", label: "My P&L", icon: (c) => ICONS.dollar(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
-      { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.projects(c) }
+      { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) }
     ];
     if (ut === "construction") return [
       ...BASE_TABS,
@@ -20755,7 +20755,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.89";
+  var APP_VERSION = "v19.93";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -28497,6 +28497,57 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     },
     /* @__PURE__ */ React.createElement("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: pinned ? "currentColor" : "none", stroke: "currentColor", strokeWidth: "1.75", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" }))
   ), /* @__PURE__ */ React.createElement("div", { style: { width: 38, height: 38, borderRadius: "0.65rem", background: `${color}20`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "0.7rem" } }, icon), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.3rem", lineHeight: 1.45 } }, sub), badge && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", bottom: "1rem", right: "1.2rem", fontSize: "0.65rem", fontWeight: 800, padding: "0.15rem 0.5rem", borderRadius: 999, background: "#ef444428", color: "#ef4444" } }, badge));
+  var MOBILE_LAUNCHER_TAB_ID = "__launcher__";
+  function LauncherTile({ th, icon, label, badge, onClick, pinned, onTogglePin }) {
+    const [pressed, setPressed] = React.useState(false);
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        onClick,
+        onTouchStart: () => onTogglePin && setPressed(true),
+        onTouchEnd: () => setPressed(false),
+        onContextMenu: (e) => {
+          if (onTogglePin) {
+            e.preventDefault();
+            onTogglePin();
+          }
+        },
+        style: { display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", cursor: "pointer", position: "relative", touchAction: "manipulation" }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { width: 52, height: 52, borderRadius: "1rem", background: th.card2, border: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", transition: "transform .15s, background .15s", transform: pressed ? "scale(0.94)" : "none" } }, icon, badge && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999, background: "#ef4444", color: "#fff", fontSize: "0.6rem", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" } }, badge), pinned && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", bottom: -3, right: -3, fontSize: "0.6rem" } }, "\u2B50")),
+      /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, color: th.text, textAlign: "center", lineHeight: 1.15, maxWidth: 74 } }, label)
+    );
+  }
+  function LauncherSection({ th, title, tiles, pinnedNavIds, togglePinNav, onNavigate, navBadge }) {
+    if (!tiles.length) return null;
+    return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: "0.9rem" } }, title), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem 0.5rem" } }, tiles.map((t) => /* @__PURE__ */ React.createElement(
+      LauncherTile,
+      {
+        key: t.id,
+        th,
+        icon: typeof t.icon === "function" ? t.icon(O) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.3rem" } }, t.icon),
+        label: t.label,
+        badge: navBadge ? navBadge(t) : null,
+        onClick: () => onNavigate(t.id),
+        pinned: pinnedNavIds?.includes(t.id),
+        onTogglePin: !t.noPinToggle && togglePinNav ? () => togglePinNav(t.id) : void 0
+      }
+    ))));
+  }
+  var LAUNCHER_ADMIN_IDS = /* @__PURE__ */ new Set(["admin", "users", "ops-hub", "team-hub", "system-hub", "reports", "audits", "analytics", "anomalies", "scorecard", "finance", "impact", "email"]);
+  function MobileAppLauncher({ user, th, dark, tabs, onNavigate, pinnedNavIds, togglePinNav, navBadge, onOpenProfile, onToggleTheme, onLogout }) {
+    const pinned = tabs.filter((t) => pinnedNavIds?.includes(t.id));
+    const rest = tabs.filter((t) => !pinnedNavIds?.includes(t.id));
+    const workspace = rest.filter((t) => !LAUNCHER_ADMIN_IDS.has(t.id));
+    const adminGroup = rest.filter((t) => LAUNCHER_ADMIN_IDS.has(t.id));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { onClick: onOpenProfile, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.75rem 0.9rem", background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: "0.75rem", marginBottom: "1.5rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 40, height: 40, borderRadius: "0.6rem", background: `linear-gradient(135deg, ${O} 0%, #ff9055 100%)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "0.85rem", color: "#fff", flexShrink: 0 } }, user?.initials), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.88rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, user?.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, user?.role)), onToggleTheme && /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+      e.stopPropagation();
+      onToggleTheme();
+    }, title: "Toggle theme", style: { width: 36, height: 36, borderRadius: "0.5rem", border: `1px solid ${th.cardBorder}`, background: th.card3, color: th.muted, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, dark ? ICONS.sun("#f59e0b") : ICONS.moon(th.muted)), onLogout && /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+      e.stopPropagation();
+      onLogout();
+    }, title: "Sign out", style: { width: 36, height: 36, borderRadius: "0.5rem", border: `1px solid ${th.cardBorder}`, background: th.card3, color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, ICONS.logout("#ef4444"))), /* @__PURE__ */ React.createElement(LauncherSection, { th, title: "Quick Access", tiles: pinned, pinnedNavIds, togglePinNav, onNavigate, navBadge }), /* @__PURE__ */ React.createElement(LauncherSection, { th, title: "Workspace", tiles: workspace, pinnedNavIds, togglePinNav, onNavigate, navBadge }), /* @__PURE__ */ React.createElement(LauncherSection, { th, title: "Admin & Reports", tiles: adminGroup, pinnedNavIds, togglePinNav, onNavigate, navBadge }), pinned.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, textAlign: "center", marginBottom: "1rem" } }, "Tip: press and hold any tile to pin it to Quick Access."));
+  }
   var TileGrid = ({ title, tiles, color, th, isMobile, onNavigate, pinnedNavIds, togglePinNav }) => /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "1rem" } }, title), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.9rem" } }, tiles.map((t) => /* @__PURE__ */ React.createElement(
     HubTile,
     {
@@ -33319,22 +33370,6 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return true;
       }
     });
-    const [showMoreSheet, setShowMoreSheet] = useState(false);
-    const [showPinEditor, setShowPinEditor] = useState(false);
-    const [mobileNavPins, setMobileNavPins] = useState(null);
-    useEffect(() => {
-      if (!user?.id) {
-        setMobileNavPins(null);
-        return;
-      }
-      try {
-        const saved = localStorage.getItem("pcg_nav_pins_" + user.id);
-        if (saved) setMobileNavPins(JSON.parse(saved));
-        else setMobileNavPins(null);
-      } catch {
-        setMobileNavPins(null);
-      }
-    }, [user?.id]);
     const [pinnedTabIds, setPinnedTabIds] = useState(null);
     useEffect(() => {
       if (!user?.id) {
@@ -33553,7 +33588,6 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [timeoutCountdown, setTimeoutCountdown] = useState(60);
     const lastActivityRef = useRef(Date.now());
     const warningActiveRef = useRef(false);
-    const [drawerOpen, setDrawerOpen] = useState(false);
     const [dataAlert, setDataAlert] = useState(null);
     const importRef = useRef(null);
     const logoRef = useRef(null);
@@ -33647,20 +33681,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       return null;
     };
     useEffect(() => {
-      if (!user || !tab) return;
+      if (!user || !tab || tab === MOBILE_LAUNCHER_TAB_ID) return;
       const ids = tabsForUser(user).map((t) => t.id);
       if (!ids.includes(tab)) setTab(ids[0] || "dashboard");
     }, [accessOverrides, tab, user?.userType]);
-    useEffect(() => {
-      if (isMobile && drawerOpen) {
-        document.body.style.overflow = "hidden";
-      } else {
-        document.body.style.overflow = "";
-      }
-      return () => {
-        document.body.style.overflow = "";
-      };
-    }, [isMobile, drawerOpen]);
     useEffect(() => {
       const hiddenAt = { t: null };
       const TIMEOUT_MS = 15 * 60 * 1e3;
@@ -33987,9 +34011,6 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.history.replaceState({}, "", window.location.pathname);
       }
     }, [user]);
-    useEffect(() => {
-      if (!isMobile) setDrawerOpen(false);
-    }, [isMobile]);
     useEffect(() => {
       saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners });
     }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners]);
@@ -35001,7 +35022,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           th,
           user,
           stores,
-          onFullPortal: () => togglePortalMode(true),
+          onFullPortal: () => {
+            togglePortalMode(true);
+            setTab(MOBILE_LAUNCHER_TAB_ID);
+          },
           onLogout: handleLogout,
           chatChannels,
           setChatChannels,
@@ -35021,7 +35045,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           setProjects,
           todos,
           setTodos,
-          onFullPortal: () => togglePortalMode(true),
+          onFullPortal: () => {
+            togglePortalMode(true);
+            setTab(MOBILE_LAUNCHER_TAB_ID);
+          },
           onOpenChat: () => {
             togglePortalMode(true);
             setTab("chat");
@@ -35041,7 +35068,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           toggleDark: () => setDark((d) => !d),
           salesWeeks,
           cashDeposits,
-          onFullPortal: () => togglePortalMode(true),
+          onFullPortal: () => {
+            togglePortalMode(true);
+            setTab(MOBILE_LAUNCHER_TAB_ID);
+          },
           onTickets: () => {
             togglePortalMode(true);
             setTab("tickets");
@@ -35825,7 +35855,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       /* @__PURE__ */ React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polyline", { points: collapsed ? "9 18 15 12 9 6" : "15 18 9 12 15 6" }))
     )));
     if (user && isMobile && !preferFullPortal && (user.userType === "dm" || user.userType === "executive" || user.userType === "it")) {
-      return /* @__PURE__ */ React.createElement(Guard, { name: "mobile-shell", fallback: /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100dvh", background: th.bg, color: th.text, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", color: th.muted } }, "The mobile view hit an error."), /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(true), style: { ...btn(th), padding: "0.6rem 1.2rem" } }, "Open full portal"), /* @__PURE__ */ React.createElement("button", { onClick: handleLogout, style: { background: "none", border: "none", color: th.muted, fontSize: "0.8rem", cursor: "pointer" } }, "Log out")) }, /* @__PURE__ */ React.createElement(MobileAnalystShell, { user, th, dark, onLogout: handleLogout, stores, announcements, announcementsDismissed, setAnnouncementsDismissed, onSwitchToFull: () => togglePortalMode(true), onTickets: () => {
+      return /* @__PURE__ */ React.createElement(Guard, { name: "mobile-shell", fallback: /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100dvh", background: th.bg, color: th.text, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", color: th.muted } }, "The mobile view hit an error."), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+        togglePortalMode(true);
+        setTab(MOBILE_LAUNCHER_TAB_ID);
+      }, style: { ...btn(th), padding: "0.6rem 1.2rem" } }, "Open full portal"), /* @__PURE__ */ React.createElement("button", { onClick: handleLogout, style: { background: "none", border: "none", color: th.muted, fontSize: "0.8rem", cursor: "pointer" } }, "Log out")) }, /* @__PURE__ */ React.createElement(MobileAnalystShell, { user, th, dark, onLogout: handleLogout, stores, announcements, announcementsDismissed, setAnnouncementsDismissed, onSwitchToFull: () => {
+        togglePortalMode(true);
+        setTab(MOBILE_LAUNCHER_TAB_ID);
+      }, onTickets: () => {
         togglePortalMode(true);
         setTab("tickets");
       }, onTasks: () => {
@@ -35864,39 +35900,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       "Log Out"
     ))), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(AskBar, { user, stores, th }), /* @__PURE__ */ React.createElement("div", { className: "desktop-sidebar sidebar-drawer", style: { width: sidebarCollapsed ? 64 : "clamp(240px, 20vw, 360px)", background: th.sidebar, borderRight: `1px solid ${th.sidebarBorder}`, display: "flex", flexDirection: "column", flexShrink: 0, height: "100vh", overflow: "hidden", transition: "width .25s cubic-bezier(.4,0,.2,1)", position: "sticky", top: 0, alignSelf: "flex-start" } }, /* @__PURE__ */ React.createElement(SidebarContent, { collapsed: sidebarCollapsed, navRef: sidebarNavRef, onNavScroll: (e) => {
       sidebarScrollPos.current = e.currentTarget.scrollTop;
-    } })), isMobile && drawerOpen && /* @__PURE__ */ React.createElement("div", { className: "sidebar-overlay", onClick: () => setDrawerOpen(false) }), isMobile && /* @__PURE__ */ React.createElement("div", { className: "sidebar-drawer", style: {
-      position: "fixed",
-      top: 0,
-      left: 0,
-      height: "100vh",
-      width: "100vw",
-      zIndex: 200,
-      background: th.sidebar,
-      backdropFilter: "blur(18px) saturate(140%)",
-      WebkitBackdropFilter: "blur(18px) saturate(140%)",
-      display: "flex",
-      flexDirection: "column",
-      transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
-      transition: "transform .28s cubic-bezier(.4,0,.2,1)",
-      overflowY: "auto"
-    } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setDrawerOpen(false), style: {
-      position: "absolute",
-      top: 14,
-      right: 14,
-      background: "none",
-      border: "none",
-      color: th.muted,
-      fontSize: "1.75rem",
-      cursor: "pointer",
-      lineHeight: 1,
-      zIndex: 1,
-      width: 40,
-      height: 40,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: "0.5rem"
-    } }, "\xD7"), /* @__PURE__ */ React.createElement(SidebarContent, { onNav: () => setDrawerOpen(false) })), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0, overflowX: "clip", transition: "background .3s", paddingBottom: isMobile ? 72 : 0 } }, /* @__PURE__ */ React.createElement("div", { className: "mobile-topbar-padding", style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "0.6rem 1rem" : "0.6rem 5vw", minHeight: isMobile ? 52 : "unset", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "relative", zIndex: 10, transition: "background .3s, border .3s" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && /* @__PURE__ */ React.createElement("button", { onClick: () => setDrawerOpen((o) => !o), style: {
+    } })), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0, overflowX: "clip", transition: "background .3s", paddingBottom: isMobile ? 72 : 0 } }, /* @__PURE__ */ React.createElement("div", { className: "mobile-topbar-padding", style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "0.6rem 1rem" : "0.6rem 5vw", minHeight: isMobile ? 52 : "unset", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "relative", zIndex: 10, transition: "background .3s, border .3s" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && tab !== MOBILE_LAUNCHER_TAB_ID && /* @__PURE__ */ React.createElement("button", { onClick: () => setTab(MOBILE_LAUNCHER_TAB_ID), title: "Home", style: {
       background: "none",
       border: "none",
       cursor: "pointer",
@@ -35909,10 +35913,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       borderRadius: 8,
       flexShrink: 0,
       touchAction: "manipulation"
-    } }, ICONS.menu(th.text)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: isMobile ? 17 : 18, color: th.text, letterSpacing: -0.5, lineHeight: 1.1 } }, (() => {
+    } }, ICONS.dashboard(th.text)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: isMobile ? 17 : 18, color: th.text, letterSpacing: -0.5, lineHeight: 1.1 } }, tab === MOBILE_LAUNCHER_TAB_ID ? "Menu" : (() => {
       const ct = TABS.find((t) => t.id === tab);
       return ct ? /* @__PURE__ */ React.createElement(React.Fragment, null, typeof ct.icon === "function" ? ct.icon(th.text) : ct.icon, " ", ct.label) : null;
-    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.7rem", marginTop: "0.1rem", lineHeight: 1.1 } }, tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "finance" && "P&L, NDCP orders, cash deposits, reconciliation, and expenses in one place.", tab === "ops-hub" && "Tasks, Pulse, Analytics, Anomalies, DM Scorecard, and Audits in one place.", tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place.", tab === "system-hub" && "Admin, Email, and Reports in one place.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "audits" && "Field operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { ref: notifRef }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.7rem", marginTop: "0.1rem", lineHeight: 1.1 } }, tab === MOBILE_LAUNCHER_TAB_ID && "Jump to any part of the portal.", tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "finance" && "P&L, NDCP orders, cash deposits, reconciliation, and expenses in one place.", tab === "ops-hub" && "Tasks, Pulse, Analytics, Anomalies, DM Scorecard, and Audits in one place.", tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place.", tab === "system-hub" && "Admin, Email, and Reports in one place.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "audits" && "Field operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { ref: notifRef }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setShowNotifs((s) => !s);
       setShowChatPanel(false);
     }, style: { background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4, display: "flex", alignItems: "center" } }, ICONS.bell(th.text), filterNotifsByRole(notifications, user).filter((n) => !n.read).length > 0 && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -2, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, background: "#ff4444", color: "#fff", fontSize: "0.5625rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 2px " + (th.headerBg || th.bg) } }, filterNotifsByRole(notifications, user).filter((n) => !n.read).length)), showNotifs && (() => {
@@ -36139,7 +36143,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         /* @__PURE__ */ React.createElement(OrionIcon, { size: 40 })
       ),
       document.body
-    ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" || tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
+    ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" || tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === MOBILE_LAUNCHER_TAB_ID && /* @__PURE__ */ React.createElement(MobileAppLauncher, { user, th, dark, tabs: TABS, onNavigate: setTab, pinnedNavIds, togglePinNav, navBadge, onOpenProfile: () => setShowProfile(true), onToggleTheme: handleToggle, onLogout: handleLogout }), tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
     }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
@@ -36173,134 +36177,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "reports", name: "Reports", sub: "Dashboards, decks, and scheduled reports from Orion.", show: accessSubOn(accessOverrides, user?.userType, "system-hub", "reports"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" }), /* @__PURE__ */ React.createElement("path", { d: "M14 2v6h6M9 13h6M9 17h6" })) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement(TileGrid, { title: "System", tiles: sysTiles, color: SYS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
-    })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), (() => {
-      const ut = user?.userType;
-      const roleDefaults = ut === "executive" || ut === "it" ? ["pulse", "labor", "chat"] : ut === "office_staff" ? ["pulse", "tickets", "chat"] : ut === "dm" ? ["tasks", "labor", "chat"] : ut === "manager" ? ["tasks", "chat", "tickets"] : ut === "maintenance" ? ["tickets", "calendar", "chat"] : ut === "construction" ? ["projects", "chat", "tickets"] : ut === "auditor" ? ["audits", "tickets", "chat"] : ["chat", "announcements", "tickets"];
-      const savePins = (pins) => {
-        setMobileNavPins(pins);
-        try {
-          localStorage.setItem("pcg_nav_pins_" + user.id, JSON.stringify(pins));
-        } catch {
-        }
-      };
-      const customPins3 = mobileNavPins || roleDefaults;
-      const pinnedIds = ["dashboard", ...customPins3];
-      const pinnedTabs = pinnedIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);
-      const moreTabs = TABS.filter((t) => !pinnedIds.includes(t.id) && t.id !== "dashboard");
-      const moreHasActive = moreTabs.some((t) => t.id === tab);
-      const MobileNavBtn = ({ t, onClick: oc }) => {
-        const active = tab === t.id;
-        const color = active ? t.green ? "#00d084" : O : th.muted;
-        const badge = t.id === "chat" && chatUnreadCount > 0 ? chatUnreadCount : t.id === "cash" && cashMissingCount > 0 ? cashMissingCount : null;
-        const showRedDot = t.id === "tasks" && !badge;
-        const showGreenDot = t.id === "pulse";
-        return /* @__PURE__ */ React.createElement("button", { onClick: oc || (() => setTab(t.id)), style: {
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "0.2rem",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          padding: "6px 4px 4px",
-          color,
-          fontFamily: "'Source Sans 3'",
-          fontSize: "0.65rem",
-          fontWeight: active ? 700 : 400,
-          transition: "color .15s",
-          position: "relative",
-          borderTop: active ? `2.5px solid ${color}` : "2.5px solid transparent",
-          touchAction: "manipulation"
-        } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.25rem", display: "flex", alignItems: "center", lineHeight: 1, position: "relative" } }, typeof t.icon === "function" ? t.icon(color) : t.icon, (showRedDot || showGreenDot) && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -1, right: -4, width: 7, height: 7, borderRadius: "50%", background: showRedDot ? "#ef4444" : "#00d084", zIndex: 2, pointerEvents: "none" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", inset: 0, borderRadius: "50%", background: showRedDot ? "#ef4444" : "#00d084", animation: "navDotPing 1.4s ease-out infinite", pointerEvents: "none" } }))), /* @__PURE__ */ React.createElement("span", { style: { lineHeight: 1.1, maxWidth: 56, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.label), badge > 0 && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: "calc(50% - 20px)", minWidth: 16, height: 16, borderRadius: 8, background: "#ef4444", color: "#fff", fontSize: "0.55rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", boxShadow: "0 1px 4px #ef4444aa" } }, badge > 9 ? "9+" : badge));
-      };
-      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "bottom-nav", style: {
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: 64,
-        zIndex: 100,
-        background: th.sidebar,
-        borderTop: `1px solid ${th.sidebarBorder}`,
-        display: "flex",
-        alignItems: "stretch",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)"
-      } }, pinnedTabs.map((t) => /* @__PURE__ */ React.createElement(MobileNavBtn, { key: t.id, t })), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowMoreSheet((v) => !v), style: {
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "0.2rem",
-        background: "none",
-        border: "none",
-        cursor: "pointer",
-        padding: "6px 4px 4px",
-        color: showMoreSheet || moreHasActive ? O : th.muted,
-        fontFamily: "'Source Sans 3'",
-        fontSize: "0.65rem",
-        fontWeight: showMoreSheet || moreHasActive ? 700 : 400,
-        borderTop: showMoreSheet || moreHasActive ? `2.5px solid ${O}` : "2.5px solid transparent",
-        position: "relative",
-        touchAction: "manipulation"
-      } }, /* @__PURE__ */ React.createElement(
-        Icon,
-        {
-          color: showMoreSheet || moreHasActive ? O : th.muted,
-          size: 18,
-          d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "3", y1: "12", x2: "21", y2: "12" }), /* @__PURE__ */ React.createElement("line", { x1: "3", y1: "6", x2: "21", y2: "6" }), /* @__PURE__ */ React.createElement("line", { x1: "3", y1: "18", x2: "21", y2: "18" }))
-        }
-      ), /* @__PURE__ */ React.createElement("span", null, "More"), moreHasActive && !showMoreSheet && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 5, right: "calc(50% - 16px)", width: 7, height: 7, borderRadius: "50%", background: O, boxShadow: `0 0 5px ${O}` } }))), showMoreSheet && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("style", null, `@keyframes moreSheetUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}`), /* @__PURE__ */ React.createElement("div", { onClick: () => setShowMoreSheet(false), style: {
-        position: "fixed",
-        inset: 0,
-        zIndex: 110,
-        background: "#00000066",
-        animation: "fadeIn .15s ease"
-      } }), /* @__PURE__ */ React.createElement("div", { style: {
-        position: "fixed",
-        bottom: 64,
-        left: 0,
-        right: 0,
-        zIndex: 120,
-        background: th.sidebar,
-        borderTop: `1px solid ${th.sidebarBorder}`,
-        borderRadius: "16px 16px 0 0",
-        maxHeight: "65vh",
-        overflowY: "auto",
-        padding: "0 0 8px",
-        boxShadow: "0 -8px 32px #00000044",
-        animation: "moreSheetUp 200ms cubic-bezier(0.25,0.46,0.45,0.94) both"
-      } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", padding: "10px 0 4px" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 36, height: 4, borderRadius: 999, background: th.subtle, opacity: 0.5 } })), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", padding: "4px 8px 8px", gap: "4px" } }, moreTabs.map((t) => {
-        const active = tab === t.id;
-        const color = active ? t.green ? "#00d084" : O : th.muted;
-        const badge = t.id === "chat" && chatUnreadCount > 0 ? chatUnreadCount : t.id === "cash" && cashMissingCount > 0 ? cashMissingCount : null;
-        return /* @__PURE__ */ React.createElement("button", { key: t.id, onClick: () => {
-          setTab(t.id);
-          setShowMoreSheet(false);
-        }, style: {
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "0.3rem",
-          padding: "16px 8px 14px",
-          minHeight: 72,
-          background: active ? `${color}12` : "transparent",
-          border: `1px solid ${active ? `${color}33` : "transparent"}`,
-          borderRadius: "12px",
-          cursor: "pointer",
-          position: "relative",
-          fontFamily: "'Source Sans 3'",
-          fontSize: "0.68rem",
-          fontWeight: active ? 700 : 400,
-          color,
-          transition: "all .15s",
-          touchAction: "manipulation"
-        } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.4rem", display: "flex", lineHeight: 1 } }, typeof t.icon === "function" ? t.icon(color) : t.icon), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "center", lineHeight: 1.25, maxWidth: 80, wordBreak: "break-word", hyphens: "auto" } }, t.label), badge > 0 && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 8, right: 8, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" } }));
-      })))));
-    })(), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
+    })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(PCGPortal, null));
 })();

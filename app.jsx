@@ -24177,16 +24177,16 @@ const computeRoleTabs = (user) => {
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
     { id: "finance",   label: "Finance",        icon: (c) => ICONS.dollar(c), cash: true },
-    { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.map(c) },
+    { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.search(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",        icon: (c) => ICONS.audits(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
-    { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
-    { id: "email",     label: "Email",        icon: '📧' },
+    { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
+    { id: "email",     label: "Email",        icon: (c) => ICONS.mail(c) },
     { id: "admin",     label: "Admin",        icon: (c) => ICONS.settings(c) },
-    { id: "ops-hub",    label: "Operations",   icon: (c) => ICONS.analytics(c), noPinToggle: true },
-    { id: "team-hub",   label: "Team & Sites", icon: (c) => ICONS.locations(c), noPinToggle: true },
-    { id: "system-hub", label: "System",       icon: (c) => ICONS.settings(c), noPinToggle: true },
+    { id: "ops-hub",    label: "Operations",   icon: (c) => ICONS.schedule(c), noPinToggle: true },
+    { id: "team-hub",   label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true },
+    { id: "system-hub", label: "System",       icon: (c) => ICONS.folder(c), noPinToggle: true },
   ];
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
@@ -24198,16 +24198,16 @@ const computeRoleTabs = (user) => {
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
     { id: "finance",   label: "Finance",      icon: (c) => ICONS.dollar(c), cash: true },
-    { id: "impact",    label: "Impact Radar", icon: (c) => ICONS.map(c) },
+    { id: "impact",    label: "Impact Radar", icon: (c) => ICONS.search(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
-    { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
+    { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
-    { id: "email",     label: "Email",     icon: '📧' },
-    { id: "ops-hub",    label: "Operations",   icon: (c) => ICONS.analytics(c), noPinToggle: true },
-    { id: "team-hub",   label: "Team & Sites", icon: (c) => ICONS.locations(c), noPinToggle: true },
-    { id: "system-hub", label: "System",       icon: (c) => ICONS.settings(c), noPinToggle: true },
+    { id: "email",     label: "Email",     icon: (c) => ICONS.mail(c) },
+    { id: "ops-hub",    label: "Operations",   icon: (c) => ICONS.schedule(c), noPinToggle: true },
+    { id: "team-hub",   label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true },
+    { id: "system-hub", label: "System",       icon: (c) => ICONS.folder(c), noPinToggle: true },
   ];
   // Field Operations Auditor → base workspace + audits (conduct/review) + pulse/map. Tickets is in BASE_TABS.
   if (ut === "auditor") return [
@@ -24228,9 +24228,9 @@ const computeRoleTabs = (user) => {
     { id: "reports",   label: "Reports",        icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",         icon: (c) => ICONS.audits(c) },
     { id: "projects",  label: "Projects",       icon: (c) => ICONS.projects(c) },
-    { id: "deals",     label: "Deal Pipeline",  icon: (c) => ICONS.projects(c) },
-    { id: "ops-hub",   label: "Operations",     icon: (c) => ICONS.analytics(c), noPinToggle: true },
-    { id: "team-hub",  label: "Team & Sites",   icon: (c) => ICONS.locations(c), noPinToggle: true },
+    { id: "deals",     label: "Deal Pipeline",  icon: (c) => ICONS.checkCircle(c) },
+    { id: "ops-hub",   label: "Operations",     icon: (c) => ICONS.schedule(c), noPinToggle: true },
+    { id: "team-hub",  label: "Team & Sites",   icon: (c) => ICONS.briefcase(c), noPinToggle: true },
   ];
   // Store managers see only their assigned stores.
   if (ut === "manager") return [
@@ -24241,7 +24241,7 @@ const computeRoleTabs = (user) => {
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
-    { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.projects(c) },
+    { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
   ];
   // Construction & Development → base + locations + projects (no analytics/pulse)
   if (ut === "construction") return [
@@ -25549,7 +25549,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.89";
+const APP_VERSION = "v19.93";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -37134,6 +37134,87 @@ const HubTile = ({ th, color, icon, name, sub, badge, onClick, pinned, onToggleP
 );
 // A category hub page: title + a grid of HubTiles. Shared by the ops-hub/team-hub/
 // system-hub routes so the three category pages can't drift apart in grid/heading markup.
+// Virtual tab id for the mobile "app launcher" home screen — never a real
+// section, just a grid of every tab this role can see. Tapping "Full Portal"
+// on a mobile shell (Orion/My Store/Mobile View) routes here first instead of
+// dropping straight into whatever tab was last active (usually Dashboard), and
+// it's now the sole mobile nav surface — the hamburger drawer was removed once
+// this existed, so this screen also carries the profile/theme/sign-out controls
+// that used to live only in the sidebar.
+const MOBILE_LAUNCHER_TAB_ID = '__launcher__';
+// A single compact icon+label app-icon tile — deliberately no description text,
+// unlike HubTile — a launcher grid is meant to be scanned at a glance, not read.
+function LauncherTile({ th, icon, label, badge, onClick, pinned, onTogglePin }) {
+  const [pressed, setPressed] = React.useState(false);
+  return (
+    <div onClick={onClick}
+      onTouchStart={() => onTogglePin && setPressed(true)}
+      onTouchEnd={() => setPressed(false)}
+      onContextMenu={e => { if (onTogglePin) { e.preventDefault(); onTogglePin(); } }}
+      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', position: 'relative', touchAction: 'manipulation' }}>
+      <div style={{ width: 52, height: 52, borderRadius: '1rem', background: th.card2, border: `1px solid ${th.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', transition: 'transform .15s, background .15s', transform: pressed ? 'scale(0.94)' : 'none' }}>
+        {icon}
+        {badge && <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 999, background: '#ef4444', color: '#fff', fontSize: '0.6rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{badge}</span>}
+        {pinned && <span style={{ position: 'absolute', bottom: -3, right: -3, fontSize: '0.6rem' }}>⭐</span>}
+      </div>
+      <span style={{ fontSize: '0.7rem', fontWeight: 600, color: th.text, textAlign: 'center', lineHeight: 1.15, maxWidth: 74 }}>{label}</span>
+    </div>
+  );
+}
+function LauncherSection({ th, title, tiles, pinnedNavIds, togglePinNav, onNavigate, navBadge }) {
+  if (!tiles.length) return null;
+  return (
+    <div style={{ marginBottom: '1.75rem' }}>
+      <div style={{ fontSize: '0.72rem', fontWeight: 800, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: '0.9rem' }}>{title}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem 0.5rem' }}>
+        {tiles.map(t => (
+          <LauncherTile key={t.id} th={th}
+            icon={typeof t.icon === 'function' ? t.icon(O) : <span style={{ fontSize: '1.3rem' }}>{t.icon}</span>}
+            label={t.label} badge={navBadge ? navBadge(t) : null} onClick={() => onNavigate(t.id)}
+            pinned={pinnedNavIds?.includes(t.id)} onTogglePin={(!t.noPinToggle && togglePinNav) ? () => togglePinNav(t.id) : undefined} />
+        ))}
+      </div>
+    </div>
+  );
+}
+// Tabs that belong in the "Admin & Reports" group instead of plain Workspace —
+// mirrors the sidebar's old Admin/Operations accordion grouping.
+const LAUNCHER_ADMIN_IDS = new Set(['admin', 'users', 'ops-hub', 'team-hub', 'system-hub', 'reports', 'audits', 'analytics', 'anomalies', 'scorecard', 'finance', 'impact', 'email']);
+function MobileAppLauncher({ user, th, dark, tabs, onNavigate, pinnedNavIds, togglePinNav, navBadge, onOpenProfile, onToggleTheme, onLogout }) {
+  const pinned = tabs.filter(t => pinnedNavIds?.includes(t.id));
+  const rest = tabs.filter(t => !pinnedNavIds?.includes(t.id));
+  const workspace = rest.filter(t => !LAUNCHER_ADMIN_IDS.has(t.id));
+  const adminGroup = rest.filter(t => LAUNCHER_ADMIN_IDS.has(t.id));
+  return (
+    <div>
+      {/* Account row — replaces what the hamburger drawer used to carry (profile, theme, sign out) */}
+      <div onClick={onOpenProfile} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 0.9rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: '0.75rem', marginBottom: '1.5rem', cursor: 'pointer' }}>
+        <div style={{ width: 40, height: 40, borderRadius: '0.6rem', background: `linear-gradient(135deg, ${O} 0%, #ff9055 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.85rem', color: '#fff', flexShrink: 0 }}>{user?.initials}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '0.88rem', fontWeight: 700, color: th.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.name}</div>
+          <div style={{ fontSize: '0.7rem', color: th.muted }}>{user?.role}</div>
+        </div>
+        {onToggleTheme && (
+          <button onClick={e => { e.stopPropagation(); onToggleTheme(); }} title="Toggle theme" style={{ width: 36, height: 36, borderRadius: '0.5rem', border: `1px solid ${th.cardBorder}`, background: th.card3, color: th.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            {dark ? ICONS.sun("#f59e0b") : ICONS.moon(th.muted)}
+          </button>
+        )}
+        {onLogout && (
+          <button onClick={e => { e.stopPropagation(); onLogout(); }} title="Sign out" style={{ width: 36, height: 36, borderRadius: '0.5rem', border: `1px solid ${th.cardBorder}`, background: th.card3, color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            {ICONS.logout("#ef4444")}
+          </button>
+        )}
+      </div>
+
+      <LauncherSection th={th} title="Quick Access" tiles={pinned} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} onNavigate={onNavigate} navBadge={navBadge} />
+      <LauncherSection th={th} title="Workspace" tiles={workspace} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} onNavigate={onNavigate} navBadge={navBadge} />
+      <LauncherSection th={th} title="Admin & Reports" tiles={adminGroup} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} onNavigate={onNavigate} navBadge={navBadge} />
+      {pinned.length === 0 && (
+        <div style={{ fontSize: '0.72rem', color: th.muted, textAlign: 'center', marginBottom: '1rem' }}>Tip: press and hold any tile to pin it to Quick Access.</div>
+      )}
+    </div>
+  );
+}
 const TileGrid = ({ title, tiles, color, th, isMobile, onNavigate, pinnedNavIds, togglePinNav }) => (
   <div>
     <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>{title}</h2>
@@ -43888,17 +43969,6 @@ function PCGPortal() {
   // Default to collapsed (icon rail) on first-ever load so every page starts with more
   // room for content — once a user explicitly expands/collapses it, that choice persists.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { const v = localStorage.getItem('pcg_sidebar_collapsed'); return v === null ? true : v === 'true'; } catch { return true; } });
-  const [showMoreSheet, setShowMoreSheet] = useState(false);
-  const [showPinEditor, setShowPinEditor] = useState(false);
-  const [mobileNavPins, setMobileNavPins] = useState(null); // null = use role default
-  useEffect(() => {
-    if (!user?.id) { setMobileNavPins(null); return; }
-    try {
-      const saved = localStorage.getItem('pcg_nav_pins_' + user.id);
-      if (saved) setMobileNavPins(JSON.parse(saved));
-      else setMobileNavPins(null);
-    } catch { setMobileNavPins(null); }
-  }, [user?.id]);
   // Pinned sidebar tabs (user favorites surfaced at the very top). null = use role default.
   // Stored per-user (key suffixed with user.id) so each account keeps its own quick-access
   // set — a shared device no longer leaks one person's pins to the next. Loaded via the
@@ -44071,7 +44141,6 @@ function PCGPortal() {
   const [timeoutCountdown, setTimeoutCountdown] = useState(60);
   const lastActivityRef = useRef(Date.now());
   const warningActiveRef = useRef(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [dataAlert, setDataAlert]   = useState(null); // { type: "success"|"error", msg }
   const importRef = useRef(null);
   const logoRef = useRef(null);
@@ -44159,22 +44228,16 @@ function PCGPortal() {
     }
     return null;
   };
-  // If the active tab just got hidden for this user's role, bounce to a visible one
+  // If the active tab just got hidden for this user's role, bounce to a visible one.
+  // MOBILE_LAUNCHER_TAB_ID is a virtual tab (the mobile icon-grid home screen) that's
+  // never in tabsForUser's list by design — it must be exempted here or this guard
+  // immediately bounces it back to Dashboard right after it's set.
   useEffect(() => {
-    if (!user || !tab) return;
+    if (!user || !tab || tab === MOBILE_LAUNCHER_TAB_ID) return;
     const ids = tabsForUser(user).map(t => t.id);
     if (!ids.includes(tab)) setTab(ids[0] || 'dashboard');
   }, [accessOverrides, tab, user?.userType]);
 
-  // Lock body scroll while mobile drawer is open
-  useEffect(() => {
-    if (isMobile && drawerOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [isMobile, drawerOpen]);
 
   // Reset to login when app resumes after 15+ min in background (PWA fresh-open behavior)
   useEffect(() => {
@@ -44524,9 +44587,6 @@ function PCGPortal() {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, [user]);
-
-  // Close drawer when switching to desktop
-  useEffect(() => { if (!isMobile) setDrawerOpen(false); }, [isMobile]);
 
   // Auto-save all data to localStorage whenever anything changes
   useEffect(() => {
@@ -45589,7 +45649,7 @@ function PCGPortal() {
         th={th}
         user={user}
         stores={stores}
-        onFullPortal={() => togglePortalMode(true)}
+        onFullPortal={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }}
         onLogout={handleLogout}
         chatChannels={chatChannels}
         setChatChannels={setChatChannels}
@@ -45609,7 +45669,7 @@ function PCGPortal() {
         setProjects={setProjects}
         todos={todos}
         setTodos={setTodos}
-        onFullPortal={() => togglePortalMode(true)}
+        onFullPortal={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }}
         onOpenChat={() => { togglePortalMode(true); setTab('chat'); }}
         onLogout={handleLogout}
       />
@@ -45626,7 +45686,7 @@ function PCGPortal() {
         toggleDark={() => setDark(d => !d)}
         salesWeeks={salesWeeks}
         cashDeposits={cashDeposits}
-        onFullPortal={() => togglePortalMode(true)}
+        onFullPortal={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }}
         onTickets={() => { togglePortalMode(true); setTab("tickets"); }}
         onTasks={() => { togglePortalMode(true); setTab("tasks"); }}
         onPulse={() => { setPulseInitialTab('sales'); togglePortalMode(true); setTab("pulse"); }}
@@ -46301,11 +46361,11 @@ function PCGPortal() {
       <Guard name="mobile-shell" fallback={
         <div style={{ minHeight: '100dvh', background: th.bg, color: th.text, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
           <div style={{ fontSize: '0.9rem', color: th.muted }}>The mobile view hit an error.</div>
-          <button onClick={() => togglePortalMode(true)} style={{ ...btn(th), padding: '0.6rem 1.2rem' }}>Open full portal</button>
+          <button onClick={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }} style={{ ...btn(th), padding: '0.6rem 1.2rem' }}>Open full portal</button>
           <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '0.8rem', cursor: 'pointer' }}>Log out</button>
         </div>
       }>
-        <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} onSwitchToFull={() => togglePortalMode(true)} onTickets={() => { togglePortalMode(true); setTab("tickets"); }} onTasks={() => { togglePortalMode(true); setTab("tasks"); }} todos={todos} projects={projects} users={users} />
+        <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} onSwitchToFull={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }} onTickets={() => { togglePortalMode(true); setTab("tickets"); }} onTasks={() => { togglePortalMode(true); setTab("tasks"); }} todos={todos} projects={projects} users={users} />
       </Guard>
     );
   }
@@ -46346,32 +46406,6 @@ function PCGPortal() {
         <SidebarContent collapsed={sidebarCollapsed} navRef={sidebarNavRef} onNavScroll={e => { sidebarScrollPos.current = e.currentTarget.scrollTop; }} />
       </div>
 
-      {/* Mobile drawer overlay */}
-      {isMobile && drawerOpen && (
-        <div className="sidebar-overlay" onClick={() => setDrawerOpen(false)} />
-      )}
-
-      {/* Mobile slide-out drawer */}
-      {isMobile && (
-        <div className="sidebar-drawer" style={{
-          position: "fixed", top: 0, left: 0, height: "100vh", width: "100vw", zIndex: 200,
-          background: th.sidebar, backdropFilter: "blur(18px) saturate(140%)", WebkitBackdropFilter: "blur(18px) saturate(140%)",
-          display: "flex", flexDirection: "column",
-          transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
-          transition: "transform .28s cubic-bezier(.4,0,.2,1)",
-          overflowY: "auto",
-        }}>
-          {/* Close button */}
-          <button onClick={() => setDrawerOpen(false)} style={{
-            position: "absolute", top: 14, right: 14, background: "none", border: "none",
-            color: th.muted, fontSize: "1.75rem", cursor: "pointer", lineHeight: 1, zIndex: 1,
-            width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
-            borderRadius: "0.5rem",
-          }}>×</button>
-          <SidebarContent onNav={() => setDrawerOpen(false)} />
-        </div>
-      )}
-
       {/* Main content. overflowX:'clip' (NOT 'auto'/'hidden') — any other overflow value
           makes this div the scroll container for every position:sticky descendant, and
           since it never scrolls itself (the window does), sticky elements inside the app
@@ -46384,21 +46418,24 @@ function PCGPortal() {
             Flip to sticky deliberately if a persistent header is ever wanted. */}
         <div className="mobile-topbar-padding" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "0.6rem 1rem" : "0.6rem 5vw", minHeight: isMobile ? 52 : "unset", background: th.headerBg, borderBottom: `1px solid ${th.headerBorder}`, position: "relative", zIndex: 10, transition: "background .3s, border .3s" }}>
           <div style={{ display: "flex", alignItems: "center", gap:"0.75rem" }}>
-            {/* Hamburger — mobile only */}
-            {isMobile && (
-              <button onClick={() => setDrawerOpen(o => !o)} style={{
+            {/* Home — back to the icon-grid launcher from anywhere on mobile. Replaces
+                the old hamburger drawer now that the launcher is the sole mobile nav
+                surface (it also carries profile/theme/sign-out, which the drawer used to). */}
+            {isMobile && tab !== MOBILE_LAUNCHER_TAB_ID && (
+              <button onClick={() => setTab(MOBILE_LAUNCHER_TAB_ID)} title="Home" style={{
                 background: "none", border: "none", cursor: "pointer",
                 width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center",
                 color: th.text, borderRadius: 8, flexShrink: 0, touchAction: "manipulation",
               }}>
-                {ICONS.menu(th.text)}
+                {ICONS.dashboard(th.text)}
               </button>
             )}
             <div>
               <h1 style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: isMobile ? 17 : 18, color: th.text, letterSpacing: -0.5, lineHeight: 1.1 }}>
-                {(() => { const ct = TABS.find(t => t.id === tab); return ct ? <>{typeof ct.icon === "function" ? ct.icon(th.text) : ct.icon} {ct.label}</> : null; })()}
+                {tab === MOBILE_LAUNCHER_TAB_ID ? "Menu" : (() => { const ct = TABS.find(t => t.id === tab); return ct ? <>{typeof ct.icon === "function" ? ct.icon(th.text) : ct.icon} {ct.label}</> : null; })()}
               </h1>
               <p className="hide-mobile" style={{ color: th.muted, fontSize:"0.7rem", marginTop:"0.1rem", lineHeight: 1.1 }}>
+                {tab === MOBILE_LAUNCHER_TAB_ID && "Jump to any part of the portal."}
                 {tab === "dashboard" && "Your operations command center."}
                 {tab === "links" && "All your key resources in one place."}
                 {tab === "contacts" && "Team directory and vendor contacts."}
@@ -46776,6 +46813,7 @@ function PCGPortal() {
               instead of white-screening the whole app. key={tab} remounts it on tab change
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
           <Guard key={tab} name="tab-content" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"2rem auto", maxWidth:520, textAlign:"center", color:th.muted }}>This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.</div>}>
+          {tab === MOBILE_LAUNCHER_TAB_ID && <MobileAppLauncher user={user} th={th} dark={dark} tabs={TABS} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} navBadge={navBadge} onOpenProfile={() => setShowProfile(true)} onToggleTheme={handleToggle} onLogout={handleLogout} />}
           {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} /></Guard>}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
@@ -46844,167 +46882,6 @@ function PCGPortal() {
           </Guard>
         </div>
       </div>
-
-      {/* Bottom nav — mobile only, 4 pinned tabs + More */}
-      {(() => {
-        // Pick 4 pinned tabs based on role
-        const ut = user?.userType;
-        // Role defaults (3 slots — dashboard is always slot 1, locked)
-        const roleDefaults = (ut === "executive" || ut === "it")
-          ? ["pulse", "labor", "chat"]
-          : ut === "office_staff"
-          ? ["pulse", "tickets", "chat"]
-          : ut === "dm"
-          ? ["tasks", "labor", "chat"]
-          : ut === "manager"
-          ? ["tasks", "chat", "tickets"]
-          : ut === "maintenance"
-          ? ["tickets", "calendar", "chat"]
-          : ut === "construction"
-          ? ["projects", "chat", "tickets"]
-          : ut === "auditor"
-          ? ["audits", "tickets", "chat"]
-          : ["chat", "announcements", "tickets"];
-
-        const savePins = (pins) => {
-          setMobileNavPins(pins);
-          try { localStorage.setItem('pcg_nav_pins_' + user.id, JSON.stringify(pins)); } catch {}
-        };
-
-        const customPins3 = mobileNavPins || roleDefaults;
-        const pinnedIds = ["dashboard", ...customPins3];
-        const pinnedTabs = pinnedIds.map(id => TABS.find(t => t.id === id)).filter(Boolean);
-        const moreTabs = TABS.filter(t => !pinnedIds.includes(t.id) && t.id !== "dashboard");
-        const moreHasActive = moreTabs.some(t => t.id === tab);
-
-        const MobileNavBtn = ({ t, onClick: oc }) => {
-          const active = tab === t.id;
-          const color = active ? (t.green ? "#00d084" : O) : th.muted;
-          const badge = t.id === "chat" && chatUnreadCount > 0 ? chatUnreadCount
-            : t.id === "cash" && cashMissingCount > 0 ? cashMissingCount
-            : null;
-          const showRedDot = t.id === "tasks" && !badge;
-          const showGreenDot = t.id === "pulse";
-          return (
-            <button onClick={oc || (() => setTab(t.id))} style={{
-              flex: 1, display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center",
-              gap: "0.2rem", background: "none", border: "none", cursor: "pointer",
-              padding: "6px 4px 4px", color,
-              fontFamily: "'Source Sans 3'", fontSize: "0.65rem", fontWeight: active ? 700 : 400,
-              transition: "color .15s", position: "relative",
-              borderTop: active ? `2.5px solid ${color}` : "2.5px solid transparent",
-              touchAction: "manipulation",
-            }}>
-              <span style={{ fontSize: "1.25rem", display: "flex", alignItems: "center", lineHeight: 1, position: "relative" }}>
-                {typeof t.icon === "function" ? t.icon(color) : t.icon}
-                {(showRedDot || showGreenDot) && (
-                  <span style={{ position: "absolute", top: -1, right: -4, width: 7, height: 7, borderRadius: "50%", background: showRedDot ? "#ef4444" : "#00d084", zIndex: 2, pointerEvents: "none" }}>
-                    <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: showRedDot ? "#ef4444" : "#00d084", animation: "navDotPing 1.4s ease-out infinite", pointerEvents: "none" }} />
-                  </span>
-                )}
-              </span>
-              <span style={{ lineHeight: 1.1, maxWidth: 56, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
-              {badge > 0 && (
-                <span style={{ position: "absolute", top: 4, right: "calc(50% - 20px)", minWidth: 16, height: 16, borderRadius: 8, background: "#ef4444", color: "#fff", fontSize: "0.55rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", boxShadow: "0 1px 4px #ef4444aa" }}>{badge > 9 ? "9+" : badge}</span>
-              )}
-            </button>
-          );
-        };
-
-        return (
-          <>
-            <div className="bottom-nav" style={{
-              position: "fixed", bottom: 0, left: 0, right: 0, height: 64, zIndex: 100,
-              background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`,
-              display: "flex", alignItems: "stretch",
-              paddingBottom: "env(safe-area-inset-bottom, 0px)",
-            }}>
-              {pinnedTabs.map(t => <MobileNavBtn key={t.id} t={t} />)}
-
-              {/* More button */}
-              <button onClick={() => setShowMoreSheet(v => !v)} style={{
-                flex: 1, display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center",
-                gap: "0.2rem", background: "none", border: "none", cursor: "pointer",
-                padding: "6px 4px 4px",
-                color: (showMoreSheet || moreHasActive) ? O : th.muted,
-                fontFamily: "'Source Sans 3'", fontSize: "0.65rem", fontWeight: (showMoreSheet || moreHasActive) ? 700 : 400,
-                borderTop: (showMoreSheet || moreHasActive) ? `2.5px solid ${O}` : "2.5px solid transparent",
-                position: "relative",
-                touchAction: "manipulation",
-              }}>
-                <Icon color={(showMoreSheet || moreHasActive) ? O : th.muted} size={18}
-                  d={<><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></>} />
-                <span>More</span>
-                {moreHasActive && !showMoreSheet && (
-                  <span style={{ position: "absolute", top: 5, right: "calc(50% - 16px)", width: 7, height: 7, borderRadius: "50%", background: O, boxShadow: `0 0 5px ${O}` }} />
-                )}
-              </button>
-            </div>
-
-            {/* More sheet — slides up from bottom */}
-            {showMoreSheet && (
-              <>
-                <style>{`@keyframes moreSheetUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
-                {/* Backdrop */}
-                <div onClick={() => setShowMoreSheet(false)} style={{
-                  position: "fixed", inset: 0, zIndex: 110,
-                  background: "#00000066",
-                  animation: "fadeIn .15s ease",
-                }} />
-                {/* Sheet */}
-                <div style={{
-                  position: "fixed", bottom: 64, left: 0, right: 0, zIndex: 120,
-                  background: th.sidebar, borderTop: `1px solid ${th.sidebarBorder}`,
-                  borderRadius: "16px 16px 0 0",
-                  maxHeight: "65vh", overflowY: "auto",
-                  padding: "0 0 8px",
-                  boxShadow: "0 -8px 32px #00000044",
-                  animation: "moreSheetUp 200ms cubic-bezier(0.25,0.46,0.45,0.94) both",
-                }}>
-                  {/* Handle */}
-                  <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 4px" }}>
-                    <div style={{ width: 36, height: 4, borderRadius: 999, background: th.subtle, opacity: 0.5 }} />
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", padding: "4px 8px 8px", gap: "4px" }}>
-                    {moreTabs.map(t => {
-                      const active = tab === t.id;
-                      const color = active ? (t.green ? "#00d084" : O) : th.muted;
-                      const badge = t.id === "chat" && chatUnreadCount > 0 ? chatUnreadCount
-                        : t.id === "cash" && cashMissingCount > 0 ? cashMissingCount
-                        : null;
-                      return (
-                        <button key={t.id} onClick={() => { setTab(t.id); setShowMoreSheet(false); }} style={{
-                          display: "flex", flexDirection: "column", alignItems: "center",
-                          justifyContent: "center", gap: "0.3rem",
-                          padding: "16px 8px 14px",
-                          minHeight: 72,
-                          background: active ? `${color}12` : "transparent",
-                          border: `1px solid ${active ? `${color}33` : "transparent"}`,
-                          borderRadius: "12px", cursor: "pointer", position: "relative",
-                          fontFamily: "'Source Sans 3'", fontSize: "0.68rem",
-                          fontWeight: active ? 700 : 400, color,
-                          transition: "all .15s",
-                          touchAction: "manipulation",
-                        }}>
-                          <span style={{ fontSize: "1.4rem", display: "flex", lineHeight: 1 }}>
-                            {typeof t.icon === "function" ? t.icon(color) : t.icon}
-                          </span>
-                          <span style={{ textAlign: "center", lineHeight: 1.25, maxWidth: 80, wordBreak: "break-word", hyphens: "auto" }}>{t.label}</span>
-                          {badge > 0 && (
-                            <span style={{ position: "absolute", top: 8, right: 8, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 5px #ef4444cc" }} />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-          </>
-        );
-      })()}
 
       {/* ── Profile Modal ── */}
       {showProfile && <ProfileModal user={user} setUser={setUser} setUsers={setUsers} th={th} onClose={()=>setShowProfile(false)} />}
