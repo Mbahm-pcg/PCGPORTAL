@@ -51,3 +51,41 @@ export function delta(current, prior) {
   if (!prior || prior <= 0) return null;
   return (current - prior) / prior * 100;
 }
+
+// Sum the current and prior periods on a same-store basis.
+//
+// A store must have an 'ok' entry for EVERY date on BOTH sides to be counted. If
+// it is missing anywhere it is dropped from both sides — otherwise a store that
+// opened mid-period (Hatboro, relocated 2026) lands entirely on the growth side
+// and inflates the delta, reading portfolio expansion as same-store improvement.
+export function comparableTotals(dayStoreCache, currentDates, priorDates, pcs) {
+  const cache = dayStoreCache || {};
+  const hasAll = (pc, dates) =>
+    dates.length > 0 && dates.every(d => cache[d] && cache[d][pc] && cache[d][pc].status === 'ok');
+
+  const comparablePcs = [];
+  const excludedPcs = [];
+  for (const pc of (pcs || [])) {
+    if (hasAll(pc, currentDates) && hasAll(pc, priorDates)) comparablePcs.push(pc);
+    else excludedPcs.push(pc);
+  }
+
+  const sum = (dates) => {
+    let netSales = 0, guests = 0;
+    for (const d of dates) {
+      for (const pc of comparablePcs) {
+        const e = cache[d][pc];
+        netSales += e.data.netSales || 0;
+        guests   += e.data.guests   || 0;
+      }
+    }
+    return { netSales, guests };
+  };
+
+  return {
+    current: sum(currentDates),
+    prior:   sum(priorDates),
+    comparablePcs,
+    excludedPcs,
+  };
+}

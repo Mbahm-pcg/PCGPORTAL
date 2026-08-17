@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { LY_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta } from './pulse-comparison.mjs';
+import { LY_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals } from './pulse-comparison.mjs';
 
 describe('shiftDate', () => {
   test('shifts forward and backward', () => {
@@ -66,5 +66,59 @@ describe('delta', () => {
     assert.strictEqual(delta(100, 0), null);
     assert.strictEqual(delta(100, null), null);
     assert.strictEqual(delta(100, undefined), null);
+  });
+});
+
+const ok = (netSales, guests) => ({ status: 'ok', data: { netSales, guests, voids: 0, discounts: 0 } });
+
+describe('comparableTotals', () => {
+  const cache = {
+    '2026-08-12': { A: ok(100, 10), B: ok(200, 20), C: ok(50, 5) },
+    '2026-08-05': { A: ok(90, 9),   B: ok(180, 18) },   // C missing on the prior side
+  };
+
+  test('sums only stores present on BOTH sides', () => {
+    const r = comparableTotals(cache, ['2026-08-12'], ['2026-08-05'], ['A','B','C']);
+    assert.deepStrictEqual(r.comparablePcs, ['A','B']);
+    assert.deepStrictEqual(r.excludedPcs, ['C']);
+    assert.strictEqual(r.current.netSales, 300);  // C's 50 excluded from current too
+    assert.strictEqual(r.prior.netSales, 270);
+    assert.strictEqual(r.current.guests, 30);
+    assert.strictEqual(r.prior.guests, 27);
+  });
+
+  test('a store erroring on either side is excluded', () => {
+    const c = {
+      '2026-08-12': { A: ok(100, 10), B: { status: 'error' } },
+      '2026-08-05': { A: ok(90, 9),   B: ok(180, 18) },
+    };
+    const r = comparableTotals(c, ['2026-08-12'], ['2026-08-05'], ['A','B']);
+    assert.deepStrictEqual(r.comparablePcs, ['A']);
+    assert.strictEqual(r.current.netSales, 100);
+  });
+
+  test('multi-day: missing ONE day of the range excludes the store entirely', () => {
+    const c = {
+      '2026-08-11': { A: ok(10, 1), B: ok(20, 2) },
+      '2026-08-12': { A: ok(10, 1) },                 // B missing this day
+      '2026-08-04': { A: ok(10, 1), B: ok(20, 2) },
+      '2026-08-05': { A: ok(10, 1), B: ok(20, 2) },
+    };
+    const r = comparableTotals(c, ['2026-08-11','2026-08-12'], ['2026-08-04','2026-08-05'], ['A','B']);
+    assert.deepStrictEqual(r.comparablePcs, ['A']);
+    assert.strictEqual(r.current.netSales, 20);
+    assert.strictEqual(r.prior.netSales, 20);
+  });
+
+  test('no comparable stores yields zeros, not a throw', () => {
+    const r = comparableTotals({}, ['2026-08-12'], ['2026-08-05'], ['A']);
+    assert.deepStrictEqual(r.comparablePcs, []);
+    assert.strictEqual(r.current.netSales, 0);
+    assert.strictEqual(r.prior.netSales, 0);
+  });
+
+  test('missing cache object does not throw', () => {
+    const r = comparableTotals(undefined, ['2026-08-12'], ['2026-08-05'], ['A']);
+    assert.deepStrictEqual(r.excludedPcs, ['A']);
   });
 });
