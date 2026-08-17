@@ -8958,7 +8958,7 @@ ${pendingEmail.emails.join("\n")}`,
           dd.setDate(lySundayDate.getDate() + i);
           lyWeekDates.push(localDateStr2(dd));
         }
-        const lyFromCache = dayStoreCache && lyWeekDates.every((d2) => dayStoreCache[d2]);
+        const lyFromCache = dayStoreCache && lyWeekDates.every((d2) => dayStoreCache[d2] && dayStoreCache[d2][pc] && dayStoreCache[d2][pc].status === "ok");
         const lyResults = lyFromCache ? [] : await Promise.all(lyWeekDates.map(
           (date) => fetchEndpoint("getOperationsDailyTotals", { locRef: pc, busDt: date, include: "locRef,busDt,revenueCenters" })
         ));
@@ -10225,7 +10225,7 @@ ${pendingEmail.emails.join("\n")}`,
           lyWeekDates.push(localDateStr2(dd));
         }
         const fetchOps = (s, date) => fetchEndpoint("getOperationsDailyTotals", { api: apiFor(s.pc), locRef: s.pc, busDt: date, include: "locRef,busDt,revenueCenters" });
-        const lyFromCache = dayStoreCache && lyWeekDates.every((d2) => dayStoreCache[d2]);
+        const lyFromCache = dayStoreCache && lyWeekDates.every((d2) => dayStoreCache[d2] && distStores.every((s) => dayStoreCache[d2][s.pc] && dayStoreCache[d2][s.pc].status === "ok"));
         const lyResults = lyFromCache ? [] : await Promise.all(lyWeekDates.flatMap((date) => distStores.map((s) => fetchOps(s, date))));
         let lyWeekSales = 0;
         let lyDaySales = 0;
@@ -10258,7 +10258,7 @@ ${pendingEmail.emails.join("\n")}`,
           dd.setDate(prevSun.getDate() + i);
           prevWeekDates.push(localDateStr2(dd));
         }
-        const prevFromCache = dayStoreCache && prevWeekDates.every((d2) => dayStoreCache[d2]);
+        const prevFromCache = dayStoreCache && prevWeekDates.every((d2) => dayStoreCache[d2] && distStores.every((s) => dayStoreCache[d2][s.pc] && dayStoreCache[d2][s.pc].status === "ok"));
         const prevResults = prevFromCache ? [] : await Promise.all(prevWeekDates.flatMap((date) => distStores.map((s) => fetchOps(s, date))));
         const prevByDay = [0, 0, 0, 0, 0, 0, 0];
         for (let dayIdx = 0; dayIdx < 7; dayIdx++) {

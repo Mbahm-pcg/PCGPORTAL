@@ -9037,7 +9037,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       // In-portal: AdminPulse already fetched this week's LY data into
       // dayStoreCache, so skip the per-store refetch entirely. Standalone
       // (manager mobile) has no parent cache and still needs its own fetch.
-      const lyFromCache = dayStoreCache && lyWeekDates.every(d => dayStoreCache[d]);
+      const lyFromCache = dayStoreCache && lyWeekDates.every(d => dayStoreCache[d] && dayStoreCache[d][pc] && dayStoreCache[d][pc].status === 'ok');
       const lyResults = lyFromCache ? [] : await Promise.all(lyWeekDates.map(date =>
         fetchEndpoint('getOperationsDailyTotals', { locRef: pc, busDt: date, include: 'locRef,busDt,revenueCenters' })
       ));
@@ -10914,7 +10914,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
       const fetchOps = (s, date) => fetchEndpoint('getOperationsDailyTotals', { api: apiFor(s.pc), locRef: s.pc, busDt: date, include: 'locRef,busDt,revenueCenters' });
       // AdminPulse already fetched these dates for all stores — reuse rather than
       // re-requesting 7 dates × every store in the district.
-      const lyFromCache = dayStoreCache && lyWeekDates.every(d => dayStoreCache[d]);
+      const lyFromCache = dayStoreCache && lyWeekDates.every(d => dayStoreCache[d] && distStores.every(s => dayStoreCache[d][s.pc] && dayStoreCache[d][s.pc].status === 'ok'));
       const lyResults = lyFromCache ? [] : await Promise.all(lyWeekDates.flatMap(date => distStores.map(s => fetchOps(s, date))));
 
       let lyWeekSales = 0;
@@ -10947,7 +10947,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         const dd = new Date(prevSun); dd.setDate(prevSun.getDate() + i);
         prevWeekDates.push(localDateStr(dd));
       }
-      const prevFromCache = dayStoreCache && prevWeekDates.every(d => dayStoreCache[d]);
+      const prevFromCache = dayStoreCache && prevWeekDates.every(d => dayStoreCache[d] && distStores.every(s => dayStoreCache[d][s.pc] && dayStoreCache[d][s.pc].status === 'ok'));
       const prevResults = prevFromCache ? [] : await Promise.all(prevWeekDates.flatMap(date => distStores.map(s => fetchOps(s, date))));
       const prevByDay = [0, 0, 0, 0, 0, 0, 0];
       for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
