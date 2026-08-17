@@ -11854,6 +11854,34 @@ function scopedComparisonRows({ dayStoreCache, pcs, busDt, viewMode, todayStr, h
   return { lw: lwRow, ly: lyRow, estimatedHour: fraction != null ? nowHour : null };
 }
 
+// Shared by the network table rows and the district/store strip so delta
+// formatting and coloring can't drift between levels.
+function PulseDelta({ d, G }) {
+  if (d == null) return <span style={{ color:`${G}66` }}>—</span>;
+  return (
+    <span style={{ color: d >= 0 ? '#69db7c' : '#ff6b6b' }}>
+      {(d >= 0 ? '▲' : '▼') + Math.abs(d).toFixed(1) + '%'}
+    </span>
+  );
+}
+
+// "(est. to 11am)" suffix when the current period includes a partial today.
+function pulseEstLabel(estimatedHour) {
+  if (estimatedHour == null) return '';
+  const h12 = (estimatedHour % 12) || 12;
+  return ` (est. to ${h12}${estimatedHour < 12 ? 'am' : 'pm'})`;
+}
+
+function PulseComparisonFootnote({ rows, G }) {
+  const partial = [rows?.lw, rows?.ly].filter(Boolean).some(r => r.comparableCount < r.totalCount);
+  if (!partial) return null;
+  return (
+    <div style={{ fontSize:'0.6rem', color:`${G}77`, marginTop:'0.35rem' }}>
+      † same-store basis — stores without data in both periods are excluded from both sides
+    </div>
+  );
+}
+
 // ─── Admin Pulse ─────────────────────────────────────────────────────────────
 function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
   const G = '#00d084';
@@ -12524,8 +12552,42 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                       </td>
                     </tr>
                   )}
+                  {comparisonRows && [comparisonRows.lw, comparisonRows.ly].filter(Boolean).map(row => {
+                    const subVal = { ...valS2, fontSize:'0.8rem', fontWeight:700 };
+                    return (
+                      <tr key={row.label}>
+                        <td style={{ ...lblS2, fontSize:'0.62rem', paddingLeft:'0.9rem', color:`${G}99`, textTransform:'none' }}>
+                          {row.label}{pulseEstLabel(comparisonRows.estimatedHour)}
+                          {row.comparableCount < row.totalCount && (
+                            <span title={`${row.comparableCount} of ${row.totalCount} stores have data for both periods`}
+                              style={{ marginLeft:4, color:'#ffd43b' }}>†</span>
+                          )}
+                        </td>
+                        <td style={{ ...subVal, color:`${G}cc` }}>
+                          {fmtUSD(row.netSales)} <PulseDelta d={row.netSalesDelta} G={G} />
+                        </td>
+                        <td style={{ ...subVal, color:'#74c0fc' }}>
+                          {fmtNum(Math.round(row.guests))} <PulseDelta d={row.guestsDelta} G={G} />
+                        </td>
+                        <td style={subVal}></td>
+                        <td style={subVal}></td>
+                        <td style={subVal}></td>
+                        <td style={{ ...subVal, ...divL }}></td>
+                        <td style={subVal}></td>
+                      </tr>
+                    );
+                  })}
+                  {comparisonsLoading && !comparisonRows && (
+                    <tr>
+                      <td style={{ ...lblS2, fontSize:'0.62rem', paddingLeft:'0.9rem', color:`${G}66`, textTransform:'none' }}>
+                        loading comparisons…
+                      </td>
+                      <td colSpan={7}></td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
+              <PulseComparisonFootnote rows={comparisonRows} G={G} />
             </div>
           );
         })()}
