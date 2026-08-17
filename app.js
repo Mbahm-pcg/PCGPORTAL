@@ -8684,6 +8684,8 @@ ${pendingEmail.emails.join("\n")}`,
     const [orderData, setOrderData] = React.useState(null);
     const [hourlyData, setHourlyData] = React.useState(null);
     const [weekTotals, setWeekTotals] = React.useState(null);
+    const [selfCmpCache, setSelfCmpCache] = React.useState(null);
+    const [selfHourly, setSelfHourly] = React.useState(null);
     const [hoveredTender, setHoveredTender] = React.useState(null);
     const [hoveredHour, setHoveredHour] = React.useState(null);
     const noHoverDevice = useNoHoverDevice();
@@ -8988,6 +8990,48 @@ ${pendingEmail.emails.join("\n")}`,
         setWeekTotals({ wtdSales, weekForecast, dayForecast, lyWeekSales, lyDaySales, daysLoaded });
       })();
     }, [pc, localDate, busDt, viewMode]);
+    React.useEffect(() => {
+      if (dayStoreCache) return;
+      let alive = true;
+      const api = pc === "345986" ? "p227" : "p228";
+      const fetchEndpoint = async (endpoint, body) => {
+        try {
+          const res = await fetch("/.netlify/functions/pulse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api, endpoint, ...body })
+          });
+          return res.ok ? res.json() : null;
+        } catch {
+          return null;
+        }
+      };
+      (async () => {
+        const effToday = todayStr || localDateStr(/* @__PURE__ */ new Date());
+        const { current, lw, ly } = comparisonDates(localDate, viewMode, effToday);
+        const dates = [.../* @__PURE__ */ new Set([...current, ...lw, ...ly])];
+        const entries = await Promise.all(dates.map(async (date) => {
+          try {
+            const r = await fetchEndpoint("getOperationsDailyTotals", { locRef: pc, busDt: date, include: "locRef,busDt,revenueCenters" });
+            if (r?.revenueCenters) {
+              const t = sumRVCLocal(r.revenueCenters);
+              return [date, { [pc]: { status: "ok", data: { netSales: t.netSales, guests: t.guests, voids: t.voids, discounts: t.discounts } } }];
+            }
+          } catch {
+          }
+          return [date, { [pc]: { status: "error" } }];
+        }));
+        if (!alive) return;
+        const cache = {};
+        for (const [date, obj] of entries) cache[date] = obj;
+        setSelfCmpCache(cache);
+        const hist = await cloudLoad(`pcg_hourly_history_${pc}`).then((d2) => Array.isArray(d2) ? d2 : null).catch(() => null);
+        if (alive) setSelfHourly(hist);
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [dayStoreCache, pc, localDate, viewMode, todayStr]);
     const live = (standalone || viewMode === "week" || localDate !== busDt) && overrideLive ? overrideLive : storeData[pc];
     const d = live?.data;
     const rcs = live?.rcs || [];
@@ -9004,7 +9048,16 @@ ${pendingEmail.emails.join("\n")}`,
     const voidPct = d.netSales > 0 ? d.voids / d.netSales * 100 : 0;
     const wtdTotalSales = (weekTotals?.wtdSales || 0) + d.netSales;
     const weeklyForecast = weekTotals?.weekForecast || 0;
-    const comparisonRows = scopedComparisonRows({ dayStoreCache, pcs: [pc], busDt, viewMode: cmpViewMode, todayStr, hourlyHistories });
+    const cmpCache = dayStoreCache || selfCmpCache;
+    const cmpHourly = dayStoreCache ? hourlyHistories : selfHourly ? [selfHourly] : null;
+    const comparisonRows = scopedComparisonRows({
+      dayStoreCache: cmpCache,
+      pcs: [pc],
+      busDt: dayStoreCache ? busDt : localDate,
+      viewMode: dayStoreCache ? cmpViewMode : viewMode,
+      todayStr: dayStoreCache ? todayStr : todayStr || localDateStr(/* @__PURE__ */ new Date()),
+      hourlyHistories: cmpHourly
+    });
     const activeRCs = rcs.filter((rc) => (rc.netSlsTtl || 0) > 0).sort((a, b) => (b.netSlsTtl || 0) - (a.netSlsTtl || 0));
     const rcTotal = activeRCs.reduce((a, rc) => a + (rc.netSlsTtl || 0), 0);
     const CHART_COLORS = ["#69db7c", "#74c0fc", "#ffd43b", "#f06595", "#b197fc", "#ff922b", "#20c997", "#868e96", "#e599f7", "#63e6be", "#ffa8a8", "#91a7ff"];
