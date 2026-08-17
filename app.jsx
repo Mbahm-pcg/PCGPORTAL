@@ -7,6 +7,7 @@ import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } f
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
+import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -7881,6 +7882,17 @@ async function fetchOpsTotalsBatch(pcs, busDt) {
 // localStorage cache for closed POS days — totals for finalized dates never change,
 // so WTD / prior-week / last-year comparisons load instantly after first fetch.
 const PULSE_DAY_CACHE_PREFIX = 'pcg_pulse_day_v1_';
+// Last-year dates live in their own bucket. The recency bucket prunes
+// lexicographically-oldest-first, so '2025-…' keys were always evicted before
+// '2026-…' ones and LY data was re-fetched on every visit. Closed business days
+// are immutable, so retaining them is always safe.
+const PULSE_ARCHIVE_CACHE_PREFIX = 'pcg_pulse_arch_v1_';
+const PULSE_DAY_CACHE_MAX = 30;
+const PULSE_ARCHIVE_CACHE_MAX = 60;
+
+function pulseCachePrefixFor(date, todayStr) {
+  return isArchivalDate(date, todayStr) ? PULSE_ARCHIVE_CACHE_PREFIX : PULSE_DAY_CACHE_PREFIX;
+}
 function pulseDayCacheable(date, todayStr) {
   // Only days ≥2 calendar days old are treated as final — late transactions and
   // corrections can still post to yesterday's business date.
@@ -7888,20 +7900,18 @@ function pulseDayCacheable(date, todayStr) {
   const yesterday = y.getFullYear() + '-' + String(y.getMonth()+1).padStart(2,'0') + '-' + String(y.getDate()).padStart(2,'0');
   return date < yesterday;
 }
-function listPulseDayCacheKeys() {
+function listPulseCacheKeys(prefix) {
   const keys = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k && k.startsWith(PULSE_DAY_CACHE_PREFIX)) keys.push(k);
+    if (k && k.startsWith(prefix)) keys.push(k);
   }
   return keys.sort();
 }
-// Returns whatever per-store results are cached for the date (possibly a subset,
-// possibly {}) — the caller fetches only the stores that are missing.
 function readPulseDayCache(date, todayStr, pcs) {
   if (!pulseDayCacheable(date, todayStr)) return null;
   try {
-    const saved = JSON.parse(localStorage.getItem(PULSE_DAY_CACHE_PREFIX + date) || 'null');
+    const saved = JSON.parse(localStorage.getItem(pulseCachePrefixFor(date, todayStr) + date) || 'null');
     if (!saved) return null;
     const out = {};
     for (const pc of pcs) if (saved[pc]) out[pc] = saved[pc];
@@ -7910,19 +7920,23 @@ function readPulseDayCache(date, todayStr, pcs) {
 }
 function writePulseDayCache(date, todayStr, results) {
   if (!pulseDayCacheable(date, todayStr)) return;
-  const key = PULSE_DAY_CACHE_PREFIX + date;
+  const prefix = pulseCachePrefixFor(date, todayStr);
+  const cap = prefix === PULSE_ARCHIVE_CACHE_PREFIX ? PULSE_ARCHIVE_CACHE_MAX : PULSE_DAY_CACHE_MAX;
+  const key = prefix + date;
   try {
     const prev = JSON.parse(localStorage.getItem(key) || '{}');
     for (const pc in results) if (results[pc] && results[pc].status === 'ok') prev[pc] = results[pc];
     // Prune BEFORE writing so eviction still runs even if the write itself fails.
-    // Cap cached days at 30 — ISO dates sort lexicographically, evict oldest.
-    const keys = listPulseDayCacheKeys().filter(k => k !== key);
-    while (keys.length > 29) localStorage.removeItem(keys.shift());
+    const keys = listPulseCacheKeys(prefix).filter(k => k !== key);
+    while (keys.length > cap - 1) localStorage.removeItem(keys.shift());
     localStorage.setItem(key, JSON.stringify(prev));
   } catch {
-    // Quota exceeded — drop the whole pulse day cache so it can rebuild small
-    // rather than wedging in a state where nothing new can ever be written.
-    try { listPulseDayCacheKeys().forEach(k => localStorage.removeItem(k)); } catch {}
+    // Quota exceeded — drop both buckets so the cache rebuilds small rather than
+    // wedging in a state where nothing new can ever be written.
+    try {
+      listPulseCacheKeys(PULSE_DAY_CACHE_PREFIX).forEach(k => localStorage.removeItem(k));
+      listPulseCacheKeys(PULSE_ARCHIVE_CACHE_PREFIX).forEach(k => localStorage.removeItem(k));
+    } catch {}
   }
 }
 

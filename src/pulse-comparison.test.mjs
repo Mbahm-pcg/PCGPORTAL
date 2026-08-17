@@ -187,3 +187,23 @@ describe('dayCompletionFraction', () => {
     assert.ok(full !== null && full < 0.1);
   });
 });
+
+import { isArchivalDate, ARCHIVAL_THRESHOLD_DAYS } from './pulse-comparison.mjs';
+
+describe('isArchivalDate', () => {
+  test('last-year dates are archival', () => {
+    assert.strictEqual(isArchivalDate('2025-08-13', '2026-08-14'), true);
+  });
+  test('recent and last-week dates are not archival', () => {
+    assert.strictEqual(isArchivalDate('2026-08-07', '2026-08-14'), false);
+    assert.strictEqual(isArchivalDate('2026-08-14', '2026-08-14'), false);
+  });
+  test('future dates are not archival', () => {
+    assert.strictEqual(isArchivalDate('2026-09-01', '2026-08-14'), false);
+  });
+  test('threshold boundary', () => {
+    const boundary = shiftDate('2026-08-14', -ARCHIVAL_THRESHOLD_DAYS);
+    assert.strictEqual(isArchivalDate(boundary, '2026-08-14'), false);
+    assert.strictEqual(isArchivalDate(shiftDate(boundary, -1), '2026-08-14'), true);
+  });
+});

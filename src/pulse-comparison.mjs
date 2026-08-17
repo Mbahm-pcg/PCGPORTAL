@@ -127,3 +127,15 @@ export function dayCompletionFraction(hourlyHistories, dow, throughHour, maxSamp
   if (samples < MIN_CURVE_SAMPLES || total <= 0) return null;
   return through / total;
 }
+
+// Days before which a cached POS day is treated as long-term rather than recent.
+// Comfortably past the 7-day comparison window and comfortably short of the
+// 364-day one, so last-week stays in the recency cache and last-year does not.
+export const ARCHIVAL_THRESHOLD_DAYS = 180;
+
+// True when `date` is old enough to belong in the archival cache bucket.
+// The recency bucket prunes lexicographically-oldest-first, which would always
+// evict last-year dates ahead of current ones — this predicate keeps them apart.
+export function isArchivalDate(date, todayStr) {
+  return date < shiftDate(todayStr, -ARCHIVAL_THRESHOLD_DAYS);
+}

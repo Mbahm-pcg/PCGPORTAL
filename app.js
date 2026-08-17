@@ -1090,6 +1090,17 @@
     return [...byWeek.values()].sort((a, b) => a.weekOf.localeCompare(b.weekOf));
   }
 
+  // src/pulse-comparison.mjs
+  function shiftDate(ymd, days) {
+    const d = /* @__PURE__ */ new Date(ymd + "T12:00:00");
+    d.setDate(d.getDate() + days);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  var ARCHIVAL_THRESHOLD_DAYS = 180;
+  function isArchivalDate(date, todayStr) {
+    return date < shiftDate(todayStr, -ARCHIVAL_THRESHOLD_DAYS);
+  }
+
   // app.jsx
   var { useState, useRef, useCallback, useEffect } = React;
   var Guard = class extends React.Component {
@@ -7923,24 +7934,30 @@
     return json.results;
   }
   var PULSE_DAY_CACHE_PREFIX = "pcg_pulse_day_v1_";
+  var PULSE_ARCHIVE_CACHE_PREFIX = "pcg_pulse_arch_v1_";
+  var PULSE_DAY_CACHE_MAX = 30;
+  var PULSE_ARCHIVE_CACHE_MAX = 60;
+  function pulseCachePrefixFor(date, todayStr) {
+    return isArchivalDate(date, todayStr) ? PULSE_ARCHIVE_CACHE_PREFIX : PULSE_DAY_CACHE_PREFIX;
+  }
   function pulseDayCacheable(date, todayStr) {
     const y = /* @__PURE__ */ new Date(todayStr + "T12:00:00");
     y.setDate(y.getDate() - 1);
     const yesterday = y.getFullYear() + "-" + String(y.getMonth() + 1).padStart(2, "0") + "-" + String(y.getDate()).padStart(2, "0");
     return date < yesterday;
   }
-  function listPulseDayCacheKeys() {
+  function listPulseCacheKeys(prefix) {
     const keys = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(PULSE_DAY_CACHE_PREFIX)) keys.push(k);
+      if (k && k.startsWith(prefix)) keys.push(k);
     }
     return keys.sort();
   }
   function readPulseDayCache(date, todayStr, pcs) {
     if (!pulseDayCacheable(date, todayStr)) return null;
     try {
-      const saved = JSON.parse(localStorage.getItem(PULSE_DAY_CACHE_PREFIX + date) || "null");
+      const saved = JSON.parse(localStorage.getItem(pulseCachePrefixFor(date, todayStr) + date) || "null");
       if (!saved) return null;
       const out = {};
       for (const pc of pcs) if (saved[pc]) out[pc] = saved[pc];
@@ -7951,16 +7968,19 @@
   }
   function writePulseDayCache(date, todayStr, results) {
     if (!pulseDayCacheable(date, todayStr)) return;
-    const key = PULSE_DAY_CACHE_PREFIX + date;
+    const prefix = pulseCachePrefixFor(date, todayStr);
+    const cap = prefix === PULSE_ARCHIVE_CACHE_PREFIX ? PULSE_ARCHIVE_CACHE_MAX : PULSE_DAY_CACHE_MAX;
+    const key = prefix + date;
     try {
       const prev = JSON.parse(localStorage.getItem(key) || "{}");
       for (const pc in results) if (results[pc] && results[pc].status === "ok") prev[pc] = results[pc];
-      const keys = listPulseDayCacheKeys().filter((k) => k !== key);
-      while (keys.length > 29) localStorage.removeItem(keys.shift());
+      const keys = listPulseCacheKeys(prefix).filter((k) => k !== key);
+      while (keys.length > cap - 1) localStorage.removeItem(keys.shift());
       localStorage.setItem(key, JSON.stringify(prev));
     } catch {
       try {
-        listPulseDayCacheKeys().forEach((k) => localStorage.removeItem(k));
+        listPulseCacheKeys(PULSE_DAY_CACHE_PREFIX).forEach((k) => localStorage.removeItem(k));
+        listPulseCacheKeys(PULSE_ARCHIVE_CACHE_PREFIX).forEach((k) => localStorage.removeItem(k));
       } catch {
       }
     }
@@ -10400,9 +10420,9 @@ ${pendingEmail.emails.join("\n")}`,
         const gx = i * (groupW + gap);
         const tVal = thisWeek[i], lVal = lastWeek[i];
         const tH = tVal / chartMax * H, lH = lVal / chartMax * H;
-        const delta = lVal > 0 ? (tVal - lVal) / lVal * 100 : tVal > 0 ? 100 : 0;
-        const dCol = delta >= 0 ? "#69db7c" : "#ff6b6b";
-        return /* @__PURE__ */ React.createElement("g", { key: i }, /* @__PURE__ */ React.createElement("rect", { x: gx, y: H - lH, width: barW, height: lH, fill: `url(#sbd${distNum}b)`, rx: 2 }, /* @__PURE__ */ React.createElement("title", null, lbl, " Last Week: ", fmtUSD(lVal))), /* @__PURE__ */ React.createElement("rect", { x: gx + barW + 6, y: H - tH, width: barW, height: tH, fill: `url(#sbd${distNum}a)`, rx: 2 }, /* @__PURE__ */ React.createElement("title", null, lbl, " This Week: ", fmtUSD(tVal))), tVal > 0 && /* @__PURE__ */ React.createElement("text", { x: gx + barW + 6 + barW / 2, y: H - tH - 6, textAnchor: "middle", fontSize: "9", fontWeight: "700", fill: G }, fmtK(tVal)), /* @__PURE__ */ React.createElement("text", { x: gx + groupW / 2, y: H + 18, textAnchor: "middle", fontSize: "12", fontWeight: "700", fill: th.text }, lbl), lVal > 0 && /* @__PURE__ */ React.createElement("text", { x: gx + groupW / 2, y: H + 34, textAnchor: "middle", fontSize: "10", fontWeight: "700", fill: dCol }, delta >= 0 ? "+" : "", delta.toFixed(0), "%"));
+        const delta2 = lVal > 0 ? (tVal - lVal) / lVal * 100 : tVal > 0 ? 100 : 0;
+        const dCol = delta2 >= 0 ? "#69db7c" : "#ff6b6b";
+        return /* @__PURE__ */ React.createElement("g", { key: i }, /* @__PURE__ */ React.createElement("rect", { x: gx, y: H - lH, width: barW, height: lH, fill: `url(#sbd${distNum}b)`, rx: 2 }, /* @__PURE__ */ React.createElement("title", null, lbl, " Last Week: ", fmtUSD(lVal))), /* @__PURE__ */ React.createElement("rect", { x: gx + barW + 6, y: H - tH, width: barW, height: tH, fill: `url(#sbd${distNum}a)`, rx: 2 }, /* @__PURE__ */ React.createElement("title", null, lbl, " This Week: ", fmtUSD(tVal))), tVal > 0 && /* @__PURE__ */ React.createElement("text", { x: gx + barW + 6 + barW / 2, y: H - tH - 6, textAnchor: "middle", fontSize: "9", fontWeight: "700", fill: G }, fmtK(tVal)), /* @__PURE__ */ React.createElement("text", { x: gx + groupW / 2, y: H + 18, textAnchor: "middle", fontSize: "12", fontWeight: "700", fill: th.text }, lbl), lVal > 0 && /* @__PURE__ */ React.createElement("text", { x: gx + groupW / 2, y: H + 34, textAnchor: "middle", fontSize: "10", fontWeight: "700", fill: dCol }, delta2 >= 0 ? "+" : "", delta2.toFixed(0), "%"));
       }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.5rem", justifyContent: "center", marginTop: "0.75rem", fontSize: "0.7rem", color: th.muted } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 12, height: 12, background: "#868e96", borderRadius: 2 } }), /* @__PURE__ */ React.createElement("span", null, "Last Week")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 12, height: 12, background: G, borderRadius: 2 } }), /* @__PURE__ */ React.createElement("span", null, "This Week"))));
     })(), weatherForecast?.[distNum] && /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "0.75rem", padding: "1rem 1.25rem", marginBottom: "1.25rem", border: "1px solid " + th.cardBorder } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 700, color: th.text, marginBottom: "0.5rem" } }, "7-Day Weather Forecast \u2014 ", districtLabel(distNum)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", overflowX: "auto" } }, (weatherForecast[distNum]?.days || []).map((day) => {
       const ICONS2 = { clear: "\u2600\uFE0F", cloudy: "\u26C5", fog: "\u{1F32B}\uFE0F", rain: "\u{1F327}\uFE0F", snow: "\u2744\uFE0F", storm: "\u26C8\uFE0F" };
@@ -22868,20 +22888,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const previous = history?.[1];
     const fmtTrend = (curr, prev, higherIsBetter = true) => {
       if (curr == null || prev == null) return null;
-      const delta = curr - prev;
-      if (Math.abs(delta) < 0.5) return { arrow: "\u2192", color: "#94a3b8", label: "no change" };
-      const improved = higherIsBetter ? delta > 0 : delta < 0;
+      const delta2 = curr - prev;
+      if (Math.abs(delta2) < 0.5) return { arrow: "\u2192", color: "#94a3b8", label: "no change" };
+      const improved = higherIsBetter ? delta2 > 0 : delta2 < 0;
       return {
         arrow: improved ? "\u2191" : "\u2193",
         color: improved ? "#22c55e" : "#ef4444",
-        label: `${delta > 0 ? "+" : ""}${delta.toFixed(1)}`
+        label: `${delta2 > 0 ? "+" : ""}${delta2.toFixed(1)}`
       };
     };
     const rankTrend = (currRank, prevRank) => {
       if (currRank == null || prevRank == null) return null;
-      const delta = prevRank - currRank;
-      if (delta === 0) return { arrow: "\u2192", color: "#94a3b8" };
-      return { arrow: delta > 0 ? "\u2191" : "\u2193", color: delta > 0 ? "#22c55e" : "#ef4444", label: `${Math.abs(delta)}` };
+      const delta2 = prevRank - currRank;
+      if (delta2 === 0) return { arrow: "\u2192", color: "#94a3b8" };
+      return { arrow: delta2 > 0 ? "\u2191" : "\u2193", color: delta2 > 0 ? "#22c55e" : "#ef4444", label: `${Math.abs(delta2)}` };
     };
     const getDMName = (district) => {
       const dm = (users || []).find((u) => u.userType === "dm" && String(u.district) === String(district));
@@ -27474,7 +27494,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       /* @__PURE__ */ React.createElement("option", { value: "" }, "All stores (", stores.length, ")"),
       stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s, value: s }, s))
     )), /* @__PURE__ */ React.createElement("div", { style: { ...cardBox, padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card3 || th.bg, color: th.muted, textAlign: "left" } }, ["Store", "Order #", "Ordered", "Shipped", "Items", "Total", "Versions"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "0.6rem 0.8rem", fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0 } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, filtered.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 7, style: { padding: "1.5rem", textAlign: "center", color: th.muted } }, "No orders match.")), filtered.map((o) => {
-      const delta = num(o.total_order) - num(o.orig_total);
+      const delta2 = num(o.total_order) - num(o.orig_total);
       const revised = num(o.revisions) > 0;
       return /* @__PURE__ */ React.createElement(
         "tr",
@@ -27491,7 +27511,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", color: th.muted, whiteSpace: "nowrap" } }, o.date_shipped || "\u2014"),
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", color: th.muted } }, o.item_count ?? "\u2014"),
         /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", color: th.text, fontWeight: 700, whiteSpace: "nowrap" } }, fmtDollars(num(o.total_order))),
-        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", whiteSpace: "nowrap" } }, revised ? /* @__PURE__ */ React.createElement("span", { title: `${o.revisions} revision(s)`, style: { fontSize: "0.72rem", fontWeight: 700, color: "#f59e0b", background: "#f59e0b1a", padding: "2px 8px", borderRadius: 999 } }, o.versions, "\xD7 ", delta !== 0 ? `(${delta > 0 ? "+" : ""}${fmtDollars(delta)})` : "") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "original"))
+        /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.8rem", whiteSpace: "nowrap" } }, revised ? /* @__PURE__ */ React.createElement("span", { title: `${o.revisions} revision(s)`, style: { fontSize: "0.72rem", fontWeight: 700, color: "#f59e0b", background: "#f59e0b1a", padding: "2px 8px", borderRadius: 999 } }, o.versions, "\xD7 ", delta2 !== 0 ? `(${delta2 > 0 ? "+" : ""}${fmtDollars(delta2)})` : "") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "original"))
       );
     }))))))), sel && /* @__PURE__ */ React.createElement(
       "div",
@@ -28785,8 +28805,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const spread = hi - lo || 1;
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
       return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.125rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.2rem" } }, "Margin by District"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.875rem" } }, "Relative to network average (", fmtPct(avg), ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem" } }, overview.districtRows.map((d) => {
-        const delta = d.marginPct - avg;
-        const color = delta >= 1 ? "#22c55e" : delta <= -1 ? "#ef4444" : "#f59e0b";
+        const delta2 = d.marginPct - avg;
+        const color = delta2 >= 1 ? "#22c55e" : delta2 <= -1 ? "#ef4444" : "#f59e0b";
         const width = 12 + 88 * ((d.marginPct - lo) / spread);
         return /* @__PURE__ */ React.createElement("div", { key: d.district, style: { display: "grid", gridTemplateColumns: "90px 1fr 60px", alignItems: "center", gap: "0.6rem", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, districtLabel(Number(d.district))), /* @__PURE__ */ React.createElement("div", { style: { height: 7, borderRadius: 999, background: th.card3, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${width}%`, background: color, borderRadius: 999 } })), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "right", fontWeight: 700, color } }, fmtPct(d.marginPct)));
       })));
