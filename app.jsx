@@ -8678,7 +8678,7 @@ function NetworkComplaintsTab({ th, user, stores, showAlert }) {
   );
 }
 
-function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null, txnDeepLinkRef = null, initialTab = 'sales' }) {
+function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null, txnDeepLinkRef = null, initialTab = 'sales', dayStoreCache = null, viewMode: cmpViewMode = 'day', todayStr = null, hourlyHistories = null }) {
   const s = stores.find(st => st.pc === pc);
 
   const fmtUSD = v => '$' + Math.round(v).toLocaleString();
@@ -9034,7 +9034,11 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         const dd = new Date(lySundayDate); dd.setDate(lySundayDate.getDate() + i);
         lyWeekDates.push(localDateStr(dd));
       }
-      const lyResults = await Promise.all(lyWeekDates.map(date =>
+      // In-portal: AdminPulse already fetched this week's LY data into
+      // dayStoreCache, so skip the per-store refetch entirely. Standalone
+      // (manager mobile) has no parent cache and still needs its own fetch.
+      const lyFromCache = dayStoreCache && lyWeekDates.every(d => dayStoreCache[d]);
+      const lyResults = lyFromCache ? [] : await Promise.all(lyWeekDates.map(date =>
         fetchEndpoint('getOperationsDailyTotals', { locRef: pc, busDt: date, include: 'locRef,busDt,revenueCenters' })
       ));
 
@@ -9043,12 +9047,23 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       let lyWeekSales = 0;
       let lyDaySales = 0;
       const dayOfWeek = dt.getDay(); // 0=Sun..6=Sat
-      for (let i = 0; i < lyResults.length; i++) {
-        const r = lyResults[i];
-        if (r?.revenueCenters) {
-          const t = sumRVCLocal(r.revenueCenters);
-          lyWeekSales += t.netSales;
-          if (i === dayOfWeek) lyDaySales = t.netSales;
+      if (lyFromCache) {
+        // Same figures, read from the cache AdminPulse already populated.
+        for (let i = 0; i < lyWeekDates.length; i++) {
+          const e = dayStoreCache[lyWeekDates[i]][pc];
+          if (e && e.status === 'ok') {
+            lyWeekSales += e.data.netSales || 0;
+            if (i === dayOfWeek) lyDaySales = e.data.netSales || 0;
+          }
+        }
+      } else {
+        for (let i = 0; i < lyResults.length; i++) {
+          const r = lyResults[i];
+          if (r?.revenueCenters) {
+            const t = sumRVCLocal(r.revenueCenters);
+            lyWeekSales += t.netSales;
+            if (i === dayOfWeek) lyDaySales = t.netSales;
+          }
         }
       }
       const weekForecast = lyWeekSales * 1.02;
@@ -9079,6 +9094,10 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const wtdTotalSales = (weekTotals?.wtdSales || 0) + d.netSales;
   // Weekly forecast = last year's same week sales × 1.02
   const weeklyForecast = weekTotals?.weekForecast || 0;
+
+  // Comparison strip: re-sum the network's dayStoreCache scoped to this single
+  // store. No API calls — every date needed was already fetched by AdminPulse.
+  const comparisonRows = scopedComparisonRows({ dayStoreCache, pcs: [pc], busDt, viewMode: cmpViewMode, todayStr, hourlyHistories });
 
   // Revenue center data from raw rcs
   const activeRCs = rcs.filter(rc => (rc.netSlsTtl || 0) > 0).sort((a,b) => (b.netSlsTtl||0) - (a.netSlsTtl||0));
@@ -9421,6 +9440,8 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
 
       {/* ════ SALES TAB ════ */}
       {storeTab === 'sales' && <>
+
+      <PulseComparisonStrip rows={comparisonRows} th={th} G={G} />
 
       {/* Sales by Hour — full-width with 24-hour view + hour list below */}
       <div style={{ background:th.card, borderRadius:'0.75rem', padding:'1.5rem', marginBottom:'1.25rem', border:'1px solid ' + th.cardBorder }}>
@@ -10604,7 +10625,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
 }
 
 // ─── District Detail ─────────────────────────────────────────────────────────
-function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users }) {
+function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users, dayStoreCache = null, viewMode: cmpViewMode = 'day', todayStr = null, hourlyHistories = null }) {
   const laborColor = pct => pct == null ? th.muted : pct <= 22.9 ? '#22c55e' : pct <= 25.9 ? '#f59e0b' : '#ef4444';
   const laborLabel = pct => pct == null ? '—' : pct <= 22.9 ? 'On Target' : pct <= 25.9 ? 'Watch' : 'Over';
   const distStores = stores.filter(s => s.district === distNum);
@@ -10891,7 +10912,10 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         lyWeekDates.push(localDateStr(dd));
       }
       const fetchOps = (s, date) => fetchEndpoint('getOperationsDailyTotals', { api: apiFor(s.pc), locRef: s.pc, busDt: date, include: 'locRef,busDt,revenueCenters' });
-      const lyResults = await Promise.all(lyWeekDates.flatMap(date => distStores.map(s => fetchOps(s, date))));
+      // AdminPulse already fetched these dates for all stores — reuse rather than
+      // re-requesting 7 dates × every store in the district.
+      const lyFromCache = dayStoreCache && lyWeekDates.every(d => dayStoreCache[d]);
+      const lyResults = lyFromCache ? [] : await Promise.all(lyWeekDates.flatMap(date => distStores.map(s => fetchOps(s, date))));
 
       let lyWeekSales = 0;
       let lyDaySales = 0;
@@ -10900,9 +10924,17 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
       const lyByDay = [0, 0, 0, 0, 0, 0, 0];
       for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
         let daySum = 0;
-        for (let si = 0; si < storesCount; si++) {
-          const r = lyResults[dayIdx * storesCount + si];
-          if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
+        if (lyFromCache) {
+          const date = lyWeekDates[dayIdx];
+          for (const s of distStores) {
+            const e = dayStoreCache[date][s.pc];
+            if (e && e.status === 'ok') daySum += e.data.netSales || 0;
+          }
+        } else {
+          for (let si = 0; si < storesCount; si++) {
+            const r = lyResults[dayIdx * storesCount + si];
+            if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
+          }
         }
         lyByDay[dayIdx] = daySum;
         lyWeekSales += daySum;
@@ -10915,13 +10947,22 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         const dd = new Date(prevSun); dd.setDate(prevSun.getDate() + i);
         prevWeekDates.push(localDateStr(dd));
       }
-      const prevResults = await Promise.all(prevWeekDates.flatMap(date => distStores.map(s => fetchOps(s, date))));
+      const prevFromCache = dayStoreCache && prevWeekDates.every(d => dayStoreCache[d]);
+      const prevResults = prevFromCache ? [] : await Promise.all(prevWeekDates.flatMap(date => distStores.map(s => fetchOps(s, date))));
       const prevByDay = [0, 0, 0, 0, 0, 0, 0];
       for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
         let daySum = 0;
-        for (let si = 0; si < storesCount; si++) {
-          const r = prevResults[dayIdx * storesCount + si];
-          if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
+        if (prevFromCache) {
+          const date = prevWeekDates[dayIdx];
+          for (const s of distStores) {
+            const e = dayStoreCache[date][s.pc];
+            if (e && e.status === 'ok') daySum += e.data.netSales || 0;
+          }
+        } else {
+          for (let si = 0; si < storesCount; si++) {
+            const r = prevResults[dayIdx * storesCount + si];
+            if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
+          }
         }
         prevByDay[dayIdx] = daySum;
       }
@@ -10971,6 +11012,11 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
   const wtdTotalSales = (weekTotals?.wtdSales || 0) + d.netSales;
   // Weekly forecast = LY same week × 1.02
   const weeklyForecast = weekTotals?.weekForecast || 0;
+
+  // Comparison strip: re-sum the network's dayStoreCache scoped to this district's
+  // open stores. No API calls — every date needed was already fetched by AdminPulse.
+  const districtPCs = stores.filter(s => Number(s.district) === Number(distNum) && s.status === 'Open').map(s => s.pc);
+  const comparisonRows = scopedComparisonRows({ dayStoreCache, pcs: districtPCs, busDt, viewMode: cmpViewMode, todayStr, hourlyHistories });
 
   const CHART_COLORS = ['#69db7c','#74c0fc','#ffd43b','#f06595','#b197fc','#ff922b','#20c997','#868e96','#e599f7','#63e6be','#ffa8a8','#91a7ff'];
 
@@ -11100,6 +11146,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'2rem', letterSpacing:-1, lineHeight:1, color:G, textShadow:`0 0 18px ${G}44` }}>{fmtUSD(d.netSales)}</div>
         <div style={{ fontSize:'0.72rem', color:th.muted, fontWeight:600, marginTop:'0.4rem' }}>{'Net Sales · ' + (viewMode === 'week' ? 'This Week' : 'Today')}</div>
       </div>
+      <PulseComparisonStrip rows={comparisonRows} th={th} G={G} />
 
       {/* Secondary stats strip */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(170px, 1fr))', gap:'0.75rem', marginBottom:'1.25rem' }}>
@@ -11882,6 +11929,40 @@ function PulseComparisonFootnote({ rows, G }) {
   );
 }
 
+// Compact comparison strip for the district and store views, which use a hero
+// number + tile grid rather than the network's table. Shares PulseDelta and
+// pulseEstLabel with the network rows so formatting cannot drift.
+function PulseComparisonStrip({ rows, th, G }) {
+  if (!rows) return null;
+  const list = [rows.lw, rows.ly].filter(Boolean);
+  if (!list.length) return null;
+  const fmtUSD = v => '$' + Math.round(v).toLocaleString();
+  const fmtNum = v => Math.round(v).toLocaleString();
+  return (
+    <div style={{ marginTop:'-0.75rem', marginBottom:'1.25rem' }}>
+      {list.map(row => (
+        <div key={row.label} style={{ display:'flex', alignItems:'baseline', gap:'0.6rem', fontSize:'0.72rem', marginTop:'0.3rem' }}>
+          <span style={{ color:th.muted, fontWeight:700, minWidth:'5.5rem' }}>
+            {row.label}{pulseEstLabel(rows.estimatedHour)}
+            {row.comparableCount < row.totalCount && (
+              <span title={`${row.comparableCount} of ${row.totalCount} stores have data for both periods`}
+                style={{ marginLeft:4, color:'#ffd43b' }}>†</span>
+            )}
+          </span>
+          <span style={{ color:th.text, fontWeight:700 }}>
+            {fmtUSD(row.netSales)} <PulseDelta d={row.netSalesDelta} G={G} />
+          </span>
+          <span style={{ color:th.muted }}>·</span>
+          <span style={{ color:'#74c0fc', fontWeight:700 }}>
+            {fmtNum(Math.round(row.guests))} <PulseDelta d={row.guestsDelta} G={G} />
+          </span>
+        </div>
+      ))}
+      <PulseComparisonFootnote rows={rows} G={G} />
+    </div>
+  );
+}
+
 // ─── Admin Pulse ─────────────────────────────────────────────────────────────
 function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
   const G = '#00d084';
@@ -12620,12 +12701,12 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
 
       {/* ── District Detail View ── */}
       {pulseView?.level === "district" && loaded.length > 0 && (
-        <DistrictDetail distNum={pulseView.num} stores={stores} storeData={storeData} busDt={busDt} districts={districts} th={th} G={G} setPulseView={setPulseView} laborData={laborData} users={users} />
+        <DistrictDetail distNum={pulseView.num} stores={stores} storeData={storeData} busDt={busDt} districts={districts} th={th} G={G} setPulseView={setPulseView} laborData={laborData} users={users} dayStoreCache={dayStoreCache} viewMode={viewMode} todayStr={todayStr} hourlyHistories={hourlyHistories} />
       )}
 
       {/* ── Store Detail View ── */}
       {pulseView?.level === "store" && loaded.length > 0 && (
-        <StoreDetail key={pulseView.pc} pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} users={users} laborData={laborData} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseView.initialTab || 'sales'} />
+        <StoreDetail key={pulseView.pc} pc={pulseView.pc} stores={stores} storeData={storeData} busDt={busDt} th={th} G={G} setPulseView={setPulseView} user={user} users={users} laborData={laborData} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseView.initialTab || 'sales'} dayStoreCache={dayStoreCache} viewMode={viewMode} todayStr={todayStr} hourlyHistories={hourlyHistories} />
       )}
 
 

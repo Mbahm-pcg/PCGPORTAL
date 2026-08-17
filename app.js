@@ -8644,7 +8644,7 @@ ${pendingEmail.emails.join("\n")}`,
       );
     })), openCase && /* @__PURE__ */ React.createElement(NetworkComplaintDetailModal, { c: openCase, th, user, stores, onClose: () => setOpenCase(null), showAlert: showAlert2 }));
   }
-  function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null, txnDeepLinkRef = null, initialTab = "sales" }) {
+  function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, users, standalone = false, laborData = null, txnDeepLinkRef = null, initialTab = "sales", dayStoreCache = null, viewMode: cmpViewMode = "day", todayStr = null, hourlyHistories = null }) {
     const s = stores.find((st) => st.pc === pc);
     const fmtUSD = (v) => "$" + Math.round(v).toLocaleString();
     const fmtNum = (v) => Math.round(v).toLocaleString();
@@ -8958,18 +8958,29 @@ ${pendingEmail.emails.join("\n")}`,
           dd.setDate(lySundayDate.getDate() + i);
           lyWeekDates.push(localDateStr2(dd));
         }
-        const lyResults = await Promise.all(lyWeekDates.map(
+        const lyFromCache = dayStoreCache && lyWeekDates.every((d2) => dayStoreCache[d2]);
+        const lyResults = lyFromCache ? [] : await Promise.all(lyWeekDates.map(
           (date) => fetchEndpoint("getOperationsDailyTotals", { locRef: pc, busDt: date, include: "locRef,busDt,revenueCenters" })
         ));
         let lyWeekSales = 0;
         let lyDaySales = 0;
         const dayOfWeek = dt.getDay();
-        for (let i = 0; i < lyResults.length; i++) {
-          const r = lyResults[i];
-          if (r?.revenueCenters) {
-            const t = sumRVCLocal(r.revenueCenters);
-            lyWeekSales += t.netSales;
-            if (i === dayOfWeek) lyDaySales = t.netSales;
+        if (lyFromCache) {
+          for (let i = 0; i < lyWeekDates.length; i++) {
+            const e = dayStoreCache[lyWeekDates[i]][pc];
+            if (e && e.status === "ok") {
+              lyWeekSales += e.data.netSales || 0;
+              if (i === dayOfWeek) lyDaySales = e.data.netSales || 0;
+            }
+          }
+        } else {
+          for (let i = 0; i < lyResults.length; i++) {
+            const r = lyResults[i];
+            if (r?.revenueCenters) {
+              const t = sumRVCLocal(r.revenueCenters);
+              lyWeekSales += t.netSales;
+              if (i === dayOfWeek) lyDaySales = t.netSales;
+            }
           }
         }
         const weekForecast = lyWeekSales * 1.02;
@@ -8993,6 +9004,7 @@ ${pendingEmail.emails.join("\n")}`,
     const voidPct = d.netSales > 0 ? d.voids / d.netSales * 100 : 0;
     const wtdTotalSales = (weekTotals?.wtdSales || 0) + d.netSales;
     const weeklyForecast = weekTotals?.weekForecast || 0;
+    const comparisonRows = scopedComparisonRows({ dayStoreCache, pcs: [pc], busDt, viewMode: cmpViewMode, todayStr, hourlyHistories });
     const activeRCs = rcs.filter((rc) => (rc.netSlsTtl || 0) > 0).sort((a, b) => (b.netSlsTtl || 0) - (a.netSlsTtl || 0));
     const rcTotal = activeRCs.reduce((a, rc) => a + (rc.netSlsTtl || 0), 0);
     const CHART_COLORS = ["#69db7c", "#74c0fc", "#ffd43b", "#f06595", "#b197fc", "#ff922b", "#20c997", "#868e96", "#e599f7", "#63e6be", "#ffa8a8", "#91a7ff"];
@@ -9249,7 +9261,7 @@ ${pendingEmail.emails.join("\n")}`,
       tm.setDate(tm.getDate() + 1);
       const tmStr = `${tm.getFullYear()}-${String(tm.getMonth() + 1).padStart(2, "0")}-${String(tm.getDate()).padStart(2, "0")}`;
       return /* @__PURE__ */ React.createElement(StoreForecastTab, { pc, date: tmStr, actualHourly: null, th });
-    })()), storeTab === "daypart" && /* @__PURE__ */ React.createElement(DaypartMatrix, { pc, th }), storeTab === "sales" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "0.75rem", padding: "1.5rem", marginBottom: "1.25rem", border: "1px solid " + th.cardBorder } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: th.text } }, "Sales by Hour", viewMode === "week" ? " \u2014 Week Total" : ""), hourlyData && hourlyData.some((h) => h.sales > 0) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.25rem", fontSize: "0.7rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Peak Hour: ", /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, (() => {
+    })()), storeTab === "daypart" && /* @__PURE__ */ React.createElement(DaypartMatrix, { pc, th }), storeTab === "sales" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(PulseComparisonStrip, { rows: comparisonRows, th, G }), /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "0.75rem", padding: "1.5rem", marginBottom: "1.25rem", border: "1px solid " + th.cardBorder } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: th.text } }, "Sales by Hour", viewMode === "week" ? " \u2014 Week Total" : ""), hourlyData && hourlyData.some((h) => h.sales > 0) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.25rem", fontSize: "0.7rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Peak Hour: ", /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, (() => {
       const peak = hourlyData.reduce((a, h) => h.sales > a.sales ? h : a, hourlyData[0]);
       return peak.hour === 0 ? "12 AM" : peak.hour < 12 ? peak.hour + " AM" : peak.hour === 12 ? "12 PM" : peak.hour - 12 + " PM";
     })())), /* @__PURE__ */ React.createElement("span", null, "Total Checks: ", /* @__PURE__ */ React.createElement("strong", { style: { color: "#74c0fc" } }, fmtNum(hourlyData.reduce((a, h) => a + h.count, 0)))), /* @__PURE__ */ React.createElement("span", null, "Hours Open: ", /* @__PURE__ */ React.createElement("strong", { style: { color: "#ffd43b" } }, hourlyData.filter((h) => h.sales > 0).length)))), loading ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "3rem", color: th.muted, fontSize: "0.8rem" } }, "Loading hourly sales...") : hourlyData && hourlyData.some((h) => h.sales > 0) ? (() => {
@@ -9922,7 +9934,7 @@ ${pendingEmail.emails.join("\n")}`,
       );
     })()))));
   }
-  function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users }) {
+  function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users, dayStoreCache = null, viewMode: cmpViewMode = "day", todayStr = null, hourlyHistories = null }) {
     const laborColor2 = (pct) => pct == null ? th.muted : pct <= 22.9 ? "#22c55e" : pct <= 25.9 ? "#f59e0b" : "#ef4444";
     const laborLabel = (pct) => pct == null ? "\u2014" : pct <= 22.9 ? "On Target" : pct <= 25.9 ? "Watch" : "Over";
     const distStores = stores.filter((s) => s.district === distNum);
@@ -10213,7 +10225,8 @@ ${pendingEmail.emails.join("\n")}`,
           lyWeekDates.push(localDateStr2(dd));
         }
         const fetchOps = (s, date) => fetchEndpoint("getOperationsDailyTotals", { api: apiFor(s.pc), locRef: s.pc, busDt: date, include: "locRef,busDt,revenueCenters" });
-        const lyResults = await Promise.all(lyWeekDates.flatMap((date) => distStores.map((s) => fetchOps(s, date))));
+        const lyFromCache = dayStoreCache && lyWeekDates.every((d2) => dayStoreCache[d2]);
+        const lyResults = lyFromCache ? [] : await Promise.all(lyWeekDates.flatMap((date) => distStores.map((s) => fetchOps(s, date))));
         let lyWeekSales = 0;
         let lyDaySales = 0;
         const dayOfWeek = dt.getDay();
@@ -10221,9 +10234,17 @@ ${pendingEmail.emails.join("\n")}`,
         const lyByDay = [0, 0, 0, 0, 0, 0, 0];
         for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
           let daySum = 0;
-          for (let si = 0; si < storesCount; si++) {
-            const r = lyResults[dayIdx * storesCount + si];
-            if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
+          if (lyFromCache) {
+            const date = lyWeekDates[dayIdx];
+            for (const s of distStores) {
+              const e = dayStoreCache[date][s.pc];
+              if (e && e.status === "ok") daySum += e.data.netSales || 0;
+            }
+          } else {
+            for (let si = 0; si < storesCount; si++) {
+              const r = lyResults[dayIdx * storesCount + si];
+              if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
+            }
           }
           lyByDay[dayIdx] = daySum;
           lyWeekSales += daySum;
@@ -10237,13 +10258,22 @@ ${pendingEmail.emails.join("\n")}`,
           dd.setDate(prevSun.getDate() + i);
           prevWeekDates.push(localDateStr2(dd));
         }
-        const prevResults = await Promise.all(prevWeekDates.flatMap((date) => distStores.map((s) => fetchOps(s, date))));
+        const prevFromCache = dayStoreCache && prevWeekDates.every((d2) => dayStoreCache[d2]);
+        const prevResults = prevFromCache ? [] : await Promise.all(prevWeekDates.flatMap((date) => distStores.map((s) => fetchOps(s, date))));
         const prevByDay = [0, 0, 0, 0, 0, 0, 0];
         for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
           let daySum = 0;
-          for (let si = 0; si < storesCount; si++) {
-            const r = prevResults[dayIdx * storesCount + si];
-            if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
+          if (prevFromCache) {
+            const date = prevWeekDates[dayIdx];
+            for (const s of distStores) {
+              const e = dayStoreCache[date][s.pc];
+              if (e && e.status === "ok") daySum += e.data.netSales || 0;
+            }
+          } else {
+            for (let si = 0; si < storesCount; si++) {
+              const r = prevResults[dayIdx * storesCount + si];
+              if (r?.revenueCenters) daySum += sumRVCLocal(r.revenueCenters).netSales;
+            }
           }
           prevByDay[dayIdx] = daySum;
         }
@@ -10284,6 +10314,8 @@ ${pendingEmail.emails.join("\n")}`,
     const voidPct = d.netSales > 0 ? d.voids / d.netSales * 100 : 0;
     const wtdTotalSales = (weekTotals?.wtdSales || 0) + d.netSales;
     const weeklyForecast = weekTotals?.weekForecast || 0;
+    const districtPCs = stores.filter((s) => Number(s.district) === Number(distNum) && s.status === "Open").map((s) => s.pc);
+    const comparisonRows = scopedComparisonRows({ dayStoreCache, pcs: districtPCs, busDt, viewMode: cmpViewMode, todayStr, hourlyHistories });
     const CHART_COLORS = ["#69db7c", "#74c0fc", "#ffd43b", "#f06595", "#b197fc", "#ff922b", "#20c997", "#868e96", "#e599f7", "#63e6be", "#ffa8a8", "#91a7ff"];
     const DonutChart = ({ data, size = 200, thickness = 32, hoveredIdx, onHover }) => {
       const total = data.reduce((a, d2) => a + d2.value, 0);
@@ -10397,7 +10429,7 @@ ${pendingEmail.emails.join("\n")}`,
       },
       /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2rem", letterSpacing: -1, lineHeight: 1, color: G, textShadow: `0 0 18px ${G}44` } }, fmtUSD(d.netSales)),
       /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, fontWeight: 600, marginTop: "0.4rem" } }, "Net Sales \xB7 " + (viewMode === "week" ? "This Week" : "Today"))
-    ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, [
+    ), /* @__PURE__ */ React.createElement(PulseComparisonStrip, { rows: comparisonRows, th, G }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, [
       { label: "Checks", value: fmtNum(d.guests), color: "#74c0fc" },
       { label: "Avg Check", value: fmtAvg(d.avgCheck), color: "#ffd43b" },
       { label: "Discounts", value: fmtUSD(d.discounts), color: "#f06595" },
@@ -10876,6 +10908,21 @@ ${pendingEmail.emails.join("\n")}`,
     const partial = [rows?.lw, rows?.ly].filter(Boolean).some((r) => r.comparableCount < r.totalCount);
     if (!partial) return null;
     return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: `${G}77`, marginTop: "0.35rem" } }, "\u2020 same-store basis \u2014 stores without data in both periods are excluded from both sides");
+  }
+  function PulseComparisonStrip({ rows, th, G }) {
+    if (!rows) return null;
+    const list = [rows.lw, rows.ly].filter(Boolean);
+    if (!list.length) return null;
+    const fmtUSD = (v) => "$" + Math.round(v).toLocaleString();
+    const fmtNum = (v) => Math.round(v).toLocaleString();
+    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: "-0.75rem", marginBottom: "1.25rem" } }, list.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.label, style: { display: "flex", alignItems: "baseline", gap: "0.6rem", fontSize: "0.72rem", marginTop: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 700, minWidth: "5.5rem" } }, row.label, pulseEstLabel(rows.estimatedHour), row.comparableCount < row.totalCount && /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        title: `${row.comparableCount} of ${row.totalCount} stores have data for both periods`,
+        style: { marginLeft: 4, color: "#ffd43b" }
+      },
+      "\u2020"
+    )), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 700 } }, fmtUSD(row.netSales), " ", /* @__PURE__ */ React.createElement(PulseDelta, { d: row.netSalesDelta, G })), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { color: "#74c0fc", fontWeight: 700 } }, fmtNum(Math.round(row.guests)), " ", /* @__PURE__ */ React.createElement(PulseDelta, { d: row.guestsDelta, G })))), /* @__PURE__ */ React.createElement(PulseComparisonFootnote, { rows, G }));
   }
   function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
     const G = "#00d084";
@@ -11546,7 +11593,7 @@ ${t2.slice(0, 300)}`);
         filterPcs: dmPCSet,
         title: isDMUser ? "Top Complaints This Month \u2014 Your District" : void 0
       }
-    )), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { key: pulseView.pc, pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user, users, laborData, txnDeepLinkRef, initialTab: pulseView.initialTab || "sales" }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in ${districtLabel(dmDistrict)}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
+    )), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users, dayStoreCache, viewMode, todayStr, hourlyHistories }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { key: pulseView.pc, pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user, users, laborData, txnDeepLinkRef, initialTab: pulseView.initialTab || "sales", dayStoreCache, viewMode, todayStr, hourlyHistories }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in ${districtLabel(dmDistrict)}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
       const dPct = (idx + 1) / arr.length;
       const isDone = progress / 100 >= dPct;
       const isActive = progress / 100 >= idx / arr.length && progress / 100 < dPct;
