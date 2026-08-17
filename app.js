@@ -1091,10 +1091,87 @@
   }
 
   // src/pulse-comparison.mjs
+  var LY_OFFSET_DAYS = 364;
+  var LW_OFFSET_DAYS = 7;
   function shiftDate(ymd, days) {
     const d = /* @__PURE__ */ new Date(ymd + "T12:00:00");
     d.setDate(d.getDate() + days);
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function dowFor(ymd) {
+    return (/* @__PURE__ */ new Date(ymd + "T12:00:00")).getDay();
+  }
+  function comparisonDates(busDt, viewMode, todayStr) {
+    let current;
+    if (viewMode === "week") {
+      const sun = shiftDate(busDt, -dowFor(busDt));
+      current = [];
+      for (let i = 0; i < 7; i++) {
+        const ds = shiftDate(sun, i);
+        if (ds <= todayStr) current.push(ds);
+      }
+    } else {
+      current = [busDt];
+    }
+    return {
+      current,
+      lw: current.map((d) => shiftDate(d, -LW_OFFSET_DAYS)),
+      ly: current.map((d) => shiftDate(d, -LY_OFFSET_DAYS))
+    };
+  }
+  function delta(current, prior) {
+    if (!prior || prior <= 0) return null;
+    return (current - prior) / prior * 100;
+  }
+  function comparableTotals(dayStoreCache, currentDates, priorDates, pcs) {
+    const cache = dayStoreCache || {};
+    const hasAll = (pc, dates) => dates.length > 0 && dates.every((d) => cache[d] && cache[d][pc] && cache[d][pc].status === "ok");
+    const comparablePcs = [];
+    const excludedPcs = [];
+    for (const pc of pcs || []) {
+      if (hasAll(pc, currentDates) && hasAll(pc, priorDates)) comparablePcs.push(pc);
+      else excludedPcs.push(pc);
+    }
+    const sum = (dates) => {
+      let netSales = 0, guests = 0;
+      for (const d of dates) {
+        for (const pc of comparablePcs) {
+          const e = cache[d][pc];
+          netSales += e.data.netSales || 0;
+          guests += e.data.guests || 0;
+        }
+      }
+      return { netSales, guests };
+    };
+    return {
+      current: sum(currentDates),
+      prior: sum(priorDates),
+      comparablePcs,
+      excludedPcs
+    };
+  }
+  var MIN_CURVE_SAMPLES = 3;
+  function dayCompletionFraction(hourlyHistories, dow, throughHour, maxSamples = 8) {
+    let through = 0, total = 0, samples = 0;
+    for (const history of hourlyHistories || []) {
+      if (!Array.isArray(history)) continue;
+      const matching = history.filter((e) => e && typeof e.date === "string" && dowFor(e.date) === dow).slice(0, maxSamples);
+      for (const entry of matching) {
+        let dayTotal = 0, dayThrough = 0;
+        for (const h of entry.hours || []) {
+          const s = h && h.sales || 0;
+          dayTotal += s;
+          if (h && h.h <= throughHour) dayThrough += s;
+        }
+        if (dayTotal > 0) {
+          through += dayThrough;
+          total += dayTotal;
+          samples++;
+        }
+      }
+    }
+    if (samples < MIN_CURVE_SAMPLES || total <= 0) return null;
+    return through / total;
   }
   var ARCHIVAL_THRESHOLD_DAYS = 180;
   function isArchivalDate(date, todayStr) {
@@ -10746,6 +10823,46 @@ ${pendingEmail.emails.join("\n")}`,
       );
     }))));
   }
+  function scopedComparisonRows({ dayStoreCache, pcs, busDt, viewMode, todayStr, hourlyHistories }) {
+    if (!dayStoreCache || !todayStr || !pcs || !pcs.length) return null;
+    const { current, lw, ly } = comparisonDates(busDt, viewMode, todayStr);
+    if (!current.every((d) => dayStoreCache[d])) return null;
+    const isToday = current[current.length - 1] === todayStr;
+    const nowHour = Number((/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false })) % 24;
+    const fraction = isToday ? dayCompletionFraction(hourlyHistories || [], dowFor(todayStr), nowHour) : null;
+    if (isToday && fraction == null) return null;
+    const build = (label, priorDates) => {
+      if (!priorDates.every((d) => dayStoreCache[d])) return null;
+      const t = comparableTotals(dayStoreCache, current, priorDates, pcs);
+      if (!t.comparablePcs.length) return null;
+      let priorNet = t.prior.netSales, priorGuests = t.prior.guests;
+      if (fraction != null) {
+        const lastDate = priorDates[priorDates.length - 1];
+        let lastNet = 0, lastGuests = 0;
+        for (const pc of t.comparablePcs) {
+          const e = dayStoreCache[lastDate][pc];
+          lastNet += e.data.netSales || 0;
+          lastGuests += e.data.guests || 0;
+        }
+        priorNet = priorNet - lastNet + lastNet * fraction;
+        priorGuests = priorGuests - lastGuests + lastGuests * fraction;
+      }
+      return {
+        label,
+        netSales: priorNet,
+        guests: priorGuests,
+        netSalesDelta: delta(t.current.netSales, priorNet),
+        guestsDelta: delta(t.current.guests, priorGuests),
+        comparableCount: t.comparablePcs.length,
+        totalCount: pcs.length,
+        estimated: fraction != null
+      };
+    };
+    const lwRow = build(viewMode === "week" ? "vs PW" : "vs LW", lw);
+    const lyRow = build(viewMode === "week" ? "vs SW LY" : "vs LY", ly);
+    if (!lwRow && !lyRow) return null;
+    return { lw: lwRow, ly: lyRow, estimatedHour: fraction != null ? nowHour : null };
+  }
   function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
     const G = "#00d084";
     const isMobile = useIsMobile();
@@ -10787,6 +10904,8 @@ ${pendingEmail.emails.join("\n")}`,
     const [weekStoreData, setWeekStoreData] = useState({});
     const [weekLoading, setWeekLoading] = useState(false);
     const [dayStoreCache, setDayStoreCache] = useState({});
+    const [comparisonsLoading, setComparisonsLoading] = useState(false);
+    const [hourlyHistories, setHourlyHistories] = useState(null);
     const [collapsed, setCollapsed] = useState(/* @__PURE__ */ new Set());
     const [tipsSnapshot, setTipsSnapshot] = useState(null);
     useEffect(() => {
@@ -10814,6 +10933,17 @@ ${pendingEmail.emails.join("\n")}`,
     const frameH = useFrameHeight(frameRef);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
     const dmStoreCount = activePCs.length;
+    useEffect(() => {
+      let alive = true;
+      Promise.all(activePCs.map(
+        (pc) => cloudLoad(`pcg_hourly_history_${pc}`).then((d) => Array.isArray(d) ? d : null).catch(() => null)
+      )).then((all) => {
+        if (alive) setHourlyHistories(all.filter(Boolean));
+      });
+      return () => {
+        alive = false;
+      };
+    }, [activePCs.join(",")]);
     useEffect(() => {
       if (drillInStore) {
         setPulseView({ level: "store", pc: drillInStore });
@@ -10959,6 +11089,27 @@ ${pendingEmail.emails.join("\n")}`,
       if (missing.length) setLyCache(newCache);
       return lyDates;
     }
+    async function loadComparisons() {
+      const { current, lw, ly } = comparisonDates(busDt, viewMode, todayStr);
+      const wanted = [.../* @__PURE__ */ new Set([...current, ...lw, ...ly])];
+      const cache = { ...dayStoreCache };
+      if (!loading && Object.keys(storeData).length > 0) cache[busDt] = storeData;
+      const missing = wanted.filter((d) => !cache[d]);
+      if (!missing.length) {
+        setDayStoreCache(cache);
+        return;
+      }
+      setComparisonsLoading(true);
+      try {
+        const fetched = await Promise.all(missing.map(async (d) => [d, await fetchDate(d)]));
+        for (const [d, r] of fetched) cache[d] = r;
+        setDayStoreCache(cache);
+      } catch (e) {
+        console.warn("[pulse] comparison fetch failed:", e && e.message);
+      } finally {
+        setComparisonsLoading(false);
+      }
+    }
     async function runDiagTest() {
       setTesting(true);
       setTestResult(null);
@@ -11012,6 +11163,11 @@ ${t2.slice(0, 300)}`);
         loadLYWeek();
       }
     }, [loading, storeData]);
+    useEffect(() => {
+      if (loading) return;
+      if (!Object.keys(storeData).length) return;
+      loadComparisons();
+    }, [busDt, viewMode, loading]);
     useEffect(() => {
       if (autoRefresh) {
         cdRef.current = setInterval(() => {
@@ -11079,6 +11235,14 @@ ${t2.slice(0, 300)}`);
     const lyDaysLoaded = lyWeekDates.filter((d) => lyCache[d]).length;
     const weeklyForecastLY = lyWeekSales * 1.02;
     const hasLYWeek = lyDaysLoaded > 0;
+    const comparisonRows = scopedComparisonRows({
+      dayStoreCache: { ...dayStoreCache, [busDt]: dayStoreCache[busDt] || storeData },
+      pcs: activePCs,
+      busDt,
+      viewMode,
+      todayStr,
+      hourlyHistories
+    });
     const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const trendData = weekDates2.map((date, i) => ({
       date: date.slice(5),

@@ -11806,6 +11806,54 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
   );
 }
 
+// Build comparison rows for a subset of stores by re-summing the network's
+// dayStoreCache. No API calls — every date needed was already fetched by
+// AdminPulse.loadComparisons(). Returns null when the cache isn't available
+// or the required dates aren't loaded yet. Shared by network/district/store.
+function scopedComparisonRows({ dayStoreCache, pcs, busDt, viewMode, todayStr, hourlyHistories }) {
+  if (!dayStoreCache || !todayStr || !pcs || !pcs.length) return null;
+  const { current, lw, ly } = comparisonDates(busDt, viewMode, todayStr);
+  if (!current.every(d => dayStoreCache[d])) return null;
+
+  const isToday = current[current.length - 1] === todayStr;
+  const nowHour = Number(new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: '2-digit', hour12: false })) % 24;
+  const fraction = isToday ? dayCompletionFraction(hourlyHistories || [], dowFor(todayStr), nowHour) : null;
+  if (isToday && fraction == null) return null;
+
+  const build = (label, priorDates) => {
+    if (!priorDates.every(d => dayStoreCache[d])) return null;
+    const t = comparableTotals(dayStoreCache, current, priorDates, pcs);
+    if (!t.comparablePcs.length) return null;
+    let priorNet = t.prior.netSales, priorGuests = t.prior.guests;
+    if (fraction != null) {
+      const lastDate = priorDates[priorDates.length - 1];
+      let lastNet = 0, lastGuests = 0;
+      for (const pc of t.comparablePcs) {
+        const e = dayStoreCache[lastDate][pc];
+        lastNet += e.data.netSales || 0;
+        lastGuests += e.data.guests || 0;
+      }
+      priorNet    = priorNet    - lastNet    + lastNet    * fraction;
+      priorGuests = priorGuests - lastGuests + lastGuests * fraction;
+    }
+    return {
+      label,
+      netSales: priorNet,
+      guests: priorGuests,
+      netSalesDelta: delta(t.current.netSales, priorNet),
+      guestsDelta:   delta(t.current.guests,   priorGuests),
+      comparableCount: t.comparablePcs.length,
+      totalCount: pcs.length,
+      estimated: fraction != null,
+    };
+  };
+
+  const lwRow = build(viewMode === 'week' ? 'vs PW' : 'vs LW', lw);
+  const lyRow = build(viewMode === 'week' ? 'vs SW LY' : 'vs LY', ly);
+  if (!lwRow && !lyRow) return null;
+  return { lw: lwRow, ly: lyRow, estimatedHour: fraction != null ? nowHour : null };
+}
+
 // ─── Admin Pulse ─────────────────────────────────────────────────────────────
 function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
   const G = '#00d084';
@@ -11840,6 +11888,8 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   const [weekStoreData,setWeekStoreData]= useState({});      // pc → { netSales, guests, voids, discounts } (WTD sums)
   const [weekLoading,  setWeekLoading]  = useState(false);
   const [dayStoreCache,setDayStoreCache]= useState({});      // date → fetchDate() result (memoize per-day per-store)
+  const [comparisonsLoading, setComparisonsLoading] = useState(false);
+  const [hourlyHistories,    setHourlyHistories]    = useState(null);  // per-store hourly blobs, for intraday curve
   const [collapsed,   setCollapsed]  = useState(new Set());
   // Store Breakdown's Tips column reads the same daily snapshot the Tips
   // Report itself is built from (pcg_tips_snapshot_{busDt}) rather than a
@@ -11875,6 +11925,17 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
     .filter(s => !isDMUser || Number(s.district) === dmDistrict)
     .map(s => s.pc);
   const dmStoreCount = activePCs.length;
+
+  // Hourly history drives the intraday completion curve. One blob per store,
+  // 90-day retention, written nightly by pulse-hourly-snapshot. Loaded once —
+  // the curve is a shape, not a live figure, so it does not need refreshing.
+  useEffect(() => {
+    let alive = true;
+    Promise.all(activePCs.map(pc =>
+      cloudLoad(`pcg_hourly_history_${pc}`).then(d => (Array.isArray(d) ? d : null)).catch(() => null)
+    )).then(all => { if (alive) setHourlyHistories(all.filter(Boolean)); });
+    return () => { alive = false; };
+  }, [activePCs.join(',')]);
 
   // Drill-in from Orion: auto-open store detail
   useEffect(() => {
@@ -12028,6 +12089,32 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
     return lyDates;
   }
 
+  // Fetch whichever prior-period dates aren't cached yet, into dayStoreCache.
+  // Deliberately runs AFTER loadAll() so the main grid paints at its normal
+  // speed; comparison rows fill in behind it like WTD does. Everything lands in
+  // dayStoreCache (per-store), so District and Store views re-sum the same data
+  // with zero additional API calls.
+  async function loadComparisons() {
+    const { current, lw, ly } = comparisonDates(busDt, viewMode, todayStr);
+    const wanted = [...new Set([...current, ...lw, ...ly])];
+    const cache = { ...dayStoreCache };
+    if (!loading && Object.keys(storeData).length > 0) cache[busDt] = storeData;
+    const missing = wanted.filter(d => !cache[d]);
+    if (!missing.length) { setDayStoreCache(cache); return; }
+    setComparisonsLoading(true);
+    try {
+      const fetched = await Promise.all(missing.map(async d => [d, await fetchDate(d)]));
+      for (const [d, r] of fetched) cache[d] = r;
+      setDayStoreCache(cache);
+    } catch (e) {
+      // A comparison failure must never disturb Today/WTD — swallow and leave
+      // the rows absent rather than surfacing an error over the primary numbers.
+      console.warn('[pulse] comparison fetch failed:', e && e.message);
+    } finally {
+      setComparisonsLoading(false);
+    }
+  }
+
   async function runDiagTest() {
     setTesting(true); setTestResult(null);
     try {
@@ -12080,6 +12167,14 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
       loadLYWeek();
     }
   }, [loading, storeData]);
+
+  // Kick comparisons once the primary grid has data. Re-runs when the date or
+  // view mode changes, since the comparison date set changes with both.
+  useEffect(() => {
+    if (loading) return;
+    if (!Object.keys(storeData).length) return;
+    loadComparisons();
+  }, [busDt, viewMode, loading]);
 
   // Auto-refresh
   useEffect(() => {
@@ -12146,6 +12241,14 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   const lyDaysLoaded = lyWeekDates.filter(d => lyCache[d]).length;
   const weeklyForecastLY = lyWeekSales * 1.02;
   const hasLYWeek = lyDaysLoaded > 0;
+
+  // Comparison rows for the KPI table. Re-sums the network's dayStoreCache
+  // (merging in today's live storeData) via the shared scopedComparisonRows
+  // helper — no additional API calls.
+  const comparisonRows = scopedComparisonRows({
+    dayStoreCache: { ...dayStoreCache, [busDt]: dayStoreCache[busDt] || storeData },
+    pcs: activePCs, busDt, viewMode, todayStr, hourlyHistories,
+  });
 
   // Trend chart data — Sun-Sat week
   const DAY_LABELS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
