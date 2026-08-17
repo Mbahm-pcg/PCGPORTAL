@@ -69,6 +69,8 @@ describe('delta', () => {
   });
 });
 
+import { dayCompletionFraction, MIN_CURVE_SAMPLES } from './pulse-comparison.mjs';
+
 const ok = (netSales, guests) => ({ status: 'ok', data: { netSales, guests, voids: 0, discounts: 0 } });
 
 describe('comparableTotals', () => {
@@ -120,5 +122,68 @@ describe('comparableTotals', () => {
   test('missing cache object does not throw', () => {
     const r = comparableTotals(undefined, ['2026-08-12'], ['2026-08-05'], ['A']);
     assert.deepStrictEqual(r.excludedPcs, ['A']);
+  });
+});
+
+describe('dayCompletionFraction', () => {
+  test('weights across stores and days, not a mean of fractions', () => {
+    const histories = [
+      [{ date: '2026-08-05', hours: [{ h: 8, sales: 25 }, { h: 14, sales: 75 }] },
+       { date: '2026-07-29', hours: [{ h: 8, sales: 25 }, { h: 14, sales: 75 }] },
+       { date: '2026-07-22', hours: [{ h: 8, sales: 25 }, { h: 14, sales: 75 }] }],
+    ];
+    // through hour 8 → 25 of every 100
+    assert.strictEqual(dayCompletionFraction(histories, 3, 8), 0.25);
+  });
+
+  test('includes the boundary hour itself', () => {
+    const histories = [[
+      { date: '2026-08-05', hours: [{ h: 8, sales: 50 }, { h: 9, sales: 50 }] },
+      { date: '2026-07-29', hours: [{ h: 8, sales: 50 }, { h: 9, sales: 50 }] },
+      { date: '2026-07-22', hours: [{ h: 8, sales: 50 }, { h: 9, sales: 50 }] },
+    ]];
+    assert.strictEqual(dayCompletionFraction(histories, 3, 8), 0.5);
+    assert.strictEqual(dayCompletionFraction(histories, 3, 9), 1);
+  });
+
+  test('only matching day-of-week entries count', () => {
+    const histories = [[
+      { date: '2026-08-04', hours: [{ h: 8, sales: 100 }] },  // Tuesday — ignored for dow=3
+      { date: '2026-08-05', hours: [{ h: 8, sales: 10 }, { h: 14, sales: 90 }] },
+      { date: '2026-07-29', hours: [{ h: 8, sales: 10 }, { h: 14, sales: 90 }] },
+      { date: '2026-07-22', hours: [{ h: 8, sales: 10 }, { h: 14, sales: 90 }] },
+    ]];
+    assert.strictEqual(dayCompletionFraction(histories, 3, 8), 0.10);
+  });
+
+  test('returns null below the sample floor', () => {
+    const histories = [[{ date: '2026-08-05', hours: [{ h: 8, sales: 50 }, { h: 14, sales: 50 }] }]];
+    assert.strictEqual(dayCompletionFraction(histories, 3, 8), null);
+    assert.ok(MIN_CURVE_SAMPLES > 1);
+  });
+
+  test('returns null on empty, missing, or zero-sales history', () => {
+    assert.strictEqual(dayCompletionFraction([], 3, 8), null);
+    assert.strictEqual(dayCompletionFraction(undefined, 3, 8), null);
+    assert.strictEqual(dayCompletionFraction([null, 'nope'], 3, 8), null);
+    const zeroes = [[
+      { date: '2026-08-05', hours: [{ h: 8, sales: 0 }] },
+      { date: '2026-07-29', hours: [{ h: 8, sales: 0 }] },
+      { date: '2026-07-22', hours: [{ h: 8, sales: 0 }] },
+    ]];
+    assert.strictEqual(dayCompletionFraction(zeroes, 3, 8), null);
+  });
+
+  test('respects maxSamples per store', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      date: shiftDate('2026-08-05', -7 * i),
+      hours: [{ h: 8, sales: i === 0 ? 100 : 0 }, { h: 14, sales: 100 }],
+    }));
+    // With maxSamples=1 only the newest Wednesday counts → 100/200 = 0.5,
+    // but that is below MIN_CURVE_SAMPLES, so null.
+    assert.strictEqual(dayCompletionFraction([many], 3, 8, 1), null);
+    // With the full window, later days contribute 0 early sales → well under 0.1
+    const full = dayCompletionFraction([many], 3, 8, 12);
+    assert.ok(full !== null && full < 0.1);
   });
 });

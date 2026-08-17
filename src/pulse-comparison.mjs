@@ -89,3 +89,41 @@ export function comparableTotals(dayStoreCache, currentDates, priorDates, pcs) {
     excludedPcs,
   };
 }
+
+// Matching weekdays required before an intraday curve is trusted. Below this the
+// caller shows "—" rather than an unlabeled guess.
+export const MIN_CURVE_SAMPLES = 3;
+
+// What fraction of a typical `dow` day's sales is complete by the END of
+// `throughHour` (ET, 0-23), blended across the stores in scope.
+//
+// Weighted across all store-days (sum of early sales ÷ sum of full-day sales)
+// rather than averaging each day's fraction, so one small or unusual store-day
+// cannot swing the curve.
+//
+// Used to scale prior-period NET SALES daily totals, NOT to read sales directly:
+// the hourly blobs store guest-check totals which INCLUDE TAX and run a few
+// percent above net sales. Only the day's *shape* is taken from here.
+export function dayCompletionFraction(hourlyHistories, dow, throughHour, maxSamples = 8) {
+  let through = 0, total = 0, samples = 0;
+
+  for (const history of (hourlyHistories || [])) {
+    if (!Array.isArray(history)) continue;
+    const matching = history
+      .filter(e => e && typeof e.date === 'string' && dowFor(e.date) === dow)
+      .slice(0, maxSamples);
+
+    for (const entry of matching) {
+      let dayTotal = 0, dayThrough = 0;
+      for (const h of (entry.hours || [])) {
+        const s = (h && h.sales) || 0;
+        dayTotal += s;
+        if (h && h.h <= throughHour) dayThrough += s;
+      }
+      if (dayTotal > 0) { through += dayThrough; total += dayTotal; samples++; }
+    }
+  }
+
+  if (samples < MIN_CURVE_SAMPLES || total <= 0) return null;
+  return through / total;
+}
