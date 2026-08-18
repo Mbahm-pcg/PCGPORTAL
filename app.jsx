@@ -11203,7 +11203,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
         <div style={{ fontFamily:"'Raleway'", fontWeight:900, fontSize:'2rem', letterSpacing:-1, lineHeight:1, color:G, textShadow:`0 0 18px ${G}44` }}>{fmtUSD(d.netSales)}</div>
         <div style={{ fontSize:'0.72rem', color:th.muted, fontWeight:600, marginTop:'0.4rem' }}>{'Net Sales · ' + (viewMode === 'week' ? 'This Week' : 'Today')}</div>
       </div>
-      <PulseComparisonStrip rows={comparisonRows} th={th} G={G} />
+      <PulseComparisonStrip rows={comparisonRows} th={th} G={G} tight />
 
       {/* Secondary stats strip */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(170px, 1fr))', gap:'0.75rem', marginBottom:'1.25rem' }}>
@@ -11989,14 +11989,18 @@ function PulseComparisonFootnote({ rows, G }) {
 // Compact comparison strip for the district and store views, which use a hero
 // number + tile grid rather than the network's table. Shares PulseDelta and
 // pulseEstLabel with the network rows so formatting cannot drift.
-function PulseComparisonStrip({ rows, th, G }) {
+function PulseComparisonStrip({ rows, th, G, tight = false }) {
   if (!rows) return null;
   const list = [rows.lw, rows.ly].filter(Boolean);
   if (!list.length) return null;
   const fmtUSD = v => '$' + Math.round(v).toLocaleString();
   const fmtNum = v => Math.round(v).toLocaleString();
+  // `tight` (DistrictDetail) pulls the strip up under the hero Net Sales number.
+  // Default (StoreDetail) keeps a non-negative top — there the strip is the first
+  // child of the Sales-tab scroll container, and a negative margin clips the first
+  // row ("vs LW") above the container's top edge, under the fixed header.
   return (
-    <div style={{ marginTop:'-0.75rem', marginBottom:'1.25rem' }}>
+    <div style={{ marginTop: tight ? '-0.75rem' : '0.25rem', marginBottom:'1.25rem' }}>
       {list.map(row => (
         <div key={row.label} style={{ display:'flex', alignItems:'baseline', gap:'0.6rem', fontSize:'0.72rem', marginTop:'0.3rem' }}>
           <span style={{ color:th.muted, fontWeight:700, minWidth:'5.5rem' }}>
@@ -26071,7 +26075,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v19.99";
+const APP_VERSION = "v20.00";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

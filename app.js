@@ -10482,7 +10482,7 @@ ${pendingEmail.emails.join("\n")}`,
       },
       /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2rem", letterSpacing: -1, lineHeight: 1, color: G, textShadow: `0 0 18px ${G}44` } }, fmtUSD(d.netSales)),
       /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, fontWeight: 600, marginTop: "0.4rem" } }, "Net Sales \xB7 " + (viewMode === "week" ? "This Week" : "Today"))
-    ), /* @__PURE__ */ React.createElement(PulseComparisonStrip, { rows: comparisonRows, th, G }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, [
+    ), /* @__PURE__ */ React.createElement(PulseComparisonStrip, { rows: comparisonRows, th, G, tight: true }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, [
       { label: "Checks", value: fmtNum(d.guests), color: "#74c0fc" },
       { label: "Avg Check", value: fmtAvg(d.avgCheck), color: "#ffd43b" },
       { label: "Discounts", value: fmtUSD(d.discounts), color: "#f06595" },
@@ -10962,13 +10962,13 @@ ${pendingEmail.emails.join("\n")}`,
     if (!partial) return null;
     return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: `${G}77`, marginTop: "0.35rem" } }, "\u2020 same-store basis \u2014 stores without data in both periods are excluded from both sides");
   }
-  function PulseComparisonStrip({ rows, th, G }) {
+  function PulseComparisonStrip({ rows, th, G, tight = false }) {
     if (!rows) return null;
     const list = [rows.lw, rows.ly].filter(Boolean);
     if (!list.length) return null;
     const fmtUSD = (v) => "$" + Math.round(v).toLocaleString();
     const fmtNum = (v) => Math.round(v).toLocaleString();
-    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: "-0.75rem", marginBottom: "1.25rem" } }, list.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.label, style: { display: "flex", alignItems: "baseline", gap: "0.6rem", fontSize: "0.72rem", marginTop: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 700, minWidth: "5.5rem" } }, row.label, pulseEstLabel(rows.estimatedHour), row.comparableCount < row.totalCount && /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: tight ? "-0.75rem" : "0.25rem", marginBottom: "1.25rem" } }, list.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.label, style: { display: "flex", alignItems: "baseline", gap: "0.6rem", fontSize: "0.72rem", marginTop: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 700, minWidth: "5.5rem" } }, row.label, pulseEstLabel(rows.estimatedHour), row.comparableCount < row.totalCount && /* @__PURE__ */ React.createElement(
       "span",
       {
         title: `${row.comparableCount} of ${row.totalCount} stores have data for both periods`,
@@ -21204,7 +21204,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v19.99";
+  var APP_VERSION = "v20.00";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
