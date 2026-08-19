@@ -191,6 +191,19 @@ export async function fetchAllEmployees(legalEntityId) {
   do {
     const raw = await callPaycorProxy('employees', continuationToken ? { legalEntityId, continuationToken } : { legalEntityId });
     const body = JSON.parse(raw || '{}');
+    // Same disguised-error pattern already fixed for punches in
+    // fetchStoreCrew — a Paycor error response (valid JSON, no `records`
+    // array, has Title/CorrelationId) was silently treated as "empty page,
+    // stop paginating" instead of a real failure. Confirmed real (2026-08-19,
+    // Westchester 8/12): a transient hiccup truncated the employee list
+    // mid-fetch, leaving 11 real active employees unresolved and printed as
+    // "Unknown Employee (guid)" in the actual tips report. Throwing here
+    // instead means the caller's existing try/catch marks the whole store's
+    // crewStatus as 'error' for a retry, rather than silently shipping a
+    // report with real people mislabeled as unknown.
+    if (!Array.isArray(body.records) && !Array.isArray(body) && (body.Title || body.CorrelationId)) {
+      throw new Error(`Paycor error response fetching employees: ${body.Title || 'unknown'} — ${body.Detail || ''}`);
+    }
     const page = Array.isArray(body.records) ? body.records : (Array.isArray(body) ? body : []);
     records = records.concat(page);
     continuationToken = body.continuationToken || body.nextToken || null;
