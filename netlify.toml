@@ -127,13 +127,20 @@
 [functions.pos-negative-cron]
   schedule = "30 11 * * *"
 
-# Nightly Tips report — 12am ET (04:00 UTC). Per-transaction Excel breakdown
+# Nightly Tips report — 3am ET (07:00 UTC). Per-transaction Excel breakdown
 # (District, Store, PC, Time, Check #, Tip) + hours-weighted employee
 # distribution, emailed as an attachment. Scheduled as the -background variant
 # (15-min timeout) — 46 stores × Pulse + Paycor calls (punches, paginated
 # employees) routinely exceeds the 26s sync limit; a first run without this
-# suffix got cut off mid-way with no email sent. Manual test/catch-up run:
-# POST /.netlify/functions/tips-report-cron-background (optional {"busDt":"YYYY-MM-DD"}).
+# suffix got cut off mid-way with no email sent. Weekly rollup fires when
+# busDt is a Tuesday (3 days after that week's Saturday close, once payroll
+# has locked); biweekly fires the Tuesday aligned with the 14-day pay period.
+# Despite this function's own "-background" name, it still declares
+# config.schedule, so Netlify's edge blocks direct external POST to it same
+# as any other scheduled function (confirmed directly, 2026-08-19 — an
+# earlier version of this comment claiming otherwise was wrong). Manual
+# test/catch-up run: POST /.netlify/functions/tips-report-refresh-full-background
+# (optional {"busDt":"YYYY-MM-DD"}).
 [functions.tips-report-cron-background]
   schedule = "0 7 * * *"
 
