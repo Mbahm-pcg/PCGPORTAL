@@ -656,7 +656,7 @@ export default async (request) => {
 
   const recipient = (process.env.TIPS_REPORT_EMAIL || 'ahmed@peoplecapitalgroup.com').split(',').map(s => s.trim()).filter(Boolean);
 
-  async function buildAndSend(periodLabel, filenameTag, storeResultsForPeriod, subjectPrefix, missingDates, extraNote) {
+  async function buildAndSend(periodLabel, filenameTag, storeResultsForPeriod, subjectPrefix, missingDates, extraNote, skipEmail = false) {
     const { buffer, grandTotal, grandCount } = buildWorkbook(periodLabel, storeResultsForPeriod);
     const filename = `PCG-Tips-Report-${filenameTag}.xlsx`;
     const storesWithTips = storeResultsForPeriod.filter(s => s.status === 'ok' && s.rows.length > 0).length;
@@ -681,6 +681,10 @@ export default async (request) => {
         </div>
       </div>
     `;
+    if (skipEmail) {
+      console.log(`[tips-report-cron] ${subjectPrefix} — email skipped by request, snapshot already saved`);
+      return { grandTotal, grandCount, storesWithTips, storesWithErrors, email: { skipped: true } };
+    }
     const emailResult = await sendReportEmail(recipient, `${subjectPrefix} — ${periodLabel} — $${grandTotal.toFixed(2)}`, html, buffer, filename);
     console.log(`[tips-report-cron] ${subjectPrefix} email result:`, emailResult, 'to', recipient);
     return { grandTotal, grandCount, storesWithTips, storesWithErrors, email: emailResult };
@@ -689,7 +693,11 @@ export default async (request) => {
   const phase2TimeoutNote = phase2TimedOut
     ? `Paycor was unresponsive partway through tonight's run, so employee/hours data stops partway through the store list — the dollar totals above are still complete, but the "By Employee" split is incomplete for the stores that weren't reached.`
     : undefined;
-  const dailyResult = await buildAndSend(busDt, busDt, storeResults, 'PCG Tips Report — Daily', undefined, phase2TimeoutNote);
+  // Daily email disabled per explicit request (2026-08-19) — the snapshot
+  // save above still runs every night unconditionally (that's what the
+  // in-app Tips Report and the weekly/biweekly rollups both read from), only
+  // the nightly email itself is skipped.
+  const dailyResult = await buildAndSend(busDt, busDt, storeResults, 'PCG Tips Report — Daily', undefined, phase2TimeoutNote, true);
 
   let weeklyResult = null, biweeklyResult = null;
   if (isWeekBoundary(busDt)) {
