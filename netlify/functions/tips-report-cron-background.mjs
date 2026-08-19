@@ -326,10 +326,29 @@ async function buildPeriodStoreResults(endDateStr, days) {
       }
       if (s.crewStatus === 'ok') {
         agg.hadCrew = true;
+        // Correct hours-weighted split computed PER DAY (this day's pool ÷
+        // this day's total hours), then summed across days into `share` —
+        // NOT a single period-blended rate. Confirmed real bug (2026-08-19):
+        // the previous version summed pool and hours across all 14 days
+        // FIRST, then divided once, silently blending every day's very
+        // different pool-per-hour ratio into one flat average — someone who
+        // only worked one big-tip day and someone who only worked one
+        // small-tip day ended up paid the identical rate, which is wrong,
+        // even though the STORE TOTAL still netted out correctly (that's
+        // computed separately from `rows`, real Pulse data, untouched by
+        // this). This is exactly why the bug went unnoticed for as long as
+        // it did — only the per-employee split was ever wrong, never the
+        // total. Verified directly against the in-app Tips Report (which
+        // already did per-day math correctly) — this brings the two into
+        // exact agreement, penny for penny.
+        const dayTotalHours = (s.crew || []).reduce((sum, c) => sum + c.hours, 0);
+        const dayPool = Number((s.tipPool || 0).toFixed(2));
+        const dayRate = dayTotalHours > 0 ? dayPool / dayTotalHours : 0;
         (s.crew || []).forEach(c => {
           const key = c.payrollId || c.name;
-          if (!agg.crewMap[key]) agg.crewMap[key] = { name: c.name, payrollId: c.payrollId, hours: 0 };
+          if (!agg.crewMap[key]) agg.crewMap[key] = { name: c.name, payrollId: c.payrollId, hours: 0, share: 0 };
           agg.crewMap[key].hours += c.hours;
+          agg.crewMap[key].share += dayRate * c.hours;
         });
       }
     }
@@ -388,10 +407,16 @@ function buildWorkbook(periodLabel, storeResults) {
       continue;
     }
 
+    // Period reports (weekly/biweekly, via buildPeriodStoreResults) arrive
+    // with each employee's `share` already correctly summed day-by-day — use
+    // it directly. Daily reports (single day, storeResults built inline in
+    // the main loop below) have no `share` field, so fall back to the
+    // original single-day hourlyRate×hours math, which is already correct
+    // for exactly one day.
     const totalHours = s.crew.reduce((sum, c) => sum + c.hours, 0);
     const hourlyRate = totalHours > 0 ? pool / totalHours : 0;
     s.crew.forEach(c => {
-      const share = Number((hourlyRate * c.hours).toFixed(2));
+      const share = c.share != null ? Number(c.share.toFixed(2)) : Number((hourlyRate * c.hours).toFixed(2));
       empAoa.push([s.district, storeLabel, c.name, pool, share]);
     });
 
