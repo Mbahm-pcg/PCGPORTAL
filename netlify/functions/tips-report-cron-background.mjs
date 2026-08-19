@@ -233,10 +233,26 @@ function parseDateOnly(dateStr) {
   return new Date(y, m - 1, d);
 }
 function dayOfWeek(dateStr) { return parseDateOnly(dateStr).getDay(); } // 0=Sun..6=Sat
-function isWeekBoundary(busDt) { return dayOfWeek(busDt) === 6; } // Saturday just closed
+function addDaysStr(dateStr, days) {
+  const d = parseDateOnly(dateStr);
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+// Weekly/biweekly rollups fire on the Tuesday-night run (busDt = Tuesday),
+// not Sunday morning — confirmed directly (2026-08-19) that a Sunday-morning
+// report is built from timecards payroll hasn't locked yet, so any late punch
+// correction (like Shyam Patel's) is baked in as wrong before it ever has a
+// chance to be fixed. Payroll locks Tuesday night, so reporting 3 days after
+// the week's Saturday close — instead of the morning right after — means the
+// week's data has already had 3 days (and 3 daily reconcile passes) to settle.
+function isWeekBoundary(busDt) { return dayOfWeek(busDt) === 2; } // Tuesday, 3 days after Saturday close
+// The actual Sun-Sat week this Tuesday's rollup reports on (the Saturday 3
+// days before the trigger date) — NOT busDt itself, which is the send day.
+function weekEndForTrigger(busDt) { return addDaysStr(busDt, -3); }
 function isBiweekBoundary(busDt) {
   if (!isWeekBoundary(busDt)) return false;
-  const diffDays = Math.round((parseDateOnly(busDt) - parseDateOnly(BIWEEKLY_ANCHOR_END)) / 86400000);
+  const weekEnd = weekEndForTrigger(busDt);
+  const diffDays = Math.round((parseDateOnly(weekEnd) - parseDateOnly(BIWEEKLY_ANCHOR_END)) / 86400000);
   return diffDays >= 0 && diffDays % 14 === 0;
 }
 // Inclusive date range of `days` dates ending at endDateStr, ascending.
@@ -478,12 +494,14 @@ export async function fetchStoreCrew(s, busDt) {
         name: e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${guid.slice(0, 8)})`,
         payrollId: e?.employeeNumber || e?.alternateEmployeeNumber || '',
         hours: hoursByGuid[guid],
-        // Only General Managers / Store Managers are excluded — Asst
-        // Managers, Shift Leaders, and Crew Member all stay in the pool.
-        // The plain substring match alone would also catch "Assistant
-        // General Manager" (a real Paycor title in this data), so an
-        // "assist"/"asst" prefix explicitly opts the title back in.
-        isManager: /general\s*manager|store\s*manager/i.test(jobTitle) && !/assist|asst/i.test(jobTitle),
+        // Any title containing "Manager" is excluded — General Manager,
+        // Store Manager, Area Manager, District Manager, etc (updated
+        // 2026-08-19: previously only General/Store Manager were excluded,
+        // but confirmed the real intent is broader — literally any manager
+        // title except Assistant Manager, which explicitly stays in the pool
+        // along with Shift Leaders and Crew Member). The "assist"/"asst"
+        // check opts Assistant Manager back in despite matching "manager".
+        isManager: /manager/i.test(jobTitle) && !/assist|asst/i.test(jobTitle),
       };
     }).filter(c => !c.isManager && c.hours > 0);
     crewStatus = 'ok';
@@ -662,16 +680,18 @@ export default async (request) => {
 
   let weeklyResult = null, biweeklyResult = null;
   if (isWeekBoundary(busDt)) {
-    const [weekStart] = dateRangeEndingAt(busDt, 7);
-    const { storeResults: weekResults, missingDates } = await buildPeriodStoreResults(busDt, 7);
-    const label = `Week of ${weekStart} – ${busDt}`;
-    weeklyResult = await buildAndSend(label, `Week-${weekStart}-to-${busDt}`, weekResults, 'PCG Tips Report — Weekly', missingDates);
+    const weekEnd = weekEndForTrigger(busDt);
+    const [weekStart] = dateRangeEndingAt(weekEnd, 7);
+    const { storeResults: weekResults, missingDates } = await buildPeriodStoreResults(weekEnd, 7);
+    const label = `Week of ${weekStart} – ${weekEnd}`;
+    weeklyResult = await buildAndSend(label, `Week-${weekStart}-to-${weekEnd}`, weekResults, 'PCG Tips Report — Weekly', missingDates);
   }
   if (isBiweekBoundary(busDt)) {
-    const [periodStart] = dateRangeEndingAt(busDt, 14);
-    const { storeResults: biweekResults, missingDates } = await buildPeriodStoreResults(busDt, 14);
-    const label = `Pay Period ${periodStart} – ${busDt}`;
-    biweeklyResult = await buildAndSend(label, `PayPeriod-${periodStart}-to-${busDt}`, biweekResults, 'PCG Tips Report — Biweekly (Payroll)', missingDates);
+    const weekEnd = weekEndForTrigger(busDt);
+    const [periodStart] = dateRangeEndingAt(weekEnd, 14);
+    const { storeResults: biweekResults, missingDates } = await buildPeriodStoreResults(weekEnd, 14);
+    const label = `Pay Period ${periodStart} – ${weekEnd}`;
+    biweeklyResult = await buildAndSend(label, `PayPeriod-${periodStart}-to-${weekEnd}`, biweekResults, 'PCG Tips Report — Biweekly (Payroll)', missingDates);
   }
 
   try {

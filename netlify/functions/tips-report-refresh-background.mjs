@@ -135,7 +135,10 @@ export default async (request) => {
           name: e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${guid.slice(0, 8)})`,
           payrollId: e?.employeeNumber || e?.alternateEmployeeNumber || '',
           hours: hoursByGuid[guid],
-          isManager: /general\s*manager|store\s*manager/i.test(jobTitle) && !/assist|asst/i.test(jobTitle),
+          // Any title containing "Manager" is excluded except Assistant
+          // Manager (updated 2026-08-19 — see tips-report-cron-background.mjs
+          // for the full reasoning).
+          isManager: /manager/i.test(jobTitle) && !/assist|asst/i.test(jobTitle),
         };
       }).filter(c => !c.isManager && c.hours > 0);
       crewStatus = 'ok';
