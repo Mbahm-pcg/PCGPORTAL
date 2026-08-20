@@ -493,6 +493,16 @@ export function getBlobStore() {
   return getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 }
 
+// Employees excluded from the tip pool by explicit one-off request,
+// independent of job title — e.g. someone whose Paycor title alone
+// wouldn't trigger the isManager rule but who's been told to permanently
+// stop receiving tips. Keyed by Paycor employee GUID (id on the employee
+// record), the one identifier that survives a title/status change, unlike
+// name (can have duplicates) or employeeNumber (can be reassigned).
+export const MANUALLY_EXCLUDED_EMPLOYEE_IDS = new Set([
+  '4e992115-3994-0000-0000-000076f50200', // Cindy Chea — Carlisle (354561), excluded 2026-08-20 per Ahmed
+]);
+
 // Matched by Paycor's own GUID (employeeId on the punch === id on the
 // employee record) — no cross-system name-matching needed. Hours are
 // summed per employee (a split shift shows as multiple punch rows) so
@@ -525,7 +535,9 @@ export async function fetchStoreCrew(s, busDt) {
       if (!p.employeeId) return;
       hoursByGuid[p.employeeId] = (hoursByGuid[p.employeeId] || 0) + punchHours(p);
     });
-    crew = Object.keys(hoursByGuid).map(guid => {
+    crew = Object.keys(hoursByGuid)
+      .filter(guid => !MANUALLY_EXCLUDED_EMPLOYEE_IDS.has(guid))
+      .map(guid => {
       const e = empByGuid[guid];
       const jobTitle = e?.positionData?.jobTitle || '';
       return {

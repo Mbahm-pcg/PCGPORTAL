@@ -9,7 +9,7 @@
 // does NOT send the daily/weekly/biweekly email — this only rebuilds and
 // saves the one day's pcg_tips_snapshot_{busDt} blob so it's available to the
 // nightly cron's own weekly/biweekly rollups and to the in-app Tips Report.
-import { STORES, APIS, callUpstream, callPaycorProxy, fetchAllEmployees, punchHours, toET, saveDaySnapshot, getBlobStore, dateRangeEndingAt } from './tips-report-cron-background.mjs';
+import { STORES, APIS, callUpstream, callPaycorProxy, fetchAllEmployees, punchHours, toET, saveDaySnapshot, getBlobStore, dateRangeEndingAt, MANUALLY_EXCLUDED_EMPLOYEE_IDS } from './tips-report-cron-background.mjs';
 
 // Deliberately NOT using tips-report-cron-background.mjs's loadDaySnapshot —
 // it memoizes per busDt in a module-level Map that survives across
@@ -128,7 +128,9 @@ export default async (request) => {
         if (!p.employeeId) return;
         hoursByGuid[p.employeeId] = (hoursByGuid[p.employeeId] || 0) + punchHours(p);
       });
-      crew = Object.keys(hoursByGuid).map(guid => {
+      crew = Object.keys(hoursByGuid)
+        .filter(guid => !MANUALLY_EXCLUDED_EMPLOYEE_IDS.has(guid))
+        .map(guid => {
         const e = empByGuid[guid];
         const jobTitle = e?.positionData?.jobTitle || '';
         return {
