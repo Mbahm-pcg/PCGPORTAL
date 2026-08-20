@@ -149,6 +149,16 @@
 [functions.tips-report-morning-sweep-background]
   schedule = "0 11 * * *"
 
+# Daily late-punch reconciliation — re-checks the last few days' saved tips
+# snapshots against live Paycor punch data, auto-fixing any employee whose
+# hours were entered/corrected in Paycor after their day's report already ran
+# (see tips-reconcile-cron.mjs header for the Rosemore/Wadsworth cases that
+# motivated this). Manual deeper trace-back: POST
+# /.netlify/functions/tips-reconcile-refresh-background (optional
+# {"daysBack": N, "storePc": "..."}).
+[functions.tips-reconcile-cron]
+  schedule = "0 13 * * *"
+
 # KB article embedding — triggered manually after article approval
 [functions.kb-embed]
   timeout = 60
