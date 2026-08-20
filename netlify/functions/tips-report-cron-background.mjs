@@ -306,17 +306,95 @@ export async function loadDaySnapshot(busDt) {
 // (46 stores sequential already takes minutes for ONE day), so weekly/biweekly
 // reuse each day's own nightly snapshot instead. Employees are matched across
 // days by payrollId (falls back to name) so split/multi-day hours sum correctly.
+// Correct hours-weighted split computed PER DAY (this day's pool ÷ this
+// day's total hours), then summed across days into `share` — NOT a single
+// period-blended rate. Confirmed real bug (2026-08-19): the previous version
+// summed pool and hours across all 14 days FIRST, then divided once, silently
+// blending every day's very different pool-per-hour ratio into one flat
+// average — someone who only worked one big-tip day and someone who only
+// worked one small-tip day ended up paid the identical rate, which is wrong,
+// even though the STORE TOTAL still netted out correctly (that's computed
+// separately from `rows`, real Pulse data, untouched by this). This is
+// exactly why the bug went unnoticed for as long as it did — only the
+// per-employee split was ever wrong, never the total.
+//
+// Pulled out as its own pure function (rather than left inline in
+// buildPeriodStoreResults's loop) so selfTestShareMath() below can exercise
+// this EXACT production code with a synthetic fixture — a hand-copied shadow
+// implementation in a test would keep "passing" even after the real logic
+// regressed, since it wouldn't be testing the real code at all.
+function accumulateDayShare(crewMap, dayPool, dayCrew) {
+  const dayTotalHours = (dayCrew || []).reduce((sum, c) => sum + c.hours, 0);
+  const dayRate = dayTotalHours > 0 ? dayPool / dayTotalHours : 0;
+  (dayCrew || []).forEach(c => {
+    const key = c.payrollId || c.name;
+    if (!crewMap[key]) crewMap[key] = { name: c.name, payrollId: c.payrollId, hours: 0, share: 0 };
+    crewMap[key].hours += c.hours;
+    crewMap[key].share += dayRate * c.hours;
+  });
+  return dayTotalHours;
+}
+
+// A pure checksum (sum-of-shares == pool) CANNOT distinguish a correct
+// per-day split from the historical period-blended-rate bug — any
+// proportional split share_i = rate * hours_i satisfies sum(shares) == pool
+// regardless of whether `rate` was computed correctly per day or incorrectly
+// as one period-blended average (confirmed via adversarial review,
+// 2026-08-20, with a worked counterexample). A live-data checksum alone gives
+// false confidence against exactly the bug it exists to catch. This runs the
+// REAL accumulateDayShare against a fixture where the two days have very
+// different pool-per-hour rates ($10/hr vs $1/hr) specifically chosen so a
+// period-blended computation produces a DIFFERENT, WRONG answer — if the
+// per-day logic ever regresses back to blended, this fails loudly on every
+// single invocation instead of only occasionally producing wrong output that
+// happens to look plausible. (Expected values below were themselves verified
+// independently in a standalone script before shipping — an earlier draft of
+// this exact fixture had the arithmetic wrong, which would have made the
+// self-test worthless without ever failing loudly to say so.)
+function selfTestShareMath() {
+  const crewMap = {};
+  accumulateDayShare(crewMap, 100, [{ payrollId: 'A', name: 'A', hours: 8 }, { payrollId: 'B', name: 'B', hours: 2 }]); // $10/hr day
+  accumulateDayShare(crewMap, 10, [{ payrollId: 'A', name: 'A', hours: 2 }, { payrollId: 'B', name: 'B', hours: 8 }]); // $1/hr day
+  const gotA = Number((crewMap.A?.share || 0).toFixed(2));
+  const gotB = Number((crewMap.B?.share || 0).toFixed(2));
+  // Correct per-day answer: A = 8*10 + 2*1 = 82; B = 2*10 + 8*1 = 28.
+  // A period-blended rate would instead give (100+10)/(8+2+2+8)=5.5/hr for
+  // everyone: A=10*5.5=55, B=10*5.5=55 — clearly different from the above.
+  if (Math.abs(gotA - 82) > 0.01 || Math.abs(gotB - 28) > 0.01) {
+    throw new Error(`Share-math self-test FAILED: expected A=$82.00 B=$28.00 (correct per-day split), got A=$${gotA.toFixed(2)} B=$${gotB.toFixed(2)} — accumulateDayShare appears to have regressed to a period-blended rate (the historical 2026-08-19 bug class). Refusing to build weekly/biweekly reports until this is fixed.`);
+  }
+}
+
 async function buildPeriodStoreResults(endDateStr, days) {
+  selfTestShareMath();
   const dates = dateRangeEndingAt(endDateStr, days);
   const snapshots = await Promise.all(dates.map(loadDaySnapshot));
   const missingDates = dates.filter((d, i) => !snapshots[i]);
+  // Store-days where real tips were collected but zero eligible (non-excluded)
+  // crew hours were recorded — confirmed real (2026-08-20): BJ's, Grant, and
+  // Red Lion all hit this from a Paycor fetch hiccup dropping a real
+  // employee's punch, not a genuine "only the manager worked" day. Tracked
+  // per-day here (before days get merged into one period total below) since
+  // a single bad day gets washed out once merged with the rest of a good period.
+  const zeroEligibleDays = [];
+  // Mirror image of the above on the Pulse side, and NOT caught by the
+  // sanity gate in buildWorkbook (confirmed via adversarial review,
+  // 2026-08-20): if a day's Pulse fetch fails (status:'error', tipPool stays
+  // at 0) while that same day's Paycor crew fetch succeeds with real hours,
+  // both the period pool AND every eligible employee's share for that day
+  // silently shrink by the same unflagged amount — the checksum still
+  // balances because both sides lost the same money, so this needs its own
+  // explicit flag rather than relying on the sanity gate to notice.
+  const pulseGapDays = [];
 
   const byStore = {};
-  for (const dayResults of snapshots) {
+  for (let di = 0; di < snapshots.length; di++) {
+    const dayResults = snapshots[di];
+    const dayBusDt = dates[di];
     if (!dayResults) continue;
     for (const s of dayResults) {
       if (!byStore[s.pc]) {
-        byStore[s.pc] = { pc: s.pc, name: s.name, district: s.district, rows: [], tipPool: 0, crewMap: {}, hadTips: false, hadCrew: false };
+        byStore[s.pc] = { pc: s.pc, name: s.name, district: s.district, rows: [], tipPool: 0, crewMap: {}, hadTips: false, hadCrew: false, zeroEligiblePool: 0 };
       }
       const agg = byStore[s.pc];
       if (s.status === 'ok') {
@@ -326,46 +404,33 @@ async function buildPeriodStoreResults(endDateStr, days) {
       }
       if (s.crewStatus === 'ok') {
         agg.hadCrew = true;
-        // Correct hours-weighted split computed PER DAY (this day's pool ÷
-        // this day's total hours), then summed across days into `share` —
-        // NOT a single period-blended rate. Confirmed real bug (2026-08-19):
-        // the previous version summed pool and hours across all 14 days
-        // FIRST, then divided once, silently blending every day's very
-        // different pool-per-hour ratio into one flat average — someone who
-        // only worked one big-tip day and someone who only worked one
-        // small-tip day ended up paid the identical rate, which is wrong,
-        // even though the STORE TOTAL still netted out correctly (that's
-        // computed separately from `rows`, real Pulse data, untouched by
-        // this). This is exactly why the bug went unnoticed for as long as
-        // it did — only the per-employee split was ever wrong, never the
-        // total. Verified directly against the in-app Tips Report (which
-        // already did per-day math correctly) — this brings the two into
-        // exact agreement, penny for penny.
-        const dayTotalHours = (s.crew || []).reduce((sum, c) => sum + c.hours, 0);
         const dayPool = Number((s.tipPool || 0).toFixed(2));
-        const dayRate = dayTotalHours > 0 ? dayPool / dayTotalHours : 0;
-        (s.crew || []).forEach(c => {
-          const key = c.payrollId || c.name;
-          if (!agg.crewMap[key]) agg.crewMap[key] = { name: c.name, payrollId: c.payrollId, hours: 0, share: 0 };
-          agg.crewMap[key].hours += c.hours;
-          agg.crewMap[key].share += dayRate * c.hours;
-        });
+        const dayHasCrewHours = (s.crew || []).some(c => c.hours > 0);
+        if (s.status !== 'ok' && dayHasCrewHours) {
+          pulseGapDays.push({ pc: s.pc, name: s.name, date: dayBusDt });
+        }
+        const dayTotalHours = accumulateDayShare(agg.crewMap, dayPool, s.crew);
+        if (dayTotalHours === 0 && dayPool > 0) {
+          zeroEligibleDays.push({ pc: s.pc, name: s.name, date: dayBusDt, pool: dayPool });
+          agg.zeroEligiblePool += dayPool;
+        }
       }
     }
   }
 
   const storeResults = STORES.map(s => {
     const agg = byStore[s.pc];
-    if (!agg) return { pc: s.pc, name: s.name, district: s.district, status: 'error', crewStatus: 'error', rows: [], tipPool: 0, crew: [] };
+    if (!agg) return { pc: s.pc, name: s.name, district: s.district, status: 'error', crewStatus: 'error', rows: [], tipPool: 0, crew: [], zeroEligiblePool: 0 };
     return {
       pc: s.pc, name: s.name, district: s.district,
       status: agg.hadTips ? 'ok' : 'error',
       crewStatus: agg.hadCrew ? 'ok' : 'error',
       rows: agg.rows, tipPool: agg.tipPool,
       crew: Object.values(agg.crewMap),
+      zeroEligiblePool: agg.zeroEligiblePool,
     };
   });
-  return { storeResults, missingDates };
+  return { storeResults, missingDates, zeroEligibleDays, pulseGapDays };
 }
 
 // ── Build the workbook (single sheet: per-employee distribution) ──
@@ -393,6 +458,23 @@ function buildWorkbook(periodLabel, storeResults) {
     ['District', 'Store Name (PC)', 'Employee', 'Total Tips for Store', 'Per-Employee Share'],
   ];
   const empMerges = [];
+  // Sanity gate: per-employee shares must sum back to the store's own tip pool
+  // (within a few cents of ordinary rounding) before this report is allowed
+  // out the door. Confirmed real (2026-08-19): a period-blended-rate bug once
+  // produced a report where every STORE TOTAL was still correct (computed
+  // independently from raw Pulse `rows`, untouched by the per-employee split
+  // logic) while every individual employee's dollar amount was wrong — that
+  // combination is exactly what let it ship unnoticed for two full weeks.
+  // Tolerance of $0.25/store is generous on purpose: real accumulated
+  // rounding-order noise across a 14-day period topped out at a few cents per
+  // EMPLOYEE in direct verification (see verify_fix.js from that
+  // investigation), so a store-level sum could plausibly drift a bit further
+  // than that on a big roster — but nowhere near this. An actual logic bug
+  // (like the one that motivated this check) produces dollars of drift, not
+  // cents, so this threshold has wide margin on both sides without being
+  // loose enough to miss a real regression.
+  const SHARE_MISMATCH_TOLERANCE = 0.25;
+  const shareMismatches = [];
   for (const s of storeResults) {
     const pool = Number((s.tipPool || 0).toFixed(2));
     const storeLabel = `${s.name} (${s.pc})`;
@@ -415,10 +497,32 @@ function buildWorkbook(periodLabel, storeResults) {
     // for exactly one day.
     const totalHours = s.crew.reduce((sum, c) => sum + c.hours, 0);
     const hourlyRate = totalHours > 0 ? pool / totalHours : 0;
+    let sumShares = 0;
     s.crew.forEach(c => {
       const share = c.share != null ? Number(c.share.toFixed(2)) : Number((hourlyRate * c.hours).toFixed(2));
+      sumShares += share;
       empAoa.push([s.district, storeLabel, c.name, pool, share]);
     });
+    sumShares = Number(sumShares.toFixed(2));
+    // Compare against the pool MINUS whatever's already separately explained
+    // by this store's own zero-eligible-crew days (see buildPeriodStoreResults)
+    // — otherwise a known, already-flagged data gap (real pool, nobody
+    // eligible to pay it) gets misdiagnosed here as a per-employee-split
+    // logic bug and blocks the ENTIRE report for all stores, while the real
+    // explanation (zeroEligibleNote, below) never even reaches the resulting
+    // alert email. Confirmed via adversarial review, 2026-08-20. Not present
+    // on daily reports (s.zeroEligiblePool is undefined there) since a
+    // zero-eligible day in a single-day report already takes the separate
+    // `s.crew.length === 0` branch above and never reaches this code at all.
+    const expectedPool = Number((pool - (s.zeroEligiblePool || 0)).toFixed(2));
+    const diff = Number((sumShares - expectedPool).toFixed(2));
+    // Fail CLOSED on non-finite input (e.g. a future bug feeding NaN hours/
+    // pool into the share math) — Math.abs(NaN) > threshold is false, so an
+    // unguarded comparison would let the most severe "numbers don't add up"
+    // case pass silently. Confirmed via adversarial review, 2026-08-20.
+    if (!Number.isFinite(diff) || Math.abs(diff) > SHARE_MISMATCH_TOLERANCE) {
+      shareMismatches.push({ pc: s.pc, name: s.name, pool, sumShares, expectedPool, diff });
+    }
 
     // Merge District/Store/Total-Tips down across this store's rows (only when
     // it spans more than one row — a single-row block needs no merge).
@@ -435,7 +539,7 @@ function buildWorkbook(periodLabel, storeResults) {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, empWs, 'By Employee');
-  return { buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }), grandTotal, grandCount };
+  return { buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }), grandTotal, grandCount, shareMismatches };
 }
 
 // ── Email (attachment) ───────────────────────────────────────────────────────
@@ -483,6 +587,55 @@ async function sendReportEmail(to, subject, html, buffer, filename) {
       return { sent: true, method: 'resend' };
     } catch (e) {
       console.warn('[tips-report-cron] Resend failed:', e.message);
+    }
+  }
+
+  return { sent: false };
+}
+
+// Same SMTP/Resend fallback as sendReportEmail, minus the xlsx attachment —
+// used for out-of-band alerts (sanity-check failures, zero-eligible-crew
+// warnings) that need to go out even when there's no report file to attach,
+// or when the report was deliberately held back from sending.
+async function sendAlertEmail(to, subject, html) {
+  let nodemailer;
+  try { nodemailer = (await import('nodemailer')).default; } catch {}
+
+  if (nodemailer && process.env.GOOGLE_SMTP_USER) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: process.env.GOOGLE_SMTP_HOST || 'smtp-relay.gmail.com',
+        port: parseInt(process.env.GOOGLE_SMTP_PORT || '587'),
+        secure: false,
+        auth: { user: process.env.GOOGLE_SMTP_USER, pass: process.env.GOOGLE_SMTP_PASSWORD },
+      });
+      const FROM_DOMAIN = process.env.SMTP_FROM_DOMAIN || 'peoplecapitalgroup.com';
+      await transporter.sendMail({ from: `PCG Portal <ops@${FROM_DOMAIN}>`, to, subject, html });
+      return { sent: true, method: 'smtp' };
+    } catch (e) {
+      console.warn('[tips-report-cron] SMTP alert failed:', e.message);
+    }
+  }
+
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const payload = JSON.stringify({
+        from: process.env.NOTIFY_FROM || 'PCG Portal <noreply@pcgops.com>',
+        to: Array.isArray(to) ? to : [to],
+        subject, html,
+      });
+      await new Promise((resolve, reject) => {
+        const req = https.request({
+          hostname: 'api.resend.com', port: 443, path: '/emails', method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Length': Buffer.byteLength(payload) },
+        }, (res) => { res.resume(); res.on('end', resolve); });
+        req.on('error', reject);
+        req.write(payload);
+        req.end();
+      });
+      return { sent: true, method: 'resend' };
+    } catch (e) {
+      console.warn('[tips-report-cron] Resend alert failed:', e.message);
     }
   }
 
@@ -693,16 +846,77 @@ export default async (request) => {
 
   const recipient = (process.env.TIPS_REPORT_EMAIL || 'ahmed@peoplecapitalgroup.com').split(',').map(s => s.trim()).filter(Boolean);
 
-  async function buildAndSend(periodLabel, filenameTag, storeResultsForPeriod, subjectPrefix, missingDates, extraNote, skipEmail = false) {
-    const { buffer, grandTotal, grandCount } = buildWorkbook(periodLabel, storeResultsForPeriod);
+  // Flag tonight's zero-eligible-crew days immediately, independent of the
+  // disabled daily report email — confirmed real (2026-08-20): BJ's, Grant,
+  // and Red Lion all had this happen from a Paycor fetch hiccup dropping a
+  // real employee's punch, not a genuine "only the manager worked" day, and
+  // it went unnoticed for days because nothing surfaced it outside a buried
+  // "(no crew punches found)" spreadsheet row. Catching it the same night
+  // means a one-day fix instead of a multi-day manual audit later.
+  const tonightsZeroEligible = storeResults.filter(s => s.crewStatus === 'ok' && s.crew.length === 0 && Number((s.tipPool || 0).toFixed(2)) > 0);
+  if (tonightsZeroEligible.length > 0) {
+    console.warn(`[tips-report-cron] ${busDt}: ${tonightsZeroEligible.length} store(s) collected tips with zero eligible crew hours:`, tonightsZeroEligible.map(s => `${s.name} ($${s.tipPool.toFixed(2)})`).join(', '));
+    const rows = tonightsZeroEligible.map(s => `<tr><td style="padding:4px 10px;border-bottom:1px solid #eee;">${s.name} (${s.pc})</td><td style="padding:4px 10px;border-bottom:1px solid #eee;text-align:right;">$${Number(s.tipPool).toFixed(2)}</td></tr>`).join('');
+    const alertHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background:#f59f00;padding:16px 24px;border-radius:8px 8px 0 0;">
+          <h2 style="color:#fff;margin:0;font-size:18px;">⚠ Tips — ${busDt} — Unpaid Tip Pool(s)</h2>
+        </div>
+        <div style="padding:24px;border:1px solid #e5e5e5;border-top:none;border-radius:0 0 8px 8px;">
+          <p style="margin:0 0 8px;font-size:14px;">${tonightsZeroEligible.length} store(s) collected real tips on ${busDt} but had zero eligible (non-excluded) crew hours recorded — nobody would get paid for that day's pool under the current split. This has previously turned out to be a Paycor fetch hiccup silently dropping a real employee's punch (confirmed at BJ's, Grant, and Red Lion), not an actual "only the manager worked" day — worth checking Paycor punches directly for each store below.</p>
+          <table style="border-collapse:collapse;width:100%;margin-top:10px;font-size:13px;">
+            <tr style="background:#f5f5f5;"><th style="padding:4px 10px;text-align:left;">Store</th><th style="padding:4px 10px;text-align:right;">Tip Pool</th></tr>
+            ${rows}
+          </table>
+        </div>
+      </div>`;
+    await sendAlertEmail(recipient, `⚠ Tips — ${tonightsZeroEligible.length} store(s) with unpaid pool — ${busDt}`, alertHtml).catch(() => {});
+  }
+
+  async function buildAndSend(periodLabel, filenameTag, storeResultsForPeriod, subjectPrefix, missingDates, extraNote, skipEmail = false, zeroEligibleDays, pulseGapDays) {
+    const { buffer, grandTotal, grandCount, shareMismatches } = buildWorkbook(periodLabel, storeResultsForPeriod);
     const filename = `PCG-Tips-Report-${filenameTag}.xlsx`;
     const storesWithTips = storeResultsForPeriod.filter(s => s.status === 'ok' && s.rows.length > 0).length;
     const storesWithErrors = storeResultsForPeriod.filter(s => s.status === 'error').length;
+
+    // Sanity gate — see buildWorkbook for the full reasoning. A mismatch here
+    // means the per-employee split logic itself is producing numbers that
+    // don't add up to the store's own total, which is almost certainly a bug
+    // affecting every store using the same formula, not a one-off data
+    // glitch — so this holds back the WHOLE report rather than sending
+    // partially-trusted numbers into what may become a payroll import.
+    if (shareMismatches.length > 0) {
+      console.error(`[tips-report-cron] SANITY CHECK FAILED for ${subjectPrefix} — ${periodLabel}:`, JSON.stringify(shareMismatches));
+      const rows = shareMismatches.map(m => `<tr><td style="padding:4px 10px;border-bottom:1px solid #eee;">${m.name} (${m.pc})</td><td style="padding:4px 10px;border-bottom:1px solid #eee;text-align:right;">$${m.pool.toFixed(2)}</td><td style="padding:4px 10px;border-bottom:1px solid #eee;text-align:right;">$${m.sumShares.toFixed(2)}</td><td style="padding:4px 10px;border-bottom:1px solid #eee;text-align:right;color:#e03131;">$${m.diff.toFixed(2)}</td></tr>`).join('');
+      const alertHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background:#e03131;padding:16px 24px;border-radius:8px 8px 0 0;">
+            <h2 style="color:#fff;margin:0;font-size:18px;">⚠ ${subjectPrefix} — ${periodLabel} — NOT SENT</h2>
+          </div>
+          <div style="padding:24px;border:1px solid #e5e5e5;border-top:none;border-radius:0 0 8px 8px;">
+            <p style="margin:0 0 8px;font-size:14px;">The per-employee split didn't add up to the store total for ${shareMismatches.length} store(s), so this report was held back instead of sent with wrong numbers. This needs a look before it goes out — the attached file reflects the bad numbers for debugging, not for use.</p>
+            <table style="border-collapse:collapse;width:100%;margin-top:10px;font-size:13px;">
+              <tr style="background:#f5f5f5;"><th style="padding:4px 10px;text-align:left;">Store</th><th style="padding:4px 10px;text-align:right;">Pool</th><th style="padding:4px 10px;text-align:right;">Sum of shares</th><th style="padding:4px 10px;text-align:right;">Diff</th></tr>
+              ${rows}
+            </table>
+          </div>
+        </div>`;
+      const alertResult = await sendReportEmail(recipient, `⚠ ${subjectPrefix} — ${periodLabel} — NOT SENT (sanity check failed)`, alertHtml, buffer, filename).catch(() => ({ sent: false }));
+      console.error(`[tips-report-cron] ${subjectPrefix} — held back, alert sent:`, alertResult);
+      return { grandTotal, grandCount, storesWithTips, storesWithErrors, shareMismatches, email: { sent: false, blockedBySanityCheck: true, alert: alertResult } };
+    }
+
     const missingNote = missingDates && missingDates.length
       ? `<p style="margin:0 0 8px;font-size:13px;color:#b45309;">Note: ${missingDates.length} day(s) in this period have no saved data — either before this report existed, or that night's run didn't complete (${missingDates.join(', ')}).</p>`
       : '';
     const extraNoteHtml = extraNote
       ? `<p style="margin:0 0 8px;font-size:13px;color:#b45309;">${extraNote}</p>`
+      : '';
+    const zeroEligibleNote = zeroEligibleDays && zeroEligibleDays.length
+      ? `<p style="margin:0 0 8px;font-size:13px;color:#e03131;">⚠ ${zeroEligibleDays.length} store-day(s) in this period collected tips with zero eligible crew hours recorded (often a Paycor fetch hiccup, not a real "manager only" day): ${zeroEligibleDays.map(d => `${d.name} ${d.date} ($${d.pool.toFixed(2)})`).join('; ')}</p>`
+      : '';
+    const pulseGapNote = pulseGapDays && pulseGapDays.length
+      ? `<p style="margin:0 0 8px;font-size:13px;color:#e03131;">⚠ ${pulseGapDays.length} store-day(s) in this period had real crew hours worked but the Pulse tip-pool fetch failed that day — that day's dollar amount is silently treated as $0 for both the store total and every employee's share, understating both: ${pulseGapDays.map(d => `${d.name} ${d.date}`).join('; ')}</p>`
       : '';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -714,6 +928,8 @@ export default async (request) => {
           <p style="margin: 0 0 8px; font-size: 14px; color: #666;">${storesWithTips} of ${STORES.length} stores had tips recorded${storesWithErrors ? `; ${storesWithErrors} store(s) could not be reached` : ''}.</p>
           ${missingNote}
           ${extraNoteHtml}
+          ${zeroEligibleNote}
+          ${pulseGapNote}
           <p style="margin: 16px 0 0; font-size: 13px; color: #999;">Attached (${filename}): "By Employee" sheet divides each store's tip pool by hours worked in this period (GM/Store Managers excluded) and pays each person by their own hours.</p>
         </div>
       </div>
@@ -736,20 +952,39 @@ export default async (request) => {
   // the nightly email itself is skipped.
   const dailyResult = await buildAndSend(busDt, busDt, storeResults, 'PCG Tips Report — Daily', undefined, phase2TimeoutNote, true);
 
+  // Each wrapped in its own try/catch (confirmed missing via adversarial
+  // review, 2026-08-20): previously an uncaught exception anywhere in
+  // buildPeriodStoreResults/buildWorkbook/buildAndSend (including the new
+  // selfTestShareMath() throw) would abort the ENTIRE handler, silently
+  // dropping whatever report type came next with no alert at all — worse
+  // than the sanity gate's own "NOT SENT" alert, since nobody would even
+  // know a report was supposed to go out that night.
   let weeklyResult = null, biweeklyResult = null;
   if (isWeekBoundary(busDt)) {
     const weekEnd = weekEndForTrigger(busDt);
     const [weekStart] = dateRangeEndingAt(weekEnd, 7);
-    const { storeResults: weekResults, missingDates } = await buildPeriodStoreResults(weekEnd, 7);
     const label = `Week of ${weekStart} – ${weekEnd}`;
-    weeklyResult = await buildAndSend(label, `Week-${weekStart}-to-${weekEnd}`, weekResults, 'PCG Tips Report — Weekly', missingDates);
+    try {
+      const { storeResults: weekResults, missingDates, zeroEligibleDays, pulseGapDays } = await buildPeriodStoreResults(weekEnd, 7);
+      weeklyResult = await buildAndSend(label, `Week-${weekStart}-to-${weekEnd}`, weekResults, 'PCG Tips Report — Weekly', missingDates, undefined, false, zeroEligibleDays, pulseGapDays);
+    } catch (err) {
+      console.error('[tips-report-cron] Weekly report build FAILED:', err.message);
+      await sendAlertEmail(recipient, `⚠ PCG Tips Report — Weekly — ${label} — FAILED TO BUILD`, `<p>The weekly tips report for <b>${label}</b> could not be built and was not sent: ${err.message}</p>`).catch(() => {});
+      weeklyResult = { error: err.message };
+    }
   }
   if (isBiweekBoundary(busDt)) {
     const weekEnd = weekEndForTrigger(busDt);
     const [periodStart] = dateRangeEndingAt(weekEnd, 14);
-    const { storeResults: biweekResults, missingDates } = await buildPeriodStoreResults(weekEnd, 14);
     const label = `Pay Period ${periodStart} – ${weekEnd}`;
-    biweeklyResult = await buildAndSend(label, `PayPeriod-${periodStart}-to-${weekEnd}`, biweekResults, 'PCG Tips Report — Biweekly (Payroll)', missingDates);
+    try {
+      const { storeResults: biweekResults, missingDates, zeroEligibleDays, pulseGapDays } = await buildPeriodStoreResults(weekEnd, 14);
+      biweeklyResult = await buildAndSend(label, `PayPeriod-${periodStart}-to-${weekEnd}`, biweekResults, 'PCG Tips Report — Biweekly (Payroll)', missingDates, undefined, false, zeroEligibleDays, pulseGapDays);
+    } catch (err) {
+      console.error('[tips-report-cron] Biweekly report build FAILED:', err.message);
+      await sendAlertEmail(recipient, `⚠ PCG Tips Report — Biweekly — ${label} — FAILED TO BUILD`, `<p>The biweekly (payroll) tips report for <b>${label}</b> could not be built and was not sent: ${err.message}</p>`).catch(() => {});
+      biweeklyResult = { error: err.message };
+    }
   }
 
   try {

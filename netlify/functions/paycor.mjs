@@ -3,19 +3,81 @@
 // Credentials live in Netlify env vars (never exposed to the browser).
 
 import https from 'node:https';
+import { getStore } from '@netlify/blobs';
 
 const PAYCOR_API_HOST = 'apis.paycor.com';
 const PAYCOR_AUTH_HOST = 'apis.paycor.com';
 const TOKEN_ENDPOINT = '/sts/v1/common/token';
 
-// In-memory token cache (persists across warm Lambda invocations).
-// On cold start, seed the refresh token from the env var so we can
-// immediately exchange it for a fresh access token.
+// In-memory token cache — L1, fastest path, but only visible within ONE warm
+// Lambda instance. On cold start, seed the refresh token from the env var so
+// we can immediately exchange it for a fresh access token.
 let tokenCache = {
   accessToken: null,
   refreshToken: process.env.PAYCOR_REFRESH_TOKEN || null,
   expiresAt: 0,
 };
+
+// Shared L2 cache across ALL instances, via Netlify Blobs — closes the real
+// gap that in-memory-only caching can't: confirmed directly (2026-08-19),
+// concurrent calls to Paycor from tips-report-cron-background.mjs spun up
+// multiple separate cold Lambda instances, each with its own blank
+// tokenCache, all racing to exchange the SAME single-use Paycor refresh
+// token at once — only one won, the other ~40 of 46 stores failed with the
+// same error. An in-memory mutex (like labor-cron.mjs's `refreshPromise`)
+// only prevents a race WITHIN one instance's memory; it does nothing across
+// separate instances, which is exactly how that incident happened.
+//
+// Deliberately NOT a distributed lock. A first draft used a Blobs-based
+// mutex (acquire/wait/release with a staleness takeover) and it was
+// adversarially reviewed before shipping (2026-08-20) — both reviewers
+// independently found the same class of problem: the "lock is stale, take
+// it over" path was a non-atomic check-then-act (two instances could both
+// decide to take over and both proceed), lock release had no ownership
+// check (a slow original holder could delete a DIFFERENT instance's
+// legitimate takeover), and the wait timeout didn't even cover the refresh
+// call's own timeout, so losers could give up and race the winner anyway —
+// reproducing the exact bug the lock was built to prevent. Rather than
+// patch a lock with three compounding races, this uses NO lock at all:
+// Paycor's own single-use-refresh-token behavior is the real arbiter of
+// "who wins" a concurrent refresh, and a loser's job is just to detect its
+// own rejection and defer to whoever won (see getAccessToken) instead of
+// coordinating who gets to try in the first place.
+const TOKEN_CACHE_KEY = 'pcg_paycor_token_cache';
+
+// Deliberately a SEPARATE named Blobs store from 'pcg-portal', not just a
+// distinctly-named key within it. storage.mjs exposes generic save/load over
+// the 'pcg-portal' store with NO authentication at all (confirmed — it has
+// no auth check and Access-Control-Allow-Origin: '*', and is already known
+// to be bot-scanned). A live Paycor access+refresh token sitting in that
+// store under any key, however obscurely named, would be one unauthenticated
+// POST away from a full credential leak — obscurity of a key name is not a
+// real access control. A separate store name is unreachable through
+// storage.mjs's hardcoded 'pcg-portal' regardless of key, closing this by
+// construction rather than by hoping nobody guesses the key.
+function getTokenBlobStore() {
+  return getStore({ name: 'pcg-paycor-internal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
+}
+
+async function readSharedTokenCache() {
+  try {
+    return await getTokenBlobStore().get(TOKEN_CACHE_KEY, { type: 'json' });
+  } catch (e) {
+    console.warn('[paycor] Shared token cache read failed (falling back to a real refresh):', e.message);
+    return null;
+  }
+}
+
+async function writeSharedTokenCache(tokenData) {
+  try {
+    await getTokenBlobStore().setJSON(TOKEN_CACHE_KEY, tokenData);
+  } catch (e) {
+    // Non-fatal — this instance still has the token in its own memory and
+    // can serve requests; it just won't have handed the fresh token to
+    // other instances, so a few of them may end up refreshing too.
+    console.warn('[paycor] Shared token cache write failed (continuing with in-memory only):', e.message);
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -60,7 +122,68 @@ function httpsRequest(hostname, path, method, headers, body) {
 
 // ── OAuth Token Management ───────────────────────────────────────────────────
 
-async function getAccessToken() {
+// Does the actual HTTP exchange with Paycor's token endpoint. Takes the
+// refresh token as a parameter (rather than always reading tokenCache
+// directly) so the caller can choose the freshest known value — e.g. one
+// just read from the shared cache, which may be newer than this instance's
+// own in-memory copy if another instance refreshed first.
+async function refreshTokenFromPaycor(clientId, clientSecret, subscriptionKey, refreshToken) {
+  const formBody = [
+    `grant_type=refresh_token`,
+    `refresh_token=${encodeURIComponent(refreshToken)}`,
+    `client_id=${encodeURIComponent(clientId)}`,
+    `client_secret=${encodeURIComponent(clientSecret)}`,
+  ].join('&');
+  const tokenPath = `${TOKEN_ENDPOINT}?subscription-key=${subscriptionKey}`;
+
+  const res = await new Promise((resolve, reject) => {
+    const options = {
+      hostname: PAYCOR_AUTH_HOST,
+      port: 443,
+      path: tokenPath,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(formBody),
+      },
+    };
+    const req = https.request(options, (r) => {
+      let raw = '';
+      r.on('data', d => (raw += d));
+      r.on('end', () => {
+        try { resolve({ status: r.statusCode, data: JSON.parse(raw) }); }
+        catch { resolve({ status: r.statusCode, data: raw }); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(20000, () => req.destroy(new Error('Paycor token refresh timed out')));
+    req.write(formBody);
+    req.end();
+  });
+
+  if (res.status === 200 && res.data.access_token) {
+    const fresh = {
+      accessToken: res.data.access_token,
+      refreshToken: res.data.refresh_token || refreshToken,
+      expiresAt: Date.now() + (res.data.expires_in || 3600) * 1000,
+    };
+    console.log('[paycor] Token refreshed successfully, expires in', res.data.expires_in, 's');
+    return fresh;
+  }
+  console.warn('[paycor] Token refresh returned', res.status, JSON.stringify(res.data).slice(0, 300));
+  return null;
+}
+
+const NO_TOKEN_MESSAGE = 'NO_TOKEN: No valid access token. The application needs to be activated via the Paycor OAuth flow first. Use the /activate endpoint to start.';
+
+// `forceRefresh` skips the fast-path cache READS (both L1 and L2's
+// accessToken) — used by callPaycor's 401-retry, since a 401 means the
+// currently cached access token is known-bad and returning it again would
+// just repeat the failure. It still reads the shared cache's refreshToken
+// value below (not the accessToken), since another instance may have
+// already rotated it — using a known-stale refresh token would fail
+// pointlessly when a newer one is sitting right there.
+async function getAccessToken(forceRefresh = false) {
   const clientId = process.env.PAYCOR_CLIENT_ID;
   const clientSecret = process.env.PAYCOR_CLIENT_SECRET;
   const subscriptionKey = process.env.PAYCOR_SUBSCRIPTION_KEY;
@@ -69,70 +192,59 @@ async function getAccessToken() {
     throw new Error('Missing Paycor credentials in environment variables');
   }
 
-  // Return cached token if still valid (with 60s buffer)
-  if (tokenCache.accessToken && Date.now() < tokenCache.expiresAt - 60000) {
-    return tokenCache.accessToken;
-  }
-
-  // If we have a refresh token, try refreshing.
-  // Paycor requires form-urlencoded (NOT JSON) for the token endpoint.
-  if (tokenCache.refreshToken) {
-    try {
-      const formBody = [
-        `grant_type=refresh_token`,
-        `refresh_token=${encodeURIComponent(tokenCache.refreshToken)}`,
-        `client_id=${encodeURIComponent(clientId)}`,
-        `client_secret=${encodeURIComponent(clientSecret)}`,
-      ].join('&');
-
-      const tokenPath = `${TOKEN_ENDPOINT}?subscription-key=${subscriptionKey}`;
-
-      const res = await new Promise((resolve, reject) => {
-        const options = {
-          hostname: PAYCOR_AUTH_HOST,
-          port: 443,
-          path: tokenPath,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Content-Length': Buffer.byteLength(formBody),
-          },
-        };
-        const req = https.request(options, (r) => {
-          let raw = '';
-          r.on('data', d => (raw += d));
-          r.on('end', () => {
-            try { resolve({ status: r.statusCode, data: JSON.parse(raw) }); }
-            catch { resolve({ status: r.statusCode, data: raw }); }
-          });
-        });
-        req.on('error', reject);
-        req.setTimeout(20000, () => req.destroy(new Error('Paycor token refresh timed out')));
-        req.write(formBody);
-        req.end();
-      });
-
-      if (res.status === 200 && res.data.access_token) {
-        tokenCache = {
-          accessToken: res.data.access_token,
-          refreshToken: res.data.refresh_token || tokenCache.refreshToken,
-          expiresAt: Date.now() + (res.data.expires_in || 3600) * 1000,
-        };
-        // Persist new refresh token to env var via Netlify API (best-effort)
-        console.log('[paycor] Token refreshed successfully, expires in', res.data.expires_in, 's');
-        return tokenCache.accessToken;
-      } else {
-        console.warn('[paycor] Token refresh returned', res.status, JSON.stringify(res.data).slice(0, 300));
-      }
-    } catch (e) {
-      console.warn('[paycor] Token refresh failed:', e.message);
+  let shared = null;
+  if (!forceRefresh) {
+    // L1: in-memory — fastest, but only visible within this warm instance.
+    if (tokenCache.accessToken && Date.now() < tokenCache.expiresAt - 60000) {
+      return tokenCache.accessToken;
     }
+    // L2: shared cache across all instances — covers the common case where
+    // ANOTHER instance already refreshed recently, needing zero Paycor calls.
+    // This alone eliminates the vast majority of the historical race: a
+    // token lives up to an hour, so only right at expiry does anyone need to
+    // actually refresh at all.
+    shared = await readSharedTokenCache();
+    if (shared?.accessToken && Date.now() < shared.expiresAt - 60000) {
+      tokenCache = shared;
+      return shared.accessToken;
+    }
+  } else {
+    shared = await readSharedTokenCache();
   }
 
-  // No valid token and no refresh token — need initial auth.
-  // For the initial OAuth flow, the client needs to go through the activation
-  // process first. We'll return an error that explains this.
-  throw new Error('NO_TOKEN: No valid access token. The application needs to be activated via the Paycor OAuth flow first. Use the /activate endpoint to start.');
+  const refreshTokenToUse = shared?.refreshToken || tokenCache.refreshToken;
+  if (!refreshTokenToUse) throw new Error(NO_TOKEN_MESSAGE);
+
+  // No lock: if multiple instances reach here at the same moment, they all
+  // attempt this refresh concurrently. Paycor's own single-use refresh-token
+  // semantics mean at most one of these calls can actually succeed — Paycor
+  // itself is the real arbiter of "who wins," not a hand-rolled distributed
+  // lock (see the comment above TOKEN_CACHE_KEY for why an earlier
+  // lock-based draft was scrapped after adversarial review). A loser's job
+  // is just to notice its own rejection and defer to whoever won.
+  let fresh = null;
+  try {
+    fresh = await refreshTokenFromPaycor(clientId, clientSecret, subscriptionKey, refreshTokenToUse);
+  } catch (e) {
+    console.warn('[paycor] Refresh request failed:', e.message);
+  }
+  if (fresh) {
+    tokenCache = fresh;
+    await writeSharedTokenCache(fresh);
+    return fresh.accessToken;
+  }
+
+  // Our own attempt didn't produce a token (exception, or Paycor rejected
+  // it) — most likely because a concurrent instance already consumed the
+  // single-use refresh token first. Check the shared cache once more before
+  // giving up; the winner has very likely already published by now, since
+  // our own failed round-trip just took real time.
+  const shared2 = await readSharedTokenCache();
+  if (shared2?.accessToken && Date.now() < shared2.expiresAt - 60000) {
+    tokenCache = shared2;
+    return shared2.accessToken;
+  }
+  throw new Error(NO_TOKEN_MESSAGE);
 }
 
 // ── Paycor API Call ──────────────────────────────────────────────────────────
@@ -146,11 +258,14 @@ async function callPaycor(path, method = 'GET', body = null) {
     'Ocp-Apim-Subscription-Key': subscriptionKey,
   }, body);
 
-  // If we get 401, token might be stale — clear cache and retry once
+  // If we get 401, the token (in-memory OR shared) is stale — force an
+  // actual refresh rather than re-reading the shared cache, which would
+  // likely just hand back the same bad token to every instance hitting the
+  // same 401 at once.
   if (res.status === 401) {
     tokenCache.accessToken = null;
     tokenCache.expiresAt = 0;
-    const newToken = await getAccessToken();
+    const newToken = await getAccessToken(true);
     return await httpsRequest(PAYCOR_API_HOST, `/v1${path}`, method, {
       Authorization: `Bearer ${newToken}`,
       'Ocp-Apim-Subscription-Key': subscriptionKey,
@@ -194,16 +309,29 @@ export default async (request, context) => {
         refreshToken,
         expiresAt: Date.now() + (expiresIn || 3600) * 1000,
       };
+      // Publish immediately to the shared cache — otherwise a fresh
+      // activation would only be visible to whichever single instance
+      // happened to handle this request, and every other instance would
+      // still be blank until its own next refresh.
+      await writeSharedTokenCache(tokenCache);
       return new Response(JSON.stringify({ ok: true, message: 'Tokens stored successfully' }), { status: 200, headers });
     }
 
     // ── Check token status ──
     if (action === 'status') {
+      // Prefer whichever of {shared, local} is actually fresher (by
+      // expiresAt), not just whichever happens to have a non-null
+      // accessToken — a shared-cache WRITE can fail non-fatally after a
+      // successful local refresh (see writeSharedTokenCache), which would
+      // otherwise make status report a stale/invalid token even while this
+      // instance is actively serving requests fine with a valid one.
+      const shared = await readSharedTokenCache();
+      const effective = shared && (shared.expiresAt || 0) >= (tokenCache.expiresAt || 0) ? shared : tokenCache;
       return new Response(JSON.stringify({
-        hasToken: !!tokenCache.accessToken,
-        hasRefreshToken: !!tokenCache.refreshToken,
-        expiresAt: tokenCache.expiresAt,
-        isValid: tokenCache.accessToken && Date.now() < tokenCache.expiresAt,
+        hasToken: !!effective.accessToken,
+        hasRefreshToken: !!effective.refreshToken,
+        expiresAt: effective.expiresAt,
+        isValid: !!(effective.accessToken && Date.now() < effective.expiresAt),
         hasCredentials: !!(process.env.PAYCOR_CLIENT_ID && process.env.PAYCOR_CLIENT_SECRET && process.env.PAYCOR_SUBSCRIPTION_KEY),
       }), { status: 200, headers });
     }
