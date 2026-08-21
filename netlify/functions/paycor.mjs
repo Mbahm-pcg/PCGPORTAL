@@ -55,8 +55,17 @@ const TOKEN_CACHE_KEY = 'pcg_paycor_token_cache';
 // real access control. A separate store name is unreachable through
 // storage.mjs's hardcoded 'pcg-portal' regardless of key, closing this by
 // construction rather than by hoping nobody guesses the key.
+// consistency: 'strong' is load-bearing, not a nice-to-have — confirmed via
+// audit (2026-08-20) that without it, Blobs' default eventually-consistent
+// reads (up to 60s of edge-cache lag per the SDK) can serve a losing
+// instance's post-failure fallback read a stale, pre-write snapshot, missing
+// the very token the winning instance already published — directly
+// defeating the "loser rechecks the shared cache" design this whole file's
+// concurrency model depends on. Every other Blobs consumer in this codebase
+// already passes this for the same read-your-writes reason; this store was
+// the one place it had been omitted.
 function getTokenBlobStore() {
-  return getStore({ name: 'pcg-paycor-internal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
+  return getStore({ name: 'pcg-paycor-internal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 }
 
 async function readSharedTokenCache() {
@@ -183,7 +192,7 @@ const NO_TOKEN_MESSAGE = 'NO_TOKEN: No valid access token. The application needs
 // value below (not the accessToken), since another instance may have
 // already rotated it — using a known-stale refresh token would fail
 // pointlessly when a newer one is sitting right there.
-async function getAccessToken(forceRefresh = false) {
+async function getAccessToken(forceRefresh = false, knownBadAccessToken = null) {
   const clientId = process.env.PAYCOR_CLIENT_ID;
   const clientSecret = process.env.PAYCOR_CLIENT_SECRET;
   const subscriptionKey = process.env.PAYCOR_SUBSCRIPTION_KEY;
@@ -215,13 +224,50 @@ async function getAccessToken(forceRefresh = false) {
   const refreshTokenToUse = shared?.refreshToken || tokenCache.refreshToken;
   if (!refreshTokenToUse) throw new Error(NO_TOKEN_MESSAGE);
 
-  // No lock: if multiple instances reach here at the same moment, they all
-  // attempt this refresh concurrently. Paycor's own single-use refresh-token
-  // semantics mean at most one of these calls can actually succeed — Paycor
-  // itself is the real arbiter of "who wins," not a hand-rolled distributed
-  // lock (see the comment above TOKEN_CACHE_KEY for why an earlier
-  // lock-based draft was scrapped after adversarial review). A loser's job
-  // is just to notice its own rejection and defer to whoever won.
+  // Same-instance de-duplication: confirmed via audit (2026-08-20) that a
+  // batch of concurrent calls within ONE warm instance (e.g. laborSummary's
+  // Promise.all over 10 employees) can fan out N concurrent getAccessToken()
+  // calls before any of them yields past this point, each otherwise
+  // independently consuming the same single-use refresh token. Sharing one
+  // in-flight promise here is safe (unlike the cross-instance lock that was
+  // scrapped above) — it's plain in-memory state with no persistence, no
+  // takeover logic, and no separate release step to get wrong; it just
+  // naturally clears via `finally` when the one real attempt settles.
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh(clientId, clientSecret, subscriptionKey, refreshTokenToUse, knownBadAccessToken).finally(() => { refreshInFlight = null; });
+  }
+  const result = await refreshInFlight;
+
+  // Confirmed via re-audit (2026-08-21): the mutex above is a SINGLE shared
+  // slot regardless of each caller's own knownBadAccessToken — a joining
+  // caller can receive a result that was validated against a DIFFERENT (or
+  // no) exclusion than its own, e.g. callPaycor's 401 handler synchronously
+  // clears tokenCache.accessToken right before its forced retry, which a
+  // concurrent sibling call can observe as an L1 miss and join this same
+  // in-flight promise non-forced (knownBadAccessToken=null) — if that
+  // sibling happens to be the one whose parameters actually created the
+  // promise, its lenient (no-exclusion) fallback check would silently hand
+  // the forced caller back the exact token it was trying to avoid. Always
+  // independently re-validate the shared result against THIS caller's own
+  // exclusion before trusting it, regardless of who initiated the shared
+  // attempt or why.
+  if (result !== knownBadAccessToken) return result;
+  // It WAS the excluded token — the shared slot has already cleared (the
+  // above await already ran its `finally`), so this is a fresh, dedicated
+  // attempt with our own exclusion, not a second entry into the mutex.
+  return doRefresh(clientId, clientSecret, subscriptionKey, refreshTokenToUse, knownBadAccessToken);
+}
+
+// Across DIFFERENT instances, no lock: if multiple instances reach this
+// point at the same moment, they all attempt this refresh concurrently.
+// Paycor's own single-use refresh-token semantics mean at most one of these
+// calls can actually succeed — Paycor itself is the real arbiter of "who
+// wins," not a hand-rolled distributed lock (see the comment above
+// TOKEN_CACHE_KEY for why an earlier lock-based draft was scrapped after
+// adversarial review). A loser's job is just to notice its own rejection
+// and defer to whoever won.
+let refreshInFlight = null;
+async function doRefresh(clientId, clientSecret, subscriptionKey, refreshTokenToUse, knownBadAccessToken = null) {
   let fresh = null;
   try {
     fresh = await refreshTokenFromPaycor(clientId, clientSecret, subscriptionKey, refreshTokenToUse);
@@ -238,9 +284,20 @@ async function getAccessToken(forceRefresh = false) {
   // it) — most likely because a concurrent instance already consumed the
   // single-use refresh token first. Check the shared cache once more before
   // giving up; the winner has very likely already published by now, since
-  // our own failed round-trip just took real time.
+  // our own failed round-trip just took real time. Confirmed via re-audit
+  // (2026-08-20): must also reject a shared-cache read that's literally the
+  // SAME token that just failed — a plain expiresAt check alone can't tell
+  // "someone else already published a real fix" apart from "nobody has,
+  // this is still the known-bad token," and a 401 (which is what makes a
+  // caller pass knownBadAccessToken via forceRefresh) isn't necessarily a
+  // simple time-based expiry, so the stale entry's expiresAt can still look
+  // perfectly valid. Without this check, forceRefresh's whole contract
+  // ("the currently cached token is known-bad, don't hand it back") could
+  // be silently defeated exactly when it matters most — a genuinely dead
+  // refresh token (e.g. the OAuth app was deactivated) with nobody anywhere
+  // holding a real replacement yet.
   const shared2 = await readSharedTokenCache();
-  if (shared2?.accessToken && Date.now() < shared2.expiresAt - 60000) {
+  if (shared2?.accessToken && shared2.accessToken !== knownBadAccessToken && Date.now() < shared2.expiresAt - 60000) {
     tokenCache = shared2;
     return shared2.accessToken;
   }
@@ -265,7 +322,7 @@ async function callPaycor(path, method = 'GET', body = null) {
   if (res.status === 401) {
     tokenCache.accessToken = null;
     tokenCache.expiresAt = 0;
-    const newToken = await getAccessToken(true);
+    const newToken = await getAccessToken(true, token);
     return await httpsRequest(PAYCOR_API_HOST, `/v1${path}`, method, {
       Authorization: `Bearer ${newToken}`,
       'Ocp-Apim-Subscription-Key': subscriptionKey,
@@ -303,6 +360,21 @@ export default async (request, context) => {
       const { accessToken, refreshToken, expiresIn } = payload;
       if (!accessToken || !refreshToken) {
         return new Response(JSON.stringify({ error: 'Missing accessToken or refreshToken' }), { status: 400, headers });
+      }
+      // Not blocking an overwrite here even when the shared cache already
+      // holds a still-valid token — a real, intentional manual re-activation
+      // (e.g. enabling a new Data Access scope) is EXPECTED to replace a
+      // technically-still-valid token, so refusing that would break the
+      // primary legitimate use of this action. What audit (2026-08-20)
+      // flagged is that this replacement was previously completely silent —
+      // an out-of-order/duplicate activation call could revert the shared
+      // cache to an already-rotated refresh token with zero trace to
+      // diagnose it by. Logging what's being replaced turns a silent,
+      // undiagnosable clobber into a visible one without blocking the
+      // legitimate case.
+      const previous = await readSharedTokenCache();
+      if (previous?.accessToken) {
+        console.warn(`[paycor] storeTokens replacing existing shared token (previous expiresAt=${new Date(previous.expiresAt).toISOString()}, still valid=${Date.now() < previous.expiresAt})`);
       }
       tokenCache = {
         accessToken,

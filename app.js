@@ -21204,7 +21204,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.00";
+  var APP_VERSION = "v20.01";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29143,7 +29143,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     if (!s.crew || s.crew.length === 0) return [{ district: s.district, store: storeLabel, employee: null, tips: 0, noData: false }];
     const totalHours = s.crew.reduce((sum, c) => sum + c.hours, 0);
     const hourlyRate = totalHours > 0 ? pool / totalHours : 0;
-    return s.crew.map((c) => ({ district: s.district, store: storeLabel, employee: c.name, tips: tipsRound2(hourlyRate * c.hours) }));
+    return s.crew.map((c) => ({ district: s.district, store: storeLabel, employee: c.name, guid: c.guid, payrollId: c.payrollId, tips: tipsRound2(hourlyRate * c.hours) }));
   }
   function tipsBuildDaySheetAOA(dt, dayStoreResults) {
     const title = `Daily Tips by Employee \u2014 ${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}, ${dt.getUTCFullYear()}`;
@@ -29156,6 +29156,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         continue;
       }
       const startRow = rows.length;
+      recs.sort((a, b) => tipsCompareByLastName(a.employee, b.employee));
       recs.forEach((r) => rows.push([r.district, r.store, r.employee, r.tips]));
       const subtotal = tipsRound2(recs.reduce((sum, r) => sum + r.tips, 0));
       rows.push([null, `${recs[0].store} \u2014 TOTAL`, null, subtotal]);
@@ -29165,30 +29166,83 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     rows.push([], [null, "PAY DAY GRAND TOTAL", null, grandTotal]);
     return rows;
   }
+  function tipsCompareByLastName(nameA, nameB) {
+    const split = (full) => {
+      const parts = String(full || "").trim().split(/\s+/);
+      return parts.length > 1 ? { last: parts[parts.length - 1].toLowerCase(), first: parts.slice(0, -1).join(" ").toLowerCase() } : { last: (parts[0] || "").toLowerCase(), first: "" };
+    };
+    const a = split(nameA), b = split(nameB);
+    return a.last.localeCompare(b.last) || a.first.localeCompare(b.first);
+  }
   function tipsBuildPeriodTotalsAOA(start, end, snapshots) {
-    const map = /* @__PURE__ */ new Map();
-    const storeOrder = [];
+    const storeMaps = {};
+    const storeDistrict = {};
     for (const dayResults of snapshots) {
       if (!dayResults) continue;
+      const byStoreToday = {};
       for (const s of dayResults) {
         for (const r of tipsRecordsForStore(s)) {
           if (r.employee == null) continue;
-          const key = r.store + "||" + r.employee;
-          if (!map.has(key)) {
-            map.set(key, { district: r.district, store: r.store, employee: r.employee, tips: 0 });
-            if (!storeOrder.includes(r.store)) storeOrder.push(r.store);
+          (byStoreToday[r.store] = byStoreToday[r.store] || []).push(r);
+          if (!(r.store in storeDistrict)) storeDistrict[r.store] = r.district;
+        }
+      }
+      for (const store of Object.keys(byStoreToday)) {
+        if (!storeMaps[store]) storeMaps[store] = { byKey: {}, ambiguousNames: /* @__PURE__ */ new Set() };
+        const { byKey, ambiguousNames } = storeMaps[store];
+        const nameClaimedToday = /* @__PURE__ */ new Map();
+        for (const r of byStoreToday[store]) {
+          const strongKeys = [];
+          if (r.guid) strongKeys.push("g:" + r.guid);
+          if (r.payrollId) strongKeys.push("p:" + r.payrollId);
+          const nameKey = r.employee ? "n:" + r.employee : null;
+          let entry = null;
+          for (const k of strongKeys) {
+            if (byKey[k]) {
+              entry = byKey[k];
+              break;
+            }
           }
-          map.get(key).tips = tipsRound2(map.get(key).tips + r.tips);
+          if (!entry && nameKey && !ambiguousNames.has(nameKey)) {
+            if (nameClaimedToday.has(nameKey)) {
+              ambiguousNames.add(nameKey);
+              delete byKey[nameKey];
+            } else if (byKey[nameKey]) {
+              entry = byKey[nameKey];
+            }
+          }
+          if (!entry) entry = { district: r.district, store: r.store, employee: r.employee, tips: 0 };
+          strongKeys.forEach((k) => {
+            byKey[k] = entry;
+          });
+          if (nameKey && !ambiguousNames.has(nameKey)) {
+            const claimedBy = nameClaimedToday.get(nameKey);
+            if (claimedBy && claimedBy !== entry) {
+              ambiguousNames.add(nameKey);
+              delete byKey[nameKey];
+            } else {
+              nameClaimedToday.set(nameKey, entry);
+              byKey[nameKey] = entry;
+            }
+          }
+          entry.tips = tipsRound2(entry.tips + r.tips);
         }
       }
     }
     const byStore = {};
-    for (const rec of map.values()) (byStore[rec.store] = byStore[rec.store] || []).push(rec);
+    for (const store of Object.keys(storeMaps)) {
+      byStore[store] = [...new Set(Object.values(storeMaps[store].byKey))];
+    }
+    const storeOrder = Object.keys(byStore).sort((a, b) => {
+      const da = storeDistrict[a] ?? 0, db = storeDistrict[b] ?? 0;
+      if (da !== db) return da - db;
+      return a.localeCompare(b);
+    });
     const title = `Pay Period Totals \u2014 ${TIPS_MONTHS[start.getUTCMonth()]} ${start.getUTCDate()} to ${TIPS_MONTHS[end.getUTCMonth()]} ${end.getUTCDate()}, ${end.getUTCFullYear()} (for Paycor entry)`;
     const rows = [[title], [], ["District", "Store", "Employee", "Pay Period Tips"]];
     let grandTotal = 0;
     for (const store of storeOrder) {
-      const recs = byStore[store].sort((a, b) => a.employee.localeCompare(b.employee));
+      const recs = byStore[store].sort((a, b) => tipsCompareByLastName(a.employee, b.employee));
       recs.forEach((r) => rows.push([r.district, r.store, r.employee, r.tips]));
       const subtotal = tipsRound2(recs.reduce((sum, r) => sum + r.tips, 0));
       rows.push([null, `${store} \u2014 TOTAL`, null, subtotal]);

@@ -9,7 +9,7 @@
 // does NOT send the daily/weekly/biweekly email — this only rebuilds and
 // saves the one day's pcg_tips_snapshot_{busDt} blob so it's available to the
 // nightly cron's own weekly/biweekly rollups and to the in-app Tips Report.
-import { STORES, APIS, callUpstream, callPaycorProxy, fetchAllEmployees, punchHours, toET, saveDaySnapshot, getBlobStore, dateRangeEndingAt, MANUALLY_EXCLUDED_EMPLOYEE_IDS } from './tips-report-cron-background.mjs';
+import { STORES, APIS, callUpstream, callPaycorProxy, fetchStoreCrew, toET, saveDaySnapshot, getBlobStore, dateRangeEndingAt } from './tips-report-cron-background.mjs';
 
 // Deliberately NOT using tips-report-cron-background.mjs's loadDaySnapshot —
 // it memoizes per busDt in a module-level Map that survives across
@@ -109,44 +109,16 @@ export default async (request) => {
       break;
     }
     const s = targetStores[idx];
-    let crew = [], crewStatus = 'error';
-    try {
-      // Sequential, not Promise.all — matches tips-report-cron-background.mjs's
-      // fix for the same race: firing punches+employees together makes them
-      // the first two Paycor calls of a cold invocation, which can race each
-      // other for the same single-use refresh token (confirmed directly on
-      // that file; this sibling backfill function had the same bug).
-      const punchesRaw = await callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt });
-      const empList = await fetchAllEmployees(s.paycor);
-      const punchData = JSON.parse(punchesRaw || '{}');
-      const punches = Array.isArray(punchData.records) ? punchData.records : (Array.isArray(punchData) ? punchData : []);
-      const empByGuid = {};
-      empList.forEach(e => { if (e && e.id) empByGuid[e.id] = e; });
-
-      const hoursByGuid = {};
-      punches.forEach(p => {
-        if (!p.employeeId) return;
-        hoursByGuid[p.employeeId] = (hoursByGuid[p.employeeId] || 0) + punchHours(p);
-      });
-      crew = Object.keys(hoursByGuid)
-        .filter(guid => !MANUALLY_EXCLUDED_EMPLOYEE_IDS.has(guid))
-        .map(guid => {
-        const e = empByGuid[guid];
-        const jobTitle = e?.positionData?.jobTitle || '';
-        return {
-          name: e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${guid.slice(0, 8)})`,
-          payrollId: e?.employeeNumber || e?.alternateEmployeeNumber || '',
-          hours: hoursByGuid[guid],
-          // Any title containing "Manager" is excluded except Assistant
-          // Manager (updated 2026-08-19 — see tips-report-cron-background.mjs
-          // for the full reasoning).
-          isManager: /manager/i.test(jobTitle) && !/assist|asst/i.test(jobTitle),
-        };
-      }).filter(c => !c.isManager && c.hours > 0);
-      crewStatus = 'ok';
-    } catch (err) {
-      console.error(`[tips-report-refresh] ${s.name} crew error:`, err.message);
-    }
+    // Uses the shared, canonical fetchStoreCrew() rather than a hand-rolled
+    // copy — confirmed via audit (2026-08-20) that this file's PREVIOUS inline
+    // duplicate was missing fetchStoreCrew's disguised-Paycor-error-body
+    // check (a 4xx error with a Title/CorrelationId but no `records` array,
+    // confirmed real at Hatboro 2026-08-12), which silently defeated the
+    // same-day merge-overwrite protection below: a disguised error looked
+    // exactly like crewStatus:'ok', crew:[], so the guard never fired.
+    // Reusing the shared function means any future fix to it (like this one)
+    // automatically applies here too, instead of silently drifting apart.
+    const { crew, crewStatus } = await fetchStoreCrew(s, busDt);
     storeResults[idx].crew = crew;
     storeResults[idx].crewStatus = crewStatus;
   }
@@ -158,9 +130,46 @@ export default async (request) => {
   if (targetPc) {
     const existing = await loadDaySnapshotUncached(busDt);
     const existingArr = Array.isArray(existing) ? existing : [];
+    const existingEntry = existingArr.find(s => String(s.pc) === targetPc);
+    const fresh = storeResults[0];
+
+    // Don't let a FAILED refresh attempt downgrade previously-good data on
+    // EITHER side (Pulse pool or Paycor crew) — confirmed real (2026-08-20):
+    // firing concurrent targeted refreshes for the same store across
+    // different dates hit a transient Paycor hiccup on some of them, and
+    // this merge used to unconditionally overwrite already-good data with
+    // the failed result, silently erasing a correct answer that was sitting
+    // right there. Each side is protected independently since a fresh
+    // attempt can succeed on one side (e.g. Pulse) while failing on the
+    // other (Paycor), or vice versa.
+    // Beyond an outright status flip, ALSO distrust a fresh attempt that
+    // reports success but came back suspiciously emptier than what's already
+    // saved — confirmed real (2026-08-20): Paycor can return HTTP 200 with a
+    // short/empty records array during transient lag (BJ's, Grant, Red Lion
+    // all hit this), which sails through as crewStatus:'ok' with no
+    // exception thrown, so a pure status-flip check never catches it. This
+    // is a heuristic, not a certainty (a store's crew genuinely CAN drop to
+    // zero, e.g. a closure) — erring toward keeping existing data and
+    // logging loudly is the safer default for a tool whose whole job is
+    // fixing data, not occasionally re-breaking it.
+    let merged = fresh;
+    if (existingEntry) {
+      const keepOldPulse = (existingEntry.status === 'ok' && fresh.status !== 'ok')
+        || ((existingEntry.rows?.length || 0) > 0 && (fresh.rows?.length || 0) === 0);
+      const keepOldCrew = (existingEntry.crewStatus === 'ok' && fresh.crewStatus !== 'ok')
+        || ((existingEntry.crew?.length || 0) > 0 && (fresh.crew?.length || 0) === 0);
+      if (keepOldPulse || keepOldCrew) {
+        merged = {
+          ...fresh,
+          ...(keepOldPulse ? { status: existingEntry.status, rows: existingEntry.rows, tipPool: existingEntry.tipPool } : {}),
+          ...(keepOldCrew ? { crewStatus: existingEntry.crewStatus, crew: existingEntry.crew } : {}),
+        };
+        console.warn(`[tips-report-refresh] ${busDt}/${targetPc}: fresh refresh regressed (pulse:${keepOldPulse}, crew:${keepOldCrew}) — keeping existing good data instead of overwriting it`);
+      }
+    }
     finalResults = existingArr.some(s => String(s.pc) === targetPc)
-      ? existingArr.map(s => String(s.pc) === targetPc ? storeResults[0] : s)
-      : [...existingArr, storeResults[0]];
+      ? existingArr.map(s => String(s.pc) === targetPc ? merged : s)
+      : [...existingArr, fresh];
   }
 
   await saveDaySnapshot(busDt, finalResults);

@@ -283,9 +283,17 @@ export function dateRangeEndingAt(endDateStr, days) {
 export async function saveDaySnapshot(busDt, storeResults) {
   try {
     await getBlobStore().setJSON(`pcg_tips_snapshot_${busDt}`, { savedAt: new Date().toISOString(), data: storeResults });
+    // Keep the memoized cache below coherent with what was just written —
+    // confirmed via audit (2026-08-20) that snapshotCache is module-scoped,
+    // so (despite its own comment) it can survive across separate warm-
+    // instance invocations, not just within one. Without this, a manual
+    // backfill re-run followed by a weekly/biweekly rollup landing on the
+    // same warm instance could read a stale pre-backfill copy.
+    snapshotCache.set(busDt, storeResults);
   } catch (e) { console.warn('[tips-report-cron] snapshot save failed:', e.message); }
 }
-// Memoized within a single invocation — on a biweekly-boundary Saturday, the
+// Cache lifetime is best-effort, not guaranteed single-invocation (see
+// saveDaySnapshot above) — used so that on a biweekly-boundary Saturday, the
 // weekly (7-day) and biweekly (14-day) rollups overlap on 7 of those days;
 // without this they'd each re-fetch those same 7 snapshot blobs separately.
 const snapshotCache = new Map();
@@ -323,14 +331,84 @@ export async function loadDaySnapshot(busDt) {
 // this EXACT production code with a synthetic fixture — a hand-copied shadow
 // implementation in a test would keep "passing" even after the real logic
 // regressed, since it wouldn't be testing the real code at all.
+// A period spans MULTIPLE days' saved snapshots — any day saved before the
+// guid field existed keys the same employee by name/payrollId while a later
+// day (once re-saved with the field) keys them by guid, and the reverse can
+// also happen (guid present one day, missing the next — e.g. a rehire).
+// Either direction can otherwise split one real person into two separate
+// crewMap rows on a report explicitly built "for keying straight into
+// Paycor payroll." accumulateDayShare below handles both directions by
+// treating guid/payrollId as trustworthy "strong" identifiers and name as a
+// weak fallback that gets disabled the moment it's found to be shared by
+// two different people (see AMBIGUOUS_NAME_KEYS) — a naive version that
+// aliased every entry under its name unconditionally was tested and found
+// to incorrectly merge two different same-named employees, which is exactly
+// the collision class guid-based matching exists to avoid.
+//
+// Symbol key (not a string) so it's automatically invisible to
+// Object.keys/Object.values(crewMap) — lets a per-store crewMap carry a
+// persistent "names we've learned are ambiguous" Set alongside the real
+// guid/payrollId/name entries without needing to filter it out anywhere
+// that reads the map's normal contents.
+const AMBIGUOUS_NAME_KEYS = Symbol('ambiguousNameKeys');
+
 function accumulateDayShare(crewMap, dayPool, dayCrew) {
   const dayTotalHours = (dayCrew || []).reduce((sum, c) => sum + c.hours, 0);
   const dayRate = dayTotalHours > 0 ? dayPool / dayTotalHours : 0;
+  if (!crewMap[AMBIGUOUS_NAME_KEYS]) crewMap[AMBIGUOUS_NAME_KEYS] = new Set();
+  const ambiguousNames = crewMap[AMBIGUOUS_NAME_KEYS];
+  // Tracks which entry has already claimed each name WITHIN today's crew
+  // list specifically (reset every call) — this is what makes a same-day
+  // collision detectable: every entry in one day's crew list already has a
+  // distinct guid (fetchStoreCrew builds it from Object.keys(hoursByGuid)),
+  // so two different entries claiming the same name on the SAME day is a
+  // certain signal of two different people, not a data-format transition.
+  const nameClaimedToday = new Map();
+
   (dayCrew || []).forEach(c => {
-    const key = c.payrollId || c.name;
-    if (!crewMap[key]) crewMap[key] = { name: c.name, payrollId: c.payrollId, hours: 0, share: 0 };
-    crewMap[key].hours += c.hours;
-    crewMap[key].share += dayRate * c.hours;
+    // guid/payrollId are treated as "strong" — always safe to match/alias
+    // on, since they're specific to one person. Name is "weak" — used only
+    // as a fallback when no strong key is available, and only trusted while
+    // it isn't known to be ambiguous. Confirmed necessary via direct testing
+    // (2026-08-21): an earlier version of this fix aliased every entry under
+    // its name unconditionally, which correctly solved the guid/payrollId
+    // instability case this function exists for, but incorrectly MERGED two
+    // different real employees who happen to share a full name — exactly
+    // the class of collision risk guid-based matching exists to avoid.
+    const strongKeys = [];
+    if (c.guid) strongKeys.push('g:' + c.guid);
+    if (c.payrollId) strongKeys.push('p:' + c.payrollId);
+    const nameKey = c.name ? 'n:' + c.name : null;
+
+    let entry = null;
+    for (const k of strongKeys) { if (crewMap[k]) { entry = crewMap[k]; break; } }
+    if (!entry && nameKey && !ambiguousNames.has(nameKey)) {
+      if (nameClaimedToday.has(nameKey)) {
+        // Someone ELSE today already claimed this name via their own strong
+        // keys (or lack thereof) — since today's entries are guaranteed
+        // distinct people, this name can never be trusted again.
+        ambiguousNames.add(nameKey);
+        delete crewMap[nameKey];
+      } else if (crewMap[nameKey]) {
+        entry = crewMap[nameKey];
+      }
+    }
+    if (!entry) entry = { name: c.name, payrollId: c.payrollId, guid: c.guid, hours: 0, share: 0 };
+
+    strongKeys.forEach(k => { crewMap[k] = entry; });
+    if (nameKey && !ambiguousNames.has(nameKey)) {
+      const claimedBy = nameClaimedToday.get(nameKey);
+      if (claimedBy && claimedBy !== entry) {
+        ambiguousNames.add(nameKey);
+        delete crewMap[nameKey];
+      } else {
+        nameClaimedToday.set(nameKey, entry);
+        crewMap[nameKey] = entry;
+      }
+    }
+
+    entry.hours += c.hours;
+    entry.share += dayRate * c.hours;
   });
   return dayTotalHours;
 }
@@ -351,12 +429,43 @@ function accumulateDayShare(crewMap, dayPool, dayCrew) {
 // independently in a standalone script before shipping — an earlier draft of
 // this exact fixture had the arithmetic wrong, which would have made the
 // self-test worthless without ever failing loudly to say so.)
+//
+// Self-defending, confirmed necessary via adversarial review (2026-08-20):
+// "different pool-per-hour rates" alone does NOT guarantee this fixture
+// discriminates — algebraically, if every employee's SHARE OF DAILY HOURS
+// stays constant across days (even with wildly different pool sizes),
+// correct-per-day math and period-blended math produce IDENTICAL results
+// for any pool amounts. A future "cleanup" of these numbers that preserves
+// constant hour-ratios (e.g. same crew, same schedule, just bigger/smaller
+// pool) would silently turn this whole self-test into a no-op that always
+// passes. The check below verifies the FIXTURE ITSELF still discriminates,
+// independent of whatever gets hardcoded as "expected" — so changing the
+// fixture without understanding why fails loudly instead of silently.
 function selfTestShareMath() {
+  const fixtureDays = [
+    { pool: 100, crew: [{ payrollId: 'A', name: 'A', hours: 8 }, { payrollId: 'B', name: 'B', hours: 2 }] }, // $10/hr day
+    { pool: 10, crew: [{ payrollId: 'A', name: 'A', hours: 2 }, { payrollId: 'B', name: 'B', hours: 8 }] },  // $1/hr day
+  ];
+
+  const totalPool = fixtureDays.reduce((sum, d) => sum + d.pool, 0);
+  const totalHoursByKey = {};
+  fixtureDays.forEach(d => d.crew.forEach(c => { totalHoursByKey[c.payrollId] = (totalHoursByKey[c.payrollId] || 0) + c.hours; }));
+  const totalHoursAll = Object.values(totalHoursByKey).reduce((sum, h) => sum + h, 0);
+  const blendedRate = totalHoursAll > 0 ? totalPool / totalHoursAll : 0;
+  const blendedA = blendedRate * (totalHoursByKey.A || 0);
+
   const crewMap = {};
-  accumulateDayShare(crewMap, 100, [{ payrollId: 'A', name: 'A', hours: 8 }, { payrollId: 'B', name: 'B', hours: 2 }]); // $10/hr day
-  accumulateDayShare(crewMap, 10, [{ payrollId: 'A', name: 'A', hours: 2 }, { payrollId: 'B', name: 'B', hours: 8 }]); // $1/hr day
-  const gotA = Number((crewMap.A?.share || 0).toFixed(2));
-  const gotB = Number((crewMap.B?.share || 0).toFixed(2));
+  fixtureDays.forEach(d => accumulateDayShare(crewMap, d.pool, d.crew));
+  // Keyed 'p:<payrollId>' now (a "strong" key — this fixture has no guid,
+  // and payrollId always registers when present, per accumulateDayShare
+  // above), not a bare 'A'/'B'.
+  const gotA = Number((crewMap['p:A']?.share || 0).toFixed(2));
+  const gotB = Number((crewMap['p:B']?.share || 0).toFixed(2));
+
+  if (Math.abs(blendedA - gotA) < 1) {
+    throw new Error(`Share-math self-test fixture is no longer discriminating: a naive period-blended calculation (A=$${blendedA.toFixed(2)}) would produce nearly the same result as the correct per-day calculation (A=$${gotA.toFixed(2)}), so this fixture can no longer detect a regression to the historical period-blended-rate bug. It needs each employee's HOUR RATIO (not just the pool size) to differ across the fixture days — do not "clean up" these numbers without preserving that.`);
+  }
+
   // Correct per-day answer: A = 8*10 + 2*1 = 82; B = 2*10 + 8*1 = 28.
   // A period-blended rate would instead give (100+10)/(8+2+2+8)=5.5/hr for
   // everyone: A=10*5.5=55, B=10*5.5=55 — clearly different from the above.
@@ -386,6 +495,18 @@ async function buildPeriodStoreResults(endDateStr, days) {
   // balances because both sides lost the same money, so this needs its own
   // explicit flag rather than relying on the sanity gate to notice.
   const pulseGapDays = [];
+  // A third case, distinct from both above: the day's Paycor crew fetch
+  // failed ENTIRELY (crewStatus:'error', not "ok with zero eligible hours")
+  // while Pulse succeeded with a real pool. Confirmed via adversarial review
+  // (2026-08-20): zeroEligiblePool only ever excluded the
+  // crewStatus:'ok'-but-zero-hours case, never this one — so a persistent,
+  // unrecovered Paycor failure for one store-day (exactly the class of
+  // failure tips-reconcile-cron.mjs explicitly defers rather than fixes, per
+  // its own "only reconcile days that already succeeded" comment) added real
+  // dollars to the period pool with nothing subtracted, tripping the sanity
+  // gate and blocking the ENTIRE 46-store report with a misleading "math
+  // doesn't add up" alert instead of correctly naming a known data gap.
+  const crewErrorDays = [];
 
   const byStore = {};
   for (let di = 0; di < snapshots.length; di++) {
@@ -414,6 +535,12 @@ async function buildPeriodStoreResults(endDateStr, days) {
           zeroEligibleDays.push({ pc: s.pc, name: s.name, date: dayBusDt, pool: dayPool });
           agg.zeroEligiblePool += dayPool;
         }
+      } else if (s.status === 'ok') {
+        const dayPool = Number((s.tipPool || 0).toFixed(2));
+        if (dayPool > 0) {
+          crewErrorDays.push({ pc: s.pc, name: s.name, date: dayBusDt, pool: dayPool });
+          agg.zeroEligiblePool += dayPool;
+        }
       }
     }
   }
@@ -426,11 +553,14 @@ async function buildPeriodStoreResults(endDateStr, days) {
       status: agg.hadTips ? 'ok' : 'error',
       crewStatus: agg.hadCrew ? 'ok' : 'error',
       rows: agg.rows, tipPool: agg.tipPool,
-      crew: Object.values(agg.crewMap),
+      // Deduped by object identity — accumulateDayShare now aliases one
+      // crew entry under multiple keys (guid/payrollId/name), so a plain
+      // Object.values would return the same person's entry more than once.
+      crew: [...new Set(Object.values(agg.crewMap))],
       zeroEligiblePool: agg.zeroEligiblePool,
     };
   });
-  return { storeResults, missingDates, zeroEligibleDays, pulseGapDays };
+  return { storeResults, missingDates, zeroEligibleDays, pulseGapDays, crewErrorDays };
 }
 
 // ── Build the workbook (single sheet: per-employee distribution) ──
@@ -650,11 +780,18 @@ export function getBlobStore() {
 // independent of job title — e.g. someone whose Paycor title alone
 // wouldn't trigger the isManager rule but who's been told to permanently
 // stop receiving tips. Keyed by Paycor employee GUID (id on the employee
-// record), the one identifier that survives a title/status change, unlike
-// name (can have duplicates) or employeeNumber (can be reassigned).
-export const MANUALLY_EXCLUDED_EMPLOYEE_IDS = new Set([
-  '4e992115-3994-0000-0000-000076f50200', // Cindy Chea — Carlisle (354561), excluded 2026-08-20 per Ahmed
-]);
+// record) since it survives a title/status change, unlike name (can have
+// duplicates) or employeeNumber (can be reassigned) — but a GUID is NOT
+// guaranteed to survive a REHIRE (this codebase's own CLAUDE.md already
+// documents needing to match Paycor employees by name instead of ID for
+// exactly this reason in a different context). Each entry records its
+// expected store (pc) and name purely so fetchStoreCrew can warn — see
+// below — if a configured GUID ever stops matching anyone at that store,
+// turning a silent "exclusion quietly stopped working" into a visible one.
+export const MANUALLY_EXCLUDED_EMPLOYEES = [
+  { guid: '4e992115-3994-0000-0000-000076f50200', pc: '354561', name: 'Cindy Chea', excludedOn: '2026-08-20' }, // Carlisle, per Ahmed
+];
+const MANUALLY_EXCLUDED_EMPLOYEE_IDS = new Set(MANUALLY_EXCLUDED_EMPLOYEES.map(e => e.guid));
 
 // Matched by Paycor's own GUID (employeeId on the punch === id on the
 // employee record) — no cross-system name-matching needed. Hours are
@@ -683,6 +820,18 @@ export async function fetchStoreCrew(s, busDt) {
     const empByGuid = {};
     empList.forEach(e => { if (e && e.id) empByGuid[e.id] = e; });
 
+    // Confirmed via audit (2026-08-20): a manual exclusion is a bare GUID
+    // match with no verification it still points at a real employee — if
+    // that GUID ever stops matching (rehire, record recreated), the
+    // exclusion silently becomes a no-op forever with zero signal, since the
+    // person's shares still sum correctly into the pool exactly like anyone
+    // else's (the sanity gate can't see this either). This at least makes
+    // that specific failure visible in logs instead of invisible.
+    for (const excl of MANUALLY_EXCLUDED_EMPLOYEES) {
+      if (excl.pc !== String(s.pc) || empByGuid[excl.guid]) continue;
+      console.warn(`[tips-report-cron] MANUAL EXCLUSION MAY BE STALE: ${excl.name} (GUID ${excl.guid}, excluded ${excl.excludedOn}) not found in current employee list for ${s.name} (${s.pc}) — their Paycor GUID may have changed. Verify and update MANUALLY_EXCLUDED_EMPLOYEES if so.`);
+    }
+
     const hoursByGuid = {};
     punches.forEach(p => {
       if (!p.employeeId) return;
@@ -695,6 +844,15 @@ export async function fetchStoreCrew(s, busDt) {
       const jobTitle = e?.positionData?.jobTitle || '';
       return {
         name: e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${guid.slice(0, 8)})`,
+        // Paycor's own employeeId — the one identifier confirmed stable
+        // across a routine payroll change (unlike payrollId/employeeNumber,
+        // which is known to sometimes go from blank to populated during
+        // onboarding, confirmed via audit 2026-08-20 to cause a same person
+        // to look like a simultaneous "add + drop" between two fetches).
+        // Kept alongside payrollId (not replacing it) so tips-reconcile-
+        // cron.mjs and anything else correlating crew across two fetches can
+        // prefer this first and only fall back to the fragile field.
+        guid,
         payrollId: e?.employeeNumber || e?.alternateEmployeeNumber || '',
         hours: hoursByGuid[guid],
         // Any title containing "Manager" is excluded — General Manager,
@@ -836,6 +994,43 @@ export default async (request) => {
     }
   }
 
+  // Guard against a fresh Phase 1/2 result regressing below whatever's
+  // already saved for this date — matters most for a manual backfill re-run
+  // (POST {busDt}), the one path that rebuilds an already-existing day from
+  // scratch. Confirmed missing via audit (2026-08-20): the sibling targeted-
+  // refresh tool (tips-report-refresh-background.mjs) got this protection
+  // after a real incident; this file's own equivalent re-run path never did,
+  // despite its own header comment documenting POST {busDt} as a supported
+  // manual catch-up mechanism. Same per-store, per-side heuristic as the
+  // sibling: an outright status flip, OR a fresh result that's suspiciously
+  // emptier than what's already saved. Uses an uncached read (not
+  // loadDaySnapshot) since this check must see the true current blob, not a
+  // possibly-stale memoized copy from an earlier invocation on a warm instance.
+  let existingForBusDt = null;
+  try {
+    const raw = await getBlobStore().get(`pcg_tips_snapshot_${busDt}`, { type: 'json' });
+    existingForBusDt = raw?.data || null;
+  } catch {}
+  if (Array.isArray(existingForBusDt)) {
+    const existingByPc = new Map(existingForBusDt.map(s => [String(s.pc), s]));
+    storeResults.forEach((fresh, idx) => {
+      const existingEntry = existingByPc.get(String(fresh.pc));
+      if (!existingEntry) return;
+      const keepOldPulse = (existingEntry.status === 'ok' && fresh.status !== 'ok')
+        || ((existingEntry.rows?.length || 0) > 0 && (fresh.rows?.length || 0) === 0);
+      const keepOldCrew = (existingEntry.crewStatus === 'ok' && fresh.crewStatus !== 'ok')
+        || ((existingEntry.crew?.length || 0) > 0 && (fresh.crew?.length || 0) === 0);
+      if (keepOldPulse || keepOldCrew) {
+        console.warn(`[tips-report-cron] ${busDt}/${fresh.pc}: fresh result regressed (pulse:${keepOldPulse}, crew:${keepOldCrew}) — keeping existing saved data instead of overwriting it`);
+        storeResults[idx] = {
+          ...fresh,
+          ...(keepOldPulse ? { status: existingEntry.status, rows: existingEntry.rows, tipPool: existingEntry.tipPool } : {}),
+          ...(keepOldCrew ? { crewStatus: existingEntry.crewStatus, crew: existingEntry.crew } : {}),
+        };
+      }
+    });
+  }
+
   // Cache today's snapshot BEFORE building/sending anything — weekly/biweekly
   // rollups (below) read from these, and a report failure downstream shouldn't
   // stop the day's data from being saved for next time.
@@ -873,7 +1068,7 @@ export default async (request) => {
     await sendAlertEmail(recipient, `⚠ Tips — ${tonightsZeroEligible.length} store(s) with unpaid pool — ${busDt}`, alertHtml).catch(() => {});
   }
 
-  async function buildAndSend(periodLabel, filenameTag, storeResultsForPeriod, subjectPrefix, missingDates, extraNote, skipEmail = false, zeroEligibleDays, pulseGapDays) {
+  async function buildAndSend(periodLabel, filenameTag, storeResultsForPeriod, subjectPrefix, missingDates, extraNote, skipEmail = false, zeroEligibleDays, pulseGapDays, crewErrorDays) {
     const { buffer, grandTotal, grandCount, shareMismatches } = buildWorkbook(periodLabel, storeResultsForPeriod);
     const filename = `PCG-Tips-Report-${filenameTag}.xlsx`;
     const storesWithTips = storeResultsForPeriod.filter(s => s.status === 'ok' && s.rows.length > 0).length;
@@ -918,6 +1113,9 @@ export default async (request) => {
     const pulseGapNote = pulseGapDays && pulseGapDays.length
       ? `<p style="margin:0 0 8px;font-size:13px;color:#e03131;">⚠ ${pulseGapDays.length} store-day(s) in this period had real crew hours worked but the Pulse tip-pool fetch failed that day — that day's dollar amount is silently treated as $0 for both the store total and every employee's share, understating both: ${pulseGapDays.map(d => `${d.name} ${d.date}`).join('; ')}</p>`
       : '';
+    const crewErrorNote = crewErrorDays && crewErrorDays.length
+      ? `<p style="margin:0 0 8px;font-size:13px;color:#e03131;">⚠ ${crewErrorDays.length} store-day(s) in this period collected real tips but the Paycor crew fetch failed entirely that day (not just "zero eligible" — a real fetch error) — that day's pool is excluded from the per-employee split until it's manually retried: ${crewErrorDays.map(d => `${d.name} ${d.date} ($${d.pool.toFixed(2)})`).join('; ')}</p>`
+      : '';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #FF671F; padding: 16px 24px; border-radius: 8px 8px 0 0;">
@@ -930,6 +1128,7 @@ export default async (request) => {
           ${extraNoteHtml}
           ${zeroEligibleNote}
           ${pulseGapNote}
+          ${crewErrorNote}
           <p style="margin: 16px 0 0; font-size: 13px; color: #999;">Attached (${filename}): "By Employee" sheet divides each store's tip pool by hours worked in this period (GM/Store Managers excluded) and pays each person by their own hours.</p>
         </div>
       </div>
@@ -965,8 +1164,8 @@ export default async (request) => {
     const [weekStart] = dateRangeEndingAt(weekEnd, 7);
     const label = `Week of ${weekStart} – ${weekEnd}`;
     try {
-      const { storeResults: weekResults, missingDates, zeroEligibleDays, pulseGapDays } = await buildPeriodStoreResults(weekEnd, 7);
-      weeklyResult = await buildAndSend(label, `Week-${weekStart}-to-${weekEnd}`, weekResults, 'PCG Tips Report — Weekly', missingDates, undefined, false, zeroEligibleDays, pulseGapDays);
+      const { storeResults: weekResults, missingDates, zeroEligibleDays, pulseGapDays, crewErrorDays } = await buildPeriodStoreResults(weekEnd, 7);
+      weeklyResult = await buildAndSend(label, `Week-${weekStart}-to-${weekEnd}`, weekResults, 'PCG Tips Report — Weekly', missingDates, undefined, false, zeroEligibleDays, pulseGapDays, crewErrorDays);
     } catch (err) {
       console.error('[tips-report-cron] Weekly report build FAILED:', err.message);
       await sendAlertEmail(recipient, `⚠ PCG Tips Report — Weekly — ${label} — FAILED TO BUILD`, `<p>The weekly tips report for <b>${label}</b> could not be built and was not sent: ${err.message}</p>`).catch(() => {});
@@ -978,8 +1177,8 @@ export default async (request) => {
     const [periodStart] = dateRangeEndingAt(weekEnd, 14);
     const label = `Pay Period ${periodStart} – ${weekEnd}`;
     try {
-      const { storeResults: biweekResults, missingDates, zeroEligibleDays, pulseGapDays } = await buildPeriodStoreResults(weekEnd, 14);
-      biweeklyResult = await buildAndSend(label, `PayPeriod-${periodStart}-to-${weekEnd}`, biweekResults, 'PCG Tips Report — Biweekly (Payroll)', missingDates, undefined, false, zeroEligibleDays, pulseGapDays);
+      const { storeResults: biweekResults, missingDates, zeroEligibleDays, pulseGapDays, crewErrorDays } = await buildPeriodStoreResults(weekEnd, 14);
+      biweeklyResult = await buildAndSend(label, `PayPeriod-${periodStart}-to-${weekEnd}`, biweekResults, 'PCG Tips Report — Biweekly (Payroll)', missingDates, undefined, false, zeroEligibleDays, pulseGapDays, crewErrorDays);
     } catch (err) {
       console.error('[tips-report-cron] Biweekly report build FAILED:', err.message);
       await sendAlertEmail(recipient, `⚠ PCG Tips Report — Biweekly — ${label} — FAILED TO BUILD`, `<p>The biweekly (payroll) tips report for <b>${label}</b> could not be built and was not sent: ${err.message}</p>`).catch(() => {});
