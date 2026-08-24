@@ -21204,7 +21204,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.05";
+  var APP_VERSION = "v20.06";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29286,6 +29286,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return next;
       });
     };
+    const fillAllEarningCodeWithTips = (storePcs) => {
+      setPaycorCfg((prev) => {
+        const next = { ...prev };
+        storePcs.forEach((pc) => {
+          if (!next[pc]?.earningCode) next[pc] = { earningCode: "Tips " };
+        });
+        cloudSave("pcg_paycor_tips_config", { earningCodes: next }).catch(() => {
+        });
+        return next;
+      });
+    };
     const [missingCheck, setMissingCheck] = useState(null);
     const start = periodStart ? tipsParseISODate(periodStart) : null;
     const end = start ? tipsAddDays(start, 13) : null;
@@ -29395,12 +29406,33 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         } catch (e) {
           rosterFetchFailed = true;
         }
+        let payGroupId = null;
+        try {
+          const res = await fetch("/.netlify/functions/paycor", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "payGroups", legalEntityId: storeMeta.paycor })
+          });
+          const json = await res.json().catch(() => null);
+          const records = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
+          payGroupId = records[0]?.payGroupId || null;
+        } catch (e) {
+        }
+        if (!payGroupId) {
+          record("error", "Couldn't look up this store's Paycor pay group \u2014 required for every submission");
+          continue;
+        }
+        const businessStartDate = `${tipsFormatISODate(start)}T00:00:00Z`;
+        const businessEndDate = `${tipsFormatISODate(end)}T23:59:59Z`;
         let defaultedCount = 0;
         const importEmployees = toSend.map((r) => {
           const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
           if (!hasLiveMatch) defaultedCount++;
           const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
-          return { employeeNumber: Number(r.payrollId), importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, amount: r.tips }] };
+          return {
+            employeeNumber: Number(r.payrollId),
+            importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, earningAmount: r.tips, businessStartDate, businessEndDate, payGroupId }]
+          };
         });
         try {
           const processId = crypto.randomUUID();
@@ -29501,7 +29533,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       );
     })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "No saved data for: ", missingDates.join(", "), " \u2014 either before the nightly report existed, or that night's run didn't complete."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...btn(th, { background: "#7c3aed" }), opacity: paycorPush?.running ? 0.6 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor"))), canPushToPaycor && dayInfo && (() => {
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots || []);
-      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Paycor import settings"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, `Department code is looked up automatically per employee from their current Paycor job title (Cust Svc / Shift Leader / Asst Manager) at send-time \u2014 no setup needed. Earning code isn't exposed by Paycor's API at all, so it still needs to be filled in below per store. "Send to Paycor" only STAGES data into a store's paygrid for review; it does not submit payroll.`), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.5rem" } }, "Earning code per store (each store is skipped until its code is set)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.6rem" } }, storeOrder.map((store) => {
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Paycor import settings"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, `Department code is looked up automatically per employee from their current Paycor job title (Cust Svc / Shift Leader / Asst Manager) at send-time \u2014 no setup needed. Earning code isn't exposed by Paycor's API at all, so it still needs to be filled in below per store. "Send to Paycor" only STAGES data into a store's paygrid for review; it does not submit payroll.`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Earning code per store (each store is skipped until its code is set)"), /* @__PURE__ */ React.createElement("button", { onClick: () => fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc)), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.72rem", padding: "0.3rem 0.6rem" } }, 'Fill all with "Tips"')), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.6rem" } }, `"Tips" is confirmed real at Bustleton, but not yet confirmed at every store \u2014 the rollout is still in progress. Filling it in everywhere is a shortcut, not a guarantee; a store where it isn't set up yet will just get a clean rejection when sent, not bad data.`), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.6rem" } }, storeOrder.map((store) => {
         const pc = byStore[store][0]?.pc;
         const cfg = paycorCfg[pc] || {};
         return /* @__PURE__ */ React.createElement("div", { key: store, style: { border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, marginBottom: "0.4rem" } }, store), /* @__PURE__ */ React.createElement(

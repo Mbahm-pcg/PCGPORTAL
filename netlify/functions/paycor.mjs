@@ -604,6 +604,14 @@ export default async (request, context) => {
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
 
+    // ── Proxy: pay groups for a legal entity (needed for stagePayrollHours' required payGroupId) ──
+    if (action === 'payGroups') {
+      const { legalEntityId } = payload;
+      if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+      const res = await callPaycor(`/legalentities/${legalEntityId}/paygroups`);
+      return new Response(JSON.stringify(res.data), { status: res.status, headers });
+    }
+
     // ── Proxy: employee punches (newer endpoint, may include open punches) ──
     if (action === 'employeePunches') {
       const { employeeId, startDate, endDate } = payload;
