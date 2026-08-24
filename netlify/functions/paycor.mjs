@@ -455,6 +455,35 @@ export default async (request, context) => {
       return new Response(JSON.stringify({ error: 'Missing employeeId or legalEntityId' }), { status: 400, headers });
     }
 
+    // ── Write: stage employee hours/earnings into Paycor's paygrid ──────────────
+    // POST /v1/legalentities/{legalEntityId}/payrollhours?replaceData={bool}&appendData={bool}
+    // Body: { integrationVendor, processId, importEmployees: [{ employeeNumber, importEarnings: [...] }] }
+    // Per Paycor support (2026-08-20): this only STAGES data into the paygrid for
+    // human review in Paycor's own UI — it does NOT submit payroll. A human still
+    // has to review and hit submit there. The caller supplies its own processId
+    // (a GUID) per submission; replaceData/appendData let a later call correct or
+    // extend the same processId before the payrun finalizes, rather than creating
+    // a duplicate stage. Matching key is employeeNumber (int32) — already captured
+    // as the tips pipeline's `payrollId` field, so no separate lookup is needed.
+    // Deliberately one call per legalEntityId (one per store), matching how the
+    // tips pipeline already computes per-store, per-day shares — this naturally
+    // handles terminations and mid-period store transfers with no special-case
+    // logic here, since an employee simply has no hours at a store they weren't
+    // actually working at on a given day.
+    if (action === 'stagePayrollHours') {
+      const { legalEntityId, processId, importEmployees, replaceData, appendData, integrationVendor = 'PCG Portal' } = payload;
+      if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+      if (!processId) return new Response(JSON.stringify({ error: 'Missing processId' }), { status: 400, headers });
+      if (!Array.isArray(importEmployees) || importEmployees.length === 0) return new Response(JSON.stringify({ error: 'Missing importEmployees array' }), { status: 400, headers });
+      let path = `/legalentities/${legalEntityId}/payrollhours`;
+      const params = [];
+      if (replaceData != null) params.push(`replaceData=${!!replaceData}`);
+      if (appendData != null) params.push(`appendData=${!!appendData}`);
+      if (params.length) path += '?' + params.join('&');
+      const res = await callPaycor(path, 'POST', { integrationVendor, processId, importEmployees });
+      return new Response(JSON.stringify(res.data), { status: res.status, headers });
+    }
+
     // ── Proxy: employee earnings ──
     if (action === 'earnings') {
       const { employeeId, legalEntityId } = payload;

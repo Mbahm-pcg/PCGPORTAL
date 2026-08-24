@@ -26075,7 +26075,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.01";
+const APP_VERSION = "v20.05";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -37795,19 +37795,10 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
 
   const overview = React.useMemo(() => {
     if (!pnlOv?.stores?.length) return null;
-    const byDist = {};
     let revenue = 0, contribution = 0;
-    pnlOv.stores.forEach(s => {
-      revenue += s.revenue; contribution += s.contribution;
-      const d = s.district || 0;
-      if (!byDist[d]) byDist[d] = { revenue: 0, contribution: 0 };
-      byDist[d].revenue += s.revenue; byDist[d].contribution += s.contribution;
-    });
+    pnlOv.stores.forEach(s => { revenue += s.revenue; contribution += s.contribution; });
     const marginPct = revenue > 0 ? (contribution / revenue) * 100 : 0;
-    const districtRows = Object.entries(byDist)
-      .map(([d, v]) => ({ district: d, marginPct: v.revenue > 0 ? (v.contribution / v.revenue) * 100 : 0 }))
-      .sort((a, b) => Number(a.district) - Number(b.district));
-    return { revenue, marginPct, districtRows };
+    return { revenue, marginPct };
   }, [pnlOv]);
 
   const FIN = '#1B8F5C';
@@ -37846,39 +37837,6 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
                 </div>
               </div>
             )}
-            {overview && overview.districtRows.length > 0 && (() => {
-              // Real store margins tend to sit in a tight band (e.g. all 52-58%), so a fixed
-              // 0-100% scale saturates every bar at the cap and they all look identical.
-              // Scale relative to this network's own min/max, and color relative to the
-              // network average, so real differences between districts are actually visible
-              // regardless of what "normal" margin looks like for this business.
-              const vals = overview.districtRows.map(d => d.marginPct);
-              const lo = Math.min(...vals), hi = Math.max(...vals);
-              const spread = hi - lo || 1;
-              const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-              return (
-                <div style={{ ...card(th), padding: '1.125rem', marginBottom: '1.25rem' }}>
-                  <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.2rem' }}>Margin by District</div>
-                  <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: '0.875rem' }}>Relative to network average ({fmtPct(avg)})</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {overview.districtRows.map(d => {
-                      const delta = d.marginPct - avg;
-                      const color = delta >= 1 ? '#22c55e' : delta <= -1 ? '#ef4444' : '#f59e0b';
-                      const width = 12 + 88 * ((d.marginPct - lo) / spread);
-                      return (
-                        <div key={d.district} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 60px', alignItems: 'center', gap: '0.6rem', fontSize: '0.8rem' }}>
-                          <span style={{ color: th.text }}>{districtLabel(Number(d.district))}</span>
-                          <div style={{ height: 7, borderRadius: 999, background: th.card3, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${width}%`, background: color, borderRadius: 999 }} />
-                          </div>
-                          <span style={{ textAlign: 'right', fontWeight: 700, color }}>{fmtPct(d.marginPct)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
             <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: '0.7rem' }}>Tools</div>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.9rem' }}>
               {tiles.map(t => (
@@ -37895,7 +37853,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
           {viewMode === 'cash' && canCash && <CashManagement user={user} th={th} stores={stores} districts={districts} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} showAlert={showAlert} isMobile={isMobile} users={users} />}
           {viewMode === 'recon' && isAdmin && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {viewMode === 'expenses' && isAdmin && <ExpenseLogSection th={th} user={user} standalone />}
-          {viewMode === 'tips' && finSub('tips') && <TipsReportBuilder th={th} stores={stores} />}
+          {viewMode === 'tips' && finSub('tips') && <TipsReportBuilder th={th} stores={stores} user={user} />}
         </div>
       )}
     </div>
@@ -37934,14 +37892,16 @@ function tipsSheetNameFor(dt, start) {
 function tipsRecordsForStore(s) {
   const pool = tipsRound2(s.tipPool || 0);
   const storeLabel = `${s.name} (${s.pc})`;
-  if (s.crewStatus !== 'ok') return [{ district: s.district, store: storeLabel, employee: null, tips: 0, noData: true }];
-  if (!s.crew || s.crew.length === 0) return [{ district: s.district, store: storeLabel, employee: null, tips: 0, noData: false }];
+  if (s.crewStatus !== 'ok') return [{ district: s.district, store: storeLabel, pc: s.pc, employee: null, tips: 0, noData: true }];
+  if (!s.crew || s.crew.length === 0) return [{ district: s.district, store: storeLabel, pc: s.pc, employee: null, tips: 0, noData: false }];
   const totalHours = s.crew.reduce((sum, c) => sum + c.hours, 0);
   const hourlyRate = totalHours > 0 ? pool / totalHours : 0;
   // guid/payrollId forwarded (not just name) so period aggregation can match
   // the same employee across days even when their available identifier
-  // changes (rehire, onboarding) — see tipsBuildPeriodTotalsAOA.
-  return s.crew.map(c => ({ district: s.district, store: storeLabel, employee: c.name, guid: c.guid, payrollId: c.payrollId, tips: tipsRound2(hourlyRate * c.hours) }));
+  // changes (rehire, onboarding) — see tipsBuildPeriodTotalsAOA. pc forwarded
+  // so a period-level consumer (e.g. the Paycor import) can map an aggregated
+  // row back to that store's legal entity without re-parsing the label string.
+  return s.crew.map(c => ({ district: s.district, store: storeLabel, pc: s.pc, employee: c.name, guid: c.guid, payrollId: c.payrollId, tips: tipsRound2(hourlyRate * c.hours) }));
 }
 
 // Builds one day's sheet rows: title, header, employee rows grouped by store
@@ -37999,7 +37959,13 @@ function tipsCompareByLastName(nameA, nameB) {
 // ever trusted as a fallback while it hasn't been seen claimed by two
 // different people on the same day, since one day's crew entries are
 // already guaranteed distinct individuals.
-function tipsBuildPeriodTotalsAOA(start, end, snapshots) {
+// Shared aggregation core behind tipsBuildPeriodTotalsAOA — extracted so a
+// non-spreadsheet consumer (the Paycor import) can get the same
+// guid/payrollId-matched, ambiguity-protected per-store totals without
+// re-parsing the flattened AOA rows or duplicating this matching logic a
+// third time (a second near-identical copy is exactly what caused the
+// reconcile-cron/period-totals matching bugs found and fixed 2026-08-20/21).
+function tipsAggregatePeriodByStore(snapshots) {
   const storeMaps = {}; // store label -> { byKey: {}, ambiguousNames: Set }
   const storeDistrict = {}; // store label -> district, for sorting below
 
@@ -38033,7 +37999,7 @@ function tipsBuildPeriodTotalsAOA(start, end, snapshots) {
             entry = byKey[nameKey];
           }
         }
-        if (!entry) entry = { district: r.district, store: r.store, employee: r.employee, tips: 0 };
+        if (!entry) entry = { district: r.district, store: r.store, pc: r.pc, employee: r.employee, payrollId: r.payrollId, guid: r.guid, tips: 0 };
 
         strongKeys.forEach(k => { byKey[k] = entry; });
         if (nameKey && !ambiguousNames.has(nameKey)) {
@@ -38048,6 +38014,12 @@ function tipsBuildPeriodTotalsAOA(start, end, snapshots) {
         }
 
         entry.tips = tipsRound2(entry.tips + r.tips);
+        // Backfill an identifier the entry doesn't have yet (e.g. it was
+        // first created on a day this person had no guid) — safe because it
+        // only ever fills a blank, never overwrites an existing value, so it
+        // can't change which entry a future record matches against.
+        if (r.payrollId && !entry.payrollId) entry.payrollId = r.payrollId;
+        if (r.guid && !entry.guid) entry.guid = r.guid;
       }
     }
   }
@@ -38069,6 +38041,11 @@ function tipsBuildPeriodTotalsAOA(start, end, snapshots) {
     return a.localeCompare(b);
   });
 
+  return { byStore, storeOrder };
+}
+
+function tipsBuildPeriodTotalsAOA(start, end, snapshots) {
+  const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
   const title = `Pay Period Totals — ${TIPS_MONTHS[start.getUTCMonth()]} ${start.getUTCDate()} to ${TIPS_MONTHS[end.getUTCMonth()]} ${end.getUTCDate()}, ${end.getUTCFullYear()} (for Paycor entry)`;
   const rows = [[title], [], ['District', 'Store', 'Employee', 'Pay Period Tips']];
   let grandTotal = 0;
@@ -38094,7 +38071,31 @@ function tipsAoaToSheet(XLSX, rows) {
   return ws;
 }
 
-function TipsReportBuilder({ th, stores }) {
+// Only IT/executive/office_staff can push tips into Paycor's paygrid — same
+// role set already trusted with the rest of Finance's admin-level actions.
+const canPaycorPush = (user) => ['it', 'executive', 'office_staff'].includes(user?.userType);
+
+// Maps a job title to Paycor's department code (confirmed 2026-08-24: 101
+// Cust Svc / 102 Shift Leaders / 103 Asst Managers / 104 Store Managers).
+// Classifies on the job TITLE TEXT, not Paycor's department GUID — the GUID
+// is scoped per legal entity (a different value per store for the "same"
+// department), confirmed by comparing Bustleton's department list against
+// its employees; the title strings ("Crew Member", "Shift Leaders", etc.)
+// are the part that's actually standardized company-wide, so this is the
+// version of the mapping that generalizes across all 46 stores without
+// needing a per-store GUID lookup (which would also need its own additional
+// Data Access scope that isn't enabled). Unmatched/missing titles default to
+// 101 — confirmed empirically that Paycor itself buckets employees with a
+// null jobTitle into the same department as "Crew Member".
+function paycorDeptCodeForJobTitle(jobTitle) {
+  const t = String(jobTitle || '');
+  if (/store\s*manager|general\s*manager/i.test(t)) return '104';
+  if (/asst\.?\s*manager|assist(ant)?\s*manager/i.test(t)) return '103';
+  if (/shift\s*leader/i.test(t)) return '102';
+  return '101';
+}
+
+function TipsReportBuilder({ th, stores, user }) {
   const todayStr = tipsFormatISODate(new Date());
   const [periodStart, setPeriodStart] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38102,6 +38103,30 @@ function TipsReportBuilder({ th, stores }) {
   const [dayInfo, setDayInfo] = useState(null); // [{date, filled, total, stores, employees, missing}]
   const [snapshots, setSnapshots] = useState(null); // raw array, index-aligned with the 14 dates
   const [grandTotal, setGrandTotal] = useState(0);
+  const canPushToPaycor = canPaycorPush(user);
+  // Department code is derived automatically per employee from their current
+  // job title at send-time (see paycorDeptCodeForJobTitle) — confirmed
+  // 2026-08-24 that it depends on role (Cust Svc/Shift Leader/Asst Manager),
+  // not a single value. earningCode's scope is still unconfirmed — kept
+  // per-store until that's settled. It can't be defaulted from Paycor's API
+  // itself (per Paycor support, 2026-08-20) — it's a payroll-config value
+  // that only exists in Paycor's own setup screens.
+  const [paycorCfg, setPaycorCfg] = useState({}); // { [pc]: { earningCode } }
+  const [paycorCfgLoaded, setPaycorCfgLoaded] = useState(false);
+  const [paycorPush, setPaycorPush] = useState(null); // null | { running, results: [{pc, store, status, detail}] }
+
+  useEffect(() => {
+    if (!canPushToPaycor || paycorCfgLoaded) return;
+    cloudLoad('pcg_paycor_tips_config').then(cfg => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {}).finally(() => setPaycorCfgLoaded(true));
+  }, [canPushToPaycor, paycorCfgLoaded]);
+
+  const savePaycorEarningCode = (pc, value) => {
+    setPaycorCfg(prev => {
+      const next = { ...prev, [pc]: { earningCode: value } };
+      cloudSave('pcg_paycor_tips_config', { earningCodes: next }).catch(() => {});
+      return next;
+    });
+  };
   // On-demand only (button click, not automatic on load) — this is the one live
   // Paycor call this page makes, deliberately opt-in. The saved snapshots only
   // ever record people who DID have punches; there's no saved record of who's
@@ -38155,6 +38180,94 @@ function TipsReportBuilder({ th, stores }) {
       XLSX.utils.book_append_sheet(wb, tipsAoaToSheet(XLSX, rows), tipsSheetNameFor(dt, start));
     });
     XLSX.writeFile(wb, `Biweekly_Tips_Report_${tipsFormatISODate(start)}_to_${tipsFormatISODate(end)}.xlsx`);
+  };
+
+  // Stages this period's per-store tips into Paycor's paygrid via
+  // stagePayrollHours (netlify/functions/paycor.mjs) — one call per store's
+  // legal entity, matching how the tips pipeline already computes shares
+  // per-store/per-day (see tipsAggregatePeriodByStore). This only STAGES
+  // data for human review in Paycor's own UI; it does not submit payroll.
+  // Requires per-store earningCode/departmentCode to already be filled in —
+  // Paycor doesn't expose a way to look these up via the API, so there's
+  // nothing to default or validate them against beyond "is it filled in."
+  const sendToPaycor = async () => {
+    if (!snapshots || !start) return;
+    const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+    const results = [];
+    setPaycorPush({ running: true, results });
+    for (const store of storeOrder) {
+      const recs = byStore[store];
+      const storePc = recs[0]?.pc;
+      const storeMeta = (stores || []).find(s => s.pc === storePc);
+      const cfg = paycorCfg[storePc];
+      const record = (status, detail) => { results.push({ pc: storePc, store, status, detail }); setPaycorPush({ running: true, results: [...results] }); };
+
+      if (!storeMeta?.paycor) { record('error', 'No Paycor legal entity ID configured for this store'); continue; }
+      if (!cfg?.earningCode) { record('skipped', 'Earning code not set below for this store — fill in and save first'); continue; }
+
+      const toSend = recs.filter(r => r.payrollId && r.tips > 0);
+      const missingPayrollId = recs.filter(r => !r.payrollId && r.tips > 0).length;
+      if (toSend.length === 0) { record('skipped', missingPayrollId ? `${missingPayrollId} employee(s) missing a payroll ID, nothing else to send` : 'No employees with tips this period'); continue; }
+
+      // Department code depends on each person's current role (Cust Svc /
+      // Shift Leader / Asst Manager), which isn't in the saved snapshot — so
+      // this looks up each store's CURRENT roster live, right before
+      // sending, and maps payrollId (employeeNumber) -> job title. Anyone
+      // not found live (e.g. since departed) falls back to 101, same as
+      // Paycor's own behavior for a missing job title.
+      const titleByPayrollId = {};
+      let rosterFetchFailed = false;
+      try {
+        let employees = [], continuationToken;
+        do {
+          const res = await fetch('/.netlify/functions/paycor', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'employees', legalEntityId: storeMeta.paycor, ...(continuationToken ? { continuationToken } : {}) }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json().catch(() => null);
+          const page = Array.isArray(json?.records) ? json.records : (Array.isArray(json) ? json : []);
+          employees = employees.concat(page);
+          continuationToken = json?.continuationToken || null;
+          if (!page.length) continuationToken = null;
+        } while (continuationToken);
+        employees.forEach(e => {
+          const num = e?.employeeNumber || e?.alternateEmployeeNumber;
+          if (num) titleByPayrollId[String(num)] = e?.positionData?.jobTitle;
+        });
+      } catch (e) {
+        rosterFetchFailed = true;
+      }
+
+      let defaultedCount = 0;
+      const importEmployees = toSend.map(r => {
+        const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
+        if (!hasLiveMatch) defaultedCount++;
+        const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
+        return { employeeNumber: Number(r.payrollId), importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, amount: r.tips }] };
+      });
+
+      try {
+        const processId = crypto.randomUUID();
+        const res = await fetch('/.netlify/functions/paycor', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'stagePayrollHours', legalEntityId: storeMeta.paycor, processId, importEmployees }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          const notes = [];
+          if (missingPayrollId) notes.push(`skipped ${missingPayrollId} missing a payroll ID`);
+          if (rosterFetchFailed) notes.push(`couldn't fetch current roster — all defaulted to Cust Svc (101)`);
+          else if (defaultedCount) notes.push(`${defaultedCount} not found on current roster, defaulted to Cust Svc (101)`);
+          record('ok', `Staged ${importEmployees.length} employee(s)${notes.length ? ', ' + notes.join(', ') : ''} — still needs human review/submit in Paycor`);
+        } else {
+          record('error', data?.Detail || data?.message || data?.error || `HTTP ${res.status}`);
+        }
+      } catch (e) {
+        record('error', e.message || 'Request failed');
+      }
+    }
+    setPaycorPush({ running: false, results });
   };
 
   const filledCount = dayInfo ? dayInfo.filter(d => d.filled).length : 0;
@@ -38281,6 +38394,51 @@ function TipsReportBuilder({ th, stores }) {
             <button onClick={checkMissingEmployees} disabled={missingCheck?.loading} style={{ ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 }}>
               {missingCheck?.loading ? 'Checking Paycor rosters…' : 'Check for missing employees'}
             </button>
+            {canPushToPaycor && (
+              <button onClick={sendToPaycor} disabled={paycorPush?.running} style={{ ...btn(th, { background: '#7c3aed' }), opacity: paycorPush?.running ? 0.6 : 1 }}>
+                {paycorPush?.running ? 'Sending to Paycor…' : 'Send to Paycor'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {canPushToPaycor && dayInfo && (() => {
+        const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots || []);
+        return (
+          <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.4rem' }}>Paycor import settings</div>
+            <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.9rem', lineHeight: 1.5 }}>
+              Department code is looked up automatically per employee from their current Paycor job title (Cust Svc / Shift Leader / Asst Manager) at send-time — no setup needed. Earning code isn't exposed by Paycor's API at all, so it still needs to be filled in below per store. "Send to Paycor" only STAGES data into a store's paygrid for review; it does not submit payroll.
+            </div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.5rem' }}>Earning code per store (each store is skipped until its code is set)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.6rem' }}>
+              {storeOrder.map(store => {
+                const pc = byStore[store][0]?.pc;
+                const cfg = paycorCfg[pc] || {};
+                return (
+                  <div key={store} style={{ border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '0.6rem' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.text, marginBottom: '0.4rem' }}>{store}</div>
+                    <input placeholder="Earning code" value={cfg.earningCode || ''} onChange={e => savePaycorEarningCode(pc, e.target.value)}
+                      style={{ ...inp(th), fontSize: '0.76rem', padding: '0.35rem 0.5rem', width: '100%' }} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {paycorPush && (
+        <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.6rem' }}>Paycor send results</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            {paycorPush.results.map((r, i) => (
+              <div key={i} style={{ fontSize: '0.78rem', color: r.status === 'ok' ? '#16a34a' : r.status === 'error' ? '#ef4444' : th.muted }}>
+                <strong style={{ color: th.text }}>{r.store}:</strong> {r.detail}
+              </div>
+            ))}
+            {paycorPush.running && <div style={{ fontSize: '0.78rem', color: th.muted }}>Sending…</div>}
           </div>
         </div>
       )}

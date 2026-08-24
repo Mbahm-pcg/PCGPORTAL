@@ -21204,7 +21204,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.01";
+  var APP_VERSION = "v20.05";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29064,19 +29064,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [viewMode]);
     const overview = React.useMemo(() => {
       if (!pnlOv?.stores?.length) return null;
-      const byDist = {};
       let revenue = 0, contribution = 0;
       pnlOv.stores.forEach((s) => {
         revenue += s.revenue;
         contribution += s.contribution;
-        const d = s.district || 0;
-        if (!byDist[d]) byDist[d] = { revenue: 0, contribution: 0 };
-        byDist[d].revenue += s.revenue;
-        byDist[d].contribution += s.contribution;
       });
       const marginPct = revenue > 0 ? contribution / revenue * 100 : 0;
-      const districtRows = Object.entries(byDist).map(([d, v]) => ({ district: d, marginPct: v.revenue > 0 ? v.contribution / v.revenue * 100 : 0 })).sort((a, b) => Number(a.district) - Number(b.district));
-      return { revenue, marginPct, districtRows };
+      return { revenue, marginPct };
     }, [pnlOv]);
     const FIN = "#1B8F5C";
     const tiles = [
@@ -29087,18 +29081,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "expenses", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6l1 4H8l1-4Z" }), /* @__PURE__ */ React.createElement("path", { d: "M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z" }), /* @__PURE__ */ React.createElement("path", { d: "M9 10v6M15 10v6" })) }), name: "Expense Log", sub: "All ticket expenses \u2014 filter, approve, reject.", badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin && finSub("expenses") },
       { id: "tips", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5" })) }), name: "Tips Report", sub: "Biweekly per-employee tip distribution, ready for Paycor.", show: finSub("tips") }
     ].filter((t) => t.show);
-    return /* @__PURE__ */ React.createElement("div", null, viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", { onClick: () => setViewMode("overview"), style: { display: "inline-flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", fontWeight: 700, color: O, cursor: "pointer", marginBottom: "1rem" } }, "\u2190 Back to Finance"), /* @__PURE__ */ React.createElement("div", { style: { display: viewMode === "overview" ? "block" : "none" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "1rem" } }, "Finance Overview"), canPnl && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #3b82f6" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, overview ? fmtDollars(overview.revenue) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Revenue (MTD)")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: `3px solid ${overview && overview.marginPct >= 30 ? "#22c55e" : "#ef4444"}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: overview && overview.marginPct >= 30 ? "#22c55e" : th.text } }, overview ? fmtPct(overview.marginPct) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Margin %")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #f59e0b", cursor: "pointer" }, onClick: () => setViewMode("expenses") }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, expPending != null ? expPending : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Pending Expense Approvals"))), overview && overview.districtRows.length > 0 && (() => {
-      const vals = overview.districtRows.map((d) => d.marginPct);
-      const lo = Math.min(...vals), hi = Math.max(...vals);
-      const spread = hi - lo || 1;
-      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.125rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.2rem" } }, "Margin by District"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.875rem" } }, "Relative to network average (", fmtPct(avg), ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem" } }, overview.districtRows.map((d) => {
-        const delta2 = d.marginPct - avg;
-        const color = delta2 >= 1 ? "#22c55e" : delta2 <= -1 ? "#ef4444" : "#f59e0b";
-        const width = 12 + 88 * ((d.marginPct - lo) / spread);
-        return /* @__PURE__ */ React.createElement("div", { key: d.district, style: { display: "grid", gridTemplateColumns: "90px 1fr 60px", alignItems: "center", gap: "0.6rem", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, districtLabel(Number(d.district))), /* @__PURE__ */ React.createElement("div", { style: { height: 7, borderRadius: 999, background: th.card3, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${width}%`, background: color, borderRadius: 999 } })), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "right", fontWeight: 700, color } }, fmtPct(d.marginPct)));
-      })));
-    })(), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: "0.7rem" } }, "Tools"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.9rem" } }, tiles.map((t) => /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", { onClick: () => setViewMode("overview"), style: { display: "inline-flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", fontWeight: 700, color: O, cursor: "pointer", marginBottom: "1rem" } }, "\u2190 Back to Finance"), /* @__PURE__ */ React.createElement("div", { style: { display: viewMode === "overview" ? "block" : "none" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "1rem" } }, "Finance Overview"), canPnl && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #3b82f6" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, overview ? fmtDollars(overview.revenue) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Revenue (MTD)")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: `3px solid ${overview && overview.marginPct >= 30 ? "#22c55e" : "#ef4444"}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: overview && overview.marginPct >= 30 ? "#22c55e" : th.text } }, overview ? fmtPct(overview.marginPct) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Margin %")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #f59e0b", cursor: "pointer" }, onClick: () => setViewMode("expenses") }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, expPending != null ? expPending : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Pending Expense Approvals"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: "0.7rem" } }, "Tools"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.9rem" } }, tiles.map((t) => /* @__PURE__ */ React.createElement(
       HubTile,
       {
         key: t.id,
@@ -29112,7 +29095,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         pinned: pinnedNavIds?.includes(t.id),
         onTogglePin: togglePinNav ? () => togglePinNav(t.id) : void 0
       }
-    ))))), viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", null, viewMode === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn }), viewMode === "ndcp" && canNdcp && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), viewMode === "cash" && canCash && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }), viewMode === "recon" && isAdmin && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert: showAlert2 }), viewMode === "expenses" && isAdmin && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), viewMode === "tips" && finSub("tips") && /* @__PURE__ */ React.createElement(TipsReportBuilder, { th, stores })));
+    ))))), viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", null, viewMode === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn }), viewMode === "ndcp" && canNdcp && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), viewMode === "cash" && canCash && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }), viewMode === "recon" && isAdmin && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert: showAlert2 }), viewMode === "expenses" && isAdmin && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), viewMode === "tips" && finSub("tips") && /* @__PURE__ */ React.createElement(TipsReportBuilder, { th, stores, user })));
   }
   var TIPS_SNAPSHOT_RETENTION_DAYS = 40;
   function tipsParseISODate(s) {
@@ -29139,11 +29122,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function tipsRecordsForStore(s) {
     const pool = tipsRound2(s.tipPool || 0);
     const storeLabel = `${s.name} (${s.pc})`;
-    if (s.crewStatus !== "ok") return [{ district: s.district, store: storeLabel, employee: null, tips: 0, noData: true }];
-    if (!s.crew || s.crew.length === 0) return [{ district: s.district, store: storeLabel, employee: null, tips: 0, noData: false }];
+    if (s.crewStatus !== "ok") return [{ district: s.district, store: storeLabel, pc: s.pc, employee: null, tips: 0, noData: true }];
+    if (!s.crew || s.crew.length === 0) return [{ district: s.district, store: storeLabel, pc: s.pc, employee: null, tips: 0, noData: false }];
     const totalHours = s.crew.reduce((sum, c) => sum + c.hours, 0);
     const hourlyRate = totalHours > 0 ? pool / totalHours : 0;
-    return s.crew.map((c) => ({ district: s.district, store: storeLabel, employee: c.name, guid: c.guid, payrollId: c.payrollId, tips: tipsRound2(hourlyRate * c.hours) }));
+    return s.crew.map((c) => ({ district: s.district, store: storeLabel, pc: s.pc, employee: c.name, guid: c.guid, payrollId: c.payrollId, tips: tipsRound2(hourlyRate * c.hours) }));
   }
   function tipsBuildDaySheetAOA(dt, dayStoreResults) {
     const title = `Daily Tips by Employee \u2014 ${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}, ${dt.getUTCFullYear()}`;
@@ -29174,7 +29157,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const a = split(nameA), b = split(nameB);
     return a.last.localeCompare(b.last) || a.first.localeCompare(b.first);
   }
-  function tipsBuildPeriodTotalsAOA(start, end, snapshots) {
+  function tipsAggregatePeriodByStore(snapshots) {
     const storeMaps = {};
     const storeDistrict = {};
     for (const dayResults of snapshots) {
@@ -29211,7 +29194,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
               entry = byKey[nameKey];
             }
           }
-          if (!entry) entry = { district: r.district, store: r.store, employee: r.employee, tips: 0 };
+          if (!entry) entry = { district: r.district, store: r.store, pc: r.pc, employee: r.employee, payrollId: r.payrollId, guid: r.guid, tips: 0 };
           strongKeys.forEach((k) => {
             byKey[k] = entry;
           });
@@ -29226,6 +29209,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             }
           }
           entry.tips = tipsRound2(entry.tips + r.tips);
+          if (r.payrollId && !entry.payrollId) entry.payrollId = r.payrollId;
+          if (r.guid && !entry.guid) entry.guid = r.guid;
         }
       }
     }
@@ -29238,6 +29223,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (da !== db) return da - db;
       return a.localeCompare(b);
     });
+    return { byStore, storeOrder };
+  }
+  function tipsBuildPeriodTotalsAOA(start, end, snapshots) {
+    const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
     const title = `Pay Period Totals \u2014 ${TIPS_MONTHS[start.getUTCMonth()]} ${start.getUTCDate()} to ${TIPS_MONTHS[end.getUTCMonth()]} ${end.getUTCDate()}, ${end.getUTCFullYear()} (for Paycor entry)`;
     const rows = [[title], [], ["District", "Store", "Employee", "Pay Period Tips"]];
     let grandTotal = 0;
@@ -29264,7 +29253,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return ws;
   }
-  function TipsReportBuilder({ th, stores }) {
+  var canPaycorPush = (user) => ["it", "executive", "office_staff"].includes(user?.userType);
+  function paycorDeptCodeForJobTitle(jobTitle) {
+    const t = String(jobTitle || "");
+    if (/store\s*manager|general\s*manager/i.test(t)) return "104";
+    if (/asst\.?\s*manager|assist(ant)?\s*manager/i.test(t)) return "103";
+    if (/shift\s*leader/i.test(t)) return "102";
+    return "101";
+  }
+  function TipsReportBuilder({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
     const [periodStart, setPeriodStart] = useState("");
     const [loading, setLoading] = useState(false);
@@ -29272,6 +29269,23 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [dayInfo, setDayInfo] = useState(null);
     const [snapshots, setSnapshots] = useState(null);
     const [grandTotal, setGrandTotal] = useState(0);
+    const canPushToPaycor = canPaycorPush(user);
+    const [paycorCfg, setPaycorCfg] = useState({});
+    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState(false);
+    const [paycorPush, setPaycorPush] = useState(null);
+    useEffect(() => {
+      if (!canPushToPaycor || paycorCfgLoaded) return;
+      cloudLoad("pcg_paycor_tips_config").then((cfg) => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {
+      }).finally(() => setPaycorCfgLoaded(true));
+    }, [canPushToPaycor, paycorCfgLoaded]);
+    const savePaycorEarningCode = (pc, value) => {
+      setPaycorCfg((prev) => {
+        const next = { ...prev, [pc]: { earningCode: value } };
+        cloudSave("pcg_paycor_tips_config", { earningCodes: next }).catch(() => {
+        });
+        return next;
+      });
+    };
     const [missingCheck, setMissingCheck] = useState(null);
     const start = periodStart ? tipsParseISODate(periodStart) : null;
     const end = start ? tipsAddDays(start, 13) : null;
@@ -29328,6 +29342,88 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         XLSX.utils.book_append_sheet(wb, tipsAoaToSheet(XLSX, rows), tipsSheetNameFor(dt, start));
       });
       XLSX.writeFile(wb, `Biweekly_Tips_Report_${tipsFormatISODate(start)}_to_${tipsFormatISODate(end)}.xlsx`);
+    };
+    const sendToPaycor = async () => {
+      if (!snapshots || !start) return;
+      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+      const results = [];
+      setPaycorPush({ running: true, results });
+      for (const store of storeOrder) {
+        const recs = byStore[store];
+        const storePc = recs[0]?.pc;
+        const storeMeta = (stores || []).find((s) => s.pc === storePc);
+        const cfg = paycorCfg[storePc];
+        const record = (status, detail) => {
+          results.push({ pc: storePc, store, status, detail });
+          setPaycorPush({ running: true, results: [...results] });
+        };
+        if (!storeMeta?.paycor) {
+          record("error", "No Paycor legal entity ID configured for this store");
+          continue;
+        }
+        if (!cfg?.earningCode) {
+          record("skipped", "Earning code not set below for this store \u2014 fill in and save first");
+          continue;
+        }
+        const toSend = recs.filter((r) => r.payrollId && r.tips > 0);
+        const missingPayrollId = recs.filter((r) => !r.payrollId && r.tips > 0).length;
+        if (toSend.length === 0) {
+          record("skipped", missingPayrollId ? `${missingPayrollId} employee(s) missing a payroll ID, nothing else to send` : "No employees with tips this period");
+          continue;
+        }
+        const titleByPayrollId = {};
+        let rosterFetchFailed = false;
+        try {
+          let employees = [], continuationToken;
+          do {
+            const res = await fetch("/.netlify/functions/paycor", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "employees", legalEntityId: storeMeta.paycor, ...continuationToken ? { continuationToken } : {} })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json().catch(() => null);
+            const page = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
+            employees = employees.concat(page);
+            continuationToken = json?.continuationToken || null;
+            if (!page.length) continuationToken = null;
+          } while (continuationToken);
+          employees.forEach((e) => {
+            const num = e?.employeeNumber || e?.alternateEmployeeNumber;
+            if (num) titleByPayrollId[String(num)] = e?.positionData?.jobTitle;
+          });
+        } catch (e) {
+          rosterFetchFailed = true;
+        }
+        let defaultedCount = 0;
+        const importEmployees = toSend.map((r) => {
+          const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
+          if (!hasLiveMatch) defaultedCount++;
+          const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
+          return { employeeNumber: Number(r.payrollId), importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, amount: r.tips }] };
+        });
+        try {
+          const processId = crypto.randomUUID();
+          const res = await fetch("/.netlify/functions/paycor", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "stagePayrollHours", legalEntityId: storeMeta.paycor, processId, importEmployees })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            const notes = [];
+            if (missingPayrollId) notes.push(`skipped ${missingPayrollId} missing a payroll ID`);
+            if (rosterFetchFailed) notes.push(`couldn't fetch current roster \u2014 all defaulted to Cust Svc (101)`);
+            else if (defaultedCount) notes.push(`${defaultedCount} not found on current roster, defaulted to Cust Svc (101)`);
+            record("ok", `Staged ${importEmployees.length} employee(s)${notes.length ? ", " + notes.join(", ") : ""} \u2014 still needs human review/submit in Paycor`);
+          } else {
+            record("error", data?.Detail || data?.message || data?.error || `HTTP ${res.status}`);
+          }
+        } catch (e) {
+          record("error", e.message || "Request failed");
+        }
+      }
+      setPaycorPush({ running: false, results });
     };
     const filledCount = dayInfo ? dayInfo.filter((d) => d.filled).length : 0;
     const missingDates = dayInfo ? dayInfo.filter((d) => !d.filled).map((d) => d.date) : [];
@@ -29403,7 +29499,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: d.filled ? "#16a34a" : th.muted, textTransform: "uppercase" } }, TIPS_DOW[dt.getUTCDay()]),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, marginTop: 2 } }, dt.getUTCMonth() + 1, "/", dt.getUTCDate())
       );
-    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "No saved data for: ", missingDates.join(", "), " \u2014 either before the nightly report existed, or that night's run didn't complete."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"))), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
+    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "No saved data for: ", missingDates.join(", "), " \u2014 either before the nightly report existed, or that night's run didn't complete."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...btn(th, { background: "#7c3aed" }), opacity: paycorPush?.running ? 0.6 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor"))), canPushToPaycor && dayInfo && (() => {
+      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots || []);
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Paycor import settings"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, `Department code is looked up automatically per employee from their current Paycor job title (Cust Svc / Shift Leader / Asst Manager) at send-time \u2014 no setup needed. Earning code isn't exposed by Paycor's API at all, so it still needs to be filled in below per store. "Send to Paycor" only STAGES data into a store's paygrid for review; it does not submit payroll.`), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.5rem" } }, "Earning code per store (each store is skipped until its code is set)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.6rem" } }, storeOrder.map((store) => {
+        const pc = byStore[store][0]?.pc;
+        const cfg = paycorCfg[pc] || {};
+        return /* @__PURE__ */ React.createElement("div", { key: store, style: { border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, marginBottom: "0.4rem" } }, store), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            placeholder: "Earning code",
+            value: cfg.earningCode || "",
+            onChange: (e) => savePaycorEarningCode(pc, e.target.value),
+            style: { ...inp(th), fontSize: "0.76rem", padding: "0.35rem 0.5rem", width: "100%" }
+          }
+        ));
+      })));
+    })(), paycorPush && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.6rem" } }, "Paycor send results"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, paycorPush.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : r.status === "error" ? "#ef4444" : th.muted } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, r.store, ":"), " ", r.detail)), paycorPush.running && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Sending\u2026"))), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
   }
   function renderAnalystMarkdown(text, th) {
     if (!text) return null;
