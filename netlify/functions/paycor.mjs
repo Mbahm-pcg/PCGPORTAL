@@ -643,9 +643,9 @@ export default async (request, context) => {
 
     // ── Proxy: generic API call (for exploration) ──
     if (action === 'raw') {
-      const { path, method } = payload;
+      const { path, method, body } = payload;
       if (!path) return new Response(JSON.stringify({ error: 'Missing path' }), { status: 400, headers });
-      const res = await callPaycor(path, method || 'GET');
+      const res = await callPaycor(path, method || 'GET', body || null);
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
 
