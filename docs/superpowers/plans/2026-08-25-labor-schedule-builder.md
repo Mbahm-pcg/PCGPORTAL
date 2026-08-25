@@ -18,6 +18,7 @@
 - Role scope, exactly as the spec defines: `manager` = own store, build/edit/submit. `dm` = own district (`String(store.district) === String(user.district)`), view-only. `executive`/`it`/`office_staff` = all stores, view-only.
 - Bump `APP_VERSION` (search `const APP_VERSION =` near `app.jsx:26078`) and run `npm run build` before every commit that touches `app.jsx`, per this project's standing convention. Increment the last digit for each task's commit (e.g. v20.06 → v20.07 → v20.08...).
 - After every build, run `npx netlify deploy` (no `--prod`) and note the preview URL — this project's standing convention is to preview every change, never push straight to production without being asked.
+- **`schedulingShifts` reads treat `endDate` as exclusive** (confirmed live in Task 1, 2026-08-25: a query with `endDate: '2026-09-01'` returns zero shifts dated `2026-09-01`, including real, pre-existing shifts unrelated to any test). Every date-range read against this action must request `endDate = <last desired day> + 1 day` to include that final day's shifts — do not pass the last desired day directly as `endDate`.
 
 ---
 
@@ -752,11 +753,15 @@ function ScheduleBuilder({ store, th, mode }) {
     setLoading(true); setError(null); setCards(null); setCardIndex(0); setApprovedCards([]);
     try {
       const lastWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), -7));
-      const lastWeekEnd = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), -1));
+      // schedulingShifts treats `endDate` as EXCLUSIVE (confirmed live in Task 1,
+      // 2026-08-25) — the last day of the prior week is weekStart - 1 (Saturday),
+      // so weekStart itself (its exclusive +1 boundary) is passed as endDate to
+      // include that Saturday's shifts without dropping them.
+      const lastWeekEndExclusive = weekStart;
 
       const [empRes, shiftRes] = await Promise.all([
         fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'employees', legalEntityId: store.paycor }) }),
-        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedulingShifts', legalEntityId: store.paycor, startDate: lastWeekStart, endDate: lastWeekEnd }) }),
+        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedulingShifts', legalEntityId: store.paycor, startDate: lastWeekStart, endDate: lastWeekEndExclusive }) }),
       ]);
       const empData = await empRes.json();
       const shiftData = await shiftRes.json();
