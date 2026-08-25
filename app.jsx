@@ -26075,7 +26075,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.07";
+const APP_VERSION = "v20.08";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32268,6 +32268,67 @@ function scheduleComputeWeeklyTotal(cards, payRatesByEmployeeId) {
     return { employeeId: card.employeeId, hours: Math.round(hours * 100) / 100, dollars: Math.round(dollars * 100) / 100, rateAvailable };
   });
   return { totalHours: Math.round(totalHours * 100) / 100, totalDollars: Math.round(totalDollars * 100) / 100, byEmployee };
+}
+
+const SCHEDULE_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Employee-rows x day-columns weekly grid, matching the visual shape of
+// Paycor's own native Schedules view (confirmed via screenshot during
+// design) but styled with this app's own theme instead of Paycor's colors.
+// Pure rendering only — no edit state lives here even in 'build' mode.
+function WeeklyScheduleGrid({ weekStartISO, cards, th }) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const dayDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setUTCDate(d.getUTCDate() + i);
+    return d;
+  });
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: '0.5rem', borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: 'sticky', left: 0, background: th.bg }}>Employee</th>
+            {dayDates.map((d, i) => (
+              <th key={i} style={{ textAlign: 'center', padding: '0.5rem', borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 130 }}>
+                {SCHEDULE_DOW[i]}, {d.getUTCMonth() + 1}/{d.getUTCDate()}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {(cards || []).map(card => {
+            const totalHours = (card.shifts || []).reduce((sum, sh) => {
+              const [sh1, sm1] = sh.startTime.split(':').map(Number);
+              const [sh2, sm2] = sh.endTime.split(':').map(Number);
+              return sum + ((sh2 * 60 + sm2) - (sh1 * 60 + sm1)) / 60;
+            }, 0);
+            return (
+              <tr key={card.employeeId} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                <td style={{ padding: '0.5rem', color: th.text, fontWeight: 600, position: 'sticky', left: 0, background: th.bg }}>
+                  {card.employeeName}
+                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400 }}>{Math.round(totalHours * 10) / 10}h</div>
+                </td>
+                {dayDates.map((_, dayOffset) => {
+                  const shift = (card.shifts || []).find(sh => sh.dayOffset === dayOffset);
+                  return (
+                    <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
+                      {shift && (
+                        <div style={{ background: '#FF671F18', border: '1px solid #FF671F55', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.text }}>
+                          {shift.startTime}–{shift.endTime}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 // ── LaborDrillDown ───────────────────────────────────────────────────────────
