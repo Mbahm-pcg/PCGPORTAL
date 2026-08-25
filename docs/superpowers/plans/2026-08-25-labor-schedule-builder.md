@@ -62,6 +62,7 @@ const LEGAL_ENTITY_ID = '193884'; // Bustleton
 const EMPLOYEE_ID = 'f0c42817-b32d-0000-0000-00005cf50200'; // Ahmed Bhuiyan
 const SCHEDULE_GROUP_ID = '6215c7c0-1380-42c4-860b-f03187ae2f9e'; // "ALL", confirmed real at Bustleton
 const SCHEDULING_JOB_ID = 'b8e28fce-0288-4a15-9ab4-bd57f4d84afd'; // Crew Member, confirmed real at Bustleton
+const DEPARTMENT_ID = '270d012c-65d6-0000-0000-00005cf50200'; // "101 - Payroll - Cust Svc", confirmed real at Bustleton for Crew Member
 
 async function call(action, body) {
   const res = await fetch(BASE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...body }) });
@@ -71,6 +72,9 @@ async function call(action, body) {
 
 async function main() {
   // Pick a near-term test date/time — a few days out, low-traffic hour.
+  // (This is the SHIFT's own date, unrelated to the read-verification date
+  // range below — Paycor accepts a future shift date fine, it only rejects
+  // a future *startDate* on the schedulingShifts READ query.)
   const start = '2026-09-01T02:00:00Z'; // arbitrary test slot
   const end = '2026-09-01T03:00:00Z';
 
@@ -84,17 +88,40 @@ async function main() {
       startDateTime: start,
       endDateTime: end,
       title: 'PLAN VALIDATION TEST — SAFE TO DELETE',
+      isPublished: true,
+      departmentId: DEPARTMENT_ID,
+      // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is NOT a
+      // reference to an existing entity to look up — it's a caller-generated
+      // GUID, unique within this batch, used only during the creation
+      // process itself (same idea as processId elsewhere in this codebase).
+      shiftModelId: crypto.randomUUID(),
     }],
     ignoreWarnings: true,
   });
   console.log(JSON.stringify(created, null, 2));
 
-  const shiftId = created.data?.shifts?.[0]?.shiftId || created.data?.[0]?.shiftId;
-  if (!shiftId) { console.error('FAILED: no shiftId returned, stopping.'); process.exit(1); }
+  // Response shape is not yet confirmed against the real API — Paycor's
+  // docs show a collapsed "shift" field in the 201 sample without the
+  // nested detail expanded. Log the full response above and inspect it
+  // directly; adjust this extraction to match whatever key/shape actually
+  // comes back (likely `created.data.shift[0].shiftId` or
+  // `created.data.shifts[0].shiftId` — try both, and fall back to printing
+  // `Object.keys(created.data)` if neither matches so the real shape is
+  // visible rather than silently failing).
+  const shiftId = created.data?.shift?.[0]?.shiftId || created.data?.shifts?.[0]?.shiftId || created.data?.[0]?.shiftId;
+  if (!shiftId) {
+    console.error('FAILED: no shiftId found at any expected path. Full response logged above.');
+    console.error('Top-level response keys:', created.data && typeof created.data === 'object' ? Object.keys(created.data) : typeof created.data);
+    process.exit(1);
+  }
   console.log('Created shiftId:', shiftId);
 
   console.log('--- Step B: verify it shows up on a live read ---');
-  const read = await call('schedulingShifts', { legalEntityId: LEGAL_ENTITY_ID, startDate: '2026-09-01', endDate: '2026-09-01' });
+  // startDate must be <= today (Paycor rejects a future startDate on this
+  // read, confirmed 2026-08-25) even though the shift itself is dated in
+  // the future — use today's date as startDate, the shift's own date as endDate.
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const read = await call('schedulingShifts', { legalEntityId: LEGAL_ENTITY_ID, startDate: todayISO, endDate: '2026-09-01' });
   const found = (read.data?.records || []).find(s => s.id === shiftId);
   console.log('Found on live read:', !!found, found ? JSON.stringify(found) : '(not found — investigate before proceeding)');
 
@@ -103,7 +130,7 @@ async function main() {
   console.log(JSON.stringify(deleted, null, 2));
 
   console.log('--- Step D: confirm deletion ---');
-  const readAfter = await call('schedulingShifts', { legalEntityId: LEGAL_ENTITY_ID, startDate: '2026-09-01', endDate: '2026-09-01' });
+  const readAfter = await call('schedulingShifts', { legalEntityId: LEGAL_ENTITY_ID, startDate: todayISO, endDate: '2026-09-01' });
   const stillThere = (readAfter.data?.records || []).find(s => s.id === shiftId);
   console.log('Still present after delete (should be false):', !!stillThere);
 }
@@ -143,10 +170,10 @@ Nothing from this task ships — it's pure validation. No commit for this task.
 **Interfaces:**
 - Consumes: nothing from earlier tasks (Task 1 produced no code)
 - Produces:
-  - `scheduleGroupShiftsByEmployee(shiftRecords)` → `{ [employeeId]: Array<{dayOffset, startTime, endTime}> }`
-  - `scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee)` → `{ schedulingJobId, scheduleGroupId, needsConfirmation }`
+  - `scheduleGroupShiftsByEmployee(shiftRecords)` → `{ [employeeId]: Array<{dayOffset, startTime, endTime, schedulingJobId, scheduleGroupId, departmentId}> }`
+  - `scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee)` → `{ schedulingJobId, scheduleGroupId, departmentId, needsConfirmation }`
   - `scheduleComputeWeeklyTotal(cards, payRatesByEmployeeId)` → `{ totalHours, totalDollars, byEmployee: Array<{employeeId, hours, dollars, rateAvailable}> }`
-  - A shared shift-card shape used by every later task: `{ employeeId, employeeName, jobTitle, schedulingJobId, scheduleGroupId, shifts: Array<{dayOffset: 0-6, startTime: "HH:MM", endTime: "HH:MM"}> }` (`dayOffset` 0 = Sunday of the target week, matching how the rest of this codebase's tips period logic treats weeks — see `tipsAddDays`/`tipsFormatISODate` near `app.jsx:37905` for the existing date-handling convention to match)
+  - A shared shift-card shape used by every later task: `{ employeeId, employeeName, jobTitle, schedulingJobId, scheduleGroupId, departmentId, shifts: Array<{dayOffset: 0-6, startTime: "HH:MM", endTime: "HH:MM"}> }` (`dayOffset` 0 = Sunday of the target week, matching how the rest of this codebase's tips period logic treats weeks — see `tipsAddDays`/`tipsFormatISODate` near `app.jsx:37905` for the existing date-handling convention to match). `departmentId` is required on every Paycor shift write (confirmed via Task 1's live validation, 2026-08-25) and is carried on the card the same way `schedulingJobId`/`scheduleGroupId` are.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -166,23 +193,33 @@ function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
     const dayOffset = Math.round((Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) - Date.UTC(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate())) / 86400000);
     const fmt = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
     if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
-    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId });
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
   });
   return byEmployee;
 }
 
+// departmentId is required on every Paycor shift write (confirmed via
+// Task 1's live validation, 2026-08-25 — a bare shift without it gets
+// rejected with a 400). Reused via the exact same same-job-title-employee
+// pattern as schedulingJobId/scheduleGroupId, since a department is tied
+// to a role the same way a scheduling job is.
 function scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee) {
   const sameTitle = (employees || []).find(e => e.positionData?.jobTitle === jobTitle && shiftsByEmployee[e.id]?.length);
   if (sameTitle) {
     const s = shiftsByEmployee[sameTitle.id][0];
-    return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, needsConfirmation: false };
+    return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId, needsConfirmation: false };
   }
   const allShifts = Object.values(shiftsByEmployee).flat();
-  if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, needsConfirmation: true };
+  if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, departmentId: null, needsConfirmation: true };
   const groupCounts = {};
-  allShifts.forEach(s => { groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1; });
+  const deptCounts = {};
+  allShifts.forEach(s => {
+    groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1;
+    if (s.departmentId) deptCounts[s.departmentId] = (deptCounts[s.departmentId] || 0) + 1;
+  });
   const mostCommonGroup = Object.entries(groupCounts).sort((a, b) => b[1] - a[1])[0][0];
-  return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, needsConfirmation: true };
+  const mostCommonDept = Object.keys(deptCounts).length ? Object.entries(deptCounts).sort((a, b) => b[1] - a[1])[0][0] : null;
+  return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, departmentId: mostCommonDept, needsConfirmation: true };
 }
 
 function scheduleComputeWeeklyTotal(cards, payRatesByEmployeeId) {
@@ -209,9 +246,9 @@ function check(label, cond) { console.log(`[${cond ? 'PASS' : 'FAIL'}] ${label}`
 // Test 1: grouping shifts by employee, correct dayOffset/time extraction
 {
   const shifts = [
-    { employeeId: 'e1', startDateTime: '2026-09-06T09:00:00Z', endDateTime: '2026-09-06T17:00:00Z', schedulingJobId: 'job1', scheduleGroupId: 'grp1' }, // Sunday = dayOffset 0
-    { employeeId: 'e1', startDateTime: '2026-09-07T10:00:00Z', endDateTime: '2026-09-07T18:00:00Z', schedulingJobId: 'job1', scheduleGroupId: 'grp1' }, // Monday = dayOffset 1
-    { employeeId: 'e2', startDateTime: '2026-09-08T08:00:00Z', endDateTime: '2026-09-08T16:00:00Z', schedulingJobId: 'job2', scheduleGroupId: 'grp1' },
+    { employeeId: 'e1', startDateTime: '2026-09-06T09:00:00Z', endDateTime: '2026-09-06T17:00:00Z', schedulingJobId: 'job1', scheduleGroupId: 'grp1', departmentId: 'dept1' }, // Sunday = dayOffset 0
+    { employeeId: 'e1', startDateTime: '2026-09-07T10:00:00Z', endDateTime: '2026-09-07T18:00:00Z', schedulingJobId: 'job1', scheduleGroupId: 'grp1', departmentId: 'dept1' }, // Monday = dayOffset 1
+    { employeeId: 'e2', startDateTime: '2026-09-08T08:00:00Z', endDateTime: '2026-09-08T16:00:00Z', schedulingJobId: 'job2', scheduleGroupId: 'grp1', departmentId: 'dept2' },
   ];
   const grouped = scheduleGroupShiftsByEmployee(shifts, '2026-09-06');
   check('1a. two employees grouped', Object.keys(grouped).length === 2);
@@ -220,18 +257,20 @@ function check(label, cond) { console.log(`[${cond ? 'PASS' : 'FAIL'}] ${label}`
   check('1d. Monday shift has dayOffset 1', grouped.e1[1].dayOffset === 1);
   check('1e. start time extracted correctly', grouped.e1[0].startTime === '09:00');
   check('1f. end time extracted correctly', grouped.e1[0].endTime === '17:00');
+  check('1g. departmentId carried through', grouped.e1[0].departmentId === 'dept1');
 }
 
-// Test 2: new-employee job/group defaulting via shared job title
+// Test 2: new-employee job/group/department defaulting via shared job title
 {
   const employees = [
     { id: 'e1', positionData: { jobTitle: 'Crew Member' } },
     { id: 'e2', positionData: { jobTitle: 'Crew Member' } },
   ];
-  const shiftsByEmployee = { e1: [{ dayOffset: 0, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll' }] };
+  const shiftsByEmployee = { e1: [{ dayOffset: 0, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll', departmentId: 'deptCrew' }] };
   const result = scheduleDefaultJobGroupForEmployee('Crew Member', employees, shiftsByEmployee);
   check('2a. reuses job/group from same-title employee', result.schedulingJobId === 'jobCrew' && result.scheduleGroupId === 'grpAll');
-  check('2b. does not need confirmation when a match is found', result.needsConfirmation === false);
+  check('2b. reuses department from same-title employee', result.departmentId === 'deptCrew');
+  check('2c. does not need confirmation when a match is found', result.needsConfirmation === false);
 }
 
 // Test 3: new-employee fallback when no one shares their title
@@ -239,14 +278,15 @@ function check(label, cond) { console.log(`[${cond ? 'PASS' : 'FAIL'}] ${label}`
   const employees = [{ id: 'e1', positionData: { jobTitle: 'Crew Member' } }];
   const shiftsByEmployee = {
     e1: [
-      { dayOffset: 0, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll' },
-      { dayOffset: 1, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll' },
+      { dayOffset: 0, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll', departmentId: 'deptCrew' },
+      { dayOffset: 1, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll', departmentId: 'deptCrew' },
     ],
   };
   const result = scheduleDefaultJobGroupForEmployee('Shift Leader', employees, shiftsByEmployee);
   check('3a. falls back to most common group', result.scheduleGroupId === 'grpAll');
-  check('3b. flags for manual confirmation', result.needsConfirmation === true);
-  check('3c. no job guessed (left null, not a wrong guess)', result.schedulingJobId === null);
+  check('3b. falls back to most common department', result.departmentId === 'deptCrew');
+  check('3c. flags for manual confirmation', result.needsConfirmation === true);
+  check('3d. no job guessed (left null, not a wrong guess)', result.schedulingJobId === null);
 }
 
 // Test 4: weekly labor total math, including a missing-rate case
@@ -296,30 +336,38 @@ function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
     const dayOffset = Math.round((Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) - Date.UTC(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate())) / 86400000);
     const fmt = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
     if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
-    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId });
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
   });
   return byEmployee;
 }
 
-// A new employee (no shifts last week) has no schedulingJobId/scheduleGroupId
-// to reuse. Paycor doesn't expose a live job lookup (the "View Legal Entity
-// Scheduling Jobs" Data Access scope isn't enabled), so this reuses another
-// employee's known values instead: first choice is someone at the same
-// store sharing the same live job title; fallback is whichever
-// scheduleGroupId appears most often, flagged for manual confirmation since
-// the job itself couldn't be determined.
+// A new employee (no shifts last week) has no schedulingJobId/scheduleGroupId/
+// departmentId to reuse. Paycor doesn't expose a live job lookup (the "View
+// Legal Entity Scheduling Jobs" Data Access scope isn't enabled), so this
+// reuses another employee's known values instead: first choice is someone at
+// the same store sharing the same live job title; fallback is whichever
+// scheduleGroupId/departmentId appears most often, flagged for manual
+// confirmation since the job itself couldn't be determined. departmentId is
+// required on every Paycor shift write (confirmed via live 400 response —
+// see Task 1), so it's carried through the same reuse/fallback logic as
+// scheduleGroupId.
 function scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee) {
   const sameTitle = (employees || []).find(e => e.positionData?.jobTitle === jobTitle && shiftsByEmployee[e.id]?.length);
   if (sameTitle) {
     const s = shiftsByEmployee[sameTitle.id][0];
-    return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, needsConfirmation: false };
+    return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId, needsConfirmation: false };
   }
   const allShifts = Object.values(shiftsByEmployee).flat();
-  if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, needsConfirmation: true };
+  if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, departmentId: null, needsConfirmation: true };
   const groupCounts = {};
-  allShifts.forEach(s => { groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1; });
+  const deptCounts = {};
+  allShifts.forEach(s => {
+    groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1;
+    if (s.departmentId) deptCounts[s.departmentId] = (deptCounts[s.departmentId] || 0) + 1;
+  });
   const mostCommonGroup = Object.entries(groupCounts).sort((a, b) => b[1] - a[1])[0][0];
-  return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, needsConfirmation: true };
+  const mostCommonDept = Object.keys(deptCounts).length ? Object.entries(deptCounts).sort((a, b) => b[1] - a[1])[0][0] : null;
+  return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, departmentId: mostCommonDept, needsConfirmation: true };
 }
 
 // Running weekly labor $/hours total across every card currently in the
@@ -731,10 +779,12 @@ function ScheduleBuilder({ store, th, mode }) {
         const priorShifts = shiftsByEmployee[e.id] || [];
         let schedulingJobId = priorShifts[0]?.schedulingJobId || null;
         let scheduleGroupId = priorShifts[0]?.scheduleGroupId || null;
+        let departmentId = priorShifts[0]?.departmentId || null;
         if (!schedulingJobId) {
           const defaulted = scheduleDefaultJobGroupForEmployee(e.positionData?.jobTitle, employees, shiftsByEmployee);
           schedulingJobId = defaulted.schedulingJobId;
           scheduleGroupId = defaulted.scheduleGroupId;
+          departmentId = defaulted.departmentId;
         }
         return {
           employeeId: e.id,
@@ -742,6 +792,7 @@ function ScheduleBuilder({ store, th, mode }) {
           jobTitle: e.positionData?.jobTitle || 'Crew Member',
           schedulingJobId,
           scheduleGroupId,
+          departmentId,
           shifts: priorShifts.map(s => ({ dayOffset: s.dayOffset, startTime: s.startTime, endTime: s.endTime })),
         };
       });
@@ -1069,8 +1120,15 @@ const handleSendToPaycor = async () => {
         employeeId: c.employeeId,
         scheduleGroupId: c.scheduleGroupId,
         schedulingJobId: c.schedulingJobId,
+        departmentId: c.departmentId,
         startDateTime: `${dateStr}T${s.startTime}:00Z`,
         endDateTime: `${dateStr}T${s.endTime}:00Z`,
+        isPublished: true,
+        // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is a
+        // caller-generated GUID, not a lookup value — one per shift, unique
+        // within the batch (same pattern as processId used elsewhere in
+        // this codebase). See Task 1's corrected script for the source.
+        shiftModelId: crypto.randomUUID(),
         _employeeName: c.employeeName, // stripped before sending, kept for result mapping
       });
     });
@@ -1173,4 +1231,4 @@ git commit -m "Add batched Paycor submission with per-shift results"
 
 - **Spec coverage:** every section of the spec maps to a task — Overview/User Flow → Tasks 6-9, Data Sources → Task 2 + Task 6's `load()`, UI Components → Tasks 3-6, Submission Mechanics → Task 9, Roles & Permissions → Task 7, Error Handling → covered inline in Task 2 (missing rate), Task 6 (empty last-week data), Task 9 (partial batch failure), Testing Plan → Tasks 1, 10, and the per-task manual-verification steps throughout.
 - **Placeholder scan:** no TBD/TODO markers; Task 7's manager-store field name is flagged as "confirm before proceeding" rather than guessed, since guessing wrong here is a real access-control risk — this is a deliberate stop-and-verify instruction, not an unresolved placeholder.
-- **Type/naming consistency:** the card shape (`employeeId, employeeName, jobTitle, schedulingJobId, scheduleGroupId, shifts: [{dayOffset, startTime, endTime}]`) is used identically across Tasks 2, 3, 5, 6, 8, 9. `scheduleComputeWeeklyTotal`'s return shape (`totalHours, totalDollars, byEmployee`) matches between Task 2's definition and Task 4/6's consumption.
+- **Type/naming consistency:** the card shape (`employeeId, employeeName, jobTitle, schedulingJobId, scheduleGroupId, departmentId, shifts: [{dayOffset, startTime, endTime}]`) is used identically across Tasks 2, 3, 5, 6, 8, 9. `scheduleComputeWeeklyTotal`'s return shape (`totalHours, totalDollars, byEmployee`) matches between Task 2's definition and Task 4/6's consumption. `departmentId`/`isPublished`/`shiftModelId` were added to the plan on 2026-08-25 after Task 1's live-API validation surfaced them as required fields Paycor's `createSchedulingShifts` rejects without (see Task 1, Task 2, Task 6, Task 9) — every task touching the card shape or the submission payload was checked and updated to carry them through consistently.
