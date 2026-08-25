@@ -26075,7 +26075,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.08";
+const APP_VERSION = "v20.09";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32327,6 +32327,33 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Sticky header showing the store's running projected weekly labor $ and %,
+// color-coded against the canonical thresholds (LABOR_GREEN=22.9,
+// LABOR_YELLOW=25.9, red >=26 — app.jsx:33267-33269). Also flags (does not
+// block) any employee whose week exceeds 40 hours.
+function RunningLaborHeader({ weeklyTotal, projectedSales, th }) {
+  const pct = projectedSales > 0 ? (weeklyTotal.totalDollars / projectedSales) * 100 : 0;
+  const color = pct <= 22.9 ? '#4caf50' : pct <= 25.9 ? '#ff9800' : '#f44336';
+  const overtimeEmployees = (weeklyTotal.byEmployee || []).filter(e => e.hours > 40);
+
+  return (
+    <div style={{ position: 'sticky', top: 0, zIndex: 10, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '0.85rem 1.1rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
+      <div>
+        <div style={{ fontSize: '0.68rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Projected Weekly Labor</div>
+        <div style={{ fontSize: '1.1rem', fontWeight: 800, color }}>
+          ${weeklyTotal.totalDollars.toFixed(2)} <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>({pct.toFixed(1)}%)</span>
+        </div>
+      </div>
+      <div style={{ fontSize: '0.78rem', color: th.muted }}>{weeklyTotal.totalHours.toFixed(1)} total hours</div>
+      {overtimeEmployees.length > 0 && (
+        <div style={{ fontSize: '0.76rem', color: '#f59e0b', fontWeight: 600 }}>
+          ⚠ {overtimeEmployees.length} employee(s) over 40h this week
+        </div>
+      )}
     </div>
   );
 }
