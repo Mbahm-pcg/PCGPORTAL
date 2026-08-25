@@ -26075,7 +26075,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.09";
+const APP_VERSION = "v20.10";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32353,6 +32353,65 @@ function RunningLaborHeader({ weeklyTotal, projectedSales, th }) {
         <div style={{ fontSize: '0.76rem', color: '#f59e0b', fontWeight: 600 }}>
           ⚠ {overtimeEmployees.length} employee(s) over 40h this week
         </div>
+      )}
+    </div>
+  );
+}
+
+// One employee's proposed week — Approve as-is, or Edit to add/remove/
+// change individual shifts before advancing. Local edit state only;
+// nothing is saved to Paycor from this component (that happens in the
+// final batched submission — see Task 9). Prop is named cardData (not
+// card) since `card` is already the src/theme.js style helper used
+// elsewhere in this file.
+function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draftShifts, setDraftShifts] = useState(cardData.shifts || []);
+
+  const updateShift = (idx, field, value) => {
+    setDraftShifts(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
+  };
+  const removeShift = (idx) => setDraftShifts(prev => prev.filter((_, i) => i !== idx));
+  const addShift = () => setDraftShifts(prev => [...prev, { dayOffset: 0, startTime: '09:00', endTime: '17:00' }]);
+
+  return (
+    <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: '1.1rem', maxWidth: 480 }}>
+      <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1rem', color: th.text, marginBottom: '0.2rem' }}>{cardData.employeeName}</div>
+      <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.9rem' }}>{cardData.jobTitle || 'Crew Member'}</div>
+
+      {!editing && (
+        <>
+          {(cardData.shifts || []).length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '0.8rem' }}>No shifts proposed (new employee, or none last week)</div>}
+          {(cardData.shifts || []).map((s, i) => (
+            <div key={i} style={{ fontSize: '0.8rem', color: th.text, marginBottom: '0.3rem' }}>
+              {SCHEDULE_DOW[s.dayOffset]}: {s.startTime}–{s.endTime}
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.9rem' }}>
+            <button onClick={onApprove} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Approve</button>
+            <button onClick={() => { setDraftShifts(cardData.shifts || []); setEditing(true); }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Edit</button>
+          </div>
+        </>
+      )}
+
+      {editing && (
+        <>
+          {draftShifts.map((s, i) => (
+            <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.4rem' }}>
+              <select value={s.dayOffset} onChange={e => updateShift(i, 'dayOffset', Number(e.target.value))} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }}>
+                {SCHEDULE_DOW.map((d, di) => <option key={di} value={di}>{d}</option>)}
+              </select>
+              <input type="time" value={s.startTime} onChange={e => updateShift(i, 'startTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
+              <input type="time" value={s.endTime} onChange={e => updateShift(i, 'endTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
+              <button onClick={() => removeShift(i)} style={{ ...btn(th, { background: '#ef444422', color: '#ef4444' }), padding: '0.25rem 0.5rem' }}>✕</button>
+            </div>
+          ))}
+          <button onClick={addShift} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.75rem', marginBottom: '0.8rem' }}>+ Add shift</button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button onClick={() => { onSave(draftShifts); setEditing(false); }} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Save & Continue</button>
+            <button onClick={() => setEditing(false)} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Cancel</button>
+          </div>
+        </>
       )}
     </div>
   );
