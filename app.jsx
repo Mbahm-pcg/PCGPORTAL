@@ -26075,7 +26075,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.06";
+const APP_VERSION = "v20.07";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32198,6 +32198,76 @@ function CashManagement({ user, th, stores, districts, cashDeposits, setCashDepo
 // helper: format local date as YYYY-MM-DD
 function localDateStr(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+// Groups a schedulingShifts API read (flat array of shift records) by
+// employeeId, converting each shift's absolute startDateTime/endDateTime
+// into a { dayOffset (0=Sunday of the given week), startTime, endTime }
+// shape relative to weekStartISO — used to pre-fill each employee's card
+// with last week's actual shifts. See docs/superpowers/specs/2026-08-25-labor-schedule-builder-design.md.
+function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const byEmployee = {};
+  (shiftRecords || []).forEach(s => {
+    const start = new Date(s.startDateTime);
+    const end = new Date(s.endDateTime);
+    const dayOffset = Math.round((Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) - Date.UTC(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate())) / 86400000);
+    const fmt = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
+  });
+  return byEmployee;
+}
+
+// A new employee (no shifts last week) has no schedulingJobId/scheduleGroupId/
+// departmentId to reuse. Paycor doesn't expose a live job lookup (the "View
+// Legal Entity Scheduling Jobs" Data Access scope isn't enabled), so this
+// reuses another employee's known values instead: first choice is someone at
+// the same store sharing the same live job title; fallback is whichever
+// scheduleGroupId/departmentId appears most often, flagged for manual
+// confirmation since the job itself couldn't be determined. departmentId is
+// required on every Paycor shift write (confirmed via live 400 response —
+// see Task 1), so it's carried through the same reuse/fallback logic as
+// scheduleGroupId.
+function scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee) {
+  const sameTitle = (employees || []).find(e => e.positionData?.jobTitle === jobTitle && shiftsByEmployee[e.id]?.length);
+  if (sameTitle) {
+    const s = shiftsByEmployee[sameTitle.id][0];
+    return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId, needsConfirmation: false };
+  }
+  const allShifts = Object.values(shiftsByEmployee).flat();
+  if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, departmentId: null, needsConfirmation: true };
+  const groupCounts = {};
+  const deptCounts = {};
+  allShifts.forEach(s => {
+    groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1;
+    if (s.departmentId) deptCounts[s.departmentId] = (deptCounts[s.departmentId] || 0) + 1;
+  });
+  const mostCommonGroup = Object.entries(groupCounts).sort((a, b) => b[1] - a[1])[0][0];
+  const mostCommonDept = Object.keys(deptCounts).length ? Object.entries(deptCounts).sort((a, b) => b[1] - a[1])[0][0] : null;
+  return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, departmentId: mostCommonDept, needsConfirmation: true };
+}
+
+// Running weekly labor $/hours total across every card currently in the
+// builder. An employee with no pay rate on file still contributes their
+// hours to the total but is flagged rateAvailable:false rather than being
+// silently counted as $0, which would understate projected labor cost.
+function scheduleComputeWeeklyTotal(cards, payRatesByEmployeeId) {
+  let totalHours = 0, totalDollars = 0;
+  const byEmployee = (cards || []).map(card => {
+    const hours = (card.shifts || []).reduce((sum, sh) => {
+      const [sh1, sm1] = sh.startTime.split(':').map(Number);
+      const [sh2, sm2] = sh.endTime.split(':').map(Number);
+      return sum + ((sh2 * 60 + sm2) - (sh1 * 60 + sm1)) / 60;
+    }, 0);
+    const rate = payRatesByEmployeeId[card.employeeId];
+    const rateAvailable = rate != null;
+    const dollars = rateAvailable ? hours * rate : 0;
+    totalHours += hours;
+    if (rateAvailable) totalDollars += dollars;
+    return { employeeId: card.employeeId, hours: Math.round(hours * 100) / 100, dollars: Math.round(dollars * 100) / 100, rateAvailable };
+  });
+  return { totalHours: Math.round(totalHours * 100) / 100, totalDollars: Math.round(totalDollars * 100) / 100, byEmployee };
 }
 
 // ── LaborDrillDown ───────────────────────────────────────────────────────────
