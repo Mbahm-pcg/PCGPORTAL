@@ -8281,11 +8281,24 @@ function AdminSchedule({ stores, th, user }) {
 // ManagerPulse's shape exactly (app.jsx:8227): resolve via getManagerStore, friendly
 // empty state if unassigned, otherwise render directly.
 function ManagerSchedule({ stores, th, user }) {
+  const [mode, setMode] = useState('build');
   const store = getManagerStore(stores, user);
   if (!store?.pc) {
     return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 480, margin: '2rem auto' }}>No store is linked to your account yet. Ask an admin to assign one.</div>;
   }
-  return <ScheduleBuilder store={store} th={th} mode="build" />;
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <button onClick={() => setMode('build')} style={{ ...btn(th, mode === 'build' ? { background: '#FF671F' } : { background: th.card2, color: th.text }) }}>Build</button>
+        <button onClick={() => setMode('view')} style={{ ...btn(th, mode === 'view' ? { background: '#FF671F' } : { background: th.card2, color: th.text }) }}>View Posted</button>
+      </div>
+      {/* key={mode} forces a clean remount on toggle — ScheduleBuilder's internal
+          state (weekStart, cards, approvedCards) must not carry over between
+          build and view; a fresh mount is simpler and safer than manually
+          resetting each piece of state on every toggle. */}
+      <ScheduleBuilder key={mode} store={store} th={th} mode={mode} />
+    </div>
+  );
 }
 
 // ─── Store Detail Component ──────────────────────────────────────────────────
@@ -26127,7 +26140,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.17";
+const APP_VERSION = "v20.18";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

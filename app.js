@@ -8366,11 +8366,12 @@ ${pendingEmail.emails.join("\n")}`,
     ))));
   }
   function ManagerSchedule({ stores, th, user }) {
+    const [mode, setMode] = useState("build");
     const store = getManagerStore(stores, user);
     if (!store?.pc) {
       return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "No store is linked to your account yet. Ask an admin to assign one.");
     }
-    return /* @__PURE__ */ React.createElement(ScheduleBuilder, { store, th, mode: "build" });
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setMode("build"), style: { ...btn(th, mode === "build" ? { background: "#FF671F" } : { background: th.card2, color: th.text }) } }, "Build"), /* @__PURE__ */ React.createElement("button", { onClick: () => setMode("view"), style: { ...btn(th, mode === "view" ? { background: "#FF671F" } : { background: th.card2, color: th.text }) } }, "View Posted")), /* @__PURE__ */ React.createElement(ScheduleBuilder, { key: mode, store, th, mode }));
   }
   var DAYPART_COLS = ["Morning", "Midday", "Afternoon", "Evening"];
   var DAYPART_HINTS = { Morning: "to 11a", Midday: "11a\u20132p", Afternoon: "2\u20135p", Evening: "5p+" };
@@ -21237,7 +21238,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.17";
+  var APP_VERSION = "v20.18";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
