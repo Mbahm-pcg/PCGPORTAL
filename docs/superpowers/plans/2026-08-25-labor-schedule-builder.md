@@ -912,6 +912,78 @@ git commit -m "Wire ScheduleBuilder into LaborDrillDown as 5th tab with role sco
 
 ---
 
+## Task 7b (supersedes Task 7's mounting point): Relocate to a new "Schedule" tile in Pulse's per-store hub
+
+**Why:** After Task 7 shipped and was previewed live, the user (2026-08-27) asked for the entry point to move. Reasoning: `LaborDrillDown` is the SAME component embedded in two places — the standalone top-level "Labor" nav tab (`AdminLabor`), AND a "👷 Labor" tile inside `StoreDetail` (`app.jsx:8681` — the Pulse per-store hub shown in the screenshot the user shared, rail tiles: Sales/Labor/Forecast/Daypart/Food Cost/Transactions/(Drive-Thru)/Reviews/Complaints, `app.jsx:9434`). Reaching "Build Schedule" required loading all of `LaborDrillDown`'s other tabs first (Hourly/Daily/Weekly data), which the user found slow. Decision: give the schedule its own top-level tile in that same Pulse per-store rail (positioned right after "Labor"), and remove the sub-tab from inside `LaborDrillDown` entirely — not keep both. `ScheduleBuilder` and everything underneath it (Tasks 1-6, 8) is unchanged and fully reused; only the mounting location moves.
+
+**Files:**
+- Modify: `app.jsx` — remove Task 7's tab button + content branch from `LaborDrillDown` (`app.jsx:33152`, `33633-33654` as of Task 7's commit — re-locate by searching `buildSchedule` since line numbers shift); add a new tile + content branch to `StoreDetail` (`app.jsx:8681`)
+
+**Interfaces:**
+- Consumes: `ScheduleBuilder` (Task 6, unchanged), `getManagerStore` (existing, `app.jsx:706`) — same role-scoping logic as Task 7, just re-hosted
+- Produces: a "📅 Schedule" tile in `StoreDetail`'s rail, role-scoped identically to Task 7's removed tab (manager → own store build; dm → own district view; executive/it/office_staff → view all; everyone else → denied)
+
+- [ ] **Step 1: Remove from `LaborDrillDown`**
+
+Delete `{tabBtn('buildSchedule', 'Build Schedule')}` from the tab row, and delete the entire `{activeTab === 'buildSchedule' && (() => { ... })()}` block (including its explanatory comment) from `LaborDrillDown`'s render. `LaborDrillDown` goes back to exactly 4 tabs (Hourly/Daily/Weekly/Optimizer), matching its pre-Task-7 shape.
+
+- [ ] **Step 2: Add the tile to `StoreDetail`'s rail**
+
+In the tile array at `app.jsx:9434`, insert a new tile immediately after `{id:'labor',label:'👷 Labor'}`:
+
+```js
+{id:'schedule', label:'📅 Schedule'},
+```
+
+(Full array becomes: `sales, labor, schedule, forecast, daypart, foodcost, transactions, (driveThru), reviews, complaints` — order matters, "under labor" means directly after it.)
+
+- [ ] **Step 3: Add the content branch to `StoreDetail`**
+
+Immediately after the existing `{storeTab === 'labor' && (<LaborDrillDown ... />)}` block (`app.jsx:9452-9454`), insert:
+
+```jsx
+{/* ════ SCHEDULE TAB — relocated from inside LaborDrillDown (Task 7) so it doesn't ════
+     require loading Hourly/Daily/Weekly first. Same role-scoping as before: manager
+     builds their OWN store only (via the canonical getManagerStore helper, app.jsx:706);
+     dm/executive/it/office_staff get a read-only view (dm scoped to their own district);
+     everyone else is denied. */}
+{storeTab === 'schedule' && (() => {
+  const isManager = user?.userType === 'manager';
+  const isDM = user?.userType === 'dm';
+  const isViewAllRole = ['executive', 'it', 'office_staff'].includes(user?.userType);
+  const managerStore = getManagerStore(stores, user);
+  const canBuild = isManager && !!managerStore && String(s.pc) === String(managerStore.pc);
+  const canView = isDM ? String(s.district) === String(user?.district) : isViewAllRole;
+
+  if (!canBuild && !canView) {
+    return <div style={{ fontSize: '0.82rem', color: th.muted }}>You don't have access to this store's schedule.</div>;
+  }
+
+  return <ScheduleBuilder store={s} th={th} mode={canBuild ? 'build' : 'view'} />;
+})()}
+```
+
+Note: uses `s` (the current store, `StoreDetail`'s own local var — `const s = stores.find(st => st.pc === pc)`), not `store`, since `StoreDetail`'s scope names it differently than `LaborDrillDown`'s did. `stores` and `user` are already `StoreDetail` props, already in scope (used identically one block above for the `labor` tab's `LaborDrillDown` call).
+
+- [ ] **Step 4: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 5: Verify the relocation**
+
+No browser tool available in this environment (established pattern across this plan) — verify via code trace: re-derive `canBuild`/`canView` for the same scenarios Task 7's review already covered (manager/own store, manager/different store, dm/in-district, dm/out-of-district, exec/it/office_staff, every other role), confirm `LaborDrillDown` no longer references `buildSchedule` anywhere (grep for the string — should be zero matches after removal, since it's fully gone, not just hidden), and confirm the new tile renders in the correct rail position. A preview deploy is optional and not required to block on if slow.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add app.jsx app.js
+git commit -m "Relocate Schedule from LaborDrillDown sub-tab to its own Pulse store-hub tile"
+```
+
+---
+
 ## Task 8: Share/Copy plain-text export
 
 **Files:**
