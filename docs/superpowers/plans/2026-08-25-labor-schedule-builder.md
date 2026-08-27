@@ -1109,6 +1109,54 @@ git commit -m "Add plain-text share/copy export for approved schedule"
 
 ---
 
+## Task 8b: Surface real Paycor fetch failures instead of silently showing zero employees
+
+**Why:** Live testing (2026-08-27, real manager account, real store) hit a case where `ScheduleBuilder`'s final review showed "$0.00, 0.0 total hours" with an empty grid, even though a direct trace of the exact same query against real Paycor data confirmed 16 of 19 active employees had real pre-fillable shifts. Root cause: `load()` does `(empData.records || [])` / `(shiftData.records || [])` with no check that the fetch actually succeeded — if Paycor returns an error shape (e.g. during a token-refresh window; this project has a documented history of exactly this failure class, see `project_tips_reliability_overhaul` memory) instead of `{records: [...]}`, the code silently treats it as "zero employees" rather than surfacing an error. The manager sees a plausible-looking empty schedule with no indication anything went wrong.
+
+**Files:**
+- Modify: `app.jsx` — `ScheduleBuilder`'s `load()` function (search `const empData = await empRes.json()`)
+
+**Interfaces:**
+- Consumes: nothing new
+- Produces: no interface change — `load()` still sets `cards`/`error` exactly as before, just distinguishes "real zero-employee response" from "the fetch itself failed"
+
+- [ ] **Step 1: Add response validation**
+
+Immediately after the existing two lines:
+```js
+const empData = await empRes.json();
+const shiftData = await shiftRes.json();
+```
+Add:
+```js
+if (!empRes.ok || !Array.isArray(empData?.records)) {
+  throw new Error(empData?.error || empData?.Detail || empData?.title || 'Failed to load the employee roster from Paycor. Try again in a moment.');
+}
+if (!shiftRes.ok || !Array.isArray(shiftData?.records)) {
+  throw new Error(shiftData?.error || shiftData?.Detail || shiftData?.title || 'Failed to load posted shifts from Paycor. Try again in a moment.');
+}
+```
+This throws inside the existing `try` block, which the existing `catch (e) { setError(e.message || 'Failed to load schedule data.'); }` already handles — `cards` stays `null` (not an empty array), so the UI shows the real error message instead of an empty "Final review."
+
+- [ ] **Step 2: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 3: Verify**
+
+No browser tool in this environment (established pattern). Verify via a real, controlled negative test: call the deployed `/.netlify/functions/paycor` endpoint with a deliberately invalid `legalEntityId` (e.g. `"000000"`) for both `employees` and `schedulingShifts` actions, confirm the real response shape does NOT have `records` as an array (it should be an error object), and confirm the new guard's condition (`!Array.isArray(empData?.records)`) would correctly catch it. Also confirm the HAPPY path is unaffected: re-run the real Bustleton query (legalEntityId `193884`) and confirm `Array.isArray(empData.records)` is `true` so the new guard does NOT throw on valid data.
+
+- [ ] **Step 4: Bump version, commit**
+
+```bash
+git add app.jsx app.js
+git commit -m "Surface Paycor fetch failures instead of silently showing zero employees"
+```
+
+---
+
 ## Task 9: Batched submission + per-shift result handling
 
 **Files:**
