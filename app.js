@@ -21204,7 +21204,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.13";
+  var APP_VERSION = "v20.14";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25410,6 +25410,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     });
     return { totalHours: Math.round(totalHours * 100) / 100, totalDollars: Math.round(totalDollars * 100) / 100, byEmployee };
   }
+  function scheduleBuildShareText(weekStartISO, approvedCards) {
+    const weekStart = /* @__PURE__ */ new Date(weekStartISO + "T00:00:00Z");
+    const dateFor = (dayOffset) => {
+      const d = new Date(weekStart);
+      d.setUTCDate(d.getUTCDate() + dayOffset);
+      return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+    };
+    const lines = [`Schedule \u2014 week of ${dateFor(0)}`, ""];
+    (approvedCards || []).filter((c) => (c.shifts || []).length > 0).forEach((c) => {
+      const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map((s) => `${SCHEDULE_DOW[s.dayOffset]} ${s.startTime}-${s.endTime}`);
+      lines.push(`${c.employeeName}: ${shiftParts.join(", ")}`);
+    });
+    return lines.join("\n");
+  }
   var SCHEDULE_DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   function WeeklyScheduleGrid({ weekStartISO, cards, th }) {
     const weekStart = /* @__PURE__ */ new Date(weekStartISO + "T00:00:00Z");
@@ -25540,7 +25554,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     if (mode === "view") {
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Load week")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: cards.filter((c) => (c.shifts || []).length > 0), th }));
     }
-    return /* @__PURE__ */ React.createElement("div", null, !cards && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.35rem" } }, "Week start (Sunday)"), /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Start building")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && !allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, "Employee ", cardIndex + 1, " of ", cards.length), /* @__PURE__ */ React.createElement(EmployeeScheduleCard, { card: currentCard, th, onApprove: handleApprove, onSave: handleSave })), cards && allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, margin: "1rem 0 0.6rem" } }, "Final review"), /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: approvedCards.filter((c) => (c.shifts || []).length > 0), th })));
+    return /* @__PURE__ */ React.createElement("div", null, !cards && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.35rem" } }, "Week start (Sunday)"), /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Start building")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && !allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, "Employee ", cardIndex + 1, " of ", cards.length), /* @__PURE__ */ React.createElement(EmployeeScheduleCard, { card: currentCard, th, onApprove: handleApprove, onSave: handleSave })), cards && allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, margin: "1rem 0 0.6rem" } }, "Final review"), /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: approvedCards.filter((c) => (c.shifts || []).length > 0), th }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: async () => {
+      const text = scheduleBuildShareText(weekStart, approvedCards);
+      if (navigator.share) {
+        try {
+          await navigator.share({ text });
+        } catch (e) {
+        }
+      } else {
+        await navigator.clipboard.writeText(text);
+        alert("Copied to clipboard");
+      }
+    }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy"))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
     const [activeTab, setActiveTab] = useState("hourly");

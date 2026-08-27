@@ -26075,7 +26075,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.13";
+const APP_VERSION = "v20.14";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32277,6 +32277,24 @@ function scheduleComputeWeeklyTotal(cards, payRatesByEmployeeId) {
   return { totalHours: Math.round(totalHours * 100) / 100, totalDollars: Math.round(totalDollars * 100) / 100, byEmployee };
 }
 
+// Plain-text schedule for sharing via WhatsApp/SMS/group chat — no image
+// generation, just a clean text block (per design spec: plain text was
+// chosen over a visual graphic for reliability across share targets).
+function scheduleBuildShareText(weekStartISO, approvedCards) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const dateFor = (dayOffset) => {
+    const d = new Date(weekStart);
+    d.setUTCDate(d.getUTCDate() + dayOffset);
+    return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+  };
+  const lines = [`Schedule — week of ${dateFor(0)}`, ''];
+  (approvedCards || []).filter(c => (c.shifts || []).length > 0).forEach(c => {
+    const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map(s => `${SCHEDULE_DOW[s.dayOffset]} ${s.startTime}-${s.endTime}`);
+    lines.push(`${c.employeeName}: ${shiftParts.join(', ')}`);
+  });
+  return lines.join('\n');
+}
+
 const SCHEDULE_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // Employee-rows x day-columns weekly grid, matching the visual shape of
@@ -32581,7 +32599,20 @@ function ScheduleBuilder({ store, th, mode }) {
           <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
           <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, margin: '1rem 0 0.6rem' }}>Final review</div>
           <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} />
-          {/* Share and Send-to-Paycor controls are added in Tasks 8 and 9 */}
+          <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
+            <button onClick={async () => {
+              const text = scheduleBuildShareText(weekStart, approvedCards);
+              if (navigator.share) {
+                try { await navigator.share({ text }); } catch (e) { /* user cancelled share — not an error */ }
+              } else {
+                await navigator.clipboard.writeText(text);
+                alert('Copied to clipboard');
+              }
+            }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>
+              {typeof navigator !== 'undefined' && navigator.share ? 'Share' : 'Copy'}
+            </button>
+          </div>
+          {/* Send-to-Paycor controls are added in Task 9 */}
         </>
       )}
     </div>
