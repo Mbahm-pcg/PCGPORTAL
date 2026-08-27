@@ -26075,7 +26075,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.12";
+const APP_VERSION = "v20.13";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -33118,6 +33118,7 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
         {tabBtn('daily',     'Daily')}
         {tabBtn('weekly',    'Weekly')}
         {tabBtn('optimizer', '⚡ Optimizer')}
+        {tabBtn('buildSchedule', 'Build Schedule')}
       </div>
 
       {/* Hourly Tab */}
@@ -33596,6 +33597,29 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
             )}
           </div>
         );
+      })()}
+
+      {/* Build Schedule Tab — role-scoped: manager gets the interactive build
+          flow for their OWN store only (resolved via the canonical getManagerStore
+          helper, app.jsx:706 — storePC primary, name-match fallback — the same
+          resolution used by "My Store" mobile mode / ManagerCapCard / the dashboard's
+          manager Orion brief section); dm/executive/it/office_staff get a
+          read-only view (dm scoped to their own district, same pattern as the
+          Optimizer tab's network-comparison district scoping above); everyone
+          else is denied. */}
+      {activeTab === 'buildSchedule' && (() => {
+        const isManager = user?.userType === 'manager';
+        const isDM = user?.userType === 'dm';
+        const isViewAllRole = ['executive', 'it', 'office_staff'].includes(user?.userType);
+        const managerStore = getManagerStore(stores, user);
+        const canBuild = isManager && !!managerStore && String(store.pc) === String(managerStore.pc);
+        const canView = isDM ? String(store.district) === String(user?.district) : isViewAllRole;
+
+        if (!canBuild && !canView) {
+          return <div style={{ fontSize: '0.82rem', color: th.muted }}>You don't have access to this store's schedule.</div>;
+        }
+
+        return <ScheduleBuilder store={store} th={th} mode={canBuild ? 'build' : 'view'} />;
       })()}
 
       {/* Employee Panel */}
