@@ -8240,6 +8240,54 @@ function ManagerPulse({ stores, th, user, txnDeepLinkRef, initialTab }) {
   );
 }
 
+// Store-picker for dm/executive/it/office_staff — dm scoped to their own district,
+// everyone else sees the full network. Renders ScheduleBuilder in read-only 'view'
+// mode once a store is picked (this role set never builds/submits a schedule — only
+// ManagerSchedule below does that, for the one store a manager owns).
+function AdminSchedule({ stores, th, user }) {
+  const [selectedStore, setSelectedStore] = useState(null);
+  const isDM = user?.userType === 'dm';
+  const visibleStores = React.useMemo(() => {
+    if (isDM && user?.district != null) return (stores || []).filter(s => String(s.district) === String(user.district));
+    return stores || [];
+  }, [stores, isDM, user]);
+
+  if (selectedStore) {
+    return (
+      <div>
+        <button onClick={() => setSelectedStore(null)} style={{ ...btn(th, { background: th.card2, color: th.text }), marginBottom: '1rem' }}>← Back to stores</button>
+        <ScheduleBuilder store={selectedStore} th={th} mode="view" />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '1rem' }}>
+      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>Schedule</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+        {visibleStores.map(s => (
+          <div key={s.pc} onClick={() => setSelectedStore(s)}
+            style={{ ...card(th), padding: '1rem', cursor: 'pointer' }}>
+            <div style={{ fontWeight: 700, color: th.text }}>{s.name}</div>
+            <div style={{ fontSize: '0.75rem', color: th.muted }}>PC# {s.pc} · District {s.district}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Manager landing — no picker, straight to their own store's build flow. Mirrors
+// ManagerPulse's shape exactly (app.jsx:8227): resolve via getManagerStore, friendly
+// empty state if unassigned, otherwise render directly.
+function ManagerSchedule({ stores, th, user }) {
+  const store = getManagerStore(stores, user);
+  if (!store?.pc) {
+    return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 480, margin: '2rem auto' }}>No store is linked to your account yet. Ask an admin to assign one.</div>;
+  }
+  return <ScheduleBuilder store={store} th={th} mode="build" />;
+}
+
 // ─── Store Detail Component ──────────────────────────────────────────────────
 // Daypart × day-of-week item mix (roadmap 9.3): reads the nightly-captured catDaypart field
 // on pcg_item_history_{pc} (units by category × Morning/Midday/Afternoon/Evening) and renders a
@@ -9431,7 +9479,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         <div style={isNarrow
           ? { display:'flex', flexDirection:'row', gap:'0.4rem', overflowX:'auto', flexShrink:0, paddingBottom:'0.25rem', WebkitOverflowScrolling:'touch' }
           : { display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, overflowY:'auto' }}>
-          {[{id:'sales',label:'📊 Sales'},{id:'labor',label:'👷 Labor'},{id:'schedule',label:'📅 Schedule'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'},{id:'complaints',label:'📣 Complaints'}].map((t) => (
+          {[{id:'sales',label:'📊 Sales'},{id:'labor',label:'👷 Labor'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'},{id:'complaints',label:'📣 Complaints'}].map((t) => (
             <button key={t.id} onClick={() => {
                 setStoreTab(t.id);
                 if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
@@ -9452,26 +9500,6 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       {storeTab === 'labor' && (
         <LaborDrillDown store={s} stores={stores} th={th} user={user} users={users} laborData={laborData} onBack={() => setStoreTab('sales')} />
       )}
-
-      {/* ════ SCHEDULE TAB — relocated from inside LaborDrillDown (Task 7) so it doesn't ════
-           require loading Hourly/Daily/Weekly first. Same role-scoping as before: manager
-           builds their OWN store only (via the canonical getManagerStore helper, app.jsx:706);
-           dm/executive/it/office_staff get a read-only view (dm scoped to their own district);
-           everyone else is denied. */}
-      {storeTab === 'schedule' && (() => {
-        const isManager = user?.userType === 'manager';
-        const isDM = user?.userType === 'dm';
-        const isViewAllRole = ['executive', 'it', 'office_staff'].includes(user?.userType);
-        const managerStore = getManagerStore(stores, user);
-        const canBuild = isManager && !!managerStore && String(s.pc) === String(managerStore.pc);
-        const canView = isDM ? String(s.district) === String(user?.district) : isViewAllRole;
-
-        if (!canBuild && !canView) {
-          return <div style={{ fontSize: '0.82rem', color: th.muted }}>You don't have access to this store's schedule.</div>;
-        }
-
-        return <ScheduleBuilder store={s} th={th} mode={canBuild ? 'build' : 'view'} />;
-      })()}
 
       {/* ════ FORECAST TAB ════ */}
       {storeTab === 'forecast' && <>
@@ -24720,6 +24748,7 @@ const computeRoleTabs = (user) => {
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
+    { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
     { id: "finance",   label: "Finance",        icon: (c) => ICONS.dollar(c), cash: true },
     { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.search(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
@@ -24742,6 +24771,7 @@ const computeRoleTabs = (user) => {
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
+    { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
     { id: "finance",   label: "Finance",      icon: (c) => ICONS.dollar(c), cash: true },
     { id: "impact",    label: "Impact Radar", icon: (c) => ICONS.search(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
@@ -24768,6 +24798,7 @@ const computeRoleTabs = (user) => {
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
+    { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "anomalies", label: "Anomalies",      icon: (c) => ICONS.anomalies(c) },
     { id: "finance",   label: "Finance",        icon: (c) => ICONS.dollar(c), cash: true },
@@ -24784,6 +24815,7 @@ const computeRoleTabs = (user) => {
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
+    { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
@@ -26095,7 +26127,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.16";
+const APP_VERSION = "v20.17";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -48096,6 +48128,8 @@ function PCGPortal() {
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}
+          {tab === "schedule"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminSchedule stores={stores} th={th} user={user} />}
+          {tab === "schedule"  && isManager && <ManagerSchedule stores={stores} th={th} user={user} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
           {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} accessOverrides={accessOverrides} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
           {tab === "ops-hub" && (() => {
@@ -48103,6 +48137,7 @@ function PCGPortal() {
             const opsTiles = [
               { id: 'tasks', name: 'Tasks', sub: 'Checklists, GPS-verified completions, DM escalation.', show: (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'tasks'), icon: <><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></> },
               { id: 'pulse', name: 'Pulse', sub: 'Live sales monitoring, Labor tab, weekly trends.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'pulse'), icon: <path d="M3 12h4l2-7 4 14 2-7h6"/> },
+              { id: 'schedule', name: 'Schedule', sub: 'Build and view weekly staff schedules, synced to Paycor.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'schedule'), icon: <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="16" r="2.3"/><line x1="12" y1="16" x2="12" y2="14.3"/><line x1="12" y1="16" x2="13.2" y2="16.8"/></> },
               { id: 'analytics', name: 'Analytics', sub: 'Sales data and performance metrics, network-wide.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'analytics'), icon: <><path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7"/></> },
               { id: 'anomalies', name: 'Anomalies', sub: 'Unusual sales or labor patterns vs. day-of-week baseline.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'anomalies'), icon: <path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/> },
               { id: 'scorecard', name: 'DM Scorecard', sub: 'Weekly DM ranking — labor, sales growth, ticket health.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'scorecard'), icon: <><path d="M12 15a5 5 0 0 0 5-5V5a5 5 0 0 0-10 0v5a5 5 0 0 0 5 5Z"/><path d="M4 10a8 8 0 0 0 16 0M12 18v4"/></> },
