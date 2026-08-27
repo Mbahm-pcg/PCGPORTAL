@@ -26075,7 +26075,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.10";
+const APP_VERSION = "v20.11";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32258,7 +32258,14 @@ function scheduleComputeWeeklyTotal(cards, payRatesByEmployeeId) {
     const hours = (card.shifts || []).reduce((sum, sh) => {
       const [sh1, sm1] = sh.startTime.split(':').map(Number);
       const [sh2, sm2] = sh.endTime.split(':').map(Number);
-      return sum + ((sh2 * 60 + sm2) - (sh1 * 60 + sm1)) / 60;
+      // Overnight shift (e.g. 17:00-00:00 closing) — end-of-day clock time is
+      // numerically less than start; treat it as ending the next calendar
+      // day instead of producing a negative duration. Confirmed live
+      // 2026-08-25 at Bustleton (real employee, 4 real closing shifts/week)
+      // — without this, RunningLaborHeader showed a negative dollar total.
+      let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+      if (mins < 0) mins += 1440;
+      return sum + mins / 60;
     }, 0);
     const rate = payRatesByEmployeeId[card.employeeId];
     const rateAvailable = rate != null;
@@ -32302,7 +32309,10 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th }) {
             const totalHours = (card.shifts || []).reduce((sum, sh) => {
               const [sh1, sm1] = sh.startTime.split(':').map(Number);
               const [sh2, sm2] = sh.endTime.split(':').map(Number);
-              return sum + ((sh2 * 60 + sm2) - (sh1 * 60 + sm1)) / 60;
+              // Overnight wraparound — see matching fix + comment in scheduleComputeWeeklyTotal.
+              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+              if (mins < 0) mins += 1440;
+              return sum + mins / 60;
             }, 0);
             return (
               <tr key={card.employeeId} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
@@ -32411,6 +32421,153 @@ function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
             <button onClick={() => { onSave(draftShifts); setEditing(false); }} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Save & Continue</button>
             <button onClick={() => setEditing(false)} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Cancel</button>
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Top-level Build Schedule flow: loads roster + last week's shifts + pay
+// rates, builds a card stack (one per active employee, pre-filled from
+// last week where available), and tracks approved cards as the manager
+// steps through. 'view' mode skips the card stack entirely and just shows
+// whatever's already scheduled for the target week, read-only.
+function ScheduleBuilder({ store, th, mode }) {
+  const todayStr = tipsFormatISODate(new Date()); // reuse existing date helper, app.jsx ~37905
+  const [weekStart, setWeekStart] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [cards, setCards] = useState(null); // null until loaded
+  const [cardIndex, setCardIndex] = useState(0);
+  const [approvedCards, setApprovedCards] = useState([]);
+  const [payRates, setPayRates] = useState({});
+
+  const load = async () => {
+    if (!weekStart) return;
+    setLoading(true); setError(null); setCards(null); setCardIndex(0); setApprovedCards([]);
+    try {
+      const lastWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), -7));
+      // schedulingShifts treats `endDate` as EXCLUSIVE (confirmed live in Task 1,
+      // 2026-08-25) — the last day of the prior week is weekStart - 1 (Saturday),
+      // so weekStart itself (its exclusive +1 boundary) is passed as endDate to
+      // include that Saturday's shifts without dropping them.
+      const lastWeekEndExclusive = weekStart;
+
+      const [empRes, shiftRes] = await Promise.all([
+        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'employees', legalEntityId: store.paycor }) }),
+        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedulingShifts', legalEntityId: store.paycor, startDate: lastWeekStart, endDate: lastWeekEndExclusive }) }),
+      ]);
+      const empData = await empRes.json();
+      const shiftData = await shiftRes.json();
+      const employees = (empData.records || []).filter(e => e?.statusData?.status === 'Active');
+      // Group by lastWeekStart (the week the fetched shifts actually belong to),
+      // not weekStart (the new week being built) — dayOffset comes out 0-6
+      // (Sun-Sat) either way since both weeks start on Sunday, so the same
+      // dayOffset value carries over directly onto the new week's calendar.
+      // Confirmed live (2026-08-25): passing weekStart here instead produced
+      // dayOffset -8..-1 for every shift (100% outside the 0-6 range every
+      // downstream renderer expects), silently breaking every pre-filled card.
+      const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], lastWeekStart);
+
+      const rates = {};
+      await Promise.all(employees.map(async (e) => {
+        try {
+          const r = await fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'payRates', employeeId: e.id }) });
+          const rd = await r.json();
+          const rate = (rd.records || rd)?.[0]?.payRate || (rd.records || rd)?.[0]?.rate;
+          if (rate != null) rates[e.id] = Number(rate);
+        } catch (err) { /* leave unset — flagged as rate-unavailable downstream */ }
+      }));
+      setPayRates(rates);
+
+      const builtCards = employees.map(e => {
+        const name = `${e.firstName || ''} ${e.lastName || ''}`.trim();
+        const priorShiftsRaw = shiftsByEmployee[e.id] || [];
+        // Defensive: Paycor's schedulingShifts read also pulls in one extra
+        // day before the requested startDate (confirmed live 2026-08-25,
+        // same store/week query returned Sat 8/15 despite startDate=8/16) —
+        // that spurious day lands outside 0-6 once grouped by lastWeekStart,
+        // so drop it rather than let it render as an "undefined" day or
+        // silently inflate this employee's weekly hours/dollars.
+        const priorShifts = priorShiftsRaw.filter(s => s.dayOffset >= 0 && s.dayOffset <= 6);
+        let schedulingJobId = priorShiftsRaw[0]?.schedulingJobId || null;
+        let scheduleGroupId = priorShiftsRaw[0]?.scheduleGroupId || null;
+        let departmentId = priorShiftsRaw[0]?.departmentId || null;
+        if (!schedulingJobId) {
+          const defaulted = scheduleDefaultJobGroupForEmployee(e.positionData?.jobTitle, employees, shiftsByEmployee);
+          schedulingJobId = defaulted.schedulingJobId;
+          scheduleGroupId = defaulted.scheduleGroupId;
+          departmentId = defaulted.departmentId;
+        }
+        return {
+          employeeId: e.id,
+          employeeName: name,
+          jobTitle: e.positionData?.jobTitle || 'Crew Member',
+          schedulingJobId,
+          scheduleGroupId,
+          departmentId,
+          shifts: priorShifts.map(s => ({ dayOffset: s.dayOffset, startTime: s.startTime, endTime: s.endTime })),
+        };
+      });
+      setCards(builtCards);
+    } catch (e) {
+      setError(e.message || 'Failed to load schedule data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const currentCard = cards && cards[cardIndex];
+  const allCardsDone = cards && cardIndex >= cards.length;
+  const weeklyTotal = React.useMemo(() => scheduleComputeWeeklyTotal(cards && !allCardsDone ? approvedCards.concat(currentCard ? [currentCard] : []) : approvedCards, payRates), [cards, approvedCards, currentCard, allCardsDone, payRates]);
+
+  const handleApprove = () => {
+    setApprovedCards(prev => [...prev, currentCard]);
+    setCardIndex(i => i + 1);
+  };
+  const handleSave = (updatedShifts) => {
+    setApprovedCards(prev => [...prev, { ...currentCard, shifts: updatedShifts }]);
+    setCardIndex(i => i + 1);
+  };
+
+  if (mode === 'view') {
+    return (
+      <div>
+        <div style={{ marginBottom: '1rem' }}>
+          <input type="date" value={weekStart} onChange={e => setWeekStart(e.target.value)} style={{ ...inp(th), width: 200 }} />
+          <button onClick={load} disabled={!weekStart || loading} style={{ ...btn(th), marginLeft: '0.6rem', opacity: (!weekStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Load week'}</button>
+        </div>
+        {error && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
+        {cards && <WeeklyScheduleGrid weekStartISO={weekStart} cards={cards.filter(c => (c.shifts || []).length > 0)} th={th} />}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {!cards && (
+        <div style={{ marginBottom: '1rem' }}>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', marginBottom: '0.35rem' }}>Week start (Sunday)</div>
+          <input type="date" value={weekStart} onChange={e => setWeekStart(e.target.value)} style={{ ...inp(th), width: 200 }} />
+          <button onClick={load} disabled={!weekStart || loading} style={{ ...btn(th), marginLeft: '0.6rem', opacity: (!weekStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Start building'}</button>
+        </div>
+      )}
+      {error && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
+
+      {cards && !allCardsDone && (
+        <>
+          <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
+          <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.6rem' }}>Employee {cardIndex + 1} of {cards.length}</div>
+          <EmployeeScheduleCard card={currentCard} th={th} onApprove={handleApprove} onSave={handleSave} />
+        </>
+      )}
+
+      {cards && allCardsDone && (
+        <>
+          <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, margin: '1rem 0 0.6rem' }}>Final review</div>
+          <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} />
+          {/* Share and Send-to-Paycor controls are added in Tasks 8 and 9 */}
         </>
       )}
     </div>
