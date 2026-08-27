@@ -26140,7 +26140,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.19";
+const APP_VERSION = "v20.20";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32694,7 +32694,14 @@ function ScheduleBuilder({ store, th, mode }) {
       const results = shifts.map((s, i) => {
         const r = returned[i] || {};
         const ok = !!r.shiftId && !(r.warningsOrErrors && r.warningsOrErrors.some(w => w.severity === 'Error'));
-        return { employeeId: s.employeeId, employeeName: s._employeeName, status: ok ? 'ok' : 'error', detail: ok ? `Shift ${SCHEDULE_DOW[Math.round((new Date(s.startDateTime) - new Date(weekStart + 'T00:00:00Z')) / 86400000)]} created` : JSON.stringify(r.warningsOrErrors || r) };
+        // Math.FLOOR, not round: the elapsed-days figure is fractional (a
+        // 22:00 shift is 0.92 days into its own day), so Math.round rolled
+        // every shift starting at/after 12:00 forward to the NEXT day's
+        // label — and a Saturday evening shift landed on SCHEDULE_DOW[7],
+        // rendering the literal text "Shift undefined created". This line is
+        // the only confirmation a manager gets that a shift reached real
+        // payroll, so the label has to be right.
+        return { employeeId: s.employeeId, employeeName: s._employeeName, status: ok ? 'ok' : 'error', detail: ok ? `Shift ${SCHEDULE_DOW[Math.floor((new Date(s.startDateTime) - new Date(weekStart + 'T00:00:00Z')) / 86400000)]} created` : JSON.stringify(r.warningsOrErrors || r) };
       });
       setSubmitResult({ running: false, results });
     } catch (e) {
@@ -32751,9 +32758,21 @@ function ScheduleBuilder({ store, th, mode }) {
             }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>
               {typeof navigator !== 'undefined' && navigator.share ? 'Share' : 'Copy'}
             </button>
-            <button onClick={handleSendToPaycor} disabled={submitResult?.running} style={{ ...btn(th, { background: '#FF671F' }), opacity: submitResult?.running ? 0.6 : 1 }}>
-              {submitResult?.running ? 'Sending…' : 'Send to Paycor'}
-            </button>
+            {/* Double-send guard. `disabled` on `running` alone only covered
+                the in-flight window — after a successful send the button
+                re-enabled, and a second click would re-post the whole batch
+                with fresh shiftModelIds, duplicating shifts in real payroll.
+                Only a FULLY successful batch latches to 'Sent'; a batch with
+                any failure stays clickable, because the spec deliberately
+                wants failed shifts to remain resendable. */}
+            {(() => {
+              const allSent = submitResult && !submitResult.running && submitResult.results.length > 0 && submitResult.results.every(r => r.status === 'ok');
+              return (
+                <button onClick={handleSendToPaycor} disabled={submitResult?.running || allSent} style={{ ...btn(th, { background: '#FF671F' }), opacity: (submitResult?.running || allSent) ? 0.6 : 1 }}>
+                  {submitResult?.running ? 'Sending…' : allSent ? 'Sent' : 'Send to Paycor'}
+                </button>
+              );
+            })()}
           </div>
           {submitResult && !submitResult.running && (
             <div style={{ marginTop: '1rem' }}>

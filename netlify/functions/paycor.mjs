@@ -672,9 +672,18 @@ export default async (request, context) => {
 
     // ── Proxy: generic API call (for exploration) ──
     if (action === 'raw') {
-      const { path, method, body } = payload;
+      const { path, method } = payload;
       if (!path) return new Response(JSON.stringify({ error: 'Missing path' }), { status: 400, headers });
-      const res = await callPaycor(path, method || 'GET', body || null);
+      // Read-only passthrough only. This generic proxy has no authorization of
+      // its own, so a write method here would completely bypass
+      // createSchedulingShifts's server-side auth check added in Task 9 — a
+      // full repo grep (2026-08-27) confirmed nothing anywhere calls this
+      // action with a write method, so restricting it to GET costs nothing.
+      const m = (method || 'GET').toUpperCase();
+      if (m !== 'GET') {
+        return new Response(JSON.stringify({ error: 'raw only supports GET' }), { status: 400, headers });
+      }
+      const res = await callPaycor(path, 'GET', null);
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
 

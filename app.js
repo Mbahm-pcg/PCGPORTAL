@@ -21238,7 +21238,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.19";
+  var APP_VERSION = "v20.20";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25644,7 +25644,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const results = shifts.map((s, i) => {
           const r = returned[i] || {};
           const ok = !!r.shiftId && !(r.warningsOrErrors && r.warningsOrErrors.some((w) => w.severity === "Error"));
-          return { employeeId: s.employeeId, employeeName: s._employeeName, status: ok ? "ok" : "error", detail: ok ? `Shift ${SCHEDULE_DOW[Math.round((new Date(s.startDateTime) - /* @__PURE__ */ new Date(weekStart + "T00:00:00Z")) / 864e5)]} created` : JSON.stringify(r.warningsOrErrors || r) };
+          return { employeeId: s.employeeId, employeeName: s._employeeName, status: ok ? "ok" : "error", detail: ok ? `Shift ${SCHEDULE_DOW[Math.floor((new Date(s.startDateTime) - /* @__PURE__ */ new Date(weekStart + "T00:00:00Z")) / 864e5)]} created` : JSON.stringify(r.warningsOrErrors || r) };
         });
         setSubmitResult({ running: false, results });
       } catch (e) {
@@ -25665,7 +25665,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         await navigator.clipboard.writeText(text);
         alert("Copied to clipboard");
       }
-    }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: handleSendToPaycor, disabled: submitResult?.running, style: { ...btn(th, { background: "#FF671F" }), opacity: submitResult?.running ? 0.6 : 1 } }, submitResult?.running ? "Sending\u2026" : "Send to Paycor")), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
+    }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy"), (() => {
+      const allSent = submitResult && !submitResult.running && submitResult.results.length > 0 && submitResult.results.every((r) => r.status === "ok");
+      return /* @__PURE__ */ React.createElement("button", { onClick: handleSendToPaycor, disabled: submitResult?.running || allSent, style: { ...btn(th, { background: "#FF671F" }), opacity: submitResult?.running || allSent ? 0.6 : 1 } }, submitResult?.running ? "Sending\u2026" : allSent ? "Sent" : "Send to Paycor");
+    })()), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
     const [activeTab, setActiveTab] = useState("hourly");
