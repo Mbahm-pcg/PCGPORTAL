@@ -26095,7 +26095,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.15";
+const APP_VERSION = "v20.16";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32501,6 +32501,12 @@ function ScheduleBuilder({ store, th, mode }) {
       ]);
       const empData = await empRes.json();
       const shiftData = await shiftRes.json();
+      if (!empRes.ok || !Array.isArray(empData?.records)) {
+        throw new Error(empData?.error || empData?.Detail || empData?.title || 'Failed to load the employee roster from Paycor. Try again in a moment.');
+      }
+      if (!shiftRes.ok || !Array.isArray(shiftData?.records)) {
+        throw new Error(shiftData?.error || shiftData?.Detail || shiftData?.title || 'Failed to load posted shifts from Paycor. Try again in a moment.');
+      }
       const employees = (empData.records || []).filter(e => e?.statusData?.status === 'Active');
       // Group by groupingAnchor (the week the fetched shifts actually belong
       // to — lastWeekStart in 'build' mode, weekStart itself in 'view' mode),

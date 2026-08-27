@@ -21215,7 +21215,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.15";
+  var APP_VERSION = "v20.16";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25507,6 +25507,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         ]);
         const empData = await empRes.json();
         const shiftData = await shiftRes.json();
+        if (!empRes.ok || !Array.isArray(empData?.records)) {
+          throw new Error(empData?.error || empData?.Detail || empData?.title || "Failed to load the employee roster from Paycor. Try again in a moment.");
+        }
+        if (!shiftRes.ok || !Array.isArray(shiftData?.records)) {
+          throw new Error(shiftData?.error || shiftData?.Detail || shiftData?.title || "Failed to load posted shifts from Paycor. Try again in a moment.");
+        }
         const employees = (empData.records || []).filter((e) => e?.statusData?.status === "Active");
         const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], groupingAnchor);
         const rates = {};
