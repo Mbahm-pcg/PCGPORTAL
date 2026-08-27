@@ -1157,6 +1157,141 @@ git commit -m "Surface Paycor fetch failures instead of silently showing zero em
 
 ---
 
+## Task 8c: Promote Schedule to a top-level portal tab (supersedes Task 7b's Pulse-hub placement)
+
+**Why:** Further live feedback (2026-08-27) after testing Task 7b: reaching Schedule via Pulse → pick store → Schedule tile is still an unnecessary detour for a manager, who only has one store anyway. The user wants Schedule to be a first-class top-level section — like Pulse, Labor, Map, Projects — reachable directly from the main portal nav (desktop sidebar) and the mobile "Full Portal" icon-grid launcher (`MobileAppLauncher`, `app.jsx:38148`), the same way every other major section works. A manager should land straight in their own store's builder with no store-picker; dm/executive/it/office_staff need a lightweight store-picker first (dm scoped to their district, others see everything), matching the existing `AdminPulse`/`ManagerPulse` split (`app.jsx:48097-48098`) rather than the store-picker-grid-then-drilldown shape `AdminLabor`/`AdminPnL` use (those require a click-through even for a manager with one store — not what's wanted here). This task removes Task 7b's Pulse-hub tile entirely — not keep both.
+
+**Files:**
+- Modify: `src/icons.jsx` — add a new, unique tab icon (never reuse an existing tab's icon — this project's own convention; `ICONS.schedule` is already used by the "Operations" hub tab, `ICONS.calendar` by the base "Calendar" tab, neither is available)
+- Modify: `app.jsx` — `computeRoleTabs` (`app.jsx:24711-24814`) to register the new tab for `executive`/`it`/`office_staff`/`dm`/`manager`; two new top-level components (`AdminSchedule`, `ManagerSchedule`); the tab-content router (`app.jsx:48079-48151`) to wire them; the `ops-hub` tile grid (`app.jsx:48101-48113`) for exec/it/office_staff/dm discoverability; and `StoreDetail` (`app.jsx:8681`) to remove the Task 7b Pulse-hub tile + content branch
+
+**Interfaces:**
+- Consumes: `ScheduleBuilder` (Task 6, unchanged), `getManagerStore` (existing, `app.jsx:706`)
+- Produces: `AdminSchedule({ stores, th, user })` — lightweight store-picker (dm: own district; executive/it/office_staff: all stores) that renders `<ScheduleBuilder mode="view">` once a store is picked. `ManagerSchedule({ stores, th, user })` — resolves the manager's own store via `getManagerStore` and renders `<ScheduleBuilder mode="build">` directly, no picker.
+
+- [ ] **Step 1: Add a new, unique icon**
+
+In `src/icons.jsx`, insert immediately after the existing `schedule:` entry (the last entry in the `ICONS` object, currently ending the object before its closing `};`):
+
+```js
+  staffSchedule: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"3",y:"4",width:"18",height:"18",rx:"2"})}{React.createElement("line",{x1:"16",y1:"2",x2:"16",y2:"6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"6"})}{React.createElement("line",{x1:"3",y1:"10",x2:"21",y2:"10"})}{React.createElement("circle",{cx:"12",cy:"16",r:"2.3"})}{React.createElement("line",{x1:"12",y1:"16",x2:"12",y2:"14.3"})}{React.createElement("line",{x1:"12",y1:"16",x2:"13.2",y2:"16.8"})}</>} />,
+```
+
+(Calendar frame — same as `calendar`/`schedule` — with a small clock face instead of a checkmark, distinct from both existing calendar-family icons: `calendar` has no mark at all, `schedule` has a checkmark. This one reads as "calendar + time," matching a staff schedule.)
+
+- [ ] **Step 2: Register the tab for the 5 roles that should see it**
+
+In `computeRoleTabs` (`app.jsx:24711`), add `{ id: "schedule", label: "Schedule", icon: (c) => ICONS.staffSchedule(c) }` to exactly these 5 role branches (matching the spec's existing role table — manager/dm build-or-view, executive/it/office_staff view-all; do NOT add it to `auditor`/`construction`/`vendor`/`maintenance`, which never had Schedule access):
+
+- `executive`/`it` branch (`24715-24735`): insert after the `pulse` entry (`24722`)
+- `office_staff` branch (`24737-24757`): insert after the `pulse` entry (`24744`)
+- `dm` branch (`24766-24780`): insert after the `pulse` entry (`24770`)
+- `manager` branch (`24782-24791`): insert after the `pulse` entry (`24786`)
+
+Example for the `executive`/`it` branch (same pattern for the other 3 — insert the one line, don't restructure the surrounding array):
+```js
+    { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
+    { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
+```
+
+- [ ] **Step 3: Add the two new top-level components**
+
+Insert near `ManagerPulse` (`app.jsx:8227-8241`) — same file region, same pattern family:
+
+```js
+// Store-picker for dm/executive/it/office_staff — dm scoped to their own district,
+// everyone else sees the full network. Renders ScheduleBuilder in read-only 'view'
+// mode once a store is picked (this role set never builds/submits a schedule — only
+// ManagerSchedule below does that, for the one store a manager owns).
+function AdminSchedule({ stores, th, user }) {
+  const [selectedStore, setSelectedStore] = useState(null);
+  const isDM = user?.userType === 'dm';
+  const visibleStores = React.useMemo(() => {
+    if (isDM && user?.district != null) return (stores || []).filter(s => String(s.district) === String(user.district));
+    return stores || [];
+  }, [stores, isDM, user]);
+
+  if (selectedStore) {
+    return (
+      <div>
+        <button onClick={() => setSelectedStore(null)} style={{ ...btn(th, { background: th.card2, color: th.text }), marginBottom: '1rem' }}>← Back to stores</button>
+        <ScheduleBuilder store={selectedStore} th={th} mode="view" />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '1rem' }}>
+      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>Schedule</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+        {visibleStores.map(s => (
+          <div key={s.pc} onClick={() => setSelectedStore(s)}
+            style={{ ...card(th), padding: '1rem', cursor: 'pointer' }}>
+            <div style={{ fontWeight: 700, color: th.text }}>{s.name}</div>
+            <div style={{ fontSize: '0.75rem', color: th.muted }}>PC# {s.pc} · District {s.district}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Manager landing — no picker, straight to their own store's build flow. Mirrors
+// ManagerPulse's shape exactly (app.jsx:8227): resolve via getManagerStore, friendly
+// empty state if unassigned, otherwise render directly.
+function ManagerSchedule({ stores, th, user }) {
+  const store = getManagerStore(stores, user);
+  if (!store?.pc) {
+    return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 480, margin: '2rem auto' }}>No store is linked to your account yet. Ask an admin to assign one.</div>;
+  }
+  return <ScheduleBuilder store={store} th={th} mode="build" />;
+}
+```
+
+- [ ] **Step 4: Wire the router**
+
+In the tab-content routing block (`app.jsx:48097-48099`, immediately after the existing `pulse`/`labor` lines), add:
+
+```jsx
+{tab === "schedule"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminSchedule stores={stores} th={th} user={user} />}
+{tab === "schedule"  && isManager && <ManagerSchedule stores={stores} th={th} user={user} />}
+```
+
+- [ ] **Step 5: Add a discoverability tile to the Operations hub**
+
+In the `opsTiles` array (`app.jsx:48103-48111`), add a row immediately after the `pulse` tile (`48105`), matching its exact `show` condition (dm/exec/it/office_staff — not manager, who reaches Schedule via their own direct sidebar tab, same as how the `pulse` tile itself is scoped):
+
+```js
+{ id: 'schedule', name: 'Schedule', sub: 'Build and view weekly staff schedules, synced to Paycor.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'schedule'), icon: <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="16" r="2.3"/><line x1="12" y1="16" x2="12" y2="14.3"/><line x1="12" y1="16" x2="13.2" y2="16.8"/></> },
+```
+
+- [ ] **Step 6: Remove Task 7b's Pulse-hub tile entirely**
+
+In `StoreDetail` (`app.jsx:8681`):
+- Remove `{id:'schedule',label:'📅 Schedule'},` from the rail tile array (`app.jsx:9434`) — the array goes back to its Task-7b-minus-one shape (`sales, labor, forecast, daypart, ...`).
+- Remove the entire `{storeTab === 'schedule' && (() => { ... })()}` block, including its comment (`app.jsx:9456-9474`).
+
+Confirm zero remaining references to `storeTab === 'schedule'` or the Pulse-hub tile after removal (the NEW top-level tab uses `tab === "schedule"` at the `PCGPortal` level, a different variable in a different component — don't confuse the two while grepping).
+
+- [ ] **Step 7: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 8: Verify**
+
+No browser tool in this environment (established pattern). Verify via code trace, covering all 5 roles that should now see the tab (executive, it, office_staff, dm, manager) plus confirming the tab is genuinely absent from `computeRoleTabs`' output for auditor/construction/vendor/maintenance. Confirm the mobile launcher requires no extra registration (per the earlier research: any tab id not in `LAUNCHER_ADMIN_IDS`, `app.jsx:38153`, defaults to the "Workspace" group automatically — do not add `'schedule'` to that Set, since Workspace is the right home here, not Admin & Reports). Confirm the desktop sidebar picks it up automatically for manager/dm (their sections render every non-base tab as a flat nav row, `app.jsx:47428-47553`) and via the new `opsTiles` entry for exec/it/office_staff. A preview deploy is optional; don't let a slow one block you — the previous few tasks in this plan established that a code trace is sufficient verification when a deploy is unreliable.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add app.jsx app.js src/icons.jsx
+git commit -m "Promote Schedule to a top-level portal tab, remove Pulse-hub placement"
+```
+
+---
+
 ## Task 9: Batched submission + per-shift result handling
 
 **Files:**
