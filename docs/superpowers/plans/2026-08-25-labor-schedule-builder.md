@@ -1292,6 +1292,72 @@ git commit -m "Promote Schedule to a top-level portal tab, remove Pulse-hub plac
 
 ---
 
+## Task 8d: Add a view/build toggle to `ManagerSchedule`
+
+**Why:** After Task 8c shipped, the user asked (2026-08-27, confirmed via explicit yes/no choice) for managers to also be able to just look at a posted schedule without going through the build flow — `ManagerSchedule` currently hardcodes `mode="build"` with no way to switch. Dm/executive/it/office_staff already get this via `AdminSchedule`'s `mode="view"`; this brings managers to parity for their own store.
+
+**Files:**
+- Modify: `app.jsx` — `ManagerSchedule` (search `function ManagerSchedule`, added in Task 8c)
+
+**Interfaces:**
+- Consumes: `ScheduleBuilder` (unchanged — already accepts `mode: 'build' | 'view'`)
+- Produces: no external interface change — `ManagerSchedule({ stores, th, user })`'s own signature is unchanged, this is purely internal state
+
+- [ ] **Step 1: Add the toggle**
+
+Replace `ManagerSchedule`'s current body:
+```js
+function ManagerSchedule({ stores, th, user }) {
+  const store = getManagerStore(stores, user);
+  if (!store?.pc) {
+    return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 480, margin: '2rem auto' }}>No store is linked to your account yet. Ask an admin to assign one.</div>;
+  }
+  return <ScheduleBuilder store={store} th={th} mode="build" />;
+}
+```
+with:
+```js
+function ManagerSchedule({ stores, th, user }) {
+  const [mode, setMode] = useState('build');
+  const store = getManagerStore(stores, user);
+  if (!store?.pc) {
+    return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 480, margin: '2rem auto' }}>No store is linked to your account yet. Ask an admin to assign one.</div>;
+  }
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <button onClick={() => setMode('build')} style={{ ...btn(th, mode === 'build' ? { background: '#FF671F' } : { background: th.card2, color: th.text }) }}>Build</button>
+        <button onClick={() => setMode('view')} style={{ ...btn(th, mode === 'view' ? { background: '#FF671F' } : { background: th.card2, color: th.text }) }}>View Posted</button>
+      </div>
+      {/* key={mode} forces a clean remount on toggle — ScheduleBuilder's internal
+          state (weekStart, cards, approvedCards) must not carry over between
+          build and view; a fresh mount is simpler and safer than manually
+          resetting each piece of state on every toggle. */}
+      <ScheduleBuilder key={mode} store={store} th={th} mode={mode} />
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 3: Verify**
+
+No browser tool in this environment (established pattern). Verify via code trace: confirm `mode` defaults to `'build'` (unchanged default behavior for existing users), confirm clicking "View Posted" passes `mode="view"` to `ScheduleBuilder` (triggering its `mode === 'view'` branch — the same date-picker + read-only `WeeklyScheduleGrid` path `AdminSchedule` already uses), and confirm the `key={mode}` forces `ScheduleBuilder` to unmount/remount on toggle (so switching back to "Build" after viewing doesn't show stale `cards`/`approvedCards` from the view-mode session).
+
+- [ ] **Step 4: Bump version, commit**
+
+```bash
+git add app.jsx app.js
+git commit -m "Add view/build toggle to ManagerSchedule"
+```
+
+---
+
 ## Task 9: Batched submission + per-shift result handling
 
 **Files:**
