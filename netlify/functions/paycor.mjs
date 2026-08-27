@@ -4,6 +4,15 @@
 
 import https from 'node:https';
 import { getStore } from '@netlify/blobs';
+import { neon } from '@neondatabase/serverless';
+import { requireActiveUser } from './auth-lib/require-user.js';
+import { STORES } from './labor-cron.mjs';
+
+// Same lazy-init pattern as audits.mjs (netlify/functions/audits.mjs) — this
+// is the proven, already-shipped way a .mjs function in this codebase gets a
+// Neon client for requireActiveUser's DB-backed active/revocation check.
+let _sql = null;
+const db = () => (_sql ||= neon(process.env.NEON_DATABASE_URL));
 
 const PAYCOR_API_HOST = 'apis.paycor.com';
 const PAYCOR_AUTH_HOST = 'apis.paycor.com';
@@ -338,7 +347,7 @@ export default async (request, context) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Content-Type': 'application/json',
   };
 
@@ -581,6 +590,26 @@ export default async (request, context) => {
       const { legalEntityId, shifts, ignoreWarnings = true } = payload;
       if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
       if (!Array.isArray(shifts) || shifts.length === 0) return new Response(JSON.stringify({ error: 'Missing shifts array' }), { status: 400, headers });
+
+      // Server-side write authorization (added 2026-08-27, per explicit user
+      // decision after Task 7's review flagged this as client-side-only): the
+      // UI already hides the build flow from unauthorized roles, but the client
+      // cannot be trusted to police itself. Verify against the signed session
+      // token's claims — never against anything the client's own request body
+      // claims about its role or store. Only a manager may write, and only to
+      // the ONE store their session claims (claims.storePC), resolved
+      // independently via legalEntityId -> pc, never trusting a client-sent pc.
+      const sqlClient = db();
+      const authEvent = { headers: Object.fromEntries(request.headers.entries()) };
+      const authedUser = await requireActiveUser(authEvent, sqlClient);
+      if (!authedUser) {
+        return new Response(JSON.stringify({ error: 'Authentication required.' }), { status: 401, headers });
+      }
+      const targetStore = STORES.find(s => String(s.paycor) === String(legalEntityId));
+      if (authedUser.userType !== 'manager' || !targetStore || String(authedUser.storePC) !== String(targetStore.pc)) {
+        return new Response(JSON.stringify({ error: 'You are not authorized to write this store\'s schedule.' }), { status: 403, headers });
+      }
+
       const res = await callPaycor(`/legalentities/${legalEntityId}/schedulingShifts`, 'POST', { ignoreWarnings, shifts });
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
