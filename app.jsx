@@ -9431,7 +9431,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         <div style={isNarrow
           ? { display:'flex', flexDirection:'row', gap:'0.4rem', overflowX:'auto', flexShrink:0, paddingBottom:'0.25rem', WebkitOverflowScrolling:'touch' }
           : { display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, overflowY:'auto' }}>
-          {[{id:'sales',label:'📊 Sales'},{id:'labor',label:'👷 Labor'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'},{id:'complaints',label:'📣 Complaints'}].map((t) => (
+          {[{id:'sales',label:'📊 Sales'},{id:'labor',label:'👷 Labor'},{id:'schedule',label:'📅 Schedule'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'},{id:'complaints',label:'📣 Complaints'}].map((t) => (
             <button key={t.id} onClick={() => {
                 setStoreTab(t.id);
                 if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
@@ -9452,6 +9452,26 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       {storeTab === 'labor' && (
         <LaborDrillDown store={s} stores={stores} th={th} user={user} users={users} laborData={laborData} onBack={() => setStoreTab('sales')} />
       )}
+
+      {/* ════ SCHEDULE TAB — relocated from inside LaborDrillDown (Task 7) so it doesn't ════
+           require loading Hourly/Daily/Weekly first. Same role-scoping as before: manager
+           builds their OWN store only (via the canonical getManagerStore helper, app.jsx:706);
+           dm/executive/it/office_staff get a read-only view (dm scoped to their own district);
+           everyone else is denied. */}
+      {storeTab === 'schedule' && (() => {
+        const isManager = user?.userType === 'manager';
+        const isDM = user?.userType === 'dm';
+        const isViewAllRole = ['executive', 'it', 'office_staff'].includes(user?.userType);
+        const managerStore = getManagerStore(stores, user);
+        const canBuild = isManager && !!managerStore && String(s.pc) === String(managerStore.pc);
+        const canView = isDM ? String(s.district) === String(user?.district) : isViewAllRole;
+
+        if (!canBuild && !canView) {
+          return <div style={{ fontSize: '0.82rem', color: th.muted }}>You don't have access to this store's schedule.</div>;
+        }
+
+        return <ScheduleBuilder store={s} th={th} mode={canBuild ? 'build' : 'view'} />;
+      })()}
 
       {/* ════ FORECAST TAB ════ */}
       {storeTab === 'forecast' && <>
@@ -26075,7 +26095,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.14";
+const APP_VERSION = "v20.15";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -33149,7 +33169,6 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
         {tabBtn('daily',     'Daily')}
         {tabBtn('weekly',    'Weekly')}
         {tabBtn('optimizer', '⚡ Optimizer')}
-        {tabBtn('buildSchedule', 'Build Schedule')}
       </div>
 
       {/* Hourly Tab */}
@@ -33628,29 +33647,6 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
             )}
           </div>
         );
-      })()}
-
-      {/* Build Schedule Tab — role-scoped: manager gets the interactive build
-          flow for their OWN store only (resolved via the canonical getManagerStore
-          helper, app.jsx:706 — storePC primary, name-match fallback — the same
-          resolution used by "My Store" mobile mode / ManagerCapCard / the dashboard's
-          manager Orion brief section); dm/executive/it/office_staff get a
-          read-only view (dm scoped to their own district, same pattern as the
-          Optimizer tab's network-comparison district scoping above); everyone
-          else is denied. */}
-      {activeTab === 'buildSchedule' && (() => {
-        const isManager = user?.userType === 'manager';
-        const isDM = user?.userType === 'dm';
-        const isViewAllRole = ['executive', 'it', 'office_staff'].includes(user?.userType);
-        const managerStore = getManagerStore(stores, user);
-        const canBuild = isManager && !!managerStore && String(store.pc) === String(managerStore.pc);
-        const canView = isDM ? String(store.district) === String(user?.district) : isViewAllRole;
-
-        if (!canBuild && !canView) {
-          return <div style={{ fontSize: '0.82rem', color: th.muted }}>You don't have access to this store's schedule.</div>;
-        }
-
-        return <ScheduleBuilder store={store} th={th} mode={canBuild ? 'build' : 'view'} />;
       })()}
 
       {/* Employee Panel */}
