@@ -1358,16 +1358,104 @@ git commit -m "Add view/build toggle to ManagerSchedule"
 
 ---
 
-## Task 9: Batched submission + per-shift result handling
+## Task 9: Batched submission + per-shift result handling + server-side write authorization
+
+**Why the authorization addition:** Task 7's reviewer flagged that `canBuild`/`canView` are client-side-only gates — the UI hides the build flow from unauthorized roles, but `netlify/functions/paycor.mjs` itself accepts any POST with no session check at all, trusting whatever `legalEntityId` the client sends. That was harmless while every action was read-only (Tasks 1-8), but this task adds the first real write path a manager's browser can reach — the user explicitly confirmed (2026-08-27, asked directly before this task started) they want a server-side check added, not client-side gating alone. Research before writing this: the codebase's likely-broken-session concern (a July 2026 incident where gating broke Google login) is **no longer true** — Google login now mints the same signed `pcg_session` token/cookie password login does (`src/portal-auth.mjs`), and a proven, already-shipped pattern for gating a `.mjs` function this way exists in `netlify/functions/audits.mjs` (`requireActiveUser` + a local `neon` client). This task follows that exact pattern rather than inventing a new one.
 
 **Files:**
-- Modify: `app.jsx` — add a submission handler + results UI to `ScheduleBuilder`'s final-review block
+- Modify: `netlify/functions/paycor.mjs` — add `requireActiveUser` gating + a store-ownership check to the `createSchedulingShifts` action only (the only write action this feature's UI calls; `updateSchedulingShift`/`deleteSchedulingShift` are out of scope — nothing in this plan's UI calls them)
+- Modify: `app.jsx` — add a submission handler + results UI to `ScheduleBuilder`'s final-review block, with the fetch call updated to send real session credentials (this is the FIRST client call to `createSchedulingShifts` anywhere in the codebase — build it with auth attached from day one, rather than retrofitting a broken call later)
 
 **Interfaces:**
-- Consumes: `approvedCards` (Task 6 state), the existing `createSchedulingShifts` action (unchanged, validated in Task 1)
-- Produces: a "Send to Paycor" button and a per-employee results display in `ScheduleBuilder`
+- Consumes: `approvedCards` (Task 6 state), the existing `createSchedulingShifts` action (now additionally gated — see below); `requireActiveUser` (existing, `netlify/functions/auth-lib/require-user.js`); `authHeader()` (existing, `src/portal-auth.mjs`, already imported at the top of `app.jsx`); `STORES` (existing, `netlify/functions/labor-cron.mjs`, already exported — reused directly rather than duplicating yet another copy of the store list)
+- Produces: a "Send to Paycor" button and a per-employee results display in `ScheduleBuilder`; `paycor.mjs`'s `createSchedulingShifts` action now returns `401` (no/invalid session) or `403` (valid session, wrong role/store) instead of silently accepting any request
 
-- [ ] **Step 1: Add submission state and handler to `ScheduleBuilder`**
+- [ ] **Step 1: Add auth imports and a local DB client to `paycor.mjs`**
+
+Near the top of `netlify/functions/paycor.mjs` (after the existing `import { getStore } from '@netlify/blobs';`), add:
+
+```js
+import { neon } from '@neondatabase/serverless';
+import { requireActiveUser } from './auth-lib/require-user.js';
+import { STORES } from './labor-cron.mjs';
+
+// Same lazy-init pattern as audits.mjs (netlify/functions/audits.mjs) — this
+// is the proven, already-shipped way a .mjs function in this codebase gets a
+// Neon client for requireActiveUser's DB-backed active/revocation check.
+let _sql = null;
+const db = () => (_sql ||= neon(process.env.NEON_DATABASE_URL));
+```
+
+Also update the module's CORS headers object (search `'Access-Control-Allow-Headers': 'Content-Type'`) to include `Authorization`, matching every other gated `.mjs` function in this codebase:
+```js
+'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+```
+(This doesn't affect same-origin requests — the browser only enforces CORS preflight for cross-origin calls — but every other hardened endpoint in this codebase declares it, and there's no reason for this one to be the exception.)
+
+- [ ] **Step 2: Gate `createSchedulingShifts` with session + store-ownership checks**
+
+Replace the current handler body (search `if (action === 'createSchedulingShifts')`):
+```js
+if (action === 'createSchedulingShifts') {
+  const { legalEntityId, shifts, ignoreWarnings = true } = payload;
+  if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+  if (!Array.isArray(shifts) || shifts.length === 0) return new Response(JSON.stringify({ error: 'Missing shifts array' }), { status: 400, headers });
+  const res = await callPaycor(`/legalentities/${legalEntityId}/schedulingShifts`, 'POST', { ignoreWarnings, shifts });
+  return new Response(JSON.stringify(res.data), { status: res.status, headers });
+}
+```
+with:
+```js
+if (action === 'createSchedulingShifts') {
+  const { legalEntityId, shifts, ignoreWarnings = true } = payload;
+  if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+  if (!Array.isArray(shifts) || shifts.length === 0) return new Response(JSON.stringify({ error: 'Missing shifts array' }), { status: 400, headers });
+
+  // Server-side write authorization (added 2026-08-27, per explicit user
+  // decision after Task 7's review flagged this as client-side-only): the
+  // UI already hides the build flow from unauthorized roles, but the client
+  // cannot be trusted to police itself. Verify against the signed session
+  // token's claims — never against anything the client's own request body
+  // claims about its role or store. Only a manager may write, and only to
+  // the ONE store their session claims (claims.storePC), resolved
+  // independently via legalEntityId -> pc, never trusting a client-sent pc.
+  const sqlClient = db();
+  const authEvent = { headers: Object.fromEntries(request.headers.entries()) };
+  const authedUser = await requireActiveUser(authEvent, sqlClient);
+  if (!authedUser) {
+    return new Response(JSON.stringify({ error: 'Authentication required.' }), { status: 401, headers });
+  }
+  const targetStore = STORES.find(s => String(s.paycor) === String(legalEntityId));
+  if (authedUser.userType !== 'manager' || !targetStore || String(authedUser.storePC) !== String(targetStore.pc)) {
+    return new Response(JSON.stringify({ error: 'You are not authorized to write this store\'s schedule.' }), { status: 403, headers });
+  }
+
+  const res = await callPaycor(`/legalentities/${legalEntityId}/schedulingShifts`, 'POST', { ignoreWarnings, shifts });
+  return new Response(JSON.stringify(res.data), { status: res.status, headers });
+}
+```
+
+- [ ] **Step 3: Rebuild and verify the backend change with real requests**
+
+```bash
+npm run build
+```
+
+No browser tool in this environment (established pattern) — verify via real, controlled requests against the deployed function:
+1. **No session at all** (a plain curl with no cookie/Authorization header — this is exactly how every prior task in this plan has been testing reads, which worked because reads were never gated): confirm `createSchedulingShifts` now returns `401` instead of proceeding.
+2. **A real manager session, own store**: this requires a real login flow to obtain a token — if a full login simulation isn't practical from this environment, at minimum confirm the code path logically requires `authedUser.userType === 'manager' && String(authedUser.storePC) === String(targetStore.pc)` by tracing it against Franyi Leiva's real user record (already looked up earlier this session: `userType: "manager"`, `storePC: "332941"`) and Bustleton's real `STORES` entry (`pc: "332941"`, `paycor: "193884"`) — confirm the trace resolves to "authorized" for her own store and "403" for any other `legalEntityId`.
+3. Confirm reads (`employees`, `schedulingShifts`, `payRates` — everything Tasks 1-8d already depend on) are completely unaffected — this task only touches the `createSchedulingShifts` branch, nothing else in `paycor.mjs`.
+
+- [ ] **Step 4: Bump version, commit the backend change**
+
+```bash
+git add netlify/functions/paycor.mjs
+git commit -m "Add server-side write authorization to createSchedulingShifts"
+```
+
+(No `APP_VERSION` bump for this commit — it touches only a Netlify function, not `app.jsx`, matching this project's convention that the version constant tracks the frontend bundle.)
+
+- [ ] **Step 5: Add submission state and handler to `ScheduleBuilder`**
 
 Add near the other `useState` calls in `ScheduleBuilder` (Task 6):
 
@@ -1408,8 +1496,17 @@ const handleSendToPaycor = async () => {
   });
 
   try {
+    // credentials:'include' + ...authHeader() — this is the FIRST call this
+    // codebase makes to createSchedulingShifts, and the action is now gated
+    // server-side (paycor.mjs, Steps 1-2 above) — build the call with real
+    // session credentials from the start, matching the proven pattern
+    // auditsApi/safeAuditsApi already use for every other hardened endpoint
+    // (app.jsx, search `auditsApi`). authHeader() is already imported at the
+    // top of this file from src/portal-auth.mjs — no new import needed.
     const res = await fetch('/.netlify/functions/paycor', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({
         action: 'createSchedulingShifts',
         legalEntityId: store.paycor,
@@ -1418,6 +1515,13 @@ const handleSendToPaycor = async () => {
       }),
     });
     const data = await res.json();
+    // A 401/403 from the new server-side check returns { error: '...' }, not
+    // a shifts array — surface that message directly instead of letting it
+    // silently map to an empty {} per employee below.
+    if (!res.ok) {
+      setSubmitResult({ running: false, results: [{ employeeId: null, employeeName: 'All', status: 'error', detail: data?.error || `Request failed (${res.status})` }] });
+      return;
+    }
     const returned = data?.shifts || data || [];
     const results = shifts.map((s, i) => {
       const r = returned[i] || {};
@@ -1431,7 +1535,7 @@ const handleSendToPaycor = async () => {
 };
 ```
 
-- [ ] **Step 2: Add the Send button and results display to the final-review JSX**
+- [ ] **Step 6: Add the Send button and results display to the final-review JSX**
 
 In the same block from Task 8, add below the Share button:
 
@@ -1455,25 +1559,21 @@ And after the button row:
 )}
 ```
 
-- [ ] **Step 3: Rebuild**
+- [ ] **Step 7: Rebuild**
 
 ```bash
 npm run build
 ```
 
-- [ ] **Step 4: Bump version, deploy preview — do NOT click Send yet**
+- [ ] **Step 8: Verify — do NOT click Send yet**
 
-```bash
-npx netlify deploy
-```
+Note: Paycor credentials are scoped to the Netlify **production** context only (confirmed 2026-08-27, per the user's explicit choice to keep it that way rather than extend them to preview deploys) — a preview deploy's `ScheduleBuilder` will show Task 8b's "Missing Paycor credentials" error on load, before ever reaching the final review screen, so a preview deploy cannot exercise this button end-to-end. Verify via code trace instead (consistent with this plan's established pattern for Paycor-dependent code): confirm the `handleSendToPaycor` handler correctly attaches `credentials:'include'` and `...authHeader()`, correctly checks `res.ok` before treating the response as a per-shift results array, and confirm the button/results JSX renders correctly by reading the code, not by clicking it. Do not click Send anywhere yet regardless — real submission testing happens in Task 10 as a deliberate, controlled step, once the user has approved a production deploy.
 
-Walk through the build flow on the preview URL up to the final review screen and confirm the Send button and (empty, pre-click) layout look right. Do not click Send on this preview — real submission testing happens in Task 10 as a deliberate, controlled step, not an incidental UI check.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Bump version, commit**
 
 ```bash
 git add app.jsx app.js
-git commit -m "Add batched Paycor submission with per-shift results"
+git commit -m "Add batched Paycor submission with per-shift results, sent with real session credentials"
 ```
 
 ---
