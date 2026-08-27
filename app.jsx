@@ -26075,7 +26075,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.11";
+const APP_VERSION = "v20.12";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32447,35 +32447,49 @@ function ScheduleBuilder({ store, th, mode }) {
     setLoading(true); setError(null); setCards(null); setCardIndex(0); setApprovedCards([]);
     try {
       const lastWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), -7));
-      // schedulingShifts treats `endDate` as EXCLUSIVE (confirmed live in Task 1,
-      // 2026-08-25) — the last day of the prior week is weekStart - 1 (Saturday),
-      // so weekStart itself (its exclusive +1 boundary) is passed as endDate to
-      // include that Saturday's shifts without dropping them.
-      const lastWeekEndExclusive = weekStart;
+      const nextWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), 7));
+      // In 'view' mode we show the SELECTED week's own posted schedule, not
+      // last week's — last week is only ever used as a pre-fill template in
+      // 'build' mode. schedulingShifts treats `endDate` as EXCLUSIVE
+      // (confirmed live in Task 1, 2026-08-25), so either window's end is
+      // passed as one day past the last desired day to avoid dropping it.
+      const fetchRangeStart = mode === 'view' ? weekStart : lastWeekStart;
+      const fetchRangeEnd = mode === 'view' ? nextWeekStart : weekStart; // exclusive boundary
+      const groupingAnchor = mode === 'view' ? weekStart : lastWeekStart;
 
       const [empRes, shiftRes] = await Promise.all([
         fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'employees', legalEntityId: store.paycor }) }),
-        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedulingShifts', legalEntityId: store.paycor, startDate: lastWeekStart, endDate: lastWeekEndExclusive }) }),
+        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedulingShifts', legalEntityId: store.paycor, startDate: fetchRangeStart, endDate: fetchRangeEnd }) }),
       ]);
       const empData = await empRes.json();
       const shiftData = await shiftRes.json();
       const employees = (empData.records || []).filter(e => e?.statusData?.status === 'Active');
-      // Group by lastWeekStart (the week the fetched shifts actually belong to),
-      // not weekStart (the new week being built) — dayOffset comes out 0-6
-      // (Sun-Sat) either way since both weeks start on Sunday, so the same
-      // dayOffset value carries over directly onto the new week's calendar.
-      // Confirmed live (2026-08-25): passing weekStart here instead produced
-      // dayOffset -8..-1 for every shift (100% outside the 0-6 range every
-      // downstream renderer expects), silently breaking every pre-filled card.
-      const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], lastWeekStart);
+      // Group by groupingAnchor (the week the fetched shifts actually belong
+      // to — lastWeekStart in 'build' mode, weekStart itself in 'view' mode),
+      // not always weekStart — dayOffset comes out 0-6 (Sun-Sat) either way
+      // since every week starts on Sunday, so the same dayOffset value
+      // carries over directly onto the target week's calendar.
+      // Confirmed live (2026-08-25): grouping 'build' mode's last-week shifts
+      // against weekStart instead of lastWeekStart produced dayOffset -8..-1
+      // for every shift (100% outside the 0-6 range every downstream
+      // renderer expects), silently breaking every pre-filled card.
+      const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], groupingAnchor);
 
       const rates = {};
       await Promise.all(employees.map(async (e) => {
         try {
           const r = await fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'payRates', employeeId: e.id }) });
           const rd = await r.json();
-          const rate = (rd.records || rd)?.[0]?.payRate || (rd.records || rd)?.[0]?.rate;
-          if (rate != null) rates[e.id] = Number(rate);
+          const rec = (rd.records || rd)?.[0];
+          const rate = rec?.payRate || rec?.rate;
+          // Salaried employees' payRate is a per-period salary figure, not an
+          // hourly rate (confirmed live 2026-08-25: a real Store Manager
+          // record has { type: "Salary", payRate: 1923.08 }) — treating it as
+          // hourly would wildly inflate the labor total. Skip it so this
+          // employee falls through to the existing rate-unavailable handling
+          // in scheduleComputeWeeklyTotal instead of guessing at a
+          // salary-to-hourly conversion.
+          if (rate != null && rec?.type !== 'Salary') rates[e.id] = Number(rate);
         } catch (err) { /* leave unset — flagged as rate-unavailable downstream */ }
       }));
       setPayRates(rates);
