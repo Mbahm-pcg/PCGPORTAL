@@ -26140,7 +26140,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.18";
+const APP_VERSION = "v20.19";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32524,6 +32524,7 @@ function ScheduleBuilder({ store, th, mode }) {
   const [cardIndex, setCardIndex] = useState(0);
   const [approvedCards, setApprovedCards] = useState([]);
   const [payRates, setPayRates] = useState({});
+  const [submitResult, setSubmitResult] = useState(null); // null | { running, results: [{employeeId, employeeName, status, detail}] }
 
   const load = async () => {
     if (!weekStart) return;
@@ -32633,6 +32634,74 @@ function ScheduleBuilder({ store, th, mode }) {
     setCardIndex(i => i + 1);
   };
 
+  const handleSendToPaycor = async () => {
+    const cardsToSend = approvedCards.filter(c => (c.shifts || []).length > 0);
+    if (cardsToSend.length === 0) { setSubmitResult({ running: false, results: [] }); return; }
+    setSubmitResult({ running: true, results: [] });
+
+    const shifts = [];
+    cardsToSend.forEach(c => {
+      c.shifts.forEach(s => {
+        const dayDate = new Date(weekStart + 'T00:00:00Z');
+        dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
+        const dateStr = dayDate.toISOString().slice(0, 10);
+        shifts.push({
+          employeeId: c.employeeId,
+          scheduleGroupId: c.scheduleGroupId,
+          schedulingJobId: c.schedulingJobId,
+          departmentId: c.departmentId,
+          startDateTime: `${dateStr}T${s.startTime}:00Z`,
+          endDateTime: `${dateStr}T${s.endTime}:00Z`,
+          isPublished: true,
+          // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is a
+          // caller-generated GUID, not a lookup value — one per shift, unique
+          // within the batch (same pattern as processId used elsewhere in
+          // this codebase). See Task 1's corrected script for the source.
+          shiftModelId: crypto.randomUUID(),
+          _employeeName: c.employeeName, // stripped before sending, kept for result mapping
+        });
+      });
+    });
+
+    try {
+      // credentials:'include' + ...authHeader() — this is the FIRST call this
+      // codebase makes to createSchedulingShifts, and the action is now gated
+      // server-side (paycor.mjs, requireActiveUser + store-ownership check) —
+      // build the call with real session credentials from the start, matching
+      // the proven pattern auditsApi/safeAuditsApi already use for every other
+      // hardened endpoint (app.jsx, search `auditsApi`). authHeader() is
+      // already imported at the top of this file from src/portal-auth.mjs.
+      const res = await fetch('/.netlify/functions/paycor', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({
+          action: 'createSchedulingShifts',
+          legalEntityId: store.paycor,
+          shifts: shifts.map(({ _employeeName, ...s }) => s),
+          ignoreWarnings: true,
+        }),
+      });
+      const data = await res.json();
+      // A 401/403 from the server-side check returns { error: '...' }, not a
+      // shifts array — surface that message directly instead of letting it
+      // silently map to an empty {} per employee below.
+      if (!res.ok) {
+        setSubmitResult({ running: false, results: [{ employeeId: null, employeeName: 'All', status: 'error', detail: data?.error || `Request failed (${res.status})` }] });
+        return;
+      }
+      const returned = data?.shifts || data || [];
+      const results = shifts.map((s, i) => {
+        const r = returned[i] || {};
+        const ok = !!r.shiftId && !(r.warningsOrErrors && r.warningsOrErrors.some(w => w.severity === 'Error'));
+        return { employeeId: s.employeeId, employeeName: s._employeeName, status: ok ? 'ok' : 'error', detail: ok ? `Shift ${SCHEDULE_DOW[Math.round((new Date(s.startDateTime) - new Date(weekStart + 'T00:00:00Z')) / 86400000)]} created` : JSON.stringify(r.warningsOrErrors || r) };
+      });
+      setSubmitResult({ running: false, results });
+    } catch (e) {
+      setSubmitResult({ running: false, results: [{ employeeId: null, employeeName: 'All', status: 'error', detail: e.message || 'Request failed' }] });
+    }
+  };
+
   if (mode === 'view') {
     return (
       <div>
@@ -32682,8 +32751,19 @@ function ScheduleBuilder({ store, th, mode }) {
             }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>
               {typeof navigator !== 'undefined' && navigator.share ? 'Share' : 'Copy'}
             </button>
+            <button onClick={handleSendToPaycor} disabled={submitResult?.running} style={{ ...btn(th, { background: '#FF671F' }), opacity: submitResult?.running ? 0.6 : 1 }}>
+              {submitResult?.running ? 'Sending…' : 'Send to Paycor'}
+            </button>
           </div>
-          {/* Send-to-Paycor controls are added in Task 9 */}
+          {submitResult && !submitResult.running && (
+            <div style={{ marginTop: '1rem' }}>
+              {submitResult.results.map((r, i) => (
+                <div key={i} style={{ fontSize: '0.78rem', color: r.status === 'ok' ? '#16a34a' : '#ef4444', marginBottom: '0.3rem' }}>
+                  <strong>{r.employeeName}:</strong> {r.detail}
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>

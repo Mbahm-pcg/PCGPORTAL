@@ -21238,7 +21238,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.18";
+  var APP_VERSION = "v20.19";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25511,6 +25511,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [cardIndex, setCardIndex] = useState(0);
     const [approvedCards, setApprovedCards] = useState([]);
     const [payRates, setPayRates] = useState({});
+    const [submitResult, setSubmitResult] = useState(null);
     const load = async () => {
       if (!weekStart) return;
       setLoading(true);
@@ -25591,6 +25592,65 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setApprovedCards((prev) => [...prev, { ...currentCard, shifts: updatedShifts }]);
       setCardIndex((i) => i + 1);
     };
+    const handleSendToPaycor = async () => {
+      const cardsToSend = approvedCards.filter((c) => (c.shifts || []).length > 0);
+      if (cardsToSend.length === 0) {
+        setSubmitResult({ running: false, results: [] });
+        return;
+      }
+      setSubmitResult({ running: true, results: [] });
+      const shifts = [];
+      cardsToSend.forEach((c) => {
+        c.shifts.forEach((s) => {
+          const dayDate = /* @__PURE__ */ new Date(weekStart + "T00:00:00Z");
+          dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
+          const dateStr = dayDate.toISOString().slice(0, 10);
+          shifts.push({
+            employeeId: c.employeeId,
+            scheduleGroupId: c.scheduleGroupId,
+            schedulingJobId: c.schedulingJobId,
+            departmentId: c.departmentId,
+            startDateTime: `${dateStr}T${s.startTime}:00Z`,
+            endDateTime: `${dateStr}T${s.endTime}:00Z`,
+            isPublished: true,
+            // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is a
+            // caller-generated GUID, not a lookup value — one per shift, unique
+            // within the batch (same pattern as processId used elsewhere in
+            // this codebase). See Task 1's corrected script for the source.
+            shiftModelId: crypto.randomUUID(),
+            _employeeName: c.employeeName
+            // stripped before sending, kept for result mapping
+          });
+        });
+      });
+      try {
+        const res = await fetch("/.netlify/functions/paycor", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({
+            action: "createSchedulingShifts",
+            legalEntityId: store.paycor,
+            shifts: shifts.map(({ _employeeName, ...s }) => s),
+            ignoreWarnings: true
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setSubmitResult({ running: false, results: [{ employeeId: null, employeeName: "All", status: "error", detail: data?.error || `Request failed (${res.status})` }] });
+          return;
+        }
+        const returned = data?.shifts || data || [];
+        const results = shifts.map((s, i) => {
+          const r = returned[i] || {};
+          const ok = !!r.shiftId && !(r.warningsOrErrors && r.warningsOrErrors.some((w) => w.severity === "Error"));
+          return { employeeId: s.employeeId, employeeName: s._employeeName, status: ok ? "ok" : "error", detail: ok ? `Shift ${SCHEDULE_DOW[Math.round((new Date(s.startDateTime) - /* @__PURE__ */ new Date(weekStart + "T00:00:00Z")) / 864e5)]} created` : JSON.stringify(r.warningsOrErrors || r) };
+        });
+        setSubmitResult({ running: false, results });
+      } catch (e) {
+        setSubmitResult({ running: false, results: [{ employeeId: null, employeeName: "All", status: "error", detail: e.message || "Request failed" }] });
+      }
+    };
     if (mode === "view") {
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Load week")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: cards.filter((c) => (c.shifts || []).length > 0), th }));
     }
@@ -25605,7 +25665,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         await navigator.clipboard.writeText(text);
         alert("Copied to clipboard");
       }
-    }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy"))));
+    }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: handleSendToPaycor, disabled: submitResult?.running, style: { ...btn(th, { background: "#FF671F" }), opacity: submitResult?.running ? 0.6 : 1 } }, submitResult?.running ? "Sending\u2026" : "Send to Paycor")), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
     const [activeTab, setActiveTab] = useState("hourly");
