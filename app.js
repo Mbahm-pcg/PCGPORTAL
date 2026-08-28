@@ -21246,7 +21246,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.28";
+  var APP_VERSION = "v20.29";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25693,6 +25693,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [payRates, setPayRates] = useState({});
     const [openShiftGroups, setOpenShiftGroups] = useState([]);
     const [submitResult, setSubmitResult] = useState(null);
+    const [showBuildPreview, setShowBuildPreview] = useState(false);
     const load = async () => {
       if (!weekStart) return;
       setLoading(true);
@@ -25859,7 +25860,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           alert("Copied to clipboard");
         }
       }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleSendToPaycor(cards), disabled: submitResult?.running || allSent, style: { ...btn(th, { background: "#FF671F" }), opacity: submitResult?.running || allSent ? 0.6 : 1 } }, submitResult?.running ? "Sending\u2026" : allSent ? "Sent" : "Send to Paycor")), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail))));
-    })(), cards && !isDesktop && !allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, "Employee ", cardIndex + 1, " of ", cards.length), /* @__PURE__ */ React.createElement(
+    })(), cards && !isDesktop && !allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, "Employee ", cardIndex + 1, " of ", cards.length), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowBuildPreview((v) => !v), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.75rem", marginBottom: "0.8rem" } }, showBuildPreview ? "Hide preview" : "Preview schedule so far"), showBuildPreview && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, approvedCards.filter((c) => (c.shifts || []).length > 0).length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "No employees approved yet \u2014 the preview fills in as you go.") : /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: approvedCards.filter((c) => (c.shifts || []).length > 0), th, openShiftGroups: [] })), /* @__PURE__ */ React.createElement(
       EmployeeScheduleCard,
       {
         card: currentCard,

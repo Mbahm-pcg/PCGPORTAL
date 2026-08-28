@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.28";
+const APP_VERSION = "v20.29";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32893,6 +32893,7 @@ function ScheduleBuilder({ store, th, mode }) {
   const [payRates, setPayRates] = useState({});
   const [openShiftGroups, setOpenShiftGroups] = useState([]);
   const [submitResult, setSubmitResult] = useState(null); // null | { running, results: [{employeeId, employeeName, status, detail}] }
+  const [showBuildPreview, setShowBuildPreview] = useState(false);
 
   const load = async () => {
     if (!weekStart) return;
@@ -33175,6 +33176,17 @@ function ScheduleBuilder({ store, th, mode }) {
         <>
           <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
           <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.6rem' }}>Employee {cardIndex + 1} of {cards.length}</div>
+          <button onClick={() => setShowBuildPreview(v => !v)} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.75rem', marginBottom: '0.8rem' }}>
+            {showBuildPreview ? 'Hide preview' : 'Preview schedule so far'}
+          </button>
+          {showBuildPreview && (
+            <div style={{ marginBottom: '1rem' }}>
+              {approvedCards.filter(c => (c.shifts || []).length > 0).length === 0
+                ? <div style={{ fontSize: '0.78rem', color: th.muted, fontStyle: 'italic' }}>No employees approved yet — the preview fills in as you go.</div>
+                : <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={[]} />
+              }
+            </div>
+          )}
           <EmployeeScheduleCard
             card={currentCard} th={th} onApprove={handleApprove} onSave={handleSave}
             otherEmployees={cards.filter(c => c.employeeId !== currentCard.employeeId).map(c => {
