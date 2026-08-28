@@ -26140,7 +26140,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.24";
+const APP_VERSION = "v20.25";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32463,6 +32463,28 @@ function scheduleBuildShareText(weekStartISO, approvedCards) {
   return lines.join('\n');
 }
 
+const SCHEDULE_DESKTOP_BREAKPOINT = 1024;
+
+// Picks the Schedule Builder's editing surface by viewport width, live —
+// the same manager sees the grid on a store Chromebook and the card stack
+// on their phone, with no separate setting to maintain.
+function useIsDesktopViewport() {
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= SCHEDULE_DESKTOP_BREAKPOINT : true
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mql = window.matchMedia(`(min-width: ${SCHEDULE_DESKTOP_BREAKPOINT}px)`);
+    const onChange = (e) => setIsDesktop(e.matches);
+    setIsDesktop(mql.matches);
+    if (mql.addEventListener) mql.addEventListener('change', onChange); else mql.addListener(onChange);
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener('change', onChange); else mql.removeListener(onChange);
+    };
+  }, []);
+  return isDesktop;
+}
+
 const SCHEDULE_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // Employee-rows x day-columns weekly grid, matching the visual shape of
@@ -32550,6 +32572,89 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
               </tr>
             );
           })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Directly-editable version of WeeklyScheduleGrid's visual shape, used only
+// at desktop/Chromebook widths (see useIsDesktopViewport). Unlike
+// WeeklyScheduleGrid (pure rendering, no edit state), this component owns
+// hover-driven Edit/Copy/Cut/Paste (Tasks 3-4) and reports every change back
+// to the parent via onCardsChange — ScheduleBuilder still owns `cards`.
+// Shows every employee, including ones with zero shifts (an empty row to
+// build into), unlike the read-only grid which filters those out.
+function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShiftGroups }) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const dayDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setUTCDate(d.getUTCDate() + i);
+    return d;
+  });
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: '0.5rem', borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: 'sticky', left: 0, background: th.bg }}>Employee</th>
+            {dayDates.map((d, i) => (
+              <th key={i} style={{ textAlign: 'center', padding: '0.5rem', borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 150 }}>
+                {SCHEDULE_DOW[i]}, {d.getUTCMonth() + 1}/{d.getUTCDate()}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {cards.map(card => {
+            const totalHours = (card.shifts || []).reduce((sum, sh) => {
+              const [sh1, sm1] = sh.startTime.split(':').map(Number);
+              const [sh2, sm2] = sh.endTime.split(':').map(Number);
+              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+              if (mins < 0) mins += 1440;
+              return sum + mins / 60;
+            }, 0);
+            return (
+              <tr key={card.employeeId} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                <td style={{ padding: '0.5rem', color: th.text, fontWeight: 600, position: 'sticky', left: 0, background: th.bg }}>
+                  {card.employeeName}
+                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400 }}>{Math.round(totalHours * 10) / 10}h</div>
+                </td>
+                {dayDates.map((_, dayOffset) => {
+                  const shift = (card.shifts || []).find(sh => sh.dayOffset === dayOffset);
+                  return (
+                    <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center', position: 'relative' }}>
+                      {shift && (
+                        <div style={{ background: '#FF671F18', border: '1px solid #FF671F55', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.text }}>
+                          {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+          {(openShiftGroups || []).map(og => (
+            <tr key={'open-' + og.jobTitle} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+              <td style={{ padding: '0.5rem', color: th.muted, fontWeight: 600, fontStyle: 'italic', position: 'sticky', left: 0, background: th.bg }}>
+                Open — {og.jobTitle}
+              </td>
+              {dayDates.map((_, dayOffset) => {
+                const shift = (og.shifts || []).find(sh => sh.dayOffset === dayOffset);
+                return (
+                  <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
+                    {shift && (
+                      <div style={{ background: '#94a3b81a', border: '1px dashed #94a3b8aa', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.muted }}>
+                        {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+                      </div>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -32885,6 +32990,8 @@ function ScheduleBuilder({ store, th, mode }) {
     );
   }
 
+  const isDesktop = useIsDesktopViewport();
+
   return (
     <div>
       {!cards && (
@@ -32896,7 +33003,39 @@ function ScheduleBuilder({ store, th, mode }) {
       )}
       {error && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
 
-      {cards && !allCardsDone && (
+      {cards && isDesktop && (() => {
+        const desktopTotal = scheduleComputeWeeklyTotal(cards, payRates);
+        const allSent = submitResult && !submitResult.running && submitResult.results.length > 0 && submitResult.results.every(r => r.status === 'ok');
+        return (
+          <>
+            <RunningLaborHeader weeklyTotal={desktopTotal} projectedSales={0} th={th} />
+            <EditableScheduleGrid weekStartISO={weekStart} cards={cards} onCardsChange={setCards} th={th} openShiftGroups={openShiftGroups} />
+            <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
+              <button onClick={async () => {
+                const text = scheduleBuildShareText(weekStart, cards);
+                if (navigator.share) { try { await navigator.share({ text }); } catch (e) { /* user cancelled — not an error */ } }
+                else { await navigator.clipboard.writeText(text); alert('Copied to clipboard'); }
+              }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>
+                {typeof navigator !== 'undefined' && navigator.share ? 'Share' : 'Copy'}
+              </button>
+              <button onClick={() => { setApprovedCards(cards.filter(c => (c.shifts || []).length > 0)); handleSendToPaycor(); }} disabled={submitResult?.running || allSent} style={{ ...btn(th, { background: '#FF671F' }), opacity: (submitResult?.running || allSent) ? 0.6 : 1 }}>
+                {submitResult?.running ? 'Sending…' : allSent ? 'Sent' : 'Send to Paycor'}
+              </button>
+            </div>
+            {submitResult && !submitResult.running && (
+              <div style={{ marginTop: '1rem' }}>
+                {submitResult.results.map((r, i) => (
+                  <div key={i} style={{ fontSize: '0.78rem', color: r.status === 'ok' ? '#16a34a' : '#ef4444', marginBottom: '0.3rem' }}>
+                    <strong>{r.employeeName}:</strong> {r.detail}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
+
+      {cards && !isDesktop && !allCardsDone && (
         <>
           <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
           <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.6rem' }}>Employee {cardIndex + 1} of {cards.length}</div>
@@ -32904,7 +33043,7 @@ function ScheduleBuilder({ store, th, mode }) {
         </>
       )}
 
-      {cards && allCardsDone && (
+      {cards && !isDesktop && allCardsDone && (
         <>
           <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
           <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, margin: '1rem 0 0.6rem' }}>Final review</div>
