@@ -32605,15 +32605,22 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
 
   const handleCopy = (employeeId, shift) => setClipboard({ shift, sourceEmployeeId: employeeId, mode: 'copy' });
   const handleCut = (employeeId, shift) => {
-    onCardsChange(removeShiftFromEmployee(cards, employeeId, shift));
+    // Deferred removal: don't touch `cards` yet. The shift stays visible in
+    // its original cell until a paste actually succeeds elsewhere — Escape,
+    // starting a new Copy/Cut, or unmounting (breakpoint change) before that
+    // point must be lossless no-ops, so removal only happens in handlePaste.
     setClipboard({ shift, sourceEmployeeId: employeeId, mode: 'cut' });
   };
   const handlePaste = (targetEmployeeId, targetDayOffset) => {
     if (!clipboard) return;
     const pasted = { ...clipboard.shift, dayOffset: targetDayOffset };
-    onCardsChange(addShiftToEmployee(cards, targetEmployeeId, pasted));
-    if (clipboard.mode === 'cut') setClipboard(null); // move semantics: one-shot
-    // copy semantics: clipboard stays, pasteable again elsewhere
+    if (clipboard.mode === 'cut') {
+      onCardsChange(addShiftToEmployee(removeShiftFromEmployee(cards, clipboard.sourceEmployeeId, clipboard.shift), targetEmployeeId, pasted));
+      setClipboard(null); // move semantics: one-shot
+    } else {
+      onCardsChange(addShiftToEmployee(cards, targetEmployeeId, pasted));
+      // copy semantics: clipboard stays, pasteable again elsewhere
+    }
   };
 
   return (

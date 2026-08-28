@@ -25583,14 +25583,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, []);
     const handleCopy = (employeeId, shift) => setClipboard({ shift, sourceEmployeeId: employeeId, mode: "copy" });
     const handleCut = (employeeId, shift) => {
-      onCardsChange(removeShiftFromEmployee(cards, employeeId, shift));
       setClipboard({ shift, sourceEmployeeId: employeeId, mode: "cut" });
     };
     const handlePaste = (targetEmployeeId, targetDayOffset) => {
       if (!clipboard) return;
       const pasted = { ...clipboard.shift, dayOffset: targetDayOffset };
-      onCardsChange(addShiftToEmployee(cards, targetEmployeeId, pasted));
-      if (clipboard.mode === "cut") setClipboard(null);
+      if (clipboard.mode === "cut") {
+        onCardsChange(addShiftToEmployee(removeShiftFromEmployee(cards, clipboard.sourceEmployeeId, clipboard.shift), targetEmployeeId, pasted));
+        setClipboard(null);
+      } else {
+        onCardsChange(addShiftToEmployee(cards, targetEmployeeId, pasted));
+      }
     };
     return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: "sticky", left: 0, background: th.bg } }, "Employee"), dayDates.map((d, i) => /* @__PURE__ */ React.createElement("th", { key: i, style: { textAlign: "center", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 150 } }, SCHEDULE_DOW[i], ", ", d.getUTCMonth() + 1, "/", d.getUTCDate())))), /* @__PURE__ */ React.createElement("tbody", null, cards.map((card2) => {
       const totalHours = (card2.shifts || []).reduce((sum, sh) => {
