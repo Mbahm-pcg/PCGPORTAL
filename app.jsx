@@ -8,6 +8,7 @@ import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, po
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
+import { removeShiftFromEmployee, addShiftToEmployee } from './src/schedule-grid.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -26140,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.25";
+const APP_VERSION = "v20.26";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32593,6 +32594,28 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
     return d;
   });
 
+  const [hoveredCell, setHoveredCell] = useState(null); // { employeeId, dayOffset } | null
+  const [clipboard, setClipboard] = useState(null); // { shift, sourceEmployeeId, mode: 'copy' | 'cut' } | null
+
+  useEffect(() => {
+    const onKeyDown = (e) => { if (e.key === 'Escape') setClipboard(null); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const handleCopy = (employeeId, shift) => setClipboard({ shift, sourceEmployeeId: employeeId, mode: 'copy' });
+  const handleCut = (employeeId, shift) => {
+    onCardsChange(removeShiftFromEmployee(cards, employeeId, shift));
+    setClipboard({ shift, sourceEmployeeId: employeeId, mode: 'cut' });
+  };
+  const handlePaste = (targetEmployeeId, targetDayOffset) => {
+    if (!clipboard) return;
+    const pasted = { ...clipboard.shift, dayOffset: targetDayOffset };
+    onCardsChange(addShiftToEmployee(cards, targetEmployeeId, pasted));
+    if (clipboard.mode === 'cut') setClipboard(null); // move semantics: one-shot
+    // copy semantics: clipboard stays, pasteable again elsewhere
+  };
+
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
@@ -32623,12 +32646,24 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
                 </td>
                 {dayDates.map((_, dayOffset) => {
                   const shift = (card.shifts || []).find(sh => sh.dayOffset === dayOffset);
+                  const isHovered = hoveredCell && hoveredCell.employeeId === card.employeeId && hoveredCell.dayOffset === dayOffset;
                   return (
-                    <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center', position: 'relative' }}>
+                    <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center', position: 'relative' }}
+                        onMouseEnter={() => setHoveredCell({ employeeId: card.employeeId, dayOffset })}
+                        onMouseLeave={() => setHoveredCell(null)}>
                       {shift && (
-                        <div style={{ background: '#FF671F18', border: '1px solid #FF671F55', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.text }}>
+                        <div style={{ background: '#FF671F18', border: '1px solid #FF671F55', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.text, position: 'relative' }}>
                           {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+                          {isHovered && (
+                            <div style={{ display: 'flex', gap: '0.2rem', justifyContent: 'center', marginTop: '0.25rem' }}>
+                              <button onClick={() => handleCopy(card.employeeId, shift)} title="Copy" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Copy</button>
+                              <button onClick={() => handleCut(card.employeeId, shift)} title="Cut" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Cut</button>
+                            </div>
+                          )}
                         </div>
+                      )}
+                      {!shift && isHovered && clipboard && (
+                        <button onClick={() => handlePaste(card.employeeId, dayOffset)} style={{ ...btn(th, { background: '#1B8F5C' }), fontSize: '0.68rem', padding: '0.2rem 0.5rem' }}>Paste</button>
                       )}
                     </td>
                   );

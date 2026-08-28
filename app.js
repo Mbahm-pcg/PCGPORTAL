@@ -1179,6 +1179,14 @@
     return date < shiftDate(todayStr, -ARCHIVAL_THRESHOLD_DAYS);
   }
 
+  // src/schedule-grid.mjs
+  function removeShiftFromEmployee(list, employeeId, shift) {
+    return list.map((c) => c.employeeId === employeeId ? { ...c, shifts: c.shifts.filter((s) => s !== shift) } : c);
+  }
+  function addShiftToEmployee(list, employeeId, shift) {
+    return list.map((c) => c.employeeId === employeeId ? { ...c, shifts: [...c.shifts, shift] } : c);
+  }
+
   // app.jsx
   var { useState, useRef, useCallback, useEffect } = React;
   var Guard = class extends React.Component {
@@ -21238,7 +21246,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.25";
+  var APP_VERSION = "v20.26";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25564,6 +25572,26 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setUTCDate(d.getUTCDate() + i);
       return d;
     });
+    const [hoveredCell, setHoveredCell] = useState(null);
+    const [clipboard, setClipboard] = useState(null);
+    useEffect(() => {
+      const onKeyDown = (e) => {
+        if (e.key === "Escape") setClipboard(null);
+      };
+      window.addEventListener("keydown", onKeyDown);
+      return () => window.removeEventListener("keydown", onKeyDown);
+    }, []);
+    const handleCopy = (employeeId, shift) => setClipboard({ shift, sourceEmployeeId: employeeId, mode: "copy" });
+    const handleCut = (employeeId, shift) => {
+      onCardsChange(removeShiftFromEmployee(cards, employeeId, shift));
+      setClipboard({ shift, sourceEmployeeId: employeeId, mode: "cut" });
+    };
+    const handlePaste = (targetEmployeeId, targetDayOffset) => {
+      if (!clipboard) return;
+      const pasted = { ...clipboard.shift, dayOffset: targetDayOffset };
+      onCardsChange(addShiftToEmployee(cards, targetEmployeeId, pasted));
+      if (clipboard.mode === "cut") setClipboard(null);
+    };
     return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: "sticky", left: 0, background: th.bg } }, "Employee"), dayDates.map((d, i) => /* @__PURE__ */ React.createElement("th", { key: i, style: { textAlign: "center", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 150 } }, SCHEDULE_DOW[i], ", ", d.getUTCMonth() + 1, "/", d.getUTCDate())))), /* @__PURE__ */ React.createElement("tbody", null, cards.map((card2) => {
       const totalHours = (card2.shifts || []).reduce((sum, sh) => {
         const [sh1, sm1] = sh.startTime.split(":").map(Number);
@@ -25574,7 +25602,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }, 0);
       return /* @__PURE__ */ React.createElement("tr", { key: card2.employeeId, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem", color: th.text, fontWeight: 600, position: "sticky", left: 0, background: th.bg } }, card2.employeeName, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 400 } }, Math.round(totalHours * 10) / 10, "h")), dayDates.map((_, dayOffset) => {
         const shift = (card2.shifts || []).find((sh) => sh.dayOffset === dayOffset);
-        return /* @__PURE__ */ React.createElement("td", { key: dayOffset, style: { padding: "0.35rem", textAlign: "center", position: "relative" } }, shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime)));
+        const isHovered = hoveredCell && hoveredCell.employeeId === card2.employeeId && hoveredCell.dayOffset === dayOffset;
+        return /* @__PURE__ */ React.createElement(
+          "td",
+          {
+            key: dayOffset,
+            style: { padding: "0.35rem", textAlign: "center", position: "relative" },
+            onMouseEnter: () => setHoveredCell({ employeeId: card2.employeeId, dayOffset }),
+            onMouseLeave: () => setHoveredCell(null)
+          },
+          shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text, position: "relative" } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime), isHovered && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.2rem", justifyContent: "center", marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleCopy(card2.employeeId, shift), title: "Copy", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCut(card2.employeeId, shift), title: "Cut", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Cut"))),
+          !shift && isHovered && clipboard && /* @__PURE__ */ React.createElement("button", { onClick: () => handlePaste(card2.employeeId, dayOffset), style: { ...btn(th, { background: "#1B8F5C" }), fontSize: "0.68rem", padding: "0.2rem 0.5rem" } }, "Paste")
+        );
       }));
     }), (openShiftGroups || []).map((og) => /* @__PURE__ */ React.createElement("tr", { key: "open-" + og.jobTitle, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem", color: th.muted, fontWeight: 600, fontStyle: "italic", position: "sticky", left: 0, background: th.bg } }, "Open \u2014 ", og.jobTitle), dayDates.map((_, dayOffset) => {
       const shift = (og.shifts || []).find((sh) => sh.dayOffset === dayOffset);
