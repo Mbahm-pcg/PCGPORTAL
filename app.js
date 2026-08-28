@@ -21238,7 +21238,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.22";
+  var APP_VERSION = "v20.23";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25436,6 +25436,23 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     });
     return byEmployee;
   }
+  var SCHEDULE_OPEN_SHIFT_SENTINEL = "00000000-0000-0000-0000-000000000000";
+  function scheduleGroupOpenShiftsByJob(shiftRecords, weekStartISO) {
+    const weekStart = /* @__PURE__ */ new Date(weekStartISO + "T00:00:00Z");
+    const byJob = {};
+    (shiftRecords || []).forEach((s) => {
+      if (s.employeeId !== SCHEDULE_OPEN_SHIFT_SENTINEL && s.employeeName) return;
+      const startET = scheduleUtcToEastern(s.startDateTime);
+      const endET = scheduleUtcToEastern(s.endDateTime);
+      const startDateUTC = /* @__PURE__ */ new Date(startET.dateStr + "T00:00:00Z");
+      const dayOffset = Math.round((startDateUTC - weekStart) / 864e5);
+      const fmt = (et) => `${String(et.hh).padStart(2, "0")}:${String(et.mm).padStart(2, "0")}`;
+      const jobName = s.schedulingJobName || "Open Shift";
+      if (!byJob[jobName]) byJob[jobName] = [];
+      byJob[jobName].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET) });
+    });
+    return Object.entries(byJob).map(([jobTitle, shifts]) => ({ jobTitle, shifts: shifts.filter((s) => s.dayOffset >= 0 && s.dayOffset <= 6) }));
+  }
   function scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee) {
     const sameTitle = (employees || []).find((e) => e.positionData?.jobTitle === jobTitle && shiftsByEmployee[e.id]?.length);
     if (sameTitle) {
@@ -25488,7 +25505,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return lines.join("\n");
   }
   var SCHEDULE_DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  function WeeklyScheduleGrid({ weekStartISO, cards, th }) {
+  function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
     const weekStart = /* @__PURE__ */ new Date(weekStartISO + "T00:00:00Z");
     const dayDates = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(weekStart);
@@ -25506,6 +25523,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return /* @__PURE__ */ React.createElement("tr", { key: card2.employeeId, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem", color: th.text, fontWeight: 600, position: "sticky", left: 0, background: th.bg } }, card2.employeeName, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 400 } }, Math.round(totalHours * 10) / 10, "h")), dayDates.map((_, dayOffset) => {
         const shift = (card2.shifts || []).find((sh) => sh.dayOffset === dayOffset);
         return /* @__PURE__ */ React.createElement("td", { key: dayOffset, style: { padding: "0.35rem", textAlign: "center" } }, shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime)));
+      }));
+    }), (openShiftGroups || []).map((og) => {
+      const totalHours = (og.shifts || []).reduce((sum, sh) => {
+        const [sh1, sm1] = sh.startTime.split(":").map(Number);
+        const [sh2, sm2] = sh.endTime.split(":").map(Number);
+        let mins = sh2 * 60 + sm2 - (sh1 * 60 + sm1);
+        if (mins < 0) mins += 1440;
+        return sum + mins / 60;
+      }, 0);
+      return /* @__PURE__ */ React.createElement("tr", { key: "open-" + og.jobTitle, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem", color: th.muted, fontWeight: 600, fontStyle: "italic", position: "sticky", left: 0, background: th.bg } }, "Open \u2014 ", og.jobTitle, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 400, fontStyle: "normal" } }, Math.round(totalHours * 10) / 10, "h unfilled")), dayDates.map((_, dayOffset) => {
+        const shift = (og.shifts || []).find((sh) => sh.dayOffset === dayOffset);
+        return /* @__PURE__ */ React.createElement("td", { key: dayOffset, style: { padding: "0.35rem", textAlign: "center" } }, shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#94a3b81a", border: "1px dashed #94a3b8aa", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.muted } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime)));
       }));
     }))));
   }
@@ -25549,6 +25578,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [cardIndex, setCardIndex] = useState(0);
     const [approvedCards, setApprovedCards] = useState([]);
     const [payRates, setPayRates] = useState({});
+    const [openShiftGroups, setOpenShiftGroups] = useState([]);
     const [submitResult, setSubmitResult] = useState(null);
     const load = async () => {
       if (!weekStart) return;
@@ -25577,6 +25607,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
         const employees = (empData.records || []).filter((e) => e?.statusData?.status === "Active");
         const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], groupingAnchor);
+        setOpenShiftGroups(scheduleGroupOpenShiftsByJob(shiftData.records || [], groupingAnchor));
         const rates = {};
         await Promise.all(employees.map(async (e) => {
           try {
@@ -25693,9 +25724,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
     };
     if (mode === "view") {
-      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Load week")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: cards.filter((c) => (c.shifts || []).length > 0), th }));
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Load week")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: cards.filter((c) => (c.shifts || []).length > 0), th, openShiftGroups }));
     }
-    return /* @__PURE__ */ React.createElement("div", null, !cards && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.35rem" } }, "Week start (Sunday)"), /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Start building")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && !allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, "Employee ", cardIndex + 1, " of ", cards.length), /* @__PURE__ */ React.createElement(EmployeeScheduleCard, { card: currentCard, th, onApprove: handleApprove, onSave: handleSave })), cards && allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, margin: "1rem 0 0.6rem" } }, "Final review"), /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: approvedCards.filter((c) => (c.shifts || []).length > 0), th }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: async () => {
+    return /* @__PURE__ */ React.createElement("div", null, !cards && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.35rem" } }, "Week start (Sunday)"), /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Start building")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && !allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, "Employee ", cardIndex + 1, " of ", cards.length), /* @__PURE__ */ React.createElement(EmployeeScheduleCard, { card: currentCard, th, onApprove: handleApprove, onSave: handleSave })), cards && allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, margin: "1rem 0 0.6rem" } }, "Final review"), /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: approvedCards.filter((c) => (c.shifts || []).length > 0), th, openShiftGroups }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: async () => {
       const text = scheduleBuildShareText(weekStart, approvedCards);
       if (navigator.share) {
         try {

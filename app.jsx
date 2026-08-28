@@ -26140,7 +26140,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.22";
+const APP_VERSION = "v20.23";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32355,6 +32355,33 @@ function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
   return byEmployee;
 }
 
+// Paycor represents an unassigned "Open Shift" (posted by job role, no
+// specific employee yet) with employeeId "00000000-0000-...-000000000000"
+// and employeeName null (confirmed live 2026-08-28 against real Bustleton
+// data: 14 of 89 real shifts that week were open coverage for "Store
+// Managers"/"Crew Member" — visible in Paycor's own Schedules UI as a
+// distinct "Open Shifts" row, but invisible in this app since
+// scheduleGroupShiftsByEmployee only matches real employeeIds). Groups
+// these separately, by job title, so they can be shown as their own rows
+// instead of silently disappearing.
+const SCHEDULE_OPEN_SHIFT_SENTINEL = '00000000-0000-0000-0000-000000000000';
+function scheduleGroupOpenShiftsByJob(shiftRecords, weekStartISO) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const byJob = {};
+  (shiftRecords || []).forEach(s => {
+    if (s.employeeId !== SCHEDULE_OPEN_SHIFT_SENTINEL && s.employeeName) return;
+    const startET = scheduleUtcToEastern(s.startDateTime);
+    const endET = scheduleUtcToEastern(s.endDateTime);
+    const startDateUTC = new Date(startET.dateStr + 'T00:00:00Z');
+    const dayOffset = Math.round((startDateUTC - weekStart) / 86400000);
+    const fmt = (et) => `${String(et.hh).padStart(2, '0')}:${String(et.mm).padStart(2, '0')}`;
+    const jobName = s.schedulingJobName || 'Open Shift';
+    if (!byJob[jobName]) byJob[jobName] = [];
+    byJob[jobName].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET) });
+  });
+  return Object.entries(byJob).map(([jobTitle, shifts]) => ({ jobTitle, shifts: shifts.filter(s => s.dayOffset >= 0 && s.dayOffset <= 6) }));
+}
+
 // A new employee (no shifts last week) has no schedulingJobId/scheduleGroupId/
 // departmentId to reuse. Paycor doesn't expose a live job lookup (the "View
 // Legal Entity Scheduling Jobs" Data Access scope isn't enabled), so this
@@ -32437,7 +32464,7 @@ const SCHEDULE_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // Paycor's own native Schedules view (confirmed via screenshot during
 // design) but styled with this app's own theme instead of Paycor's colors.
 // Pure rendering only — no edit state lives here even in 'build' mode.
-function WeeklyScheduleGrid({ weekStartISO, cards, th }) {
+function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
   const weekStart = new Date(weekStartISO + 'T00:00:00Z');
   const dayDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
@@ -32480,6 +32507,35 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th }) {
                     <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
                       {shift && (
                         <div style={{ background: '#FF671F18', border: '1px solid #FF671F55', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.text }}>
+                          {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+          {(openShiftGroups || []).map(og => {
+            const totalHours = (og.shifts || []).reduce((sum, sh) => {
+              const [sh1, sm1] = sh.startTime.split(':').map(Number);
+              const [sh2, sm2] = sh.endTime.split(':').map(Number);
+              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+              if (mins < 0) mins += 1440;
+              return sum + mins / 60;
+            }, 0);
+            return (
+              <tr key={'open-' + og.jobTitle} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                <td style={{ padding: '0.5rem', color: th.muted, fontWeight: 600, fontStyle: 'italic', position: 'sticky', left: 0, background: th.bg }}>
+                  Open — {og.jobTitle}
+                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400, fontStyle: 'normal' }}>{Math.round(totalHours * 10) / 10}h unfilled</div>
+                </td>
+                {dayDates.map((_, dayOffset) => {
+                  const shift = (og.shifts || []).find(sh => sh.dayOffset === dayOffset);
+                  return (
+                    <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
+                      {shift && (
+                        <div style={{ background: '#94a3b81a', border: '1px dashed #94a3b8aa', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.muted }}>
                           {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
                         </div>
                       )}
@@ -32608,6 +32664,7 @@ function ScheduleBuilder({ store, th, mode }) {
   const [cardIndex, setCardIndex] = useState(0);
   const [approvedCards, setApprovedCards] = useState([]);
   const [payRates, setPayRates] = useState({});
+  const [openShiftGroups, setOpenShiftGroups] = useState([]);
   const [submitResult, setSubmitResult] = useState(null); // null | { running, results: [{employeeId, employeeName, status, detail}] }
 
   const load = async () => {
@@ -32648,6 +32705,7 @@ function ScheduleBuilder({ store, th, mode }) {
       // for every shift (100% outside the 0-6 range every downstream
       // renderer expects), silently breaking every pre-filled card.
       const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], groupingAnchor);
+      setOpenShiftGroups(scheduleGroupOpenShiftsByJob(shiftData.records || [], groupingAnchor));
 
       const rates = {};
       await Promise.all(employees.map(async (e) => {
@@ -32817,7 +32875,7 @@ function ScheduleBuilder({ store, th, mode }) {
           <button onClick={load} disabled={!weekStart || loading} style={{ ...btn(th), marginLeft: '0.6rem', opacity: (!weekStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Load week'}</button>
         </div>
         {error && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
-        {cards && <WeeklyScheduleGrid weekStartISO={weekStart} cards={cards.filter(c => (c.shifts || []).length > 0)} th={th} />}
+        {cards && <WeeklyScheduleGrid weekStartISO={weekStart} cards={cards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} />}
       </div>
     );
   }
@@ -32845,7 +32903,7 @@ function ScheduleBuilder({ store, th, mode }) {
         <>
           <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
           <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, margin: '1rem 0 0.6rem' }}>Final review</div>
-          <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} />
+          <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} />
           <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
             <button onClick={async () => {
               const text = scheduleBuildShareText(weekStart, approvedCards);
