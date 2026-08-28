@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.27";
+const APP_VERSION = "v20.28";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32783,8 +32783,12 @@ function RunningLaborHeader({ weeklyTotal, projectedSales, th }) {
 // final batched submission — see Task 9). Prop is named cardData (not
 // card) since `card` is already the src/theme.js style helper used
 // elsewhere in this file.
-function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
-  const [editing, setEditing] = useState(false);
+function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave, otherEmployees = [], onReassign, startInEdit = false }) {
+  // startInEdit: unused by this task — added now so Task 7 (reopening a
+  // specific employee's card from Final Review) can drop straight into the
+  // edit view without a behavior change here (default false preserves the
+  // existing "starts on the read-only summary" behavior).
+  const [editing, setEditing] = useState(startInEdit);
   const [draftShifts, setDraftShifts] = useState(cardData.shifts || []);
 
   const updateShift = (idx, field, value) => {
@@ -32828,16 +32832,40 @@ function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
 
       {editing && (
         <>
-          {draftShifts.map((s, i) => (
-            <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.4rem' }}>
-              <select value={s.dayOffset} onChange={e => updateShift(i, 'dayOffset', Number(e.target.value))} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }}>
-                {SCHEDULE_DOW.map((d, di) => <option key={di} value={di}>{d}</option>)}
-              </select>
-              <input type="time" value={s.startTime} onChange={e => updateShift(i, 'startTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
-              <input type="time" value={s.endTime} onChange={e => updateShift(i, 'endTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
-              <button onClick={() => removeShift(i)} style={{ ...btn(th, { background: '#ef444422', color: '#ef4444' }), padding: '0.25rem 0.5rem' }}>✕</button>
-            </div>
-          ))}
+          {draftShifts.map((s, i) => {
+            // Same-day-conflict guard (mirrors the desktop grid's Re-assign
+            // dropdown, Task 4): only offer employees who do NOT already
+            // have a shift on THIS row's day — the per-day cell lookup
+            // elsewhere in the app shows only the first matching shift for
+            // a given employee/day, so reassigning onto someone already
+            // scheduled that day would silently hide the moved shift while
+            // still inflating their total-hours calculation. Recomputed
+            // per-row (not once per card) since s.dayOffset can itself be
+            // changed via the day <select> below, and a card can hold
+            // shifts on several different days at once.
+            const validTargets = otherEmployees.filter(o => !(o.shifts || []).some(os => os.dayOffset === s.dayOffset));
+            return (
+              <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
+                <select value={s.dayOffset} onChange={e => updateShift(i, 'dayOffset', Number(e.target.value))} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }}>
+                  {SCHEDULE_DOW.map((d, di) => <option key={di} value={di}>{d}</option>)}
+                </select>
+                <input type="time" value={s.startTime} onChange={e => updateShift(i, 'startTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
+                <input type="time" value={s.endTime} onChange={e => updateShift(i, 'endTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
+                {validTargets.length > 0 && onReassign && (
+                  <select defaultValue="" onChange={e => {
+                    if (!e.target.value) return;
+                    onReassign(s, e.target.value);
+                    removeShift(i);
+                    e.target.value = '';
+                  }} style={{ ...inp(th), fontSize: '0.7rem', padding: '0.2rem' }}>
+                    <option value="" disabled>⇄ Move to...</option>
+                    {validTargets.map(o => <option key={o.employeeId} value={o.employeeId}>{o.employeeName}</option>)}
+                  </select>
+                )}
+                <button onClick={() => removeShift(i)} style={{ ...btn(th, { background: '#ef444422', color: '#ef4444' }), padding: '0.25rem 0.5rem' }}>✕</button>
+              </div>
+            );
+          })}
           <button onClick={addShift} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.75rem', marginBottom: '0.8rem' }}>+ Add shift</button>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button onClick={() => { onSave(draftShifts); setEditing(false); }} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Save & Continue</button>
@@ -32973,6 +33001,15 @@ function ScheduleBuilder({ store, th, mode }) {
   const handleSave = (updatedShifts) => {
     setApprovedCards(prev => [...prev, { ...currentCard, shifts: updatedShifts }]);
     setCardIndex(i => i + 1);
+  };
+  // Mobile card flow's "reassign to a different employee" action — targets
+  // whichever of cards/approvedCards currently holds the target employee (a
+  // no-op on the list that doesn't, per schedule-grid.mjs's contract), so
+  // it's correct whether the target has already been approved or hasn't
+  // been reached yet in the walk.
+  const handleReassign = (fromEmployeeId, shift, toEmployeeId) => {
+    setCards(prev => addShiftToEmployee(removeShiftFromEmployee(prev, fromEmployeeId, shift), toEmployeeId, shift));
+    setApprovedCards(prev => addShiftToEmployee(removeShiftFromEmployee(prev, fromEmployeeId, shift), toEmployeeId, shift));
   };
 
   // cardsOverride lets the desktop "Send to Paycor" button pass the
@@ -33138,7 +33175,20 @@ function ScheduleBuilder({ store, th, mode }) {
         <>
           <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
           <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.6rem' }}>Employee {cardIndex + 1} of {cards.length}</div>
-          <EmployeeScheduleCard card={currentCard} th={th} onApprove={handleApprove} onSave={handleSave} />
+          <EmployeeScheduleCard
+            card={currentCard} th={th} onApprove={handleApprove} onSave={handleSave}
+            otherEmployees={cards.filter(c => c.employeeId !== currentCard.employeeId).map(c => {
+              // Prefer the approved (finalized, possibly-edited) shift list
+              // for an employee already walked past in the card stack; fall
+              // back to the original pre-fill list for one not yet reached —
+              // this is what the per-shift same-day-conflict check below
+              // filters against, so it needs each candidate's CURRENT
+              // shifts, not just their id/name.
+              const approved = approvedCards.find(a => a.employeeId === c.employeeId);
+              return { employeeId: c.employeeId, employeeName: c.employeeName, shifts: (approved || c).shifts || [] };
+            })}
+            onReassign={(shift, toEmployeeId) => handleReassign(currentCard.employeeId, shift, toEmployeeId)}
+          />
         </>
       )}
 
