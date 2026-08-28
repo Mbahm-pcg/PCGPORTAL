@@ -26140,7 +26140,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.21";
+const APP_VERSION = "v20.22";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32723,8 +32723,14 @@ function ScheduleBuilder({ store, th, mode }) {
     if (cardsToSend.length === 0) { setSubmitResult({ running: false, results: [] }); return; }
     setSubmitResult({ running: true, results: [] });
 
-    const shifts = [];
-    cardsToSend.forEach(c => {
+    // The shift-building loop now lives inside this try (not before it) —
+    // a blank <input type="time"> (a manager clears a field) makes
+    // scheduleEasternToUtc throw on an Invalid Date, and that must surface
+    // as a real error instead of hanging the "Sending…" state forever with
+    // no feedback. Confirmed live 2026-08-28, during real production testing.
+    try {
+      const shifts = [];
+      cardsToSend.forEach(c => {
       c.shifts.forEach(s => {
         const dayDate = new Date(weekStart + 'T00:00:00Z');
         dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
@@ -32756,9 +32762,8 @@ function ScheduleBuilder({ store, th, mode }) {
           _employeeName: c.employeeName, // stripped before sending, kept for result mapping
         });
       });
-    });
+      });
 
-    try {
       // credentials:'include' + ...authHeader() — this is the FIRST call this
       // codebase makes to createSchedulingShifts, and the action is now gated
       // server-side (paycor.mjs, requireActiveUser + store-ownership check) —

@@ -21238,7 +21238,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.21";
+  var APP_VERSION = "v20.22";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25637,34 +25637,34 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return;
       }
       setSubmitResult({ running: true, results: [] });
-      const shifts = [];
-      cardsToSend.forEach((c) => {
-        c.shifts.forEach((s) => {
-          const dayDate = /* @__PURE__ */ new Date(weekStart + "T00:00:00Z");
-          dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
-          const dateStr = dayDate.toISOString().slice(0, 10);
-          const [startH, startM] = s.startTime.split(":").map(Number);
-          const [endH, endM] = s.endTime.split(":").map(Number);
-          const endDateStr = endH * 60 + endM < startH * 60 + startM ? new Date((/* @__PURE__ */ new Date(dateStr + "T00:00:00Z")).getTime() + 864e5).toISOString().slice(0, 10) : dateStr;
-          shifts.push({
-            employeeId: c.employeeId,
-            scheduleGroupId: c.scheduleGroupId,
-            schedulingJobId: c.schedulingJobId,
-            departmentId: c.departmentId,
-            startDateTime: scheduleEasternToUtc(dateStr, startH, startM),
-            endDateTime: scheduleEasternToUtc(endDateStr, endH, endM),
-            isPublished: true,
-            // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is a
-            // caller-generated GUID, not a lookup value — one per shift, unique
-            // within the batch (same pattern as processId used elsewhere in
-            // this codebase). See Task 1's corrected script for the source.
-            shiftModelId: crypto.randomUUID(),
-            _employeeName: c.employeeName
-            // stripped before sending, kept for result mapping
+      try {
+        const shifts = [];
+        cardsToSend.forEach((c) => {
+          c.shifts.forEach((s) => {
+            const dayDate = /* @__PURE__ */ new Date(weekStart + "T00:00:00Z");
+            dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
+            const dateStr = dayDate.toISOString().slice(0, 10);
+            const [startH, startM] = s.startTime.split(":").map(Number);
+            const [endH, endM] = s.endTime.split(":").map(Number);
+            const endDateStr = endH * 60 + endM < startH * 60 + startM ? new Date((/* @__PURE__ */ new Date(dateStr + "T00:00:00Z")).getTime() + 864e5).toISOString().slice(0, 10) : dateStr;
+            shifts.push({
+              employeeId: c.employeeId,
+              scheduleGroupId: c.scheduleGroupId,
+              schedulingJobId: c.schedulingJobId,
+              departmentId: c.departmentId,
+              startDateTime: scheduleEasternToUtc(dateStr, startH, startM),
+              endDateTime: scheduleEasternToUtc(endDateStr, endH, endM),
+              isPublished: true,
+              // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is a
+              // caller-generated GUID, not a lookup value — one per shift, unique
+              // within the batch (same pattern as processId used elsewhere in
+              // this codebase). See Task 1's corrected script for the source.
+              shiftModelId: crypto.randomUUID(),
+              _employeeName: c.employeeName
+              // stripped before sending, kept for result mapping
+            });
           });
         });
-      });
-      try {
         const res = await fetch("/.netlify/functions/paycor", {
           method: "POST",
           credentials: "include",
