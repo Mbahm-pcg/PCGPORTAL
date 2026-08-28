@@ -32734,7 +32734,7 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
             </div>
             <select value={editDraft.reassignTo} onChange={e => setEditDraft(d => ({ ...d, reassignTo: e.target.value }))} style={{ ...inp(th), fontSize: '0.8rem', width: '100%', marginBottom: '0.8rem' }}>
               <option value="">Keep on {cards.find(c => c.employeeId === editingShift.employeeId)?.employeeName}</option>
-              {cards.filter(c => c.employeeId !== editingShift.employeeId).map(c => (
+              {cards.filter(c => c.employeeId !== editingShift.employeeId && !(c.shifts || []).some(s => s.dayOffset === editingShift.shift.dayOffset)).map(c => (
                 <option key={c.employeeId} value={c.employeeId}>Re-assign to {c.employeeName}</option>
               ))}
             </select>
