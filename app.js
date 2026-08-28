@@ -21246,7 +21246,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.26";
+  var APP_VERSION = "v20.27";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25595,7 +25595,27 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         onCardsChange(addShiftToEmployee(cards, targetEmployeeId, pasted));
       }
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: "sticky", left: 0, background: th.bg } }, "Employee"), dayDates.map((d, i) => /* @__PURE__ */ React.createElement("th", { key: i, style: { textAlign: "center", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 150 } }, SCHEDULE_DOW[i], ", ", d.getUTCMonth() + 1, "/", d.getUTCDate())))), /* @__PURE__ */ React.createElement("tbody", null, cards.map((card2) => {
+    const [editingShift, setEditingShift] = useState(null);
+    const [editDraft, setEditDraft] = useState({ startTime: "", endTime: "", reassignTo: "" });
+    const openEdit = (employeeId, shift) => {
+      setEditingShift({ employeeId, shift });
+      setEditDraft({ startTime: shift.startTime, endTime: shift.endTime, reassignTo: "" });
+    };
+    const closeEdit = () => setEditingShift(null);
+    const saveEdit = () => {
+      const { employeeId, shift } = editingShift;
+      const targetEmployeeId = editDraft.reassignTo || employeeId;
+      const updatedShift = { ...shift, startTime: editDraft.startTime, endTime: editDraft.endTime };
+      let next = removeShiftFromEmployee(cards, employeeId, shift);
+      next = addShiftToEmployee(next, targetEmployeeId, updatedShift);
+      onCardsChange(next);
+      closeEdit();
+    };
+    const deleteEdit = () => {
+      onCardsChange(removeShiftFromEmployee(cards, editingShift.employeeId, editingShift.shift));
+      closeEdit();
+    };
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: "sticky", left: 0, background: th.bg } }, "Employee"), dayDates.map((d, i) => /* @__PURE__ */ React.createElement("th", { key: i, style: { textAlign: "center", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 150 } }, SCHEDULE_DOW[i], ", ", d.getUTCMonth() + 1, "/", d.getUTCDate())))), /* @__PURE__ */ React.createElement("tbody", null, cards.map((card2) => {
       const totalHours = (card2.shifts || []).reduce((sum, sh) => {
         const [sh1, sm1] = sh.startTime.split(":").map(Number);
         const [sh2, sm2] = sh.endTime.split(":").map(Number);
@@ -25614,14 +25634,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             onMouseEnter: () => setHoveredCell({ employeeId: card2.employeeId, dayOffset }),
             onMouseLeave: () => setHoveredCell(null)
           },
-          shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text, position: "relative" } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime), isHovered && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.2rem", justifyContent: "center", marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleCopy(card2.employeeId, shift), title: "Copy", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCut(card2.employeeId, shift), title: "Cut", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Cut"))),
+          shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text, position: "relative" } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime), isHovered && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.2rem", justifyContent: "center", marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => openEdit(card2.employeeId, shift), title: "Edit", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Edit"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCopy(card2.employeeId, shift), title: "Copy", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCut(card2.employeeId, shift), title: "Cut", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Cut"))),
           !shift && isHovered && clipboard && /* @__PURE__ */ React.createElement("button", { onClick: () => handlePaste(card2.employeeId, dayOffset), style: { ...btn(th, { background: "#1B8F5C" }), fontSize: "0.68rem", padding: "0.2rem 0.5rem" } }, "Paste")
         );
       }));
     }), (openShiftGroups || []).map((og) => /* @__PURE__ */ React.createElement("tr", { key: "open-" + og.jobTitle, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem", color: th.muted, fontWeight: 600, fontStyle: "italic", position: "sticky", left: 0, background: th.bg } }, "Open \u2014 ", og.jobTitle), dayDates.map((_, dayOffset) => {
       const shift = (og.shifts || []).find((sh) => sh.dayOffset === dayOffset);
       return /* @__PURE__ */ React.createElement("td", { key: dayOffset, style: { padding: "0.35rem", textAlign: "center" } }, shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#94a3b81a", border: "1px dashed #94a3b8aa", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.muted } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime)));
-    }))))));
+    })))))), editingShift && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3 }, onClick: closeEdit }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: "1.1rem", minWidth: 280 }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.8rem" } }, "Edit shift"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("input", { type: "time", value: editDraft.startTime, onChange: (e) => setEditDraft((d) => ({ ...d, startTime: e.target.value })), style: { ...inp(th), fontSize: "0.8rem" } }), /* @__PURE__ */ React.createElement("input", { type: "time", value: editDraft.endTime, onChange: (e) => setEditDraft((d) => ({ ...d, endTime: e.target.value })), style: { ...inp(th), fontSize: "0.8rem" } })), /* @__PURE__ */ React.createElement("select", { value: editDraft.reassignTo, onChange: (e) => setEditDraft((d) => ({ ...d, reassignTo: e.target.value })), style: { ...inp(th), fontSize: "0.8rem", width: "100%", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Keep on ", cards.find((c) => c.employeeId === editingShift.employeeId)?.employeeName), cards.filter((c) => c.employeeId !== editingShift.employeeId).map((c) => /* @__PURE__ */ React.createElement("option", { key: c.employeeId, value: c.employeeId }, "Re-assign to ", c.employeeName))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Save"), /* @__PURE__ */ React.createElement("button", { onClick: deleteEdit, style: { ...btn(th, { background: "#ef444422", color: "#ef4444" }) } }, "Delete"), /* @__PURE__ */ React.createElement("button", { onClick: closeEdit, style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Cancel")))));
   }
   function RunningLaborHeader({ weeklyTotal, projectedSales, th }) {
     const pct = projectedSales > 0 ? weeklyTotal.totalDollars / projectedSales * 100 : 0;

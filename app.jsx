@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.26";
+const APP_VERSION = "v20.27";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32623,7 +32623,30 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
     }
   };
 
+  const [editingShift, setEditingShift] = useState(null); // { employeeId, shift } | null
+  const [editDraft, setEditDraft] = useState({ startTime: '', endTime: '', reassignTo: '' });
+
+  const openEdit = (employeeId, shift) => {
+    setEditingShift({ employeeId, shift });
+    setEditDraft({ startTime: shift.startTime, endTime: shift.endTime, reassignTo: '' });
+  };
+  const closeEdit = () => setEditingShift(null);
+  const saveEdit = () => {
+    const { employeeId, shift } = editingShift;
+    const targetEmployeeId = editDraft.reassignTo || employeeId;
+    const updatedShift = { ...shift, startTime: editDraft.startTime, endTime: editDraft.endTime };
+    let next = removeShiftFromEmployee(cards, employeeId, shift);
+    next = addShiftToEmployee(next, targetEmployeeId, updatedShift);
+    onCardsChange(next);
+    closeEdit();
+  };
+  const deleteEdit = () => {
+    onCardsChange(removeShiftFromEmployee(cards, editingShift.employeeId, editingShift.shift));
+    closeEdit();
+  };
+
   return (
+    <>
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
         <thead>
@@ -32663,6 +32686,7 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
                           {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
                           {isHovered && (
                             <div style={{ display: 'flex', gap: '0.2rem', justifyContent: 'center', marginTop: '0.25rem' }}>
+                              <button onClick={() => openEdit(card.employeeId, shift)} title="Edit" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Edit</button>
                               <button onClick={() => handleCopy(card.employeeId, shift)} title="Copy" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Copy</button>
                               <button onClick={() => handleCut(card.employeeId, shift)} title="Cut" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Cut</button>
                             </div>
@@ -32700,6 +32724,29 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
         </tbody>
       </table>
     </div>
+      {editingShift && (
+        <div style={{ position: 'fixed', inset: 0, background: '#00000055', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={closeEdit}>
+          <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: '1.1rem', minWidth: 280 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, marginBottom: '0.8rem' }}>Edit shift</div>
+            <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.6rem' }}>
+              <input type="time" value={editDraft.startTime} onChange={e => setEditDraft(d => ({ ...d, startTime: e.target.value }))} style={{ ...inp(th), fontSize: '0.8rem' }} />
+              <input type="time" value={editDraft.endTime} onChange={e => setEditDraft(d => ({ ...d, endTime: e.target.value }))} style={{ ...inp(th), fontSize: '0.8rem' }} />
+            </div>
+            <select value={editDraft.reassignTo} onChange={e => setEditDraft(d => ({ ...d, reassignTo: e.target.value }))} style={{ ...inp(th), fontSize: '0.8rem', width: '100%', marginBottom: '0.8rem' }}>
+              <option value="">Keep on {cards.find(c => c.employeeId === editingShift.employeeId)?.employeeName}</option>
+              {cards.filter(c => c.employeeId !== editingShift.employeeId).map(c => (
+                <option key={c.employeeId} value={c.employeeId}>Re-assign to {c.employeeName}</option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={saveEdit} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Save</button>
+              <button onClick={deleteEdit} style={{ ...btn(th, { background: '#ef444422', color: '#ef4444' }) }}>Delete</button>
+              <button onClick={closeEdit} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
