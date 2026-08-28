@@ -1578,6 +1578,232 @@ git commit -m "Add batched Paycor submission with per-shift results, sent with r
 
 ---
 
+## Task 9b (hotfix, found during live production testing): Fix Eastern-time conversion + 12-hour display
+
+**Why:** This feature was merged to `main` and deployed to production (2026-08-28), then a real manager attempted the actual live test (Task 10). Two real, confirmed-live bugs surfaced immediately:
+
+1. **Timezone bug (blocks any real write — must fix before Task 10 proceeds).** Paycor stores every shift's `startDateTime`/`endDateTime` as a UTC ISO string. `scheduleGroupShiftsByEmployee` (Task 2) extracts the displayed `startTime`/`endTime` via `d.getUTCHours()`/`d.getUTCMinutes()` — the RAW UTC clock time — and shows it as if it were already Eastern time (the timezone every PCG store actually operates in). Confirmed against real data: a real employee's real 6:00 AM–12:00 PM Eastern shift was displaying as "10:00–16:00" (raw UTC, 4 hours off — EDT is UTC-4). `handleSendToPaycor` (Task 9) has the mirror-image bug on the write side: it builds `startDateTime: \`${dateStr}T${s.startTime}:00Z\`\`, treating the manager's Eastern-time input as if it were already UTC — so submitting a shift she intends as 6 AM–12 PM Eastern would actually post to Paycor as 6 AM–12 PM UTC (2 AM–8 AM Eastern), a real, wrong payroll write. Both bugs must be fixed together, and correctly — a fixed UTC offset (e.g. always "UTC-4") would be wrong for roughly half the year, since Eastern alternates between EDT (UTC-4) and EST (UTC-5) — the fix must use the real IANA timezone database (`Intl.DateTimeFormat` with `timeZone: 'America/New_York'`, the same approach already used in ~15 other places in this codebase, e.g. `app.jsx:10338-10339`) so DST transitions are handled automatically, not hardcoded.
+
+2. **12-hour display requested.** User explicitly asked (2026-08-28): don't show 24-hour/military time ("13:00"–"24:00" reads as confusing) — always show 12-hour with AM/PM.
+
+Also folds in a related request from the same conversation: show each employee's running weekly hour total on their individual card during the build/edit flow (`EmployeeScheduleCard`), not only on the final review grid (`WeeklyScheduleGrid`, which already has this — Task 3's `{Math.round(totalHours * 10) / 10}h` under each name).
+
+**Files:**
+- Modify: `app.jsx` — add 3 new helper functions near the Task 2 helpers; rewrite `scheduleGroupShiftsByEmployee` (Task 2); update `handleSendToPaycor`'s write construction (Task 9); update display in `WeeklyScheduleGrid` (Task 3), `EmployeeScheduleCard` (Task 5), and `scheduleBuildShareText` (Task 8)
+
+**Interfaces:**
+- Produces: `scheduleUtcToEastern(utcIso)` → `{ dateStr: 'YYYY-MM-DD', hh: 0-23, mm: 0-59 }` (Eastern wall-clock time for a UTC instant); `scheduleEasternToUtc(dateStr, hh, mm)` → UTC ISO string (the reverse); `scheduleFormat12h(hhmm)` → `'H:MM AM/PM'` string (display formatting only — the underlying stored/edited value stays 24-hour `"HH:MM"`, matching the native `<input type="time">` contract, which already renders its own 12-hour AM/PM picker UI per the browser's locale — no change needed there)
+- `scheduleGroupShiftsByEmployee`'s return shape is unchanged (`{dayOffset, startTime, endTime, ...}` per employee) — `startTime`/`endTime` are now correctly Eastern-time `"HH:MM"` strings instead of raw UTC ones; `dayOffset` is now computed from the Eastern calendar date the shift starts on (fixes a latent secondary bug: a late-night shift whose UTC start crosses into the next UTC calendar day, e.g. 11 PM–2 AM Eastern, could previously land on the wrong day of the grid)
+
+- [ ] **Step 1: Add the three helper functions**
+
+Insert immediately after `scheduleGroupShiftsByEmployee`'s current closing brace (search `function scheduleGroupShiftsByEmployee`, insert before it — these are used by it):
+
+```js
+// Paycor stores every shift's startDateTime/endDateTime as a UTC ISO string,
+// but every PCG store operates in Eastern time and every manager thinks in
+// Eastern time — these two functions bridge that gap. Neither hardcodes a
+// fixed UTC offset (which would be wrong roughly half the year, since
+// Eastern alternates EDT/UTC-4 and EST/UTC-5) — both use Intl's real IANA
+// timezone database via 'America/New_York', the same approach already used
+// elsewhere in this file (e.g. app.jsx:10338-10339), so DST transitions are
+// handled correctly automatically. Bug found + fixed 2026-08-28: a real
+// employee's real 6:00 AM-12:00 PM Eastern shift was displaying (and would
+// have been WRITTEN) as raw UTC 10:00-16:00, a genuine 4-hour error.
+
+// A UTC ISO string -> Eastern wall-clock date + time.
+function scheduleUtcToEastern(utcIso) {
+  const d = new Date(utcIso);
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+  const get = (t) => parts.find(p => p.type === t).value;
+  return { dateStr: `${get('year')}-${get('month')}-${get('day')}`, hh: Number(get('hour')) % 24, mm: Number(get('minute')) };
+}
+
+// The reverse: an Eastern wall-clock date + time -> the equivalent UTC ISO
+// string. Works by guessing (treating the wall-clock values as if they were
+// already UTC), checking what Eastern time that guess actually represents,
+// then correcting by the difference — this naturally picks up whichever
+// offset (EDT/EST) applies on that specific date without hardcoding either.
+function scheduleEasternToUtc(dateStr, hh, mm) {
+  const guess = new Date(`${dateStr}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`);
+  const back = scheduleUtcToEastern(guess.toISOString());
+  const wantedMin = hh * 60 + mm;
+  const gotMin = back.hh * 60 + back.mm;
+  const dayDiffMin = back.dateStr === dateStr ? 0 : (new Date(back.dateStr + 'T00:00:00Z') > new Date(dateStr + 'T00:00:00Z') ? 1440 : -1440);
+  const diffMin = wantedMin - (gotMin + dayDiffMin);
+  return new Date(guess.getTime() + diffMin * 60000).toISOString();
+}
+
+// 12-hour, AM/PM display format for a "HH:MM" (24-hour, Eastern) string —
+// per explicit user request (2026-08-28): 24-hour times ("13:00"-"24:00")
+// read as confusing to managers, always show 12-hour with AM/PM instead.
+// Display-only — the underlying stored/edited value stays 24-hour "HH:MM".
+function scheduleFormat12h(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+```
+
+- [ ] **Step 2: Rewrite `scheduleGroupShiftsByEmployee` to use Eastern time**
+
+Replace the current body:
+```js
+function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const byEmployee = {};
+  (shiftRecords || []).forEach(s => {
+    const start = new Date(s.startDateTime);
+    const end = new Date(s.endDateTime);
+    const dayOffset = Math.round((Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) - Date.UTC(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate())) / 86400000);
+    const fmt = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
+  });
+  return byEmployee;
+}
+```
+with:
+```js
+function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const byEmployee = {};
+  (shiftRecords || []).forEach(s => {
+    const startET = scheduleUtcToEastern(s.startDateTime);
+    const endET = scheduleUtcToEastern(s.endDateTime);
+    const startDateUTC = new Date(startET.dateStr + 'T00:00:00Z');
+    const dayOffset = Math.round((startDateUTC - weekStart) / 86400000);
+    const fmt = (et) => `${String(et.hh).padStart(2, '0')}:${String(et.mm).padStart(2, '0')}`;
+    if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
+  });
+  return byEmployee;
+}
+```
+(`dayOffset` is now computed from the Eastern calendar date each shift starts on — fixes the late-night-shift day-rollover edge case described above, as a side effect of the same fix.)
+
+- [ ] **Step 3: Fix the write side in `handleSendToPaycor`**
+
+Replace (search `const dayDate = new Date(weekStart`):
+```js
+const dayDate = new Date(weekStart + 'T00:00:00Z');
+dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
+const dateStr = dayDate.toISOString().slice(0, 10);
+shifts.push({
+  employeeId: c.employeeId,
+  scheduleGroupId: c.scheduleGroupId,
+  schedulingJobId: c.schedulingJobId,
+  departmentId: c.departmentId,
+  startDateTime: `${dateStr}T${s.startTime}:00Z`,
+  endDateTime: `${dateStr}T${s.endTime}:00Z`,
+```
+with:
+```js
+const dayDate = new Date(weekStart + 'T00:00:00Z');
+dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
+const dateStr = dayDate.toISOString().slice(0, 10);
+const [startH, startM] = s.startTime.split(':').map(Number);
+const [endH, endM] = s.endTime.split(':').map(Number);
+// s.startTime/s.endTime are Eastern wall-clock times (the manager's own
+// input) — convert to real UTC before sending to Paycor. An overnight
+// shift's end time is on the FOLLOWING calendar day even though its
+// dayOffset/dateStr describe the shift's start — advance the date by one
+// day for the end conversion when endTime is numerically before startTime
+// (same overnight convention already used by scheduleComputeWeeklyTotal).
+const endDateStr = (endH * 60 + endM) < (startH * 60 + startM)
+  ? new Date(new Date(dateStr + 'T00:00:00Z').getTime() + 86400000).toISOString().slice(0, 10)
+  : dateStr;
+shifts.push({
+  employeeId: c.employeeId,
+  scheduleGroupId: c.scheduleGroupId,
+  schedulingJobId: c.schedulingJobId,
+  departmentId: c.departmentId,
+  startDateTime: scheduleEasternToUtc(dateStr, startH, startM),
+  endDateTime: scheduleEasternToUtc(endDateStr, endH, endM),
+```
+
+- [ ] **Step 4: Switch every display location to 12-hour format**
+
+Three locations, all display-only — wrap the existing `startTime`/`endTime` values with `scheduleFormat12h(...)`, don't change what's stored:
+
+`WeeklyScheduleGrid` (search `{shift.startTime}–{shift.endTime}`):
+```jsx
+{shift.startTime}–{shift.endTime}
+```
+→
+```jsx
+{scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+```
+
+`EmployeeScheduleCard`'s read-only summary (search `{SCHEDULE_DOW[s.dayOffset]}: {s.startTime}–{s.endTime}`):
+```jsx
+{SCHEDULE_DOW[s.dayOffset]}: {s.startTime}–{s.endTime}
+```
+→
+```jsx
+{SCHEDULE_DOW[s.dayOffset]}: {scheduleFormat12h(s.startTime)}–{scheduleFormat12h(s.endTime)}
+```
+
+`scheduleBuildShareText` (search `${SCHEDULE_DOW[s.dayOffset]} ${s.startTime}-${s.endTime}`):
+```js
+const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map(s => `${SCHEDULE_DOW[s.dayOffset]} ${s.startTime}-${s.endTime}`);
+```
+→
+```js
+const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map(s => `${SCHEDULE_DOW[s.dayOffset]} ${scheduleFormat12h(s.startTime)}-${scheduleFormat12h(s.endTime)}`);
+```
+
+- [ ] **Step 5: Add a running weekly total to `EmployeeScheduleCard`'s read-only summary**
+
+User request, same conversation: show each employee's total hours on their own card (final review grid already has this via `WeeklyScheduleGrid`). In the `!editing` branch of `EmployeeScheduleCard` (search `{(cardData.shifts || []).length === 0 &&`), add a total directly below the shift list, using the SAME overnight-safe duration math `scheduleComputeWeeklyTotal`/`WeeklyScheduleGrid` already use:
+
+```jsx
+{!editing && (
+  <>
+    {(cardData.shifts || []).length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '0.8rem' }}>No shifts proposed (new employee, or none last week)</div>}
+    {(cardData.shifts || []).map((s, i) => (
+      <div key={i} style={{ fontSize: '0.8rem', color: th.text, marginBottom: '0.3rem' }}>
+        {SCHEDULE_DOW[s.dayOffset]}: {scheduleFormat12h(s.startTime)}–{scheduleFormat12h(s.endTime)}
+      </div>
+    ))}
+    {(cardData.shifts || []).length > 0 && (() => {
+      const totalHours = cardData.shifts.reduce((sum, s) => {
+        const [sh1, sm1] = s.startTime.split(':').map(Number);
+        const [sh2, sm2] = s.endTime.split(':').map(Number);
+        let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+        if (mins < 0) mins += 1440;
+        return sum + mins / 60;
+      }, 0);
+      return <div style={{ fontSize: '0.78rem', color: th.muted, fontWeight: 600, marginTop: '0.4rem', marginBottom: '0.4rem' }}>{Math.round(totalHours * 10) / 10}h this week</div>;
+    })()}
+```
+(Leave the rest of the block — the Approve/Edit button row — unchanged; this only adds the total between the shift list and the buttons.)
+
+- [ ] **Step 6: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 7: Verify — real correctness, not just "no errors"**
+
+No browser tool in this environment (established pattern). This fix touches real payroll write correctness, so verify with actual computed values, not just a code read:
+1. Hand-trace `scheduleUtcToEastern` against the exact real record that exposed the bug: a UTC `startDateTime` of `"2026-08-24T10:00:00Z"` (raw UTC hour 10 — what the OLD buggy code displayed as "10:00", which the user confirmed should really read 6:00 AM Eastern) — confirm the NEW code produces `hh: 6` (since late August is EDT, UTC-4: 10:00 UTC − 4h = 06:00 Eastern).
+2. Hand-trace the reverse (`scheduleEasternToUtc('2026-08-30', 6, 0)`, a manager entering "6:00 AM" for a shift on 8/30) — confirm it produces a UTC ISO string with hour `10` (06:00 EDT + 4h = 10:00 UTC), i.e. exactly the round-trip inverse of check 1.
+3. Confirm `scheduleFormat12h('06:00')` → `'6:00 AM'`, `scheduleFormat12h('13:00')` → `'1:00 PM'`, `scheduleFormat12h('00:00')` → `'12:00 AM'`, `scheduleFormat12h('12:00')` → `'12:00 PM'` (midnight/noon edge cases).
+4. Confirm a DST-crossing date is still correct — e.g. trace `scheduleUtcToEastern` against a real December date (EST, UTC-5, not UTC-4) to confirm the function picks up the correct offset automatically rather than being hardcoded to EDT.
+5. Re-run the exact real Bustleton data trace Task 6/9 already validated (weekStart `2026-08-30`, real `schedulingShifts` read for `2026-08-23`–`2026-08-29`) through the NEW `scheduleGroupShiftsByEmployee`, and confirm the resulting `startTime`/`endTime` values are now 4 hours earlier than what the OLD code would have produced for the same real records (this is the direct, real-data confirmation that the fix addresses the actual bug the user found live).
+
+- [ ] **Step 8: Bump version, commit**
+
+```bash
+git add app.jsx app.js
+git commit -m "Fix Eastern-time conversion for shift display/write, switch to 12-hour format, add per-card weekly total"
+```
+
+---
+
 ## Task 10: Second real-world end-to-end test
 
 **Files:** none (validation only, no code changes)
