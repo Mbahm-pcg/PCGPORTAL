@@ -18,6 +18,7 @@
 - Role scope, exactly as the spec defines: `manager` = own store, build/edit/submit. `dm` = own district (`String(store.district) === String(user.district)`), view-only. `executive`/`it`/`office_staff` = all stores, view-only.
 - Bump `APP_VERSION` (search `const APP_VERSION =` near `app.jsx:26078`) and run `npm run build` before every commit that touches `app.jsx`, per this project's standing convention. Increment the last digit for each task's commit (e.g. v20.06 → v20.07 → v20.08...).
 - After every build, run `npx netlify deploy` (no `--prod`) and note the preview URL — this project's standing convention is to preview every change, never push straight to production without being asked.
+- **`schedulingShifts` reads treat `endDate` as exclusive** (confirmed live in Task 1, 2026-08-25: a query with `endDate: '2026-09-01'` returns zero shifts dated `2026-09-01`, including real, pre-existing shifts unrelated to any test). Every date-range read against this action must request `endDate = <last desired day> + 1 day` to include that final day's shifts — do not pass the last desired day directly as `endDate`.
 
 ---
 
@@ -62,6 +63,7 @@ const LEGAL_ENTITY_ID = '193884'; // Bustleton
 const EMPLOYEE_ID = 'f0c42817-b32d-0000-0000-00005cf50200'; // Ahmed Bhuiyan
 const SCHEDULE_GROUP_ID = '6215c7c0-1380-42c4-860b-f03187ae2f9e'; // "ALL", confirmed real at Bustleton
 const SCHEDULING_JOB_ID = 'b8e28fce-0288-4a15-9ab4-bd57f4d84afd'; // Crew Member, confirmed real at Bustleton
+const DEPARTMENT_ID = '270d012c-65d6-0000-0000-00005cf50200'; // "101 - Payroll - Cust Svc", confirmed real at Bustleton for Crew Member
 
 async function call(action, body) {
   const res = await fetch(BASE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...body }) });
@@ -71,6 +73,9 @@ async function call(action, body) {
 
 async function main() {
   // Pick a near-term test date/time — a few days out, low-traffic hour.
+  // (This is the SHIFT's own date, unrelated to the read-verification date
+  // range below — Paycor accepts a future shift date fine, it only rejects
+  // a future *startDate* on the schedulingShifts READ query.)
   const start = '2026-09-01T02:00:00Z'; // arbitrary test slot
   const end = '2026-09-01T03:00:00Z';
 
@@ -84,17 +89,40 @@ async function main() {
       startDateTime: start,
       endDateTime: end,
       title: 'PLAN VALIDATION TEST — SAFE TO DELETE',
+      isPublished: true,
+      departmentId: DEPARTMENT_ID,
+      // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is NOT a
+      // reference to an existing entity to look up — it's a caller-generated
+      // GUID, unique within this batch, used only during the creation
+      // process itself (same idea as processId elsewhere in this codebase).
+      shiftModelId: crypto.randomUUID(),
     }],
     ignoreWarnings: true,
   });
   console.log(JSON.stringify(created, null, 2));
 
-  const shiftId = created.data?.shifts?.[0]?.shiftId || created.data?.[0]?.shiftId;
-  if (!shiftId) { console.error('FAILED: no shiftId returned, stopping.'); process.exit(1); }
+  // Response shape is not yet confirmed against the real API — Paycor's
+  // docs show a collapsed "shift" field in the 201 sample without the
+  // nested detail expanded. Log the full response above and inspect it
+  // directly; adjust this extraction to match whatever key/shape actually
+  // comes back (likely `created.data.shift[0].shiftId` or
+  // `created.data.shifts[0].shiftId` — try both, and fall back to printing
+  // `Object.keys(created.data)` if neither matches so the real shape is
+  // visible rather than silently failing).
+  const shiftId = created.data?.shift?.[0]?.shiftId || created.data?.shifts?.[0]?.shiftId || created.data?.[0]?.shiftId;
+  if (!shiftId) {
+    console.error('FAILED: no shiftId found at any expected path. Full response logged above.');
+    console.error('Top-level response keys:', created.data && typeof created.data === 'object' ? Object.keys(created.data) : typeof created.data);
+    process.exit(1);
+  }
   console.log('Created shiftId:', shiftId);
 
   console.log('--- Step B: verify it shows up on a live read ---');
-  const read = await call('schedulingShifts', { legalEntityId: LEGAL_ENTITY_ID, startDate: '2026-09-01', endDate: '2026-09-01' });
+  // startDate must be <= today (Paycor rejects a future startDate on this
+  // read, confirmed 2026-08-25) even though the shift itself is dated in
+  // the future — use today's date as startDate, the shift's own date as endDate.
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const read = await call('schedulingShifts', { legalEntityId: LEGAL_ENTITY_ID, startDate: todayISO, endDate: '2026-09-01' });
   const found = (read.data?.records || []).find(s => s.id === shiftId);
   console.log('Found on live read:', !!found, found ? JSON.stringify(found) : '(not found — investigate before proceeding)');
 
@@ -103,7 +131,7 @@ async function main() {
   console.log(JSON.stringify(deleted, null, 2));
 
   console.log('--- Step D: confirm deletion ---');
-  const readAfter = await call('schedulingShifts', { legalEntityId: LEGAL_ENTITY_ID, startDate: '2026-09-01', endDate: '2026-09-01' });
+  const readAfter = await call('schedulingShifts', { legalEntityId: LEGAL_ENTITY_ID, startDate: todayISO, endDate: '2026-09-01' });
   const stillThere = (readAfter.data?.records || []).find(s => s.id === shiftId);
   console.log('Still present after delete (should be false):', !!stillThere);
 }
@@ -143,10 +171,10 @@ Nothing from this task ships — it's pure validation. No commit for this task.
 **Interfaces:**
 - Consumes: nothing from earlier tasks (Task 1 produced no code)
 - Produces:
-  - `scheduleGroupShiftsByEmployee(shiftRecords)` → `{ [employeeId]: Array<{dayOffset, startTime, endTime}> }`
-  - `scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee)` → `{ schedulingJobId, scheduleGroupId, needsConfirmation }`
+  - `scheduleGroupShiftsByEmployee(shiftRecords)` → `{ [employeeId]: Array<{dayOffset, startTime, endTime, schedulingJobId, scheduleGroupId, departmentId}> }`
+  - `scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee)` → `{ schedulingJobId, scheduleGroupId, departmentId, needsConfirmation }`
   - `scheduleComputeWeeklyTotal(cards, payRatesByEmployeeId)` → `{ totalHours, totalDollars, byEmployee: Array<{employeeId, hours, dollars, rateAvailable}> }`
-  - A shared shift-card shape used by every later task: `{ employeeId, employeeName, jobTitle, schedulingJobId, scheduleGroupId, shifts: Array<{dayOffset: 0-6, startTime: "HH:MM", endTime: "HH:MM"}> }` (`dayOffset` 0 = Sunday of the target week, matching how the rest of this codebase's tips period logic treats weeks — see `tipsAddDays`/`tipsFormatISODate` near `app.jsx:37905` for the existing date-handling convention to match)
+  - A shared shift-card shape used by every later task: `{ employeeId, employeeName, jobTitle, schedulingJobId, scheduleGroupId, departmentId, shifts: Array<{dayOffset: 0-6, startTime: "HH:MM", endTime: "HH:MM"}> }` (`dayOffset` 0 = Sunday of the target week, matching how the rest of this codebase's tips period logic treats weeks — see `tipsAddDays`/`tipsFormatISODate` near `app.jsx:37905` for the existing date-handling convention to match). `departmentId` is required on every Paycor shift write (confirmed via Task 1's live validation, 2026-08-25) and is carried on the card the same way `schedulingJobId`/`scheduleGroupId` are.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -166,23 +194,33 @@ function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
     const dayOffset = Math.round((Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) - Date.UTC(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate())) / 86400000);
     const fmt = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
     if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
-    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId });
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
   });
   return byEmployee;
 }
 
+// departmentId is required on every Paycor shift write (confirmed via
+// Task 1's live validation, 2026-08-25 — a bare shift without it gets
+// rejected with a 400). Reused via the exact same same-job-title-employee
+// pattern as schedulingJobId/scheduleGroupId, since a department is tied
+// to a role the same way a scheduling job is.
 function scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee) {
   const sameTitle = (employees || []).find(e => e.positionData?.jobTitle === jobTitle && shiftsByEmployee[e.id]?.length);
   if (sameTitle) {
     const s = shiftsByEmployee[sameTitle.id][0];
-    return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, needsConfirmation: false };
+    return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId, needsConfirmation: false };
   }
   const allShifts = Object.values(shiftsByEmployee).flat();
-  if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, needsConfirmation: true };
+  if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, departmentId: null, needsConfirmation: true };
   const groupCounts = {};
-  allShifts.forEach(s => { groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1; });
+  const deptCounts = {};
+  allShifts.forEach(s => {
+    groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1;
+    if (s.departmentId) deptCounts[s.departmentId] = (deptCounts[s.departmentId] || 0) + 1;
+  });
   const mostCommonGroup = Object.entries(groupCounts).sort((a, b) => b[1] - a[1])[0][0];
-  return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, needsConfirmation: true };
+  const mostCommonDept = Object.keys(deptCounts).length ? Object.entries(deptCounts).sort((a, b) => b[1] - a[1])[0][0] : null;
+  return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, departmentId: mostCommonDept, needsConfirmation: true };
 }
 
 function scheduleComputeWeeklyTotal(cards, payRatesByEmployeeId) {
@@ -209,9 +247,9 @@ function check(label, cond) { console.log(`[${cond ? 'PASS' : 'FAIL'}] ${label}`
 // Test 1: grouping shifts by employee, correct dayOffset/time extraction
 {
   const shifts = [
-    { employeeId: 'e1', startDateTime: '2026-09-06T09:00:00Z', endDateTime: '2026-09-06T17:00:00Z', schedulingJobId: 'job1', scheduleGroupId: 'grp1' }, // Sunday = dayOffset 0
-    { employeeId: 'e1', startDateTime: '2026-09-07T10:00:00Z', endDateTime: '2026-09-07T18:00:00Z', schedulingJobId: 'job1', scheduleGroupId: 'grp1' }, // Monday = dayOffset 1
-    { employeeId: 'e2', startDateTime: '2026-09-08T08:00:00Z', endDateTime: '2026-09-08T16:00:00Z', schedulingJobId: 'job2', scheduleGroupId: 'grp1' },
+    { employeeId: 'e1', startDateTime: '2026-09-06T09:00:00Z', endDateTime: '2026-09-06T17:00:00Z', schedulingJobId: 'job1', scheduleGroupId: 'grp1', departmentId: 'dept1' }, // Sunday = dayOffset 0
+    { employeeId: 'e1', startDateTime: '2026-09-07T10:00:00Z', endDateTime: '2026-09-07T18:00:00Z', schedulingJobId: 'job1', scheduleGroupId: 'grp1', departmentId: 'dept1' }, // Monday = dayOffset 1
+    { employeeId: 'e2', startDateTime: '2026-09-08T08:00:00Z', endDateTime: '2026-09-08T16:00:00Z', schedulingJobId: 'job2', scheduleGroupId: 'grp1', departmentId: 'dept2' },
   ];
   const grouped = scheduleGroupShiftsByEmployee(shifts, '2026-09-06');
   check('1a. two employees grouped', Object.keys(grouped).length === 2);
@@ -220,18 +258,20 @@ function check(label, cond) { console.log(`[${cond ? 'PASS' : 'FAIL'}] ${label}`
   check('1d. Monday shift has dayOffset 1', grouped.e1[1].dayOffset === 1);
   check('1e. start time extracted correctly', grouped.e1[0].startTime === '09:00');
   check('1f. end time extracted correctly', grouped.e1[0].endTime === '17:00');
+  check('1g. departmentId carried through', grouped.e1[0].departmentId === 'dept1');
 }
 
-// Test 2: new-employee job/group defaulting via shared job title
+// Test 2: new-employee job/group/department defaulting via shared job title
 {
   const employees = [
     { id: 'e1', positionData: { jobTitle: 'Crew Member' } },
     { id: 'e2', positionData: { jobTitle: 'Crew Member' } },
   ];
-  const shiftsByEmployee = { e1: [{ dayOffset: 0, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll' }] };
+  const shiftsByEmployee = { e1: [{ dayOffset: 0, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll', departmentId: 'deptCrew' }] };
   const result = scheduleDefaultJobGroupForEmployee('Crew Member', employees, shiftsByEmployee);
   check('2a. reuses job/group from same-title employee', result.schedulingJobId === 'jobCrew' && result.scheduleGroupId === 'grpAll');
-  check('2b. does not need confirmation when a match is found', result.needsConfirmation === false);
+  check('2b. reuses department from same-title employee', result.departmentId === 'deptCrew');
+  check('2c. does not need confirmation when a match is found', result.needsConfirmation === false);
 }
 
 // Test 3: new-employee fallback when no one shares their title
@@ -239,14 +279,15 @@ function check(label, cond) { console.log(`[${cond ? 'PASS' : 'FAIL'}] ${label}`
   const employees = [{ id: 'e1', positionData: { jobTitle: 'Crew Member' } }];
   const shiftsByEmployee = {
     e1: [
-      { dayOffset: 0, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll' },
-      { dayOffset: 1, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll' },
+      { dayOffset: 0, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll', departmentId: 'deptCrew' },
+      { dayOffset: 1, startTime: '09:00', endTime: '17:00', schedulingJobId: 'jobCrew', scheduleGroupId: 'grpAll', departmentId: 'deptCrew' },
     ],
   };
   const result = scheduleDefaultJobGroupForEmployee('Shift Leader', employees, shiftsByEmployee);
   check('3a. falls back to most common group', result.scheduleGroupId === 'grpAll');
-  check('3b. flags for manual confirmation', result.needsConfirmation === true);
-  check('3c. no job guessed (left null, not a wrong guess)', result.schedulingJobId === null);
+  check('3b. falls back to most common department', result.departmentId === 'deptCrew');
+  check('3c. flags for manual confirmation', result.needsConfirmation === true);
+  check('3d. no job guessed (left null, not a wrong guess)', result.schedulingJobId === null);
 }
 
 // Test 4: weekly labor total math, including a missing-rate case
@@ -296,30 +337,38 @@ function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
     const dayOffset = Math.round((Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) - Date.UTC(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate())) / 86400000);
     const fmt = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
     if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
-    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId });
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
   });
   return byEmployee;
 }
 
-// A new employee (no shifts last week) has no schedulingJobId/scheduleGroupId
-// to reuse. Paycor doesn't expose a live job lookup (the "View Legal Entity
-// Scheduling Jobs" Data Access scope isn't enabled), so this reuses another
-// employee's known values instead: first choice is someone at the same
-// store sharing the same live job title; fallback is whichever
-// scheduleGroupId appears most often, flagged for manual confirmation since
-// the job itself couldn't be determined.
+// A new employee (no shifts last week) has no schedulingJobId/scheduleGroupId/
+// departmentId to reuse. Paycor doesn't expose a live job lookup (the "View
+// Legal Entity Scheduling Jobs" Data Access scope isn't enabled), so this
+// reuses another employee's known values instead: first choice is someone at
+// the same store sharing the same live job title; fallback is whichever
+// scheduleGroupId/departmentId appears most often, flagged for manual
+// confirmation since the job itself couldn't be determined. departmentId is
+// required on every Paycor shift write (confirmed via live 400 response —
+// see Task 1), so it's carried through the same reuse/fallback logic as
+// scheduleGroupId.
 function scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee) {
   const sameTitle = (employees || []).find(e => e.positionData?.jobTitle === jobTitle && shiftsByEmployee[e.id]?.length);
   if (sameTitle) {
     const s = shiftsByEmployee[sameTitle.id][0];
-    return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, needsConfirmation: false };
+    return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId, needsConfirmation: false };
   }
   const allShifts = Object.values(shiftsByEmployee).flat();
-  if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, needsConfirmation: true };
+  if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, departmentId: null, needsConfirmation: true };
   const groupCounts = {};
-  allShifts.forEach(s => { groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1; });
+  const deptCounts = {};
+  allShifts.forEach(s => {
+    groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1;
+    if (s.departmentId) deptCounts[s.departmentId] = (deptCounts[s.departmentId] || 0) + 1;
+  });
   const mostCommonGroup = Object.entries(groupCounts).sort((a, b) => b[1] - a[1])[0][0];
-  return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, needsConfirmation: true };
+  const mostCommonDept = Object.keys(deptCounts).length ? Object.entries(deptCounts).sort((a, b) => b[1] - a[1])[0][0] : null;
+  return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, departmentId: mostCommonDept, needsConfirmation: true };
 }
 
 // Running weekly labor $/hours total across every card currently in the
@@ -601,59 +650,6 @@ function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
   );
 }
 ```
-function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [draftShifts, setDraftShifts] = useState(cardData.shifts || []);
-
-  const updateShift = (idx, field, value) => {
-    setDraftShifts(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
-  };
-  const removeShift = (idx) => setDraftShifts(prev => prev.filter((_, i) => i !== idx));
-  const addShift = () => setDraftShifts(prev => [...prev, { dayOffset: 0, startTime: '09:00', endTime: '17:00' }]);
-
-  return (
-    <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: '1.1rem', maxWidth: 480 }}>
-      <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1rem', color: th.text, marginBottom: '0.2rem' }}>{cardData.employeeName}</div>
-      <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.9rem' }}>{cardData.jobTitle || 'Crew Member'}</div>
-
-      {!editing && (
-        <>
-          {(cardData.shifts || []).length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '0.8rem' }}>No shifts proposed (new employee, or none last week)</div>}
-          {(cardData.shifts || []).map((s, i) => (
-            <div key={i} style={{ fontSize: '0.8rem', color: th.text, marginBottom: '0.3rem' }}>
-              {SCHEDULE_DOW[s.dayOffset]}: {s.startTime}–{s.endTime}
-            </div>
-          ))}
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.9rem' }}>
-            <button onClick={onApprove} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Approve</button>
-            <button onClick={() => { setDraftShifts(cardData.shifts || []); setEditing(true); }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Edit</button>
-          </div>
-        </>
-      )}
-
-      {editing && (
-        <>
-          {draftShifts.map((s, i) => (
-            <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.4rem' }}>
-              <select value={s.dayOffset} onChange={e => updateShift(i, 'dayOffset', Number(e.target.value))} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }}>
-                {SCHEDULE_DOW.map((d, di) => <option key={di} value={di}>{d}</option>)}
-              </select>
-              <input type="time" value={s.startTime} onChange={e => updateShift(i, 'startTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
-              <input type="time" value={s.endTime} onChange={e => updateShift(i, 'endTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
-              <button onClick={() => removeShift(i)} style={{ ...btn(th, { background: '#ef444422', color: '#ef4444' }), padding: '0.25rem 0.5rem' }}>✕</button>
-            </div>
-          ))}
-          <button onClick={addShift} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.75rem', marginBottom: '0.8rem' }}>+ Add shift</button>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button onClick={() => { onSave(draftShifts); setEditing(false); }} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Save & Continue</button>
-            <button onClick={() => setEditing(false)} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Cancel</button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-```
 
 - [ ] **Step 2: Rebuild**
 
@@ -704,11 +700,15 @@ function ScheduleBuilder({ store, th, mode }) {
     setLoading(true); setError(null); setCards(null); setCardIndex(0); setApprovedCards([]);
     try {
       const lastWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), -7));
-      const lastWeekEnd = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), -1));
+      // schedulingShifts treats `endDate` as EXCLUSIVE (confirmed live in Task 1,
+      // 2026-08-25) — the last day of the prior week is weekStart - 1 (Saturday),
+      // so weekStart itself (its exclusive +1 boundary) is passed as endDate to
+      // include that Saturday's shifts without dropping them.
+      const lastWeekEndExclusive = weekStart;
 
       const [empRes, shiftRes] = await Promise.all([
         fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'employees', legalEntityId: store.paycor }) }),
-        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedulingShifts', legalEntityId: store.paycor, startDate: lastWeekStart, endDate: lastWeekEnd }) }),
+        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedulingShifts', legalEntityId: store.paycor, startDate: lastWeekStart, endDate: lastWeekEndExclusive }) }),
       ]);
       const empData = await empRes.json();
       const shiftData = await shiftRes.json();
@@ -731,10 +731,12 @@ function ScheduleBuilder({ store, th, mode }) {
         const priorShifts = shiftsByEmployee[e.id] || [];
         let schedulingJobId = priorShifts[0]?.schedulingJobId || null;
         let scheduleGroupId = priorShifts[0]?.scheduleGroupId || null;
+        let departmentId = priorShifts[0]?.departmentId || null;
         if (!schedulingJobId) {
           const defaulted = scheduleDefaultJobGroupForEmployee(e.positionData?.jobTitle, employees, shiftsByEmployee);
           schedulingJobId = defaulted.schedulingJobId;
           scheduleGroupId = defaulted.scheduleGroupId;
+          departmentId = defaulted.departmentId;
         }
         return {
           employeeId: e.id,
@@ -742,6 +744,7 @@ function ScheduleBuilder({ store, th, mode }) {
           jobTitle: e.positionData?.jobTitle || 'Crew Member',
           schedulingJobId,
           scheduleGroupId,
+          departmentId,
           shifts: priorShifts.map(s => ({ dayOffset: s.dayOffset, startTime: s.startTime, endTime: s.endTime })),
         };
       });
@@ -909,6 +912,78 @@ git commit -m "Wire ScheduleBuilder into LaborDrillDown as 5th tab with role sco
 
 ---
 
+## Task 7b (supersedes Task 7's mounting point): Relocate to a new "Schedule" tile in Pulse's per-store hub
+
+**Why:** After Task 7 shipped and was previewed live, the user (2026-08-27) asked for the entry point to move. Reasoning: `LaborDrillDown` is the SAME component embedded in two places — the standalone top-level "Labor" nav tab (`AdminLabor`), AND a "👷 Labor" tile inside `StoreDetail` (`app.jsx:8681` — the Pulse per-store hub shown in the screenshot the user shared, rail tiles: Sales/Labor/Forecast/Daypart/Food Cost/Transactions/(Drive-Thru)/Reviews/Complaints, `app.jsx:9434`). Reaching "Build Schedule" required loading all of `LaborDrillDown`'s other tabs first (Hourly/Daily/Weekly data), which the user found slow. Decision: give the schedule its own top-level tile in that same Pulse per-store rail (positioned right after "Labor"), and remove the sub-tab from inside `LaborDrillDown` entirely — not keep both. `ScheduleBuilder` and everything underneath it (Tasks 1-6, 8) is unchanged and fully reused; only the mounting location moves.
+
+**Files:**
+- Modify: `app.jsx` — remove Task 7's tab button + content branch from `LaborDrillDown` (`app.jsx:33152`, `33633-33654` as of Task 7's commit — re-locate by searching `buildSchedule` since line numbers shift); add a new tile + content branch to `StoreDetail` (`app.jsx:8681`)
+
+**Interfaces:**
+- Consumes: `ScheduleBuilder` (Task 6, unchanged), `getManagerStore` (existing, `app.jsx:706`) — same role-scoping logic as Task 7, just re-hosted
+- Produces: a "📅 Schedule" tile in `StoreDetail`'s rail, role-scoped identically to Task 7's removed tab (manager → own store build; dm → own district view; executive/it/office_staff → view all; everyone else → denied)
+
+- [ ] **Step 1: Remove from `LaborDrillDown`**
+
+Delete `{tabBtn('buildSchedule', 'Build Schedule')}` from the tab row, and delete the entire `{activeTab === 'buildSchedule' && (() => { ... })()}` block (including its explanatory comment) from `LaborDrillDown`'s render. `LaborDrillDown` goes back to exactly 4 tabs (Hourly/Daily/Weekly/Optimizer), matching its pre-Task-7 shape.
+
+- [ ] **Step 2: Add the tile to `StoreDetail`'s rail**
+
+In the tile array at `app.jsx:9434`, insert a new tile immediately after `{id:'labor',label:'👷 Labor'}`:
+
+```js
+{id:'schedule', label:'📅 Schedule'},
+```
+
+(Full array becomes: `sales, labor, schedule, forecast, daypart, foodcost, transactions, (driveThru), reviews, complaints` — order matters, "under labor" means directly after it.)
+
+- [ ] **Step 3: Add the content branch to `StoreDetail`**
+
+Immediately after the existing `{storeTab === 'labor' && (<LaborDrillDown ... />)}` block (`app.jsx:9452-9454`), insert:
+
+```jsx
+{/* ════ SCHEDULE TAB — relocated from inside LaborDrillDown (Task 7) so it doesn't ════
+     require loading Hourly/Daily/Weekly first. Same role-scoping as before: manager
+     builds their OWN store only (via the canonical getManagerStore helper, app.jsx:706);
+     dm/executive/it/office_staff get a read-only view (dm scoped to their own district);
+     everyone else is denied. */}
+{storeTab === 'schedule' && (() => {
+  const isManager = user?.userType === 'manager';
+  const isDM = user?.userType === 'dm';
+  const isViewAllRole = ['executive', 'it', 'office_staff'].includes(user?.userType);
+  const managerStore = getManagerStore(stores, user);
+  const canBuild = isManager && !!managerStore && String(s.pc) === String(managerStore.pc);
+  const canView = isDM ? String(s.district) === String(user?.district) : isViewAllRole;
+
+  if (!canBuild && !canView) {
+    return <div style={{ fontSize: '0.82rem', color: th.muted }}>You don't have access to this store's schedule.</div>;
+  }
+
+  return <ScheduleBuilder store={s} th={th} mode={canBuild ? 'build' : 'view'} />;
+})()}
+```
+
+Note: uses `s` (the current store, `StoreDetail`'s own local var — `const s = stores.find(st => st.pc === pc)`), not `store`, since `StoreDetail`'s scope names it differently than `LaborDrillDown`'s did. `stores` and `user` are already `StoreDetail` props, already in scope (used identically one block above for the `labor` tab's `LaborDrillDown` call).
+
+- [ ] **Step 4: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 5: Verify the relocation**
+
+No browser tool available in this environment (established pattern across this plan) — verify via code trace: re-derive `canBuild`/`canView` for the same scenarios Task 7's review already covered (manager/own store, manager/different store, dm/in-district, dm/out-of-district, exec/it/office_staff, every other role), confirm `LaborDrillDown` no longer references `buildSchedule` anywhere (grep for the string — should be zero matches after removal, since it's fully gone, not just hidden), and confirm the new tile renders in the correct rail position. A preview deploy is optional and not required to block on if slow.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add app.jsx app.js
+git commit -m "Relocate Schedule from LaborDrillDown sub-tab to its own Pulse store-hub tile"
+```
+
+---
+
 ## Task 8: Share/Copy plain-text export
 
 **Files:**
@@ -1034,16 +1109,353 @@ git commit -m "Add plain-text share/copy export for approved schedule"
 
 ---
 
-## Task 9: Batched submission + per-shift result handling
+## Task 8b: Surface real Paycor fetch failures instead of silently showing zero employees
+
+**Why:** Live testing (2026-08-27, real manager account, real store) hit a case where `ScheduleBuilder`'s final review showed "$0.00, 0.0 total hours" with an empty grid, even though a direct trace of the exact same query against real Paycor data confirmed 16 of 19 active employees had real pre-fillable shifts. Root cause: `load()` does `(empData.records || [])` / `(shiftData.records || [])` with no check that the fetch actually succeeded — if Paycor returns an error shape (e.g. during a token-refresh window; this project has a documented history of exactly this failure class, see `project_tips_reliability_overhaul` memory) instead of `{records: [...]}`, the code silently treats it as "zero employees" rather than surfacing an error. The manager sees a plausible-looking empty schedule with no indication anything went wrong.
 
 **Files:**
-- Modify: `app.jsx` — add a submission handler + results UI to `ScheduleBuilder`'s final-review block
+- Modify: `app.jsx` — `ScheduleBuilder`'s `load()` function (search `const empData = await empRes.json()`)
 
 **Interfaces:**
-- Consumes: `approvedCards` (Task 6 state), the existing `createSchedulingShifts` action (unchanged, validated in Task 1)
-- Produces: a "Send to Paycor" button and a per-employee results display in `ScheduleBuilder`
+- Consumes: nothing new
+- Produces: no interface change — `load()` still sets `cards`/`error` exactly as before, just distinguishes "real zero-employee response" from "the fetch itself failed"
 
-- [ ] **Step 1: Add submission state and handler to `ScheduleBuilder`**
+- [ ] **Step 1: Add response validation**
+
+Immediately after the existing two lines:
+```js
+const empData = await empRes.json();
+const shiftData = await shiftRes.json();
+```
+Add:
+```js
+if (!empRes.ok || !Array.isArray(empData?.records)) {
+  throw new Error(empData?.error || empData?.Detail || empData?.title || 'Failed to load the employee roster from Paycor. Try again in a moment.');
+}
+if (!shiftRes.ok || !Array.isArray(shiftData?.records)) {
+  throw new Error(shiftData?.error || shiftData?.Detail || shiftData?.title || 'Failed to load posted shifts from Paycor. Try again in a moment.');
+}
+```
+This throws inside the existing `try` block, which the existing `catch (e) { setError(e.message || 'Failed to load schedule data.'); }` already handles — `cards` stays `null` (not an empty array), so the UI shows the real error message instead of an empty "Final review."
+
+- [ ] **Step 2: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 3: Verify**
+
+No browser tool in this environment (established pattern). Verify via a real, controlled negative test: call the deployed `/.netlify/functions/paycor` endpoint with a deliberately invalid `legalEntityId` (e.g. `"000000"`) for both `employees` and `schedulingShifts` actions, confirm the real response shape does NOT have `records` as an array (it should be an error object), and confirm the new guard's condition (`!Array.isArray(empData?.records)`) would correctly catch it. Also confirm the HAPPY path is unaffected: re-run the real Bustleton query (legalEntityId `193884`) and confirm `Array.isArray(empData.records)` is `true` so the new guard does NOT throw on valid data.
+
+- [ ] **Step 4: Bump version, commit**
+
+```bash
+git add app.jsx app.js
+git commit -m "Surface Paycor fetch failures instead of silently showing zero employees"
+```
+
+---
+
+## Task 8c: Promote Schedule to a top-level portal tab (supersedes Task 7b's Pulse-hub placement)
+
+**Why:** Further live feedback (2026-08-27) after testing Task 7b: reaching Schedule via Pulse → pick store → Schedule tile is still an unnecessary detour for a manager, who only has one store anyway. The user wants Schedule to be a first-class top-level section — like Pulse, Labor, Map, Projects — reachable directly from the main portal nav (desktop sidebar) and the mobile "Full Portal" icon-grid launcher (`MobileAppLauncher`, `app.jsx:38148`), the same way every other major section works. A manager should land straight in their own store's builder with no store-picker; dm/executive/it/office_staff need a lightweight store-picker first (dm scoped to their district, others see everything), matching the existing `AdminPulse`/`ManagerPulse` split (`app.jsx:48097-48098`) rather than the store-picker-grid-then-drilldown shape `AdminLabor`/`AdminPnL` use (those require a click-through even for a manager with one store — not what's wanted here). This task removes Task 7b's Pulse-hub tile entirely — not keep both.
+
+**Files:**
+- Modify: `src/icons.jsx` — add a new, unique tab icon (never reuse an existing tab's icon — this project's own convention; `ICONS.schedule` is already used by the "Operations" hub tab, `ICONS.calendar` by the base "Calendar" tab, neither is available)
+- Modify: `app.jsx` — `computeRoleTabs` (`app.jsx:24711-24814`) to register the new tab for `executive`/`it`/`office_staff`/`dm`/`manager`; two new top-level components (`AdminSchedule`, `ManagerSchedule`); the tab-content router (`app.jsx:48079-48151`) to wire them; the `ops-hub` tile grid (`app.jsx:48101-48113`) for exec/it/office_staff/dm discoverability; and `StoreDetail` (`app.jsx:8681`) to remove the Task 7b Pulse-hub tile + content branch
+
+**Interfaces:**
+- Consumes: `ScheduleBuilder` (Task 6, unchanged), `getManagerStore` (existing, `app.jsx:706`)
+- Produces: `AdminSchedule({ stores, th, user })` — lightweight store-picker (dm: own district; executive/it/office_staff: all stores) that renders `<ScheduleBuilder mode="view">` once a store is picked. `ManagerSchedule({ stores, th, user })` — resolves the manager's own store via `getManagerStore` and renders `<ScheduleBuilder mode="build">` directly, no picker.
+
+- [ ] **Step 1: Add a new, unique icon**
+
+In `src/icons.jsx`, insert immediately after the existing `schedule:` entry (the last entry in the `ICONS` object, currently ending the object before its closing `};`):
+
+```js
+  staffSchedule: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"3",y:"4",width:"18",height:"18",rx:"2"})}{React.createElement("line",{x1:"16",y1:"2",x2:"16",y2:"6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"6"})}{React.createElement("line",{x1:"3",y1:"10",x2:"21",y2:"10"})}{React.createElement("circle",{cx:"12",cy:"16",r:"2.3"})}{React.createElement("line",{x1:"12",y1:"16",x2:"12",y2:"14.3"})}{React.createElement("line",{x1:"12",y1:"16",x2:"13.2",y2:"16.8"})}</>} />,
+```
+
+(Calendar frame — same as `calendar`/`schedule` — with a small clock face instead of a checkmark, distinct from both existing calendar-family icons: `calendar` has no mark at all, `schedule` has a checkmark. This one reads as "calendar + time," matching a staff schedule.)
+
+- [ ] **Step 2: Register the tab for the 5 roles that should see it**
+
+In `computeRoleTabs` (`app.jsx:24711`), add `{ id: "schedule", label: "Schedule", icon: (c) => ICONS.staffSchedule(c) }` to exactly these 5 role branches (matching the spec's existing role table — manager/dm build-or-view, executive/it/office_staff view-all; do NOT add it to `auditor`/`construction`/`vendor`/`maintenance`, which never had Schedule access):
+
+- `executive`/`it` branch (`24715-24735`): insert after the `pulse` entry (`24722`)
+- `office_staff` branch (`24737-24757`): insert after the `pulse` entry (`24744`)
+- `dm` branch (`24766-24780`): insert after the `pulse` entry (`24770`)
+- `manager` branch (`24782-24791`): insert after the `pulse` entry (`24786`)
+
+Example for the `executive`/`it` branch (same pattern for the other 3 — insert the one line, don't restructure the surrounding array):
+```js
+    { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
+    { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
+```
+
+- [ ] **Step 3: Add the two new top-level components**
+
+Insert near `ManagerPulse` (`app.jsx:8227-8241`) — same file region, same pattern family:
+
+```js
+// Store-picker for dm/executive/it/office_staff — dm scoped to their own district,
+// everyone else sees the full network. Renders ScheduleBuilder in read-only 'view'
+// mode once a store is picked (this role set never builds/submits a schedule — only
+// ManagerSchedule below does that, for the one store a manager owns).
+function AdminSchedule({ stores, th, user }) {
+  const [selectedStore, setSelectedStore] = useState(null);
+  const isDM = user?.userType === 'dm';
+  const visibleStores = React.useMemo(() => {
+    if (isDM && user?.district != null) return (stores || []).filter(s => String(s.district) === String(user.district));
+    return stores || [];
+  }, [stores, isDM, user]);
+
+  if (selectedStore) {
+    return (
+      <div>
+        <button onClick={() => setSelectedStore(null)} style={{ ...btn(th, { background: th.card2, color: th.text }), marginBottom: '1rem' }}>← Back to stores</button>
+        <ScheduleBuilder store={selectedStore} th={th} mode="view" />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '1rem' }}>
+      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>Schedule</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+        {visibleStores.map(s => (
+          <div key={s.pc} onClick={() => setSelectedStore(s)}
+            style={{ ...card(th), padding: '1rem', cursor: 'pointer' }}>
+            <div style={{ fontWeight: 700, color: th.text }}>{s.name}</div>
+            <div style={{ fontSize: '0.75rem', color: th.muted }}>PC# {s.pc} · District {s.district}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Manager landing — no picker, straight to their own store's build flow. Mirrors
+// ManagerPulse's shape exactly (app.jsx:8227): resolve via getManagerStore, friendly
+// empty state if unassigned, otherwise render directly.
+function ManagerSchedule({ stores, th, user }) {
+  const store = getManagerStore(stores, user);
+  if (!store?.pc) {
+    return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 480, margin: '2rem auto' }}>No store is linked to your account yet. Ask an admin to assign one.</div>;
+  }
+  return <ScheduleBuilder store={store} th={th} mode="build" />;
+}
+```
+
+- [ ] **Step 4: Wire the router**
+
+In the tab-content routing block (`app.jsx:48097-48099`, immediately after the existing `pulse`/`labor` lines), add:
+
+```jsx
+{tab === "schedule"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminSchedule stores={stores} th={th} user={user} />}
+{tab === "schedule"  && isManager && <ManagerSchedule stores={stores} th={th} user={user} />}
+```
+
+- [ ] **Step 5: Add a discoverability tile to the Operations hub**
+
+In the `opsTiles` array (`app.jsx:48103-48111`), add a row immediately after the `pulse` tile (`48105`), matching its exact `show` condition (dm/exec/it/office_staff — not manager, who reaches Schedule via their own direct sidebar tab, same as how the `pulse` tile itself is scoped):
+
+```js
+{ id: 'schedule', name: 'Schedule', sub: 'Build and view weekly staff schedules, synced to Paycor.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'schedule'), icon: <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="16" r="2.3"/><line x1="12" y1="16" x2="12" y2="14.3"/><line x1="12" y1="16" x2="13.2" y2="16.8"/></> },
+```
+
+- [ ] **Step 6: Remove Task 7b's Pulse-hub tile entirely**
+
+In `StoreDetail` (`app.jsx:8681`):
+- Remove `{id:'schedule',label:'📅 Schedule'},` from the rail tile array (`app.jsx:9434`) — the array goes back to its Task-7b-minus-one shape (`sales, labor, forecast, daypart, ...`).
+- Remove the entire `{storeTab === 'schedule' && (() => { ... })()}` block, including its comment (`app.jsx:9456-9474`).
+
+Confirm zero remaining references to `storeTab === 'schedule'` or the Pulse-hub tile after removal (the NEW top-level tab uses `tab === "schedule"` at the `PCGPortal` level, a different variable in a different component — don't confuse the two while grepping).
+
+- [ ] **Step 7: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 8: Verify**
+
+No browser tool in this environment (established pattern). Verify via code trace, covering all 5 roles that should now see the tab (executive, it, office_staff, dm, manager) plus confirming the tab is genuinely absent from `computeRoleTabs`' output for auditor/construction/vendor/maintenance. Confirm the mobile launcher requires no extra registration (per the earlier research: any tab id not in `LAUNCHER_ADMIN_IDS`, `app.jsx:38153`, defaults to the "Workspace" group automatically — do not add `'schedule'` to that Set, since Workspace is the right home here, not Admin & Reports). Confirm the desktop sidebar picks it up automatically for manager/dm (their sections render every non-base tab as a flat nav row, `app.jsx:47428-47553`) and via the new `opsTiles` entry for exec/it/office_staff. A preview deploy is optional; don't let a slow one block you — the previous few tasks in this plan established that a code trace is sufficient verification when a deploy is unreliable.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add app.jsx app.js src/icons.jsx
+git commit -m "Promote Schedule to a top-level portal tab, remove Pulse-hub placement"
+```
+
+---
+
+## Task 8d: Add a view/build toggle to `ManagerSchedule`
+
+**Why:** After Task 8c shipped, the user asked (2026-08-27, confirmed via explicit yes/no choice) for managers to also be able to just look at a posted schedule without going through the build flow — `ManagerSchedule` currently hardcodes `mode="build"` with no way to switch. Dm/executive/it/office_staff already get this via `AdminSchedule`'s `mode="view"`; this brings managers to parity for their own store.
+
+**Files:**
+- Modify: `app.jsx` — `ManagerSchedule` (search `function ManagerSchedule`, added in Task 8c)
+
+**Interfaces:**
+- Consumes: `ScheduleBuilder` (unchanged — already accepts `mode: 'build' | 'view'`)
+- Produces: no external interface change — `ManagerSchedule({ stores, th, user })`'s own signature is unchanged, this is purely internal state
+
+- [ ] **Step 1: Add the toggle**
+
+Replace `ManagerSchedule`'s current body:
+```js
+function ManagerSchedule({ stores, th, user }) {
+  const store = getManagerStore(stores, user);
+  if (!store?.pc) {
+    return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 480, margin: '2rem auto' }}>No store is linked to your account yet. Ask an admin to assign one.</div>;
+  }
+  return <ScheduleBuilder store={store} th={th} mode="build" />;
+}
+```
+with:
+```js
+function ManagerSchedule({ stores, th, user }) {
+  const [mode, setMode] = useState('build');
+  const store = getManagerStore(stores, user);
+  if (!store?.pc) {
+    return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 480, margin: '2rem auto' }}>No store is linked to your account yet. Ask an admin to assign one.</div>;
+  }
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <button onClick={() => setMode('build')} style={{ ...btn(th, mode === 'build' ? { background: '#FF671F' } : { background: th.card2, color: th.text }) }}>Build</button>
+        <button onClick={() => setMode('view')} style={{ ...btn(th, mode === 'view' ? { background: '#FF671F' } : { background: th.card2, color: th.text }) }}>View Posted</button>
+      </div>
+      {/* key={mode} forces a clean remount on toggle — ScheduleBuilder's internal
+          state (weekStart, cards, approvedCards) must not carry over between
+          build and view; a fresh mount is simpler and safer than manually
+          resetting each piece of state on every toggle. */}
+      <ScheduleBuilder key={mode} store={store} th={th} mode={mode} />
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 3: Verify**
+
+No browser tool in this environment (established pattern). Verify via code trace: confirm `mode` defaults to `'build'` (unchanged default behavior for existing users), confirm clicking "View Posted" passes `mode="view"` to `ScheduleBuilder` (triggering its `mode === 'view'` branch — the same date-picker + read-only `WeeklyScheduleGrid` path `AdminSchedule` already uses), and confirm the `key={mode}` forces `ScheduleBuilder` to unmount/remount on toggle (so switching back to "Build" after viewing doesn't show stale `cards`/`approvedCards` from the view-mode session).
+
+- [ ] **Step 4: Bump version, commit**
+
+```bash
+git add app.jsx app.js
+git commit -m "Add view/build toggle to ManagerSchedule"
+```
+
+---
+
+## Task 9: Batched submission + per-shift result handling + server-side write authorization
+
+**Why the authorization addition:** Task 7's reviewer flagged that `canBuild`/`canView` are client-side-only gates — the UI hides the build flow from unauthorized roles, but `netlify/functions/paycor.mjs` itself accepts any POST with no session check at all, trusting whatever `legalEntityId` the client sends. That was harmless while every action was read-only (Tasks 1-8), but this task adds the first real write path a manager's browser can reach — the user explicitly confirmed (2026-08-27, asked directly before this task started) they want a server-side check added, not client-side gating alone. Research before writing this: the codebase's likely-broken-session concern (a July 2026 incident where gating broke Google login) is **no longer true** — Google login now mints the same signed `pcg_session` token/cookie password login does (`src/portal-auth.mjs`), and a proven, already-shipped pattern for gating a `.mjs` function this way exists in `netlify/functions/audits.mjs` (`requireActiveUser` + a local `neon` client). This task follows that exact pattern rather than inventing a new one.
+
+**Files:**
+- Modify: `netlify/functions/paycor.mjs` — add `requireActiveUser` gating + a store-ownership check to the `createSchedulingShifts` action only (the only write action this feature's UI calls; `updateSchedulingShift`/`deleteSchedulingShift` are out of scope — nothing in this plan's UI calls them)
+- Modify: `app.jsx` — add a submission handler + results UI to `ScheduleBuilder`'s final-review block, with the fetch call updated to send real session credentials (this is the FIRST client call to `createSchedulingShifts` anywhere in the codebase — build it with auth attached from day one, rather than retrofitting a broken call later)
+
+**Interfaces:**
+- Consumes: `approvedCards` (Task 6 state), the existing `createSchedulingShifts` action (now additionally gated — see below); `requireActiveUser` (existing, `netlify/functions/auth-lib/require-user.js`); `authHeader()` (existing, `src/portal-auth.mjs`, already imported at the top of `app.jsx`); `STORES` (existing, `netlify/functions/labor-cron.mjs`, already exported — reused directly rather than duplicating yet another copy of the store list)
+- Produces: a "Send to Paycor" button and a per-employee results display in `ScheduleBuilder`; `paycor.mjs`'s `createSchedulingShifts` action now returns `401` (no/invalid session) or `403` (valid session, wrong role/store) instead of silently accepting any request
+
+- [ ] **Step 1: Add auth imports and a local DB client to `paycor.mjs`**
+
+Near the top of `netlify/functions/paycor.mjs` (after the existing `import { getStore } from '@netlify/blobs';`), add:
+
+```js
+import { neon } from '@neondatabase/serverless';
+import { requireActiveUser } from './auth-lib/require-user.js';
+import { STORES } from './labor-cron.mjs';
+
+// Same lazy-init pattern as audits.mjs (netlify/functions/audits.mjs) — this
+// is the proven, already-shipped way a .mjs function in this codebase gets a
+// Neon client for requireActiveUser's DB-backed active/revocation check.
+let _sql = null;
+const db = () => (_sql ||= neon(process.env.NEON_DATABASE_URL));
+```
+
+Also update the module's CORS headers object (search `'Access-Control-Allow-Headers': 'Content-Type'`) to include `Authorization`, matching every other gated `.mjs` function in this codebase:
+```js
+'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+```
+(This doesn't affect same-origin requests — the browser only enforces CORS preflight for cross-origin calls — but every other hardened endpoint in this codebase declares it, and there's no reason for this one to be the exception.)
+
+- [ ] **Step 2: Gate `createSchedulingShifts` with session + store-ownership checks**
+
+Replace the current handler body (search `if (action === 'createSchedulingShifts')`):
+```js
+if (action === 'createSchedulingShifts') {
+  const { legalEntityId, shifts, ignoreWarnings = true } = payload;
+  if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+  if (!Array.isArray(shifts) || shifts.length === 0) return new Response(JSON.stringify({ error: 'Missing shifts array' }), { status: 400, headers });
+  const res = await callPaycor(`/legalentities/${legalEntityId}/schedulingShifts`, 'POST', { ignoreWarnings, shifts });
+  return new Response(JSON.stringify(res.data), { status: res.status, headers });
+}
+```
+with:
+```js
+if (action === 'createSchedulingShifts') {
+  const { legalEntityId, shifts, ignoreWarnings = true } = payload;
+  if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+  if (!Array.isArray(shifts) || shifts.length === 0) return new Response(JSON.stringify({ error: 'Missing shifts array' }), { status: 400, headers });
+
+  // Server-side write authorization (added 2026-08-27, per explicit user
+  // decision after Task 7's review flagged this as client-side-only): the
+  // UI already hides the build flow from unauthorized roles, but the client
+  // cannot be trusted to police itself. Verify against the signed session
+  // token's claims — never against anything the client's own request body
+  // claims about its role or store. Only a manager may write, and only to
+  // the ONE store their session claims (claims.storePC), resolved
+  // independently via legalEntityId -> pc, never trusting a client-sent pc.
+  const sqlClient = db();
+  const authEvent = { headers: Object.fromEntries(request.headers.entries()) };
+  const authedUser = await requireActiveUser(authEvent, sqlClient);
+  if (!authedUser) {
+    return new Response(JSON.stringify({ error: 'Authentication required.' }), { status: 401, headers });
+  }
+  const targetStore = STORES.find(s => String(s.paycor) === String(legalEntityId));
+  if (authedUser.userType !== 'manager' || !targetStore || String(authedUser.storePC) !== String(targetStore.pc)) {
+    return new Response(JSON.stringify({ error: 'You are not authorized to write this store\'s schedule.' }), { status: 403, headers });
+  }
+
+  const res = await callPaycor(`/legalentities/${legalEntityId}/schedulingShifts`, 'POST', { ignoreWarnings, shifts });
+  return new Response(JSON.stringify(res.data), { status: res.status, headers });
+}
+```
+
+- [ ] **Step 3: Rebuild and verify the backend change with real requests**
+
+```bash
+npm run build
+```
+
+No browser tool in this environment (established pattern) — verify via real, controlled requests against the deployed function:
+1. **No session at all** (a plain curl with no cookie/Authorization header — this is exactly how every prior task in this plan has been testing reads, which worked because reads were never gated): confirm `createSchedulingShifts` now returns `401` instead of proceeding.
+2. **A real manager session, own store**: this requires a real login flow to obtain a token — if a full login simulation isn't practical from this environment, at minimum confirm the code path logically requires `authedUser.userType === 'manager' && String(authedUser.storePC) === String(targetStore.pc)` by tracing it against Franyi Leiva's real user record (already looked up earlier this session: `userType: "manager"`, `storePC: "332941"`) and Bustleton's real `STORES` entry (`pc: "332941"`, `paycor: "193884"`) — confirm the trace resolves to "authorized" for her own store and "403" for any other `legalEntityId`.
+3. Confirm reads (`employees`, `schedulingShifts`, `payRates` — everything Tasks 1-8d already depend on) are completely unaffected — this task only touches the `createSchedulingShifts` branch, nothing else in `paycor.mjs`.
+
+- [ ] **Step 4: Bump version, commit the backend change**
+
+```bash
+git add netlify/functions/paycor.mjs
+git commit -m "Add server-side write authorization to createSchedulingShifts"
+```
+
+(No `APP_VERSION` bump for this commit — it touches only a Netlify function, not `app.jsx`, matching this project's convention that the version constant tracks the frontend bundle.)
+
+- [ ] **Step 5: Add submission state and handler to `ScheduleBuilder`**
 
 Add near the other `useState` calls in `ScheduleBuilder` (Task 6):
 
@@ -1069,16 +1481,32 @@ const handleSendToPaycor = async () => {
         employeeId: c.employeeId,
         scheduleGroupId: c.scheduleGroupId,
         schedulingJobId: c.schedulingJobId,
+        departmentId: c.departmentId,
         startDateTime: `${dateStr}T${s.startTime}:00Z`,
         endDateTime: `${dateStr}T${s.endTime}:00Z`,
+        isPublished: true,
+        // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is a
+        // caller-generated GUID, not a lookup value — one per shift, unique
+        // within the batch (same pattern as processId used elsewhere in
+        // this codebase). See Task 1's corrected script for the source.
+        shiftModelId: crypto.randomUUID(),
         _employeeName: c.employeeName, // stripped before sending, kept for result mapping
       });
     });
   });
 
   try {
+    // credentials:'include' + ...authHeader() — this is the FIRST call this
+    // codebase makes to createSchedulingShifts, and the action is now gated
+    // server-side (paycor.mjs, Steps 1-2 above) — build the call with real
+    // session credentials from the start, matching the proven pattern
+    // auditsApi/safeAuditsApi already use for every other hardened endpoint
+    // (app.jsx, search `auditsApi`). authHeader() is already imported at the
+    // top of this file from src/portal-auth.mjs — no new import needed.
     const res = await fetch('/.netlify/functions/paycor', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({
         action: 'createSchedulingShifts',
         legalEntityId: store.paycor,
@@ -1087,6 +1515,13 @@ const handleSendToPaycor = async () => {
       }),
     });
     const data = await res.json();
+    // A 401/403 from the new server-side check returns { error: '...' }, not
+    // a shifts array — surface that message directly instead of letting it
+    // silently map to an empty {} per employee below.
+    if (!res.ok) {
+      setSubmitResult({ running: false, results: [{ employeeId: null, employeeName: 'All', status: 'error', detail: data?.error || `Request failed (${res.status})` }] });
+      return;
+    }
     const returned = data?.shifts || data || [];
     const results = shifts.map((s, i) => {
       const r = returned[i] || {};
@@ -1100,7 +1535,7 @@ const handleSendToPaycor = async () => {
 };
 ```
 
-- [ ] **Step 2: Add the Send button and results display to the final-review JSX**
+- [ ] **Step 6: Add the Send button and results display to the final-review JSX**
 
 In the same block from Task 8, add below the Share button:
 
@@ -1124,25 +1559,379 @@ And after the button row:
 )}
 ```
 
-- [ ] **Step 3: Rebuild**
+- [ ] **Step 7: Rebuild**
 
 ```bash
 npm run build
 ```
 
-- [ ] **Step 4: Bump version, deploy preview — do NOT click Send yet**
+- [ ] **Step 8: Verify — do NOT click Send yet**
 
-```bash
-npx netlify deploy
-```
+Note: Paycor credentials are scoped to the Netlify **production** context only (confirmed 2026-08-27, per the user's explicit choice to keep it that way rather than extend them to preview deploys) — a preview deploy's `ScheduleBuilder` will show Task 8b's "Missing Paycor credentials" error on load, before ever reaching the final review screen, so a preview deploy cannot exercise this button end-to-end. Verify via code trace instead (consistent with this plan's established pattern for Paycor-dependent code): confirm the `handleSendToPaycor` handler correctly attaches `credentials:'include'` and `...authHeader()`, correctly checks `res.ok` before treating the response as a per-shift results array, and confirm the button/results JSX renders correctly by reading the code, not by clicking it. Do not click Send anywhere yet regardless — real submission testing happens in Task 10 as a deliberate, controlled step, once the user has approved a production deploy.
 
-Walk through the build flow on the preview URL up to the final review screen and confirm the Send button and (empty, pre-click) layout look right. Do not click Send on this preview — real submission testing happens in Task 10 as a deliberate, controlled step, not an incidental UI check.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Bump version, commit**
 
 ```bash
 git add app.jsx app.js
-git commit -m "Add batched Paycor submission with per-shift results"
+git commit -m "Add batched Paycor submission with per-shift results, sent with real session credentials"
+```
+
+---
+
+## Task 9b (hotfix, found during live production testing): Fix Eastern-time conversion + 12-hour display
+
+**Why:** This feature was merged to `main` and deployed to production (2026-08-28), then a real manager attempted the actual live test (Task 10). Two real, confirmed-live bugs surfaced immediately:
+
+1. **Timezone bug (blocks any real write — must fix before Task 10 proceeds).** Paycor stores every shift's `startDateTime`/`endDateTime` as a UTC ISO string. `scheduleGroupShiftsByEmployee` (Task 2) extracts the displayed `startTime`/`endTime` via `d.getUTCHours()`/`d.getUTCMinutes()` — the RAW UTC clock time — and shows it as if it were already Eastern time (the timezone every PCG store actually operates in). Confirmed against real data: a real employee's real 6:00 AM–12:00 PM Eastern shift was displaying as "10:00–16:00" (raw UTC, 4 hours off — EDT is UTC-4). `handleSendToPaycor` (Task 9) has the mirror-image bug on the write side: it builds `startDateTime: \`${dateStr}T${s.startTime}:00Z\`\`, treating the manager's Eastern-time input as if it were already UTC — so submitting a shift she intends as 6 AM–12 PM Eastern would actually post to Paycor as 6 AM–12 PM UTC (2 AM–8 AM Eastern), a real, wrong payroll write. Both bugs must be fixed together, and correctly — a fixed UTC offset (e.g. always "UTC-4") would be wrong for roughly half the year, since Eastern alternates between EDT (UTC-4) and EST (UTC-5) — the fix must use the real IANA timezone database (`Intl.DateTimeFormat` with `timeZone: 'America/New_York'`, the same approach already used in ~15 other places in this codebase, e.g. `app.jsx:10338-10339`) so DST transitions are handled automatically, not hardcoded.
+
+2. **12-hour display requested.** User explicitly asked (2026-08-28): don't show 24-hour/military time ("13:00"–"24:00" reads as confusing) — always show 12-hour with AM/PM.
+
+Also folds in a related request from the same conversation: show each employee's running weekly hour total on their individual card during the build/edit flow (`EmployeeScheduleCard`), not only on the final review grid (`WeeklyScheduleGrid`, which already has this — Task 3's `{Math.round(totalHours * 10) / 10}h` under each name).
+
+**Files:**
+- Modify: `app.jsx` — add 3 new helper functions near the Task 2 helpers; rewrite `scheduleGroupShiftsByEmployee` (Task 2); update `handleSendToPaycor`'s write construction (Task 9); update display in `WeeklyScheduleGrid` (Task 3), `EmployeeScheduleCard` (Task 5), and `scheduleBuildShareText` (Task 8)
+
+**Interfaces:**
+- Produces: `scheduleUtcToEastern(utcIso)` → `{ dateStr: 'YYYY-MM-DD', hh: 0-23, mm: 0-59 }` (Eastern wall-clock time for a UTC instant); `scheduleEasternToUtc(dateStr, hh, mm)` → UTC ISO string (the reverse); `scheduleFormat12h(hhmm)` → `'H:MM AM/PM'` string (display formatting only — the underlying stored/edited value stays 24-hour `"HH:MM"`, matching the native `<input type="time">` contract, which already renders its own 12-hour AM/PM picker UI per the browser's locale — no change needed there)
+- `scheduleGroupShiftsByEmployee`'s return shape is unchanged (`{dayOffset, startTime, endTime, ...}` per employee) — `startTime`/`endTime` are now correctly Eastern-time `"HH:MM"` strings instead of raw UTC ones; `dayOffset` is now computed from the Eastern calendar date the shift starts on (fixes a latent secondary bug: a late-night shift whose UTC start crosses into the next UTC calendar day, e.g. 11 PM–2 AM Eastern, could previously land on the wrong day of the grid)
+
+- [ ] **Step 1: Add the three helper functions**
+
+Insert immediately after `scheduleGroupShiftsByEmployee`'s current closing brace (search `function scheduleGroupShiftsByEmployee`, insert before it — these are used by it):
+
+```js
+// Paycor stores every shift's startDateTime/endDateTime as a UTC ISO string,
+// but every PCG store operates in Eastern time and every manager thinks in
+// Eastern time — these two functions bridge that gap. Neither hardcodes a
+// fixed UTC offset (which would be wrong roughly half the year, since
+// Eastern alternates EDT/UTC-4 and EST/UTC-5) — both use Intl's real IANA
+// timezone database via 'America/New_York', the same approach already used
+// elsewhere in this file (e.g. app.jsx:10338-10339), so DST transitions are
+// handled correctly automatically. Bug found + fixed 2026-08-28: a real
+// employee's real 6:00 AM-12:00 PM Eastern shift was displaying (and would
+// have been WRITTEN) as raw UTC 10:00-16:00, a genuine 4-hour error.
+
+// A UTC ISO string -> Eastern wall-clock date + time.
+function scheduleUtcToEastern(utcIso) {
+  const d = new Date(utcIso);
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+  const get = (t) => parts.find(p => p.type === t).value;
+  return { dateStr: `${get('year')}-${get('month')}-${get('day')}`, hh: Number(get('hour')) % 24, mm: Number(get('minute')) };
+}
+
+// The reverse: an Eastern wall-clock date + time -> the equivalent UTC ISO
+// string. Works by guessing (treating the wall-clock values as if they were
+// already UTC), checking what Eastern time that guess actually represents,
+// then correcting by the difference — this naturally picks up whichever
+// offset (EDT/EST) applies on that specific date without hardcoding either.
+function scheduleEasternToUtc(dateStr, hh, mm) {
+  const guess = new Date(`${dateStr}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`);
+  const back = scheduleUtcToEastern(guess.toISOString());
+  const wantedMin = hh * 60 + mm;
+  const gotMin = back.hh * 60 + back.mm;
+  const dayDiffMin = back.dateStr === dateStr ? 0 : (new Date(back.dateStr + 'T00:00:00Z') > new Date(dateStr + 'T00:00:00Z') ? 1440 : -1440);
+  const diffMin = wantedMin - (gotMin + dayDiffMin);
+  return new Date(guess.getTime() + diffMin * 60000).toISOString();
+}
+
+// 12-hour, AM/PM display format for a "HH:MM" (24-hour, Eastern) string —
+// per explicit user request (2026-08-28): 24-hour times ("13:00"-"24:00")
+// read as confusing to managers, always show 12-hour with AM/PM instead.
+// Display-only — the underlying stored/edited value stays 24-hour "HH:MM".
+function scheduleFormat12h(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+```
+
+- [ ] **Step 2: Rewrite `scheduleGroupShiftsByEmployee` to use Eastern time**
+
+Replace the current body:
+```js
+function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const byEmployee = {};
+  (shiftRecords || []).forEach(s => {
+    const start = new Date(s.startDateTime);
+    const end = new Date(s.endDateTime);
+    const dayOffset = Math.round((Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) - Date.UTC(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate())) / 86400000);
+    const fmt = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
+  });
+  return byEmployee;
+}
+```
+with:
+```js
+function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const byEmployee = {};
+  (shiftRecords || []).forEach(s => {
+    const startET = scheduleUtcToEastern(s.startDateTime);
+    const endET = scheduleUtcToEastern(s.endDateTime);
+    const startDateUTC = new Date(startET.dateStr + 'T00:00:00Z');
+    const dayOffset = Math.round((startDateUTC - weekStart) / 86400000);
+    const fmt = (et) => `${String(et.hh).padStart(2, '0')}:${String(et.mm).padStart(2, '0')}`;
+    if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
+  });
+  return byEmployee;
+}
+```
+(`dayOffset` is now computed from the Eastern calendar date each shift starts on — fixes the late-night-shift day-rollover edge case described above, as a side effect of the same fix.)
+
+- [ ] **Step 3: Fix the write side in `handleSendToPaycor`**
+
+Replace (search `const dayDate = new Date(weekStart`):
+```js
+const dayDate = new Date(weekStart + 'T00:00:00Z');
+dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
+const dateStr = dayDate.toISOString().slice(0, 10);
+shifts.push({
+  employeeId: c.employeeId,
+  scheduleGroupId: c.scheduleGroupId,
+  schedulingJobId: c.schedulingJobId,
+  departmentId: c.departmentId,
+  startDateTime: `${dateStr}T${s.startTime}:00Z`,
+  endDateTime: `${dateStr}T${s.endTime}:00Z`,
+```
+with:
+```js
+const dayDate = new Date(weekStart + 'T00:00:00Z');
+dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
+const dateStr = dayDate.toISOString().slice(0, 10);
+const [startH, startM] = s.startTime.split(':').map(Number);
+const [endH, endM] = s.endTime.split(':').map(Number);
+// s.startTime/s.endTime are Eastern wall-clock times (the manager's own
+// input) — convert to real UTC before sending to Paycor. An overnight
+// shift's end time is on the FOLLOWING calendar day even though its
+// dayOffset/dateStr describe the shift's start — advance the date by one
+// day for the end conversion when endTime is numerically before startTime
+// (same overnight convention already used by scheduleComputeWeeklyTotal).
+const endDateStr = (endH * 60 + endM) < (startH * 60 + startM)
+  ? new Date(new Date(dateStr + 'T00:00:00Z').getTime() + 86400000).toISOString().slice(0, 10)
+  : dateStr;
+shifts.push({
+  employeeId: c.employeeId,
+  scheduleGroupId: c.scheduleGroupId,
+  schedulingJobId: c.schedulingJobId,
+  departmentId: c.departmentId,
+  startDateTime: scheduleEasternToUtc(dateStr, startH, startM),
+  endDateTime: scheduleEasternToUtc(endDateStr, endH, endM),
+```
+
+- [ ] **Step 4: Switch every display location to 12-hour format**
+
+Three locations, all display-only — wrap the existing `startTime`/`endTime` values with `scheduleFormat12h(...)`, don't change what's stored:
+
+`WeeklyScheduleGrid` (search `{shift.startTime}–{shift.endTime}`):
+```jsx
+{shift.startTime}–{shift.endTime}
+```
+→
+```jsx
+{scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+```
+
+`EmployeeScheduleCard`'s read-only summary (search `{SCHEDULE_DOW[s.dayOffset]}: {s.startTime}–{s.endTime}`):
+```jsx
+{SCHEDULE_DOW[s.dayOffset]}: {s.startTime}–{s.endTime}
+```
+→
+```jsx
+{SCHEDULE_DOW[s.dayOffset]}: {scheduleFormat12h(s.startTime)}–{scheduleFormat12h(s.endTime)}
+```
+
+`scheduleBuildShareText` (search `${SCHEDULE_DOW[s.dayOffset]} ${s.startTime}-${s.endTime}`):
+```js
+const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map(s => `${SCHEDULE_DOW[s.dayOffset]} ${s.startTime}-${s.endTime}`);
+```
+→
+```js
+const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map(s => `${SCHEDULE_DOW[s.dayOffset]} ${scheduleFormat12h(s.startTime)}-${scheduleFormat12h(s.endTime)}`);
+```
+
+- [ ] **Step 5: Add a running weekly total to `EmployeeScheduleCard`'s read-only summary**
+
+User request, same conversation: show each employee's total hours on their own card (final review grid already has this via `WeeklyScheduleGrid`). In the `!editing` branch of `EmployeeScheduleCard` (search `{(cardData.shifts || []).length === 0 &&`), add a total directly below the shift list, using the SAME overnight-safe duration math `scheduleComputeWeeklyTotal`/`WeeklyScheduleGrid` already use:
+
+```jsx
+{!editing && (
+  <>
+    {(cardData.shifts || []).length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '0.8rem' }}>No shifts proposed (new employee, or none last week)</div>}
+    {(cardData.shifts || []).map((s, i) => (
+      <div key={i} style={{ fontSize: '0.8rem', color: th.text, marginBottom: '0.3rem' }}>
+        {SCHEDULE_DOW[s.dayOffset]}: {scheduleFormat12h(s.startTime)}–{scheduleFormat12h(s.endTime)}
+      </div>
+    ))}
+    {(cardData.shifts || []).length > 0 && (() => {
+      const totalHours = cardData.shifts.reduce((sum, s) => {
+        const [sh1, sm1] = s.startTime.split(':').map(Number);
+        const [sh2, sm2] = s.endTime.split(':').map(Number);
+        let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+        if (mins < 0) mins += 1440;
+        return sum + mins / 60;
+      }, 0);
+      return <div style={{ fontSize: '0.78rem', color: th.muted, fontWeight: 600, marginTop: '0.4rem', marginBottom: '0.4rem' }}>{Math.round(totalHours * 10) / 10}h this week</div>;
+    })()}
+```
+(Leave the rest of the block — the Approve/Edit button row — unchanged; this only adds the total between the shift list and the buttons.)
+
+- [ ] **Step 6: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 7: Verify — real correctness, not just "no errors"**
+
+No browser tool in this environment (established pattern). This fix touches real payroll write correctness, so verify with actual computed values, not just a code read:
+1. Hand-trace `scheduleUtcToEastern` against the exact real record that exposed the bug: a UTC `startDateTime` of `"2026-08-24T10:00:00Z"` (raw UTC hour 10 — what the OLD buggy code displayed as "10:00", which the user confirmed should really read 6:00 AM Eastern) — confirm the NEW code produces `hh: 6` (since late August is EDT, UTC-4: 10:00 UTC − 4h = 06:00 Eastern).
+2. Hand-trace the reverse (`scheduleEasternToUtc('2026-08-30', 6, 0)`, a manager entering "6:00 AM" for a shift on 8/30) — confirm it produces a UTC ISO string with hour `10` (06:00 EDT + 4h = 10:00 UTC), i.e. exactly the round-trip inverse of check 1.
+3. Confirm `scheduleFormat12h('06:00')` → `'6:00 AM'`, `scheduleFormat12h('13:00')` → `'1:00 PM'`, `scheduleFormat12h('00:00')` → `'12:00 AM'`, `scheduleFormat12h('12:00')` → `'12:00 PM'` (midnight/noon edge cases).
+4. Confirm a DST-crossing date is still correct — e.g. trace `scheduleUtcToEastern` against a real December date (EST, UTC-5, not UTC-4) to confirm the function picks up the correct offset automatically rather than being hardcoded to EDT.
+5. Re-run the exact real Bustleton data trace Task 6/9 already validated (weekStart `2026-08-30`, real `schedulingShifts` read for `2026-08-23`–`2026-08-29`) through the NEW `scheduleGroupShiftsByEmployee`, and confirm the resulting `startTime`/`endTime` values are now 4 hours earlier than what the OLD code would have produced for the same real records (this is the direct, real-data confirmation that the fix addresses the actual bug the user found live).
+
+- [ ] **Step 8: Bump version, commit**
+
+```bash
+git add app.jsx app.js
+git commit -m "Fix Eastern-time conversion for shift display/write, switch to 12-hour format, add per-card weekly total"
+```
+
+---
+
+## Task 9c: Show Paycor "Open Shifts" in the weekly grid
+
+**Why:** During the same live test, the user asked why Ahmed Bhuiyan (a real, active Bustleton employee) never appeared anywhere in the schedule despite genuinely working that week. Investigated with a real query: Paycor's `schedulingShifts` read for Bustleton's 8/23-8/29 week returns 89 records, of which **14 have `employeeId: "00000000-0000-0000-0000-000000000000"` and `employeeName: null`** — these are Paycor's native "Open Shifts" (posted by job role — "Store Managers", "Crew Member" — with no specific person assigned yet, visible in Paycor's own Schedules UI as a distinct "Open Shifts" row per the user's screenshot). `scheduleGroupShiftsByEmployee` groups strictly by `employeeId`, so these 14 real shifts — 16% of the week's real schedule — silently vanish: they don't match any real employee's `id`, so they never make it into any card or the grid. User confirmed (explicit choice) they want these shown, view-only for now — not build/create support for new open shifts, which is a separate, larger feature for later.
+
+**Files:**
+- Modify: `app.jsx` — add a new helper near `scheduleGroupShiftsByEmployee`; add state + wiring to `ScheduleBuilder`; extend `WeeklyScheduleGrid` to render open-shift rows
+
+**Interfaces:**
+- Produces: `scheduleGroupOpenShiftsByJob(shiftRecords, weekStartISO)` → `Array<{ jobTitle, shifts: Array<{dayOffset, startTime, endTime}> }>` (one entry per distinct job title with open coverage that week)
+- `WeeklyScheduleGrid`'s prop signature gains one new, optional prop: `openShiftGroups` (defaults to none rendered if omitted — existing call sites that don't pass it keep working unchanged, though this task updates both real call sites to pass it)
+
+- [ ] **Step 1: Add the open-shifts grouping helper**
+
+Insert immediately after `scheduleGroupShiftsByEmployee`'s closing brace (search `function scheduleGroupShiftsByEmployee`):
+
+```js
+// Paycor represents an unassigned "Open Shift" (posted by job role, no
+// specific employee yet) with employeeId "00000000-0000-...-000000000000"
+// and employeeName null (confirmed live 2026-08-28 against real Bustleton
+// data: 14 of 89 real shifts that week were open coverage for "Store
+// Managers"/"Crew Member" — visible in Paycor's own Schedules UI as a
+// distinct "Open Shifts" row, but invisible in this app since
+// scheduleGroupShiftsByEmployee only matches real employeeIds). Groups
+// these separately, by job title, so they can be shown as their own rows
+// instead of silently disappearing.
+const SCHEDULE_OPEN_SHIFT_SENTINEL = '00000000-0000-0000-0000-000000000000';
+function scheduleGroupOpenShiftsByJob(shiftRecords, weekStartISO) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const byJob = {};
+  (shiftRecords || []).forEach(s => {
+    if (s.employeeId !== SCHEDULE_OPEN_SHIFT_SENTINEL && s.employeeName) return;
+    const startET = scheduleUtcToEastern(s.startDateTime);
+    const endET = scheduleUtcToEastern(s.endDateTime);
+    const startDateUTC = new Date(startET.dateStr + 'T00:00:00Z');
+    const dayOffset = Math.round((startDateUTC - weekStart) / 86400000);
+    const fmt = (et) => `${String(et.hh).padStart(2, '0')}:${String(et.mm).padStart(2, '0')}`;
+    const jobName = s.schedulingJobName || 'Open Shift';
+    if (!byJob[jobName]) byJob[jobName] = [];
+    byJob[jobName].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET) });
+  });
+  return Object.entries(byJob).map(([jobTitle, shifts]) => ({ jobTitle, shifts: shifts.filter(s => s.dayOffset >= 0 && s.dayOffset <= 6) }));
+}
+```
+
+(Reuses `scheduleUtcToEastern` from Task 9b — no separate UTC handling needed here, and this inherits the same DST-correctness the hotfix already established.)
+
+- [ ] **Step 2: Wire it into `ScheduleBuilder`**
+
+Add new state near the existing ones (search `const [payRates, setPayRates] = useState({});`):
+```js
+const [openShiftGroups, setOpenShiftGroups] = useState([]);
+```
+
+In `load()`, immediately after the existing line `const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], groupingAnchor);`, add:
+```js
+setOpenShiftGroups(scheduleGroupOpenShiftsByJob(shiftData.records || [], groupingAnchor));
+```
+
+- [ ] **Step 3: Extend `WeeklyScheduleGrid` to render open-shift rows**
+
+Change the function signature (search `function WeeklyScheduleGrid({ weekStartISO, cards, th })`):
+```js
+function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
+```
+
+Immediately after the existing `{(cards || []).map(card => { ... })}` block's closing `})}` (still inside `<tbody>`, before `</tbody>`), add a second `.map` over `openShiftGroups`:
+
+```jsx
+{(openShiftGroups || []).map(og => {
+  const totalHours = (og.shifts || []).reduce((sum, sh) => {
+    const [sh1, sm1] = sh.startTime.split(':').map(Number);
+    const [sh2, sm2] = sh.endTime.split(':').map(Number);
+    let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+    if (mins < 0) mins += 1440;
+    return sum + mins / 60;
+  }, 0);
+  return (
+    <tr key={'open-' + og.jobTitle} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+      <td style={{ padding: '0.5rem', color: th.muted, fontWeight: 600, fontStyle: 'italic', position: 'sticky', left: 0, background: th.bg }}>
+        Open — {og.jobTitle}
+        <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400, fontStyle: 'normal' }}>{Math.round(totalHours * 10) / 10}h unfilled</div>
+      </td>
+      {dayDates.map((_, dayOffset) => {
+        const shift = (og.shifts || []).find(sh => sh.dayOffset === dayOffset);
+        return (
+          <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
+            {shift && (
+              <div style={{ background: '#94a3b81a', border: '1px dashed #94a3b8aa', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.muted }}>
+                {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+              </div>
+            )}
+          </td>
+        );
+      })}
+    </tr>
+  );
+})}
+```
+
+(Dashed border + muted gray, distinct from the solid-orange assigned-employee shift styling directly above it — a manager should be able to tell "this row has no one assigned" at a glance. Same `.find()`-picks-first limitation as the per-employee rows above — a second open shift for the same job on the same day would be hidden, matching this grid's existing, already-reviewed-and-accepted behavior for double-booked employees.)
+
+- [ ] **Step 4: Pass the new prop at both call sites**
+
+`ScheduleBuilder`'s view-mode render (search `{cards && <WeeklyScheduleGrid weekStartISO={weekStart} cards={cards.filter`):
+```jsx
+{cards && <WeeklyScheduleGrid weekStartISO={weekStart} cards={cards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} />}
+```
+
+`ScheduleBuilder`'s build-mode final-review render (search `<WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter`):
+```jsx
+<WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} />
+```
+
+- [ ] **Step 5: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 6: Verify against real data**
+
+No browser tool in this environment (established pattern). Verify with the exact real data that surfaced this request: run `scheduleGroupOpenShiftsByJob` against a real `schedulingShifts` read for Bustleton (`legalEntityId: "193884"`, `startDate: "2026-08-23"`, `endDate: "2026-08-30"`) and confirm it produces a "Store Managers" group and (if present) a "Crew Member" group, each with real shift times matching what's visible in the real Paycor screenshot the user shared (e.g., Monday 8/24 "Store Managers" open shift ~04:45 AM–03:00 PM Eastern). Confirm the 14 real open-shift records are fully accounted for across the returned groups (no silent drops). Confirm a normal assigned-employee shift (`employeeId` a real GUID, `employeeName` a real name) is correctly excluded from `scheduleGroupOpenShiftsByJob`'s output (the `if (s.employeeId !== SENTINEL && s.employeeName) return;` guard).
+
+- [ ] **Step 7: Bump version, commit**
+
+```bash
+git add app.jsx app.js
+git commit -m "Show Paycor Open Shifts (unassigned coverage) in the weekly grid"
 ```
 
 ---
@@ -1173,4 +1962,4 @@ git commit -m "Add batched Paycor submission with per-shift results"
 
 - **Spec coverage:** every section of the spec maps to a task — Overview/User Flow → Tasks 6-9, Data Sources → Task 2 + Task 6's `load()`, UI Components → Tasks 3-6, Submission Mechanics → Task 9, Roles & Permissions → Task 7, Error Handling → covered inline in Task 2 (missing rate), Task 6 (empty last-week data), Task 9 (partial batch failure), Testing Plan → Tasks 1, 10, and the per-task manual-verification steps throughout.
 - **Placeholder scan:** no TBD/TODO markers; Task 7's manager-store field name is flagged as "confirm before proceeding" rather than guessed, since guessing wrong here is a real access-control risk — this is a deliberate stop-and-verify instruction, not an unresolved placeholder.
-- **Type/naming consistency:** the card shape (`employeeId, employeeName, jobTitle, schedulingJobId, scheduleGroupId, shifts: [{dayOffset, startTime, endTime}]`) is used identically across Tasks 2, 3, 5, 6, 8, 9. `scheduleComputeWeeklyTotal`'s return shape (`totalHours, totalDollars, byEmployee`) matches between Task 2's definition and Task 4/6's consumption.
+- **Type/naming consistency:** the card shape (`employeeId, employeeName, jobTitle, schedulingJobId, scheduleGroupId, departmentId, shifts: [{dayOffset, startTime, endTime}]`) is used identically across Tasks 2, 3, 5, 6, 8, 9. `scheduleComputeWeeklyTotal`'s return shape (`totalHours, totalDollars, byEmployee`) matches between Task 2's definition and Task 4/6's consumption. `departmentId`/`isPublished`/`shiftModelId` were added to the plan on 2026-08-25 after Task 1's live-API validation surfaced them as required fields Paycor's `createSchedulingShifts` rejects without (see Task 1, Task 2, Task 6, Task 9) — every task touching the card shape or the submission payload was checked and updated to carry them through consistently.

@@ -8240,6 +8240,67 @@ function ManagerPulse({ stores, th, user, txnDeepLinkRef, initialTab }) {
   );
 }
 
+// Store-picker for dm/executive/it/office_staff — dm scoped to their own district,
+// everyone else sees the full network. Renders ScheduleBuilder in read-only 'view'
+// mode once a store is picked (this role set never builds/submits a schedule — only
+// ManagerSchedule below does that, for the one store a manager owns).
+function AdminSchedule({ stores, th, user }) {
+  const [selectedStore, setSelectedStore] = useState(null);
+  const isDM = user?.userType === 'dm';
+  const visibleStores = React.useMemo(() => {
+    if (isDM && user?.district != null) return (stores || []).filter(s => String(s.district) === String(user.district));
+    return stores || [];
+  }, [stores, isDM, user]);
+
+  if (selectedStore) {
+    return (
+      <div>
+        <button onClick={() => setSelectedStore(null)} style={{ ...btn(th, { background: th.card2, color: th.text }), marginBottom: '1rem' }}>← Back to stores</button>
+        <ScheduleBuilder store={selectedStore} th={th} mode="view" />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '1rem' }}>
+      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>Schedule</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+        {visibleStores.map(s => (
+          <div key={s.pc} onClick={() => setSelectedStore(s)}
+            style={{ ...card(th), padding: '1rem', cursor: 'pointer' }}>
+            <div style={{ fontWeight: 700, color: th.text }}>{s.name}</div>
+            <div style={{ fontSize: '0.75rem', color: th.muted }}>PC# {s.pc} · District {s.district}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Manager landing — no picker, straight to their own store's build flow. Mirrors
+// ManagerPulse's shape exactly (app.jsx:8227): resolve via getManagerStore, friendly
+// empty state if unassigned, otherwise render directly.
+function ManagerSchedule({ stores, th, user }) {
+  const [mode, setMode] = useState('build');
+  const store = getManagerStore(stores, user);
+  if (!store?.pc) {
+    return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 480, margin: '2rem auto' }}>No store is linked to your account yet. Ask an admin to assign one.</div>;
+  }
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <button onClick={() => setMode('build')} style={{ ...btn(th, mode === 'build' ? { background: '#FF671F' } : { background: th.card2, color: th.text }) }}>Build</button>
+        <button onClick={() => setMode('view')} style={{ ...btn(th, mode === 'view' ? { background: '#FF671F' } : { background: th.card2, color: th.text }) }}>View Posted</button>
+      </div>
+      {/* key={mode} forces a clean remount on toggle — ScheduleBuilder's internal
+          state (weekStart, cards, approvedCards) must not carry over between
+          build and view; a fresh mount is simpler and safer than manually
+          resetting each piece of state on every toggle. */}
+      <ScheduleBuilder key={mode} store={store} th={th} mode={mode} />
+    </div>
+  );
+}
+
 // ─── Store Detail Component ──────────────────────────────────────────────────
 // Daypart × day-of-week item mix (roadmap 9.3): reads the nightly-captured catDaypart field
 // on pcg_item_history_{pc} (units by category × Morning/Midday/Afternoon/Evening) and renders a
@@ -24700,6 +24761,7 @@ const computeRoleTabs = (user) => {
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
+    { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
     { id: "finance",   label: "Finance",        icon: (c) => ICONS.dollar(c), cash: true },
     { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.search(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
@@ -24722,6 +24784,7 @@ const computeRoleTabs = (user) => {
     { id: "anomalies", label: "Anomalies",    icon: (c) => ICONS.anomalies(c) },
     { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse(c), green: true },
+    { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
     { id: "finance",   label: "Finance",      icon: (c) => ICONS.dollar(c), cash: true },
     { id: "impact",    label: "Impact Radar", icon: (c) => ICONS.search(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
@@ -24748,6 +24811,7 @@ const computeRoleTabs = (user) => {
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
+    { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
     { id: "anomalies", label: "Anomalies",      icon: (c) => ICONS.anomalies(c) },
     { id: "finance",   label: "Finance",        icon: (c) => ICONS.dollar(c), cash: true },
@@ -24764,6 +24828,7 @@ const computeRoleTabs = (user) => {
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
+    { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
@@ -26075,7 +26140,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.06";
+const APP_VERSION = "v20.24";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32198,6 +32263,693 @@ function CashManagement({ user, th, stores, districts, cashDeposits, setCashDepo
 // helper: format local date as YYYY-MM-DD
 function localDateStr(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+// Paycor stores every shift's startDateTime/endDateTime as a UTC ISO string,
+// but every PCG store operates in Eastern time and every manager thinks in
+// Eastern time — these two functions bridge that gap. Neither hardcodes a
+// fixed UTC offset (which would be wrong roughly half the year, since
+// Eastern alternates EDT/UTC-4 and EST/UTC-5) — both use Intl's real IANA
+// timezone database via 'America/New_York', the same approach already used
+// elsewhere in this file (e.g. app.jsx:10338-10339), so DST transitions are
+// handled correctly automatically. Bug found + fixed 2026-08-28: a real
+// employee's real 6:00 AM-12:00 PM Eastern shift was displaying (and would
+// have been WRITTEN) as raw UTC 10:00-16:00, a genuine 4-hour error.
+
+// A UTC ISO string -> Eastern wall-clock date + time.
+function scheduleUtcToEastern(utcIso) {
+  const d = new Date(utcIso);
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+  const get = (t) => parts.find(p => p.type === t).value;
+  return { dateStr: `${get('year')}-${get('month')}-${get('day')}`, hh: Number(get('hour')) % 24, mm: Number(get('minute')) };
+}
+
+// The reverse: an Eastern wall-clock date + time -> the equivalent UTC ISO
+// string. Works by guessing (treating the wall-clock values as if they were
+// already UTC), checking what Eastern time that guess actually represents,
+// then correcting by the difference — this naturally picks up whichever
+// offset (EDT/EST) applies on that specific date without hardcoding either.
+// Every correction is VERIFIED by converting back, because a single
+// correction is not always enough: it corrects by the offset in force at the
+// guess instant, and on the two DST-transition Sundays each year the guess
+// can sit on the far side of the transition from the answer, landing exactly
+// one hour off. Confirmed concretely 2026-08-28: a single pass turned a
+// real-shaped 4:30 AM opening shift on 2026-11-01 (fall-back Sunday) into
+// 3:30 AM — a wrong payroll write. The verified second pass fixes it.
+function scheduleEasternToUtc(dateStr, hh, mm) {
+  const wantedMin = hh * 60 + mm;
+  const dayStartMs = (ds) => new Date(ds + 'T00:00:00Z').getTime();
+  // Minutes by which a candidate instant's true Eastern wall-clock time
+  // differs from the wall-clock time we're aiming for (day rollover included).
+  const errorMin = (candidate) => {
+    const back = scheduleUtcToEastern(candidate.toISOString());
+    const gotMin = back.hh * 60 + back.mm + Math.round((dayStartMs(back.dateStr) - dayStartMs(dateStr)) / 60000);
+    return wantedMin - gotMin;
+  };
+  const guess = new Date(`${dateStr}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`);
+  const pass1 = new Date(guess.getTime() + errorMin(guess) * 60000);
+  const err1 = errorMin(pass1);
+  if (err1 === 0) return pass1.toISOString();
+  const pass2 = new Date(pass1.getTime() + err1 * 60000);
+  if (errorMin(pass2) === 0) return pass2.toISOString();
+  // Neither is exact only when the requested wall-clock time doesn't exist at
+  // all — the 2 AM hour skipped on spring-forward Sunday. Return pass 1,
+  // which maps it forward into the new offset (2:00 AM -> 3:00 AM), the
+  // standard convention for a nonexistent local time.
+  return pass1.toISOString();
+}
+
+// 12-hour, AM/PM display format for a "HH:MM" (24-hour, Eastern) string —
+// per explicit user request (2026-08-28): 24-hour times ("13:00"-"24:00")
+// read as confusing to managers, always show 12-hour with AM/PM instead.
+// Display-only — the underlying stored/edited value stays 24-hour "HH:MM".
+function scheduleFormat12h(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+// Groups a schedulingShifts API read (flat array of shift records) by
+// employeeId, converting each shift's absolute startDateTime/endDateTime
+// into a { dayOffset (0=Sunday of the given week), startTime, endTime }
+// shape relative to weekStartISO — used to pre-fill each employee's card
+// with last week's actual shifts. See docs/superpowers/specs/2026-08-25-labor-schedule-builder-design.md.
+// startTime/endTime are Eastern wall-clock times (NOT raw UTC — see the
+// 2026-08-28 fix above), and dayOffset is computed from the Eastern
+// calendar date the shift starts on, so a late-night Eastern shift whose
+// UTC start falls on the next UTC calendar day (e.g. 11 PM-2 AM Eastern)
+// still lands on the correct day of the grid.
+function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const byEmployee = {};
+  (shiftRecords || []).forEach(s => {
+    const startET = scheduleUtcToEastern(s.startDateTime);
+    const endET = scheduleUtcToEastern(s.endDateTime);
+    const startDateUTC = new Date(startET.dateStr + 'T00:00:00Z');
+    const dayOffset = Math.round((startDateUTC - weekStart) / 86400000);
+    const fmt = (et) => `${String(et.hh).padStart(2, '0')}:${String(et.mm).padStart(2, '0')}`;
+    if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
+  });
+  return byEmployee;
+}
+
+// Paycor represents an unassigned "Open Shift" (posted by job role, no
+// specific employee yet) with employeeId "00000000-0000-...-000000000000"
+// and employeeName null (confirmed live 2026-08-28 against real Bustleton
+// data: 14 of 89 real shifts that week were open coverage for "Store
+// Managers"/"Crew Member" — visible in Paycor's own Schedules UI as a
+// distinct "Open Shifts" row, but invisible in this app since
+// scheduleGroupShiftsByEmployee only matches real employeeIds). Groups
+// these separately, by job title, so they can be shown as their own rows
+// instead of silently disappearing.
+const SCHEDULE_OPEN_SHIFT_SENTINEL = '00000000-0000-0000-0000-000000000000';
+function scheduleGroupOpenShiftsByJob(shiftRecords, weekStartISO) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const byJob = {};
+  (shiftRecords || []).forEach(s => {
+    if (s.employeeId !== SCHEDULE_OPEN_SHIFT_SENTINEL && s.employeeName) return;
+    const startET = scheduleUtcToEastern(s.startDateTime);
+    const endET = scheduleUtcToEastern(s.endDateTime);
+    const startDateUTC = new Date(startET.dateStr + 'T00:00:00Z');
+    const dayOffset = Math.round((startDateUTC - weekStart) / 86400000);
+    const fmt = (et) => `${String(et.hh).padStart(2, '0')}:${String(et.mm).padStart(2, '0')}`;
+    const jobName = s.schedulingJobName || 'Open Shift';
+    if (!byJob[jobName]) byJob[jobName] = [];
+    byJob[jobName].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET) });
+  });
+  // A job's open shifts can ALL land outside the 0-6 window (e.g. the only
+  // one that week was the spurious pre-startDate record) — drop the group
+  // entirely rather than rendering an empty "Open — {job} / 0h unfilled" row.
+  return Object.entries(byJob)
+    .map(([jobTitle, shifts]) => ({ jobTitle, shifts: shifts.filter(s => s.dayOffset >= 0 && s.dayOffset <= 6) }))
+    .filter(g => g.shifts.length > 0);
+}
+
+// A new employee (no shifts last week) has no schedulingJobId/scheduleGroupId/
+// departmentId to reuse. Paycor doesn't expose a live job lookup (the "View
+// Legal Entity Scheduling Jobs" Data Access scope isn't enabled), so this
+// reuses another employee's known values instead: first choice is someone at
+// the same store sharing the same live job title; fallback is whichever
+// scheduleGroupId/departmentId appears most often, flagged for manual
+// confirmation since the job itself couldn't be determined. departmentId is
+// required on every Paycor shift write (confirmed via live 400 response —
+// see Task 1), so it's carried through the same reuse/fallback logic as
+// scheduleGroupId.
+function scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee) {
+  const sameTitle = (employees || []).find(e => e.positionData?.jobTitle === jobTitle && shiftsByEmployee[e.id]?.length);
+  if (sameTitle) {
+    const s = shiftsByEmployee[sameTitle.id][0];
+    return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId, needsConfirmation: false };
+  }
+  const allShifts = Object.values(shiftsByEmployee).flat();
+  if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, departmentId: null, needsConfirmation: true };
+  const groupCounts = {};
+  const deptCounts = {};
+  allShifts.forEach(s => {
+    groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1;
+    if (s.departmentId) deptCounts[s.departmentId] = (deptCounts[s.departmentId] || 0) + 1;
+  });
+  const mostCommonGroup = Object.entries(groupCounts).sort((a, b) => b[1] - a[1])[0][0];
+  const mostCommonDept = Object.keys(deptCounts).length ? Object.entries(deptCounts).sort((a, b) => b[1] - a[1])[0][0] : null;
+  return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, departmentId: mostCommonDept, needsConfirmation: true };
+}
+
+// Running weekly labor $/hours total across every card currently in the
+// builder. An employee with no pay rate on file still contributes their
+// hours to the total but is flagged rateAvailable:false rather than being
+// silently counted as $0, which would understate projected labor cost.
+function scheduleComputeWeeklyTotal(cards, payRatesByEmployeeId) {
+  let totalHours = 0, totalDollars = 0;
+  const byEmployee = (cards || []).map(card => {
+    const hours = (card.shifts || []).reduce((sum, sh) => {
+      const [sh1, sm1] = sh.startTime.split(':').map(Number);
+      const [sh2, sm2] = sh.endTime.split(':').map(Number);
+      // Overnight shift (e.g. 17:00-00:00 closing) — end-of-day clock time is
+      // numerically less than start; treat it as ending the next calendar
+      // day instead of producing a negative duration. Confirmed live
+      // 2026-08-25 at Bustleton (real employee, 4 real closing shifts/week)
+      // — without this, RunningLaborHeader showed a negative dollar total.
+      let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+      if (mins < 0) mins += 1440;
+      return sum + mins / 60;
+    }, 0);
+    const rate = payRatesByEmployeeId[card.employeeId];
+    const rateAvailable = rate != null;
+    const dollars = rateAvailable ? hours * rate : 0;
+    totalHours += hours;
+    if (rateAvailable) totalDollars += dollars;
+    return { employeeId: card.employeeId, hours: Math.round(hours * 100) / 100, dollars: Math.round(dollars * 100) / 100, rateAvailable };
+  });
+  return { totalHours: Math.round(totalHours * 100) / 100, totalDollars: Math.round(totalDollars * 100) / 100, byEmployee };
+}
+
+// Plain-text schedule for sharing via WhatsApp/SMS/group chat — no image
+// generation, just a clean text block (per design spec: plain text was
+// chosen over a visual graphic for reliability across share targets).
+function scheduleBuildShareText(weekStartISO, approvedCards) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const dateFor = (dayOffset) => {
+    const d = new Date(weekStart);
+    d.setUTCDate(d.getUTCDate() + dayOffset);
+    return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+  };
+  const lines = [`Schedule — week of ${dateFor(0)}`, ''];
+  (approvedCards || []).filter(c => (c.shifts || []).length > 0).forEach(c => {
+    const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map(s => `${SCHEDULE_DOW[s.dayOffset]} ${scheduleFormat12h(s.startTime)}-${scheduleFormat12h(s.endTime)}`);
+    lines.push(`${c.employeeName}: ${shiftParts.join(', ')}`);
+  });
+  return lines.join('\n');
+}
+
+const SCHEDULE_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Employee-rows x day-columns weekly grid, matching the visual shape of
+// Paycor's own native Schedules view (confirmed via screenshot during
+// design) but styled with this app's own theme instead of Paycor's colors.
+// Pure rendering only — no edit state lives here even in 'build' mode.
+function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const dayDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setUTCDate(d.getUTCDate() + i);
+    return d;
+  });
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: '0.5rem', borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: 'sticky', left: 0, background: th.bg }}>Employee</th>
+            {dayDates.map((d, i) => (
+              <th key={i} style={{ textAlign: 'center', padding: '0.5rem', borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 130 }}>
+                {SCHEDULE_DOW[i]}, {d.getUTCMonth() + 1}/{d.getUTCDate()}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {(cards || []).map(card => {
+            const totalHours = (card.shifts || []).reduce((sum, sh) => {
+              const [sh1, sm1] = sh.startTime.split(':').map(Number);
+              const [sh2, sm2] = sh.endTime.split(':').map(Number);
+              // Overnight wraparound — see matching fix + comment in scheduleComputeWeeklyTotal.
+              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+              if (mins < 0) mins += 1440;
+              return sum + mins / 60;
+            }, 0);
+            return (
+              <tr key={card.employeeId} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                <td style={{ padding: '0.5rem', color: th.text, fontWeight: 600, position: 'sticky', left: 0, background: th.bg }}>
+                  {card.employeeName}
+                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400 }}>{Math.round(totalHours * 10) / 10}h</div>
+                </td>
+                {dayDates.map((_, dayOffset) => {
+                  const shift = (card.shifts || []).find(sh => sh.dayOffset === dayOffset);
+                  return (
+                    <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
+                      {shift && (
+                        <div style={{ background: '#FF671F18', border: '1px solid #FF671F55', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.text }}>
+                          {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+          {(openShiftGroups || []).map(og => {
+            const totalHours = (og.shifts || []).reduce((sum, sh) => {
+              const [sh1, sm1] = sh.startTime.split(':').map(Number);
+              const [sh2, sm2] = sh.endTime.split(':').map(Number);
+              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+              if (mins < 0) mins += 1440;
+              return sum + mins / 60;
+            }, 0);
+            return (
+              <tr key={'open-' + og.jobTitle} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                <td style={{ padding: '0.5rem', color: th.muted, fontWeight: 600, fontStyle: 'italic', position: 'sticky', left: 0, background: th.bg }}>
+                  Open — {og.jobTitle}
+                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400, fontStyle: 'normal' }}>{Math.round(totalHours * 10) / 10}h unfilled</div>
+                </td>
+                {dayDates.map((_, dayOffset) => {
+                  const shift = (og.shifts || []).find(sh => sh.dayOffset === dayOffset);
+                  return (
+                    <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
+                      {shift && (
+                        <div style={{ background: '#94a3b81a', border: '1px dashed #94a3b8aa', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.muted }}>
+                          {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Sticky header showing the store's running projected weekly labor $ and %,
+// color-coded against the canonical thresholds (LABOR_GREEN=22.9,
+// LABOR_YELLOW=25.9, red >=26 — app.jsx:33267-33269). Also flags (does not
+// block) any employee whose week exceeds 40 hours.
+function RunningLaborHeader({ weeklyTotal, projectedSales, th }) {
+  const pct = projectedSales > 0 ? (weeklyTotal.totalDollars / projectedSales) * 100 : 0;
+  const color = pct <= 22.9 ? '#4caf50' : pct <= 25.9 ? '#ff9800' : '#f44336';
+  const overtimeEmployees = (weeklyTotal.byEmployee || []).filter(e => e.hours > 40);
+
+  return (
+    <div style={{ position: 'sticky', top: 0, zIndex: 10, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '0.85rem 1.1rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
+      <div>
+        <div style={{ fontSize: '0.68rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Projected Weekly Labor</div>
+        <div style={{ fontSize: '1.1rem', fontWeight: 800, color }}>
+          ${weeklyTotal.totalDollars.toFixed(2)} <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>({pct.toFixed(1)}%)</span>
+        </div>
+      </div>
+      <div style={{ fontSize: '0.78rem', color: th.muted }}>{weeklyTotal.totalHours.toFixed(1)} total hours</div>
+      {overtimeEmployees.length > 0 && (
+        <div style={{ fontSize: '0.76rem', color: '#f59e0b', fontWeight: 600 }}>
+          ⚠ {overtimeEmployees.length} employee(s) over 40h this week
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One employee's proposed week — Approve as-is, or Edit to add/remove/
+// change individual shifts before advancing. Local edit state only;
+// nothing is saved to Paycor from this component (that happens in the
+// final batched submission — see Task 9). Prop is named cardData (not
+// card) since `card` is already the src/theme.js style helper used
+// elsewhere in this file.
+function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draftShifts, setDraftShifts] = useState(cardData.shifts || []);
+
+  const updateShift = (idx, field, value) => {
+    setDraftShifts(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
+  };
+  const removeShift = (idx) => setDraftShifts(prev => prev.filter((_, i) => i !== idx));
+  const addShift = () => setDraftShifts(prev => [...prev, { dayOffset: 0, startTime: '09:00', endTime: '17:00' }]);
+
+  return (
+    <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: '1.1rem', maxWidth: 480 }}>
+      <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '1rem', color: th.text, marginBottom: '0.2rem' }}>{cardData.employeeName}</div>
+      <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.9rem' }}>{cardData.jobTitle || 'Crew Member'}</div>
+
+      {!editing && (
+        <>
+          {(cardData.shifts || []).length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '0.8rem' }}>No shifts proposed (new employee, or none last week)</div>}
+          {(cardData.shifts || []).map((s, i) => (
+            <div key={i} style={{ fontSize: '0.8rem', color: th.text, marginBottom: '0.3rem' }}>
+              {SCHEDULE_DOW[s.dayOffset]}: {scheduleFormat12h(s.startTime)}–{scheduleFormat12h(s.endTime)}
+            </div>
+          ))}
+          {(cardData.shifts || []).length > 0 && (() => {
+            // Running weekly total on the employee's own card (user request
+            // 2026-08-28) — same overnight-safe duration math as
+            // scheduleComputeWeeklyTotal / WeeklyScheduleGrid.
+            const totalHours = cardData.shifts.reduce((sum, s) => {
+              const [sh1, sm1] = s.startTime.split(':').map(Number);
+              const [sh2, sm2] = s.endTime.split(':').map(Number);
+              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+              if (mins < 0) mins += 1440;
+              return sum + mins / 60;
+            }, 0);
+            return <div style={{ fontSize: '0.78rem', color: th.muted, fontWeight: 600, marginTop: '0.4rem', marginBottom: '0.4rem' }}>{Math.round(totalHours * 10) / 10}h this week</div>;
+          })()}
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.9rem' }}>
+            <button onClick={onApprove} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Approve</button>
+            <button onClick={() => { setDraftShifts(cardData.shifts || []); setEditing(true); }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Edit</button>
+          </div>
+        </>
+      )}
+
+      {editing && (
+        <>
+          {draftShifts.map((s, i) => (
+            <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.4rem' }}>
+              <select value={s.dayOffset} onChange={e => updateShift(i, 'dayOffset', Number(e.target.value))} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }}>
+                {SCHEDULE_DOW.map((d, di) => <option key={di} value={di}>{d}</option>)}
+              </select>
+              <input type="time" value={s.startTime} onChange={e => updateShift(i, 'startTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
+              <input type="time" value={s.endTime} onChange={e => updateShift(i, 'endTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
+              <button onClick={() => removeShift(i)} style={{ ...btn(th, { background: '#ef444422', color: '#ef4444' }), padding: '0.25rem 0.5rem' }}>✕</button>
+            </div>
+          ))}
+          <button onClick={addShift} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.75rem', marginBottom: '0.8rem' }}>+ Add shift</button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button onClick={() => { onSave(draftShifts); setEditing(false); }} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Save & Continue</button>
+            <button onClick={() => setEditing(false)} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Cancel</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Top-level Build Schedule flow: loads roster + last week's shifts + pay
+// rates, builds a card stack (one per active employee, pre-filled from
+// last week where available), and tracks approved cards as the manager
+// steps through. 'view' mode skips the card stack entirely and just shows
+// whatever's already scheduled for the target week, read-only.
+function ScheduleBuilder({ store, th, mode }) {
+  const todayStr = tipsFormatISODate(new Date()); // reuse existing date helper, app.jsx ~37905
+  const [weekStart, setWeekStart] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [cards, setCards] = useState(null); // null until loaded
+  const [cardIndex, setCardIndex] = useState(0);
+  const [approvedCards, setApprovedCards] = useState([]);
+  const [payRates, setPayRates] = useState({});
+  const [openShiftGroups, setOpenShiftGroups] = useState([]);
+  const [submitResult, setSubmitResult] = useState(null); // null | { running, results: [{employeeId, employeeName, status, detail}] }
+
+  const load = async () => {
+    if (!weekStart) return;
+    setLoading(true); setError(null); setCards(null); setCardIndex(0); setApprovedCards([]);
+    try {
+      const lastWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), -7));
+      const nextWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), 7));
+      // In 'view' mode we show the SELECTED week's own posted schedule, not
+      // last week's — last week is only ever used as a pre-fill template in
+      // 'build' mode. schedulingShifts treats `endDate` as EXCLUSIVE
+      // (confirmed live in Task 1, 2026-08-25), so either window's end is
+      // passed as one day past the last desired day to avoid dropping it.
+      const fetchRangeStart = mode === 'view' ? weekStart : lastWeekStart;
+      const fetchRangeEnd = mode === 'view' ? nextWeekStart : weekStart; // exclusive boundary
+      const groupingAnchor = mode === 'view' ? weekStart : lastWeekStart;
+
+      const [empRes, shiftRes] = await Promise.all([
+        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'employees', legalEntityId: store.paycor }) }),
+        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedulingShifts', legalEntityId: store.paycor, startDate: fetchRangeStart, endDate: fetchRangeEnd }) }),
+      ]);
+      const empData = await empRes.json();
+      const shiftData = await shiftRes.json();
+      if (!empRes.ok || !Array.isArray(empData?.records)) {
+        throw new Error(empData?.error || empData?.Detail || empData?.title || 'Failed to load the employee roster from Paycor. Try again in a moment.');
+      }
+      if (!shiftRes.ok || !Array.isArray(shiftData?.records)) {
+        throw new Error(shiftData?.error || shiftData?.Detail || shiftData?.title || 'Failed to load posted shifts from Paycor. Try again in a moment.');
+      }
+      const employees = (empData.records || []).filter(e => e?.statusData?.status === 'Active');
+      // Group by groupingAnchor (the week the fetched shifts actually belong
+      // to — lastWeekStart in 'build' mode, weekStart itself in 'view' mode),
+      // not always weekStart — dayOffset comes out 0-6 (Sun-Sat) either way
+      // since every week starts on Sunday, so the same dayOffset value
+      // carries over directly onto the target week's calendar.
+      // Confirmed live (2026-08-25): grouping 'build' mode's last-week shifts
+      // against weekStart instead of lastWeekStart produced dayOffset -8..-1
+      // for every shift (100% outside the 0-6 range every downstream
+      // renderer expects), silently breaking every pre-filled card.
+      const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], groupingAnchor);
+      setOpenShiftGroups(scheduleGroupOpenShiftsByJob(shiftData.records || [], groupingAnchor));
+
+      const rates = {};
+      await Promise.all(employees.map(async (e) => {
+        try {
+          const r = await fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'payRates', employeeId: e.id }) });
+          const rd = await r.json();
+          const rec = (rd.records || rd)?.[0];
+          const rate = rec?.payRate || rec?.rate;
+          // Salaried employees' payRate is a per-period salary figure, not an
+          // hourly rate (confirmed live 2026-08-25: a real Store Manager
+          // record has { type: "Salary", payRate: 1923.08 }) — treating it as
+          // hourly would wildly inflate the labor total. Skip it so this
+          // employee falls through to the existing rate-unavailable handling
+          // in scheduleComputeWeeklyTotal instead of guessing at a
+          // salary-to-hourly conversion.
+          if (rate != null && rec?.type !== 'Salary') rates[e.id] = Number(rate);
+        } catch (err) { /* leave unset — flagged as rate-unavailable downstream */ }
+      }));
+      setPayRates(rates);
+
+      const builtCards = employees.map(e => {
+        const name = `${e.firstName || ''} ${e.lastName || ''}`.trim();
+        const priorShiftsRaw = shiftsByEmployee[e.id] || [];
+        // Defensive: Paycor's schedulingShifts read also pulls in one extra
+        // day before the requested startDate (confirmed live 2026-08-25,
+        // same store/week query returned Sat 8/15 despite startDate=8/16) —
+        // that spurious day lands outside 0-6 once grouped by lastWeekStart,
+        // so drop it rather than let it render as an "undefined" day or
+        // silently inflate this employee's weekly hours/dollars.
+        const priorShifts = priorShiftsRaw.filter(s => s.dayOffset >= 0 && s.dayOffset <= 6);
+        let schedulingJobId = priorShiftsRaw[0]?.schedulingJobId || null;
+        let scheduleGroupId = priorShiftsRaw[0]?.scheduleGroupId || null;
+        let departmentId = priorShiftsRaw[0]?.departmentId || null;
+        if (!schedulingJobId) {
+          const defaulted = scheduleDefaultJobGroupForEmployee(e.positionData?.jobTitle, employees, shiftsByEmployee);
+          schedulingJobId = defaulted.schedulingJobId;
+          scheduleGroupId = defaulted.scheduleGroupId;
+          departmentId = defaulted.departmentId;
+        }
+        return {
+          employeeId: e.id,
+          employeeName: name,
+          jobTitle: e.positionData?.jobTitle || 'Crew Member',
+          schedulingJobId,
+          scheduleGroupId,
+          departmentId,
+          shifts: priorShifts.map(s => ({ dayOffset: s.dayOffset, startTime: s.startTime, endTime: s.endTime })),
+        };
+      });
+      setCards(builtCards);
+    } catch (e) {
+      setError(e.message || 'Failed to load schedule data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const currentCard = cards && cards[cardIndex];
+  const allCardsDone = cards && cardIndex >= cards.length;
+  const weeklyTotal = React.useMemo(() => scheduleComputeWeeklyTotal(cards && !allCardsDone ? approvedCards.concat(currentCard ? [currentCard] : []) : approvedCards, payRates), [cards, approvedCards, currentCard, allCardsDone, payRates]);
+
+  const handleApprove = () => {
+    setApprovedCards(prev => [...prev, currentCard]);
+    setCardIndex(i => i + 1);
+  };
+  const handleSave = (updatedShifts) => {
+    setApprovedCards(prev => [...prev, { ...currentCard, shifts: updatedShifts }]);
+    setCardIndex(i => i + 1);
+  };
+
+  const handleSendToPaycor = async () => {
+    const cardsToSend = approvedCards.filter(c => (c.shifts || []).length > 0);
+    if (cardsToSend.length === 0) { setSubmitResult({ running: false, results: [] }); return; }
+    setSubmitResult({ running: true, results: [] });
+
+    // The shift-building loop now lives inside this try (not before it) —
+    // a blank <input type="time"> (a manager clears a field) makes
+    // scheduleEasternToUtc throw on an Invalid Date, and that must surface
+    // as a real error instead of hanging the "Sending…" state forever with
+    // no feedback. Confirmed live 2026-08-28, during real production testing.
+    try {
+      const shifts = [];
+      cardsToSend.forEach(c => {
+      c.shifts.forEach(s => {
+        const dayDate = new Date(weekStart + 'T00:00:00Z');
+        dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
+        const dateStr = dayDate.toISOString().slice(0, 10);
+        const [startH, startM] = s.startTime.split(':').map(Number);
+        const [endH, endM] = s.endTime.split(':').map(Number);
+        // s.startTime/s.endTime are Eastern wall-clock times (the manager's own
+        // input) — convert to real UTC before sending to Paycor. An overnight
+        // shift's end time is on the FOLLOWING calendar day even though its
+        // dayOffset/dateStr describe the shift's start — advance the date by one
+        // day for the end conversion when endTime is numerically before startTime
+        // (same overnight convention already used by scheduleComputeWeeklyTotal).
+        const endDateStr = (endH * 60 + endM) < (startH * 60 + startM)
+          ? new Date(new Date(dateStr + 'T00:00:00Z').getTime() + 86400000).toISOString().slice(0, 10)
+          : dateStr;
+        shifts.push({
+          employeeId: c.employeeId,
+          scheduleGroupId: c.scheduleGroupId,
+          schedulingJobId: c.schedulingJobId,
+          departmentId: c.departmentId,
+          startDateTime: scheduleEasternToUtc(dateStr, startH, startM),
+          endDateTime: scheduleEasternToUtc(endDateStr, endH, endM),
+          isPublished: true,
+          // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is a
+          // caller-generated GUID, not a lookup value — one per shift, unique
+          // within the batch (same pattern as processId used elsewhere in
+          // this codebase). See Task 1's corrected script for the source.
+          shiftModelId: crypto.randomUUID(),
+          _employeeName: c.employeeName, // stripped before sending, kept for result mapping
+        });
+      });
+      });
+
+      // credentials:'include' + ...authHeader() — this is the FIRST call this
+      // codebase makes to createSchedulingShifts, and the action is now gated
+      // server-side (paycor.mjs, requireActiveUser + store-ownership check) —
+      // build the call with real session credentials from the start, matching
+      // the proven pattern auditsApi/safeAuditsApi already use for every other
+      // hardened endpoint (app.jsx, search `auditsApi`). authHeader() is
+      // already imported at the top of this file from src/portal-auth.mjs.
+      const res = await fetch('/.netlify/functions/paycor', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({
+          action: 'createSchedulingShifts',
+          legalEntityId: store.paycor,
+          shifts: shifts.map(({ _employeeName, ...s }) => s),
+          ignoreWarnings: true,
+        }),
+      });
+      const data = await res.json();
+      // A 401/403 from the server-side check returns { error: '...' }, not a
+      // shifts array — surface that message directly instead of letting it
+      // silently map to an empty {} per employee below.
+      if (!res.ok) {
+        setSubmitResult({ running: false, results: [{ employeeId: null, employeeName: 'All', status: 'error', detail: data?.error || `Request failed (${res.status})` }] });
+        return;
+      }
+      const returned = data?.shifts || data || [];
+      const results = shifts.map((s, i) => {
+        const r = returned[i] || {};
+        const ok = !!r.shiftId && !(r.warningsOrErrors && r.warningsOrErrors.some(w => w.severity === 'Error'));
+        // Math.FLOOR, not round: the elapsed-days figure is fractional (a
+        // 22:00 shift is 0.92 days into its own day), so Math.round rolled
+        // every shift starting at/after 12:00 forward to the NEXT day's
+        // label — and a Saturday evening shift landed on SCHEDULE_DOW[7],
+        // rendering the literal text "Shift undefined created". This line is
+        // the only confirmation a manager gets that a shift reached real
+        // payroll, so the label has to be right.
+        return { employeeId: s.employeeId, employeeName: s._employeeName, status: ok ? 'ok' : 'error', detail: ok ? `Shift ${SCHEDULE_DOW[Math.floor((new Date(s.startDateTime) - new Date(weekStart + 'T00:00:00Z')) / 86400000)]} created` : JSON.stringify(r.warningsOrErrors || r) };
+      });
+      setSubmitResult({ running: false, results });
+    } catch (e) {
+      setSubmitResult({ running: false, results: [{ employeeId: null, employeeName: 'All', status: 'error', detail: e.message || 'Request failed' }] });
+    }
+  };
+
+  if (mode === 'view') {
+    return (
+      <div>
+        <div style={{ marginBottom: '1rem' }}>
+          <input type="date" value={weekStart} onChange={e => setWeekStart(e.target.value)} style={{ ...inp(th), width: 200 }} />
+          <button onClick={load} disabled={!weekStart || loading} style={{ ...btn(th), marginLeft: '0.6rem', opacity: (!weekStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Load week'}</button>
+        </div>
+        {error && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
+        {cards && <WeeklyScheduleGrid weekStartISO={weekStart} cards={cards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} />}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {!cards && (
+        <div style={{ marginBottom: '1rem' }}>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', marginBottom: '0.35rem' }}>Week start (Sunday)</div>
+          <input type="date" value={weekStart} onChange={e => setWeekStart(e.target.value)} style={{ ...inp(th), width: 200 }} />
+          <button onClick={load} disabled={!weekStart || loading} style={{ ...btn(th), marginLeft: '0.6rem', opacity: (!weekStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Start building'}</button>
+        </div>
+      )}
+      {error && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
+
+      {cards && !allCardsDone && (
+        <>
+          <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
+          <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.6rem' }}>Employee {cardIndex + 1} of {cards.length}</div>
+          <EmployeeScheduleCard card={currentCard} th={th} onApprove={handleApprove} onSave={handleSave} />
+        </>
+      )}
+
+      {cards && allCardsDone && (
+        <>
+          <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, margin: '1rem 0 0.6rem' }}>Final review</div>
+          <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} />
+          <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
+            <button onClick={async () => {
+              const text = scheduleBuildShareText(weekStart, approvedCards);
+              if (navigator.share) {
+                try { await navigator.share({ text }); } catch (e) { /* user cancelled share — not an error */ }
+              } else {
+                await navigator.clipboard.writeText(text);
+                alert('Copied to clipboard');
+              }
+            }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>
+              {typeof navigator !== 'undefined' && navigator.share ? 'Share' : 'Copy'}
+            </button>
+            {/* Double-send guard. `disabled` on `running` alone only covered
+                the in-flight window — after a successful send the button
+                re-enabled, and a second click would re-post the whole batch
+                with fresh shiftModelIds, duplicating shifts in real payroll.
+                Only a FULLY successful batch latches to 'Sent'; a batch with
+                any failure stays clickable, because the spec deliberately
+                wants failed shifts to remain resendable. */}
+            {(() => {
+              const allSent = submitResult && !submitResult.running && submitResult.results.length > 0 && submitResult.results.every(r => r.status === 'ok');
+              return (
+                <button onClick={handleSendToPaycor} disabled={submitResult?.running || allSent} style={{ ...btn(th, { background: '#FF671F' }), opacity: (submitResult?.running || allSent) ? 0.6 : 1 }}>
+                  {submitResult?.running ? 'Sending…' : allSent ? 'Sent' : 'Send to Paycor'}
+                </button>
+              );
+            })()}
+          </div>
+          {submitResult && !submitResult.running && (
+            <div style={{ marginTop: '1rem' }}>
+              {submitResult.results.map((r, i) => (
+                <div key={i} style={{ fontSize: '0.78rem', color: r.status === 'ok' ? '#16a34a' : '#ef4444', marginBottom: '0.3rem' }}>
+                  <strong>{r.employeeName}:</strong> {r.detail}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 // ── LaborDrillDown ───────────────────────────────────────────────────────────
@@ -47651,6 +48403,8 @@ function PCGPortal() {
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}
+          {tab === "schedule"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminSchedule stores={stores} th={th} user={user} />}
+          {tab === "schedule"  && isManager && <ManagerSchedule stores={stores} th={th} user={user} />}
           {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
           {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} accessOverrides={accessOverrides} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
           {tab === "ops-hub" && (() => {
@@ -47658,6 +48412,7 @@ function PCGPortal() {
             const opsTiles = [
               { id: 'tasks', name: 'Tasks', sub: 'Checklists, GPS-verified completions, DM escalation.', show: (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'tasks'), icon: <><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></> },
               { id: 'pulse', name: 'Pulse', sub: 'Live sales monitoring, Labor tab, weekly trends.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'pulse'), icon: <path d="M3 12h4l2-7 4 14 2-7h6"/> },
+              { id: 'schedule', name: 'Schedule', sub: 'Build and view weekly staff schedules, synced to Paycor.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'schedule'), icon: <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="16" r="2.3"/><line x1="12" y1="16" x2="12" y2="14.3"/><line x1="12" y1="16" x2="13.2" y2="16.8"/></> },
               { id: 'analytics', name: 'Analytics', sub: 'Sales data and performance metrics, network-wide.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'analytics'), icon: <><path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7"/></> },
               { id: 'anomalies', name: 'Anomalies', sub: 'Unusual sales or labor patterns vs. day-of-week baseline.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'anomalies'), icon: <path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/> },
               { id: 'scorecard', name: 'DM Scorecard', sub: 'Weekly DM ranking — labor, sales growth, ticket health.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'scorecard'), icon: <><path d="M12 15a5 5 0 0 0 5-5V5a5 5 0 0 0-10 0v5a5 5 0 0 0 5 5Z"/><path d="M4 10a8 8 0 0 0 16 0M12 18v4"/></> },

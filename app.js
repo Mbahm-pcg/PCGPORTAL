@@ -50,7 +50,8 @@
     calendar: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2", ry: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" })) }),
     reports: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }), /* @__PURE__ */ React.createElement("polyline", { points: "14 2 14 8 20 8" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "13", x2: "8", y2: "13" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "17", x2: "8", y2: "17" }), /* @__PURE__ */ React.createElement("polyline", { points: "10 9 9 9 8 9" })),
     audits: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" }), /* @__PURE__ */ React.createElement("path", { d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" }), /* @__PURE__ */ React.createElement("path", { d: "m9 14 2 2 4-4" })),
-    schedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("polyline", { points: "8 14 10 17 14 13" })) })
+    schedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("polyline", { points: "8 14 10 17 14 13" })) }),
+    staffSchedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("circle", { cx: "12", cy: "16", r: "2.3" }), React.createElement("line", { x1: "12", y1: "16", x2: "12", y2: "14.3" }), React.createElement("line", { x1: "12", y1: "16", x2: "13.2", y2: "16.8" })) })
   };
   var BTN = {
     edit: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M12 20h9" }), React.createElement("path", { d: "M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" })),
@@ -8342,6 +8343,35 @@ ${pendingEmail.emails.join("\n")}`,
     if (!store?.pc) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "No store is linked to your account yet. Ask an admin to assign your manager profile to a store.");
     return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement(StoreDetail, { pc: store.pc, stores, storeData: {}, busDt: todayStr, th, G, setPulseView: () => {
     }, user, standalone: true, txnDeepLinkRef, initialTab: initialTab || "sales" }));
+  }
+  function AdminSchedule({ stores, th, user }) {
+    const [selectedStore, setSelectedStore] = useState(null);
+    const isDM = user?.userType === "dm";
+    const visibleStores = React.useMemo(() => {
+      if (isDM && user?.district != null) return (stores || []).filter((s) => String(s.district) === String(user.district));
+      return stores || [];
+    }, [stores, isDM, user]);
+    if (selectedStore) {
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedStore(null), style: { ...btn(th, { background: th.card2, color: th.text }), marginBottom: "1rem" } }, "\u2190 Back to stores"), /* @__PURE__ */ React.createElement(ScheduleBuilder, { store: selectedStore, th, mode: "view" }));
+    }
+    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "1rem" } }, "Schedule"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.75rem" } }, visibleStores.map((s) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: s.pc,
+        onClick: () => setSelectedStore(s),
+        style: { ...card(th), padding: "1rem", cursor: "pointer" }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, s.name),
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "PC# ", s.pc, " \xB7 District ", s.district)
+    ))));
+  }
+  function ManagerSchedule({ stores, th, user }) {
+    const [mode, setMode] = useState("build");
+    const store = getManagerStore(stores, user);
+    if (!store?.pc) {
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "No store is linked to your account yet. Ask an admin to assign one.");
+    }
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setMode("build"), style: { ...btn(th, mode === "build" ? { background: "#FF671F" } : { background: th.card2, color: th.text }) } }, "Build"), /* @__PURE__ */ React.createElement("button", { onClick: () => setMode("view"), style: { ...btn(th, mode === "view" ? { background: "#FF671F" } : { background: th.card2, color: th.text }) } }, "View Posted")), /* @__PURE__ */ React.createElement(ScheduleBuilder, { key: mode, store, th, mode }));
   }
   var DAYPART_COLS = ["Morning", "Midday", "Afternoon", "Evening"];
   var DAYPART_HINTS = { Morning: "to 11a", Midday: "11a\u20132p", Afternoon: "2\u20135p", Evening: "5p+" };
@@ -20239,6 +20269,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "anomalies", label: "Anomalies", icon: (c) => ICONS.anomalies(c) },
       { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
       { id: "pulse", label: "Pulse", icon: (c) => ICONS.pulse(c), green: true },
+      { id: "schedule", label: "Schedule", icon: (c) => ICONS.staffSchedule(c) },
       { id: "finance", label: "Finance", icon: (c) => ICONS.dollar(c), cash: true },
       { id: "impact", label: "Impact Radar", icon: (c) => ICONS.search(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
@@ -20260,6 +20291,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "anomalies", label: "Anomalies", icon: (c) => ICONS.anomalies(c) },
       { id: "scorecard", label: "DM Scorecard", icon: (c) => ICONS.scorecard(c) },
       { id: "pulse", label: "Pulse", icon: (c) => ICONS.pulse(c), green: true },
+      { id: "schedule", label: "Schedule", icon: (c) => ICONS.staffSchedule(c) },
       { id: "finance", label: "Finance", icon: (c) => ICONS.dollar(c), cash: true },
       { id: "impact", label: "Impact Radar", icon: (c) => ICONS.search(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
@@ -20284,6 +20316,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
       { id: "pulse", label: "Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
+      { id: "schedule", label: "Schedule", icon: (c) => ICONS.staffSchedule(c) },
       { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
       { id: "anomalies", label: "Anomalies", icon: (c) => ICONS.anomalies(c) },
       { id: "finance", label: "Finance", icon: (c) => ICONS.dollar(c), cash: true },
@@ -20299,6 +20332,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
       { id: "pulse", label: "My Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
+      { id: "schedule", label: "Schedule", icon: (c) => ICONS.staffSchedule(c) },
       { id: "pnl", label: "My P&L", icon: (c) => ICONS.dollar(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
@@ -21204,7 +21238,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.06";
+  var APP_VERSION = "v20.24";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25359,6 +25393,354 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function localDateStr(d) {
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function scheduleUtcToEastern(utcIso) {
+    const d = new Date(utcIso);
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d);
+    const get = (t) => parts.find((p) => p.type === t).value;
+    return { dateStr: `${get("year")}-${get("month")}-${get("day")}`, hh: Number(get("hour")) % 24, mm: Number(get("minute")) };
+  }
+  function scheduleEasternToUtc(dateStr, hh, mm) {
+    const wantedMin = hh * 60 + mm;
+    const dayStartMs = (ds) => (/* @__PURE__ */ new Date(ds + "T00:00:00Z")).getTime();
+    const errorMin = (candidate) => {
+      const back = scheduleUtcToEastern(candidate.toISOString());
+      const gotMin = back.hh * 60 + back.mm + Math.round((dayStartMs(back.dateStr) - dayStartMs(dateStr)) / 6e4);
+      return wantedMin - gotMin;
+    };
+    const guess = /* @__PURE__ */ new Date(`${dateStr}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00Z`);
+    const pass1 = new Date(guess.getTime() + errorMin(guess) * 6e4);
+    const err1 = errorMin(pass1);
+    if (err1 === 0) return pass1.toISOString();
+    const pass2 = new Date(pass1.getTime() + err1 * 6e4);
+    if (errorMin(pass2) === 0) return pass2.toISOString();
+    return pass1.toISOString();
+  }
+  function scheduleFormat12h(hhmm) {
+    const [h, m] = hhmm.split(":").map(Number);
+    const period = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+  }
+  function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
+    const weekStart = /* @__PURE__ */ new Date(weekStartISO + "T00:00:00Z");
+    const byEmployee = {};
+    (shiftRecords || []).forEach((s) => {
+      const startET = scheduleUtcToEastern(s.startDateTime);
+      const endET = scheduleUtcToEastern(s.endDateTime);
+      const startDateUTC = /* @__PURE__ */ new Date(startET.dateStr + "T00:00:00Z");
+      const dayOffset = Math.round((startDateUTC - weekStart) / 864e5);
+      const fmt = (et) => `${String(et.hh).padStart(2, "0")}:${String(et.mm).padStart(2, "0")}`;
+      if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
+      byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
+    });
+    return byEmployee;
+  }
+  var SCHEDULE_OPEN_SHIFT_SENTINEL = "00000000-0000-0000-0000-000000000000";
+  function scheduleGroupOpenShiftsByJob(shiftRecords, weekStartISO) {
+    const weekStart = /* @__PURE__ */ new Date(weekStartISO + "T00:00:00Z");
+    const byJob = {};
+    (shiftRecords || []).forEach((s) => {
+      if (s.employeeId !== SCHEDULE_OPEN_SHIFT_SENTINEL && s.employeeName) return;
+      const startET = scheduleUtcToEastern(s.startDateTime);
+      const endET = scheduleUtcToEastern(s.endDateTime);
+      const startDateUTC = /* @__PURE__ */ new Date(startET.dateStr + "T00:00:00Z");
+      const dayOffset = Math.round((startDateUTC - weekStart) / 864e5);
+      const fmt = (et) => `${String(et.hh).padStart(2, "0")}:${String(et.mm).padStart(2, "0")}`;
+      const jobName = s.schedulingJobName || "Open Shift";
+      if (!byJob[jobName]) byJob[jobName] = [];
+      byJob[jobName].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET) });
+    });
+    return Object.entries(byJob).map(([jobTitle, shifts]) => ({ jobTitle, shifts: shifts.filter((s) => s.dayOffset >= 0 && s.dayOffset <= 6) })).filter((g) => g.shifts.length > 0);
+  }
+  function scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee) {
+    const sameTitle = (employees || []).find((e) => e.positionData?.jobTitle === jobTitle && shiftsByEmployee[e.id]?.length);
+    if (sameTitle) {
+      const s = shiftsByEmployee[sameTitle.id][0];
+      return { schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId, needsConfirmation: false };
+    }
+    const allShifts = Object.values(shiftsByEmployee).flat();
+    if (allShifts.length === 0) return { schedulingJobId: null, scheduleGroupId: null, departmentId: null, needsConfirmation: true };
+    const groupCounts = {};
+    const deptCounts = {};
+    allShifts.forEach((s) => {
+      groupCounts[s.scheduleGroupId] = (groupCounts[s.scheduleGroupId] || 0) + 1;
+      if (s.departmentId) deptCounts[s.departmentId] = (deptCounts[s.departmentId] || 0) + 1;
+    });
+    const mostCommonGroup = Object.entries(groupCounts).sort((a, b) => b[1] - a[1])[0][0];
+    const mostCommonDept = Object.keys(deptCounts).length ? Object.entries(deptCounts).sort((a, b) => b[1] - a[1])[0][0] : null;
+    return { schedulingJobId: null, scheduleGroupId: mostCommonGroup, departmentId: mostCommonDept, needsConfirmation: true };
+  }
+  function scheduleComputeWeeklyTotal(cards, payRatesByEmployeeId) {
+    let totalHours = 0, totalDollars = 0;
+    const byEmployee = (cards || []).map((card2) => {
+      const hours = (card2.shifts || []).reduce((sum, sh) => {
+        const [sh1, sm1] = sh.startTime.split(":").map(Number);
+        const [sh2, sm2] = sh.endTime.split(":").map(Number);
+        let mins = sh2 * 60 + sm2 - (sh1 * 60 + sm1);
+        if (mins < 0) mins += 1440;
+        return sum + mins / 60;
+      }, 0);
+      const rate = payRatesByEmployeeId[card2.employeeId];
+      const rateAvailable = rate != null;
+      const dollars = rateAvailable ? hours * rate : 0;
+      totalHours += hours;
+      if (rateAvailable) totalDollars += dollars;
+      return { employeeId: card2.employeeId, hours: Math.round(hours * 100) / 100, dollars: Math.round(dollars * 100) / 100, rateAvailable };
+    });
+    return { totalHours: Math.round(totalHours * 100) / 100, totalDollars: Math.round(totalDollars * 100) / 100, byEmployee };
+  }
+  function scheduleBuildShareText(weekStartISO, approvedCards) {
+    const weekStart = /* @__PURE__ */ new Date(weekStartISO + "T00:00:00Z");
+    const dateFor = (dayOffset) => {
+      const d = new Date(weekStart);
+      d.setUTCDate(d.getUTCDate() + dayOffset);
+      return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+    };
+    const lines = [`Schedule \u2014 week of ${dateFor(0)}`, ""];
+    (approvedCards || []).filter((c) => (c.shifts || []).length > 0).forEach((c) => {
+      const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map((s) => `${SCHEDULE_DOW[s.dayOffset]} ${scheduleFormat12h(s.startTime)}-${scheduleFormat12h(s.endTime)}`);
+      lines.push(`${c.employeeName}: ${shiftParts.join(", ")}`);
+    });
+    return lines.join("\n");
+  }
+  var SCHEDULE_DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
+    const weekStart = /* @__PURE__ */ new Date(weekStartISO + "T00:00:00Z");
+    const dayDates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setUTCDate(d.getUTCDate() + i);
+      return d;
+    });
+    return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: "sticky", left: 0, background: th.bg } }, "Employee"), dayDates.map((d, i) => /* @__PURE__ */ React.createElement("th", { key: i, style: { textAlign: "center", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 130 } }, SCHEDULE_DOW[i], ", ", d.getUTCMonth() + 1, "/", d.getUTCDate())))), /* @__PURE__ */ React.createElement("tbody", null, (cards || []).map((card2) => {
+      const totalHours = (card2.shifts || []).reduce((sum, sh) => {
+        const [sh1, sm1] = sh.startTime.split(":").map(Number);
+        const [sh2, sm2] = sh.endTime.split(":").map(Number);
+        let mins = sh2 * 60 + sm2 - (sh1 * 60 + sm1);
+        if (mins < 0) mins += 1440;
+        return sum + mins / 60;
+      }, 0);
+      return /* @__PURE__ */ React.createElement("tr", { key: card2.employeeId, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem", color: th.text, fontWeight: 600, position: "sticky", left: 0, background: th.bg } }, card2.employeeName, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 400 } }, Math.round(totalHours * 10) / 10, "h")), dayDates.map((_, dayOffset) => {
+        const shift = (card2.shifts || []).find((sh) => sh.dayOffset === dayOffset);
+        return /* @__PURE__ */ React.createElement("td", { key: dayOffset, style: { padding: "0.35rem", textAlign: "center" } }, shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime)));
+      }));
+    }), (openShiftGroups || []).map((og) => {
+      const totalHours = (og.shifts || []).reduce((sum, sh) => {
+        const [sh1, sm1] = sh.startTime.split(":").map(Number);
+        const [sh2, sm2] = sh.endTime.split(":").map(Number);
+        let mins = sh2 * 60 + sm2 - (sh1 * 60 + sm1);
+        if (mins < 0) mins += 1440;
+        return sum + mins / 60;
+      }, 0);
+      return /* @__PURE__ */ React.createElement("tr", { key: "open-" + og.jobTitle, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem", color: th.muted, fontWeight: 600, fontStyle: "italic", position: "sticky", left: 0, background: th.bg } }, "Open \u2014 ", og.jobTitle, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 400, fontStyle: "normal" } }, Math.round(totalHours * 10) / 10, "h unfilled")), dayDates.map((_, dayOffset) => {
+        const shift = (og.shifts || []).find((sh) => sh.dayOffset === dayOffset);
+        return /* @__PURE__ */ React.createElement("td", { key: dayOffset, style: { padding: "0.35rem", textAlign: "center" } }, shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#94a3b81a", border: "1px dashed #94a3b8aa", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.muted } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime)));
+      }));
+    }))));
+  }
+  function RunningLaborHeader({ weeklyTotal, projectedSales, th }) {
+    const pct = projectedSales > 0 ? weeklyTotal.totalDollars / projectedSales * 100 : 0;
+    const color = pct <= 22.9 ? "#4caf50" : pct <= 25.9 ? "#ff9800" : "#f44336";
+    const overtimeEmployees = (weeklyTotal.byEmployee || []).filter((e) => e.hours > 40);
+    return /* @__PURE__ */ React.createElement("div", { style: { position: "sticky", top: 0, zIndex: 10, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.85rem 1.1rem", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Projected Weekly Labor"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.1rem", fontWeight: 800, color } }, "$", weeklyTotal.totalDollars.toFixed(2), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", fontWeight: 600 } }, "(", pct.toFixed(1), "%)"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, weeklyTotal.totalHours.toFixed(1), " total hours"), overtimeEmployees.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b", fontWeight: 600 } }, "\u26A0 ", overtimeEmployees.length, " employee(s) over 40h this week"));
+  }
+  function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
+    const [editing, setEditing] = useState(false);
+    const [draftShifts, setDraftShifts] = useState(cardData.shifts || []);
+    const updateShift = (idx, field, value) => {
+      setDraftShifts((prev) => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
+    };
+    const removeShift = (idx) => setDraftShifts((prev) => prev.filter((_, i) => i !== idx));
+    const addShift = () => setDraftShifts((prev) => [...prev, { dayOffset: 0, startTime: "09:00", endTime: "17:00" }]);
+    return /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: "1.1rem", maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1rem", color: th.text, marginBottom: "0.2rem" } }, cardData.employeeName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.9rem" } }, cardData.jobTitle || "Crew Member"), !editing && /* @__PURE__ */ React.createElement(React.Fragment, null, (cardData.shifts || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.8rem" } }, "No shifts proposed (new employee, or none last week)"), (cardData.shifts || []).map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.text, marginBottom: "0.3rem" } }, SCHEDULE_DOW[s.dayOffset], ": ", scheduleFormat12h(s.startTime), "\u2013", scheduleFormat12h(s.endTime))), (cardData.shifts || []).length > 0 && (() => {
+      const totalHours = cardData.shifts.reduce((sum, s) => {
+        const [sh1, sm1] = s.startTime.split(":").map(Number);
+        const [sh2, sm2] = s.endTime.split(":").map(Number);
+        let mins = sh2 * 60 + sm2 - (sh1 * 60 + sm1);
+        if (mins < 0) mins += 1440;
+        return sum + mins / 60;
+      }, 0);
+      return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 600, marginTop: "0.4rem", marginBottom: "0.4rem" } }, Math.round(totalHours * 10) / 10, "h this week");
+    })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onApprove, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Approve"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      setDraftShifts(cardData.shifts || []);
+      setEditing(true);
+    }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Edit"))), editing && /* @__PURE__ */ React.createElement(React.Fragment, null, draftShifts.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("select", { value: s.dayOffset, onChange: (e) => updateShift(i, "dayOffset", Number(e.target.value)), style: { ...inp(th), fontSize: "0.75rem", padding: "0.25rem" } }, SCHEDULE_DOW.map((d, di) => /* @__PURE__ */ React.createElement("option", { key: di, value: di }, d))), /* @__PURE__ */ React.createElement("input", { type: "time", value: s.startTime, onChange: (e) => updateShift(i, "startTime", e.target.value), style: { ...inp(th), fontSize: "0.75rem", padding: "0.25rem" } }), /* @__PURE__ */ React.createElement("input", { type: "time", value: s.endTime, onChange: (e) => updateShift(i, "endTime", e.target.value), style: { ...inp(th), fontSize: "0.75rem", padding: "0.25rem" } }), /* @__PURE__ */ React.createElement("button", { onClick: () => removeShift(i), style: { ...btn(th, { background: "#ef444422", color: "#ef4444" }), padding: "0.25rem 0.5rem" } }, "\u2715"))), /* @__PURE__ */ React.createElement("button", { onClick: addShift, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.75rem", marginBottom: "0.8rem" } }, "+ Add shift"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      onSave(draftShifts);
+      setEditing(false);
+    }, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Save & Continue"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditing(false), style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Cancel"))));
+  }
+  function ScheduleBuilder({ store, th, mode }) {
+    const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
+    const [weekStart, setWeekStart] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const [cards, setCards] = useState(null);
+    const [cardIndex, setCardIndex] = useState(0);
+    const [approvedCards, setApprovedCards] = useState([]);
+    const [payRates, setPayRates] = useState({});
+    const [openShiftGroups, setOpenShiftGroups] = useState([]);
+    const [submitResult, setSubmitResult] = useState(null);
+    const load = async () => {
+      if (!weekStart) return;
+      setLoading(true);
+      setError(null);
+      setCards(null);
+      setCardIndex(0);
+      setApprovedCards([]);
+      try {
+        const lastWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), -7));
+        const nextWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), 7));
+        const fetchRangeStart = mode === "view" ? weekStart : lastWeekStart;
+        const fetchRangeEnd = mode === "view" ? nextWeekStart : weekStart;
+        const groupingAnchor = mode === "view" ? weekStart : lastWeekStart;
+        const [empRes, shiftRes] = await Promise.all([
+          fetch("/.netlify/functions/paycor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "employees", legalEntityId: store.paycor }) }),
+          fetch("/.netlify/functions/paycor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "schedulingShifts", legalEntityId: store.paycor, startDate: fetchRangeStart, endDate: fetchRangeEnd }) })
+        ]);
+        const empData = await empRes.json();
+        const shiftData = await shiftRes.json();
+        if (!empRes.ok || !Array.isArray(empData?.records)) {
+          throw new Error(empData?.error || empData?.Detail || empData?.title || "Failed to load the employee roster from Paycor. Try again in a moment.");
+        }
+        if (!shiftRes.ok || !Array.isArray(shiftData?.records)) {
+          throw new Error(shiftData?.error || shiftData?.Detail || shiftData?.title || "Failed to load posted shifts from Paycor. Try again in a moment.");
+        }
+        const employees = (empData.records || []).filter((e) => e?.statusData?.status === "Active");
+        const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], groupingAnchor);
+        setOpenShiftGroups(scheduleGroupOpenShiftsByJob(shiftData.records || [], groupingAnchor));
+        const rates = {};
+        await Promise.all(employees.map(async (e) => {
+          try {
+            const r = await fetch("/.netlify/functions/paycor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "payRates", employeeId: e.id }) });
+            const rd = await r.json();
+            const rec = (rd.records || rd)?.[0];
+            const rate = rec?.payRate || rec?.rate;
+            if (rate != null && rec?.type !== "Salary") rates[e.id] = Number(rate);
+          } catch (err) {
+          }
+        }));
+        setPayRates(rates);
+        const builtCards = employees.map((e) => {
+          const name = `${e.firstName || ""} ${e.lastName || ""}`.trim();
+          const priorShiftsRaw = shiftsByEmployee[e.id] || [];
+          const priorShifts = priorShiftsRaw.filter((s) => s.dayOffset >= 0 && s.dayOffset <= 6);
+          let schedulingJobId = priorShiftsRaw[0]?.schedulingJobId || null;
+          let scheduleGroupId = priorShiftsRaw[0]?.scheduleGroupId || null;
+          let departmentId = priorShiftsRaw[0]?.departmentId || null;
+          if (!schedulingJobId) {
+            const defaulted = scheduleDefaultJobGroupForEmployee(e.positionData?.jobTitle, employees, shiftsByEmployee);
+            schedulingJobId = defaulted.schedulingJobId;
+            scheduleGroupId = defaulted.scheduleGroupId;
+            departmentId = defaulted.departmentId;
+          }
+          return {
+            employeeId: e.id,
+            employeeName: name,
+            jobTitle: e.positionData?.jobTitle || "Crew Member",
+            schedulingJobId,
+            scheduleGroupId,
+            departmentId,
+            shifts: priorShifts.map((s) => ({ dayOffset: s.dayOffset, startTime: s.startTime, endTime: s.endTime }))
+          };
+        });
+        setCards(builtCards);
+      } catch (e) {
+        setError(e.message || "Failed to load schedule data.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    const currentCard = cards && cards[cardIndex];
+    const allCardsDone = cards && cardIndex >= cards.length;
+    const weeklyTotal = React.useMemo(() => scheduleComputeWeeklyTotal(cards && !allCardsDone ? approvedCards.concat(currentCard ? [currentCard] : []) : approvedCards, payRates), [cards, approvedCards, currentCard, allCardsDone, payRates]);
+    const handleApprove = () => {
+      setApprovedCards((prev) => [...prev, currentCard]);
+      setCardIndex((i) => i + 1);
+    };
+    const handleSave = (updatedShifts) => {
+      setApprovedCards((prev) => [...prev, { ...currentCard, shifts: updatedShifts }]);
+      setCardIndex((i) => i + 1);
+    };
+    const handleSendToPaycor = async () => {
+      const cardsToSend = approvedCards.filter((c) => (c.shifts || []).length > 0);
+      if (cardsToSend.length === 0) {
+        setSubmitResult({ running: false, results: [] });
+        return;
+      }
+      setSubmitResult({ running: true, results: [] });
+      try {
+        const shifts = [];
+        cardsToSend.forEach((c) => {
+          c.shifts.forEach((s) => {
+            const dayDate = /* @__PURE__ */ new Date(weekStart + "T00:00:00Z");
+            dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
+            const dateStr = dayDate.toISOString().slice(0, 10);
+            const [startH, startM] = s.startTime.split(":").map(Number);
+            const [endH, endM] = s.endTime.split(":").map(Number);
+            const endDateStr = endH * 60 + endM < startH * 60 + startM ? new Date((/* @__PURE__ */ new Date(dateStr + "T00:00:00Z")).getTime() + 864e5).toISOString().slice(0, 10) : dateStr;
+            shifts.push({
+              employeeId: c.employeeId,
+              scheduleGroupId: c.scheduleGroupId,
+              schedulingJobId: c.schedulingJobId,
+              departmentId: c.departmentId,
+              startDateTime: scheduleEasternToUtc(dateStr, startH, startM),
+              endDateTime: scheduleEasternToUtc(endDateStr, endH, endM),
+              isPublished: true,
+              // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is a
+              // caller-generated GUID, not a lookup value — one per shift, unique
+              // within the batch (same pattern as processId used elsewhere in
+              // this codebase). See Task 1's corrected script for the source.
+              shiftModelId: crypto.randomUUID(),
+              _employeeName: c.employeeName
+              // stripped before sending, kept for result mapping
+            });
+          });
+        });
+        const res = await fetch("/.netlify/functions/paycor", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({
+            action: "createSchedulingShifts",
+            legalEntityId: store.paycor,
+            shifts: shifts.map(({ _employeeName, ...s }) => s),
+            ignoreWarnings: true
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setSubmitResult({ running: false, results: [{ employeeId: null, employeeName: "All", status: "error", detail: data?.error || `Request failed (${res.status})` }] });
+          return;
+        }
+        const returned = data?.shifts || data || [];
+        const results = shifts.map((s, i) => {
+          const r = returned[i] || {};
+          const ok = !!r.shiftId && !(r.warningsOrErrors && r.warningsOrErrors.some((w) => w.severity === "Error"));
+          return { employeeId: s.employeeId, employeeName: s._employeeName, status: ok ? "ok" : "error", detail: ok ? `Shift ${SCHEDULE_DOW[Math.floor((new Date(s.startDateTime) - /* @__PURE__ */ new Date(weekStart + "T00:00:00Z")) / 864e5)]} created` : JSON.stringify(r.warningsOrErrors || r) };
+        });
+        setSubmitResult({ running: false, results });
+      } catch (e) {
+        setSubmitResult({ running: false, results: [{ employeeId: null, employeeName: "All", status: "error", detail: e.message || "Request failed" }] });
+      }
+    };
+    if (mode === "view") {
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Load week")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: cards.filter((c) => (c.shifts || []).length > 0), th, openShiftGroups }));
+    }
+    return /* @__PURE__ */ React.createElement("div", null, !cards && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.35rem" } }, "Week start (Sunday)"), /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Start building")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && !allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, "Employee ", cardIndex + 1, " of ", cards.length), /* @__PURE__ */ React.createElement(EmployeeScheduleCard, { card: currentCard, th, onApprove: handleApprove, onSave: handleSave })), cards && allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, margin: "1rem 0 0.6rem" } }, "Final review"), /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: approvedCards.filter((c) => (c.shifts || []).length > 0), th, openShiftGroups }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: async () => {
+      const text = scheduleBuildShareText(weekStart, approvedCards);
+      if (navigator.share) {
+        try {
+          await navigator.share({ text });
+        } catch (e) {
+        }
+      } else {
+        await navigator.clipboard.writeText(text);
+        alert("Copied to clipboard");
+      }
+    }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy"), (() => {
+      const allSent = submitResult && !submitResult.running && submitResult.results.length > 0 && submitResult.results.every((r) => r.status === "ok");
+      return /* @__PURE__ */ React.createElement("button", { onClick: handleSendToPaycor, disabled: submitResult?.running || allSent, style: { ...btn(th, { background: "#FF671F" }), opacity: submitResult?.running || allSent ? 0.6 : 1 } }, submitResult?.running ? "Sending\u2026" : allSent ? "Sent" : "Send to Paycor");
+    })()), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
     const [activeTab, setActiveTab] = useState("hourly");
@@ -36792,11 +37174,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" || tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === MOBILE_LAUNCHER_TAB_ID && /* @__PURE__ */ React.createElement(MobileAppLauncher, { user, th, dark, tabs: TABS, onNavigate: setTab, pinnedNavIds, togglePinNav, navBadge, onOpenProfile: () => setShowProfile(true), onToggleTheme: handleToggle, onLogout: handleLogout }), tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
+    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "schedule" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminSchedule, { stores, th, user }), tab === "schedule" && isManager && /* @__PURE__ */ React.createElement(ManagerSchedule, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
       const OPS = "#2F6FA8";
       const opsTiles = [
         { id: "tasks", name: "Tasks", sub: "Checklists, GPS-verified completions, DM escalation.", show: (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "tasks"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "m9 11 3 3L22 4" }), /* @__PURE__ */ React.createElement("path", { d: "M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" })) },
         { id: "pulse", name: "Pulse", sub: "Live sales monitoring, Labor tab, weekly trends.", show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "pulse"), icon: /* @__PURE__ */ React.createElement("path", { d: "M3 12h4l2-7 4 14 2-7h6" }) },
+        { id: "schedule", name: "Schedule", sub: "Build and view weekly staff schedules, synced to Paycor.", show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "schedule"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), /* @__PURE__ */ React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), /* @__PURE__ */ React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "16", r: "2.3" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "16", x2: "12", y2: "14.3" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "16", x2: "13.2", y2: "16.8" })) },
         { id: "analytics", name: "Analytics", sub: "Sales data and performance metrics, network-wide.", show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "analytics"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 3v18h18M7 16v-4M12 16V8M17 16v-7" })) },
         { id: "anomalies", name: "Anomalies", sub: "Unusual sales or labor patterns vs. day-of-week baseline.", show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "anomalies"), icon: /* @__PURE__ */ React.createElement("path", { d: "M13 2 3 14h8l-1 8 10-12h-8l1-8Z" }) },
         { id: "scorecard", name: "DM Scorecard", sub: "Weekly DM ranking \u2014 labor, sales growth, ticket health.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "scorecard"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 15a5 5 0 0 0 5-5V5a5 5 0 0 0-10 0v5a5 5 0 0 0 5 5Z" }), /* @__PURE__ */ React.createElement("path", { d: "M4 10a8 8 0 0 0 16 0M12 18v4" })) },
