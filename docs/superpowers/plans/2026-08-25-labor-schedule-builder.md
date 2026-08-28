@@ -1804,6 +1804,138 @@ git commit -m "Fix Eastern-time conversion for shift display/write, switch to 12
 
 ---
 
+## Task 9c: Show Paycor "Open Shifts" in the weekly grid
+
+**Why:** During the same live test, the user asked why Ahmed Bhuiyan (a real, active Bustleton employee) never appeared anywhere in the schedule despite genuinely working that week. Investigated with a real query: Paycor's `schedulingShifts` read for Bustleton's 8/23-8/29 week returns 89 records, of which **14 have `employeeId: "00000000-0000-0000-0000-000000000000"` and `employeeName: null`** — these are Paycor's native "Open Shifts" (posted by job role — "Store Managers", "Crew Member" — with no specific person assigned yet, visible in Paycor's own Schedules UI as a distinct "Open Shifts" row per the user's screenshot). `scheduleGroupShiftsByEmployee` groups strictly by `employeeId`, so these 14 real shifts — 16% of the week's real schedule — silently vanish: they don't match any real employee's `id`, so they never make it into any card or the grid. User confirmed (explicit choice) they want these shown, view-only for now — not build/create support for new open shifts, which is a separate, larger feature for later.
+
+**Files:**
+- Modify: `app.jsx` — add a new helper near `scheduleGroupShiftsByEmployee`; add state + wiring to `ScheduleBuilder`; extend `WeeklyScheduleGrid` to render open-shift rows
+
+**Interfaces:**
+- Produces: `scheduleGroupOpenShiftsByJob(shiftRecords, weekStartISO)` → `Array<{ jobTitle, shifts: Array<{dayOffset, startTime, endTime}> }>` (one entry per distinct job title with open coverage that week)
+- `WeeklyScheduleGrid`'s prop signature gains one new, optional prop: `openShiftGroups` (defaults to none rendered if omitted — existing call sites that don't pass it keep working unchanged, though this task updates both real call sites to pass it)
+
+- [ ] **Step 1: Add the open-shifts grouping helper**
+
+Insert immediately after `scheduleGroupShiftsByEmployee`'s closing brace (search `function scheduleGroupShiftsByEmployee`):
+
+```js
+// Paycor represents an unassigned "Open Shift" (posted by job role, no
+// specific employee yet) with employeeId "00000000-0000-...-000000000000"
+// and employeeName null (confirmed live 2026-08-28 against real Bustleton
+// data: 14 of 89 real shifts that week were open coverage for "Store
+// Managers"/"Crew Member" — visible in Paycor's own Schedules UI as a
+// distinct "Open Shifts" row, but invisible in this app since
+// scheduleGroupShiftsByEmployee only matches real employeeIds). Groups
+// these separately, by job title, so they can be shown as their own rows
+// instead of silently disappearing.
+const SCHEDULE_OPEN_SHIFT_SENTINEL = '00000000-0000-0000-0000-000000000000';
+function scheduleGroupOpenShiftsByJob(shiftRecords, weekStartISO) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const byJob = {};
+  (shiftRecords || []).forEach(s => {
+    if (s.employeeId !== SCHEDULE_OPEN_SHIFT_SENTINEL && s.employeeName) return;
+    const startET = scheduleUtcToEastern(s.startDateTime);
+    const endET = scheduleUtcToEastern(s.endDateTime);
+    const startDateUTC = new Date(startET.dateStr + 'T00:00:00Z');
+    const dayOffset = Math.round((startDateUTC - weekStart) / 86400000);
+    const fmt = (et) => `${String(et.hh).padStart(2, '0')}:${String(et.mm).padStart(2, '0')}`;
+    const jobName = s.schedulingJobName || 'Open Shift';
+    if (!byJob[jobName]) byJob[jobName] = [];
+    byJob[jobName].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET) });
+  });
+  return Object.entries(byJob).map(([jobTitle, shifts]) => ({ jobTitle, shifts: shifts.filter(s => s.dayOffset >= 0 && s.dayOffset <= 6) }));
+}
+```
+
+(Reuses `scheduleUtcToEastern` from Task 9b — no separate UTC handling needed here, and this inherits the same DST-correctness the hotfix already established.)
+
+- [ ] **Step 2: Wire it into `ScheduleBuilder`**
+
+Add new state near the existing ones (search `const [payRates, setPayRates] = useState({});`):
+```js
+const [openShiftGroups, setOpenShiftGroups] = useState([]);
+```
+
+In `load()`, immediately after the existing line `const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], groupingAnchor);`, add:
+```js
+setOpenShiftGroups(scheduleGroupOpenShiftsByJob(shiftData.records || [], groupingAnchor));
+```
+
+- [ ] **Step 3: Extend `WeeklyScheduleGrid` to render open-shift rows**
+
+Change the function signature (search `function WeeklyScheduleGrid({ weekStartISO, cards, th })`):
+```js
+function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
+```
+
+Immediately after the existing `{(cards || []).map(card => { ... })}` block's closing `})}` (still inside `<tbody>`, before `</tbody>`), add a second `.map` over `openShiftGroups`:
+
+```jsx
+{(openShiftGroups || []).map(og => {
+  const totalHours = (og.shifts || []).reduce((sum, sh) => {
+    const [sh1, sm1] = sh.startTime.split(':').map(Number);
+    const [sh2, sm2] = sh.endTime.split(':').map(Number);
+    let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+    if (mins < 0) mins += 1440;
+    return sum + mins / 60;
+  }, 0);
+  return (
+    <tr key={'open-' + og.jobTitle} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+      <td style={{ padding: '0.5rem', color: th.muted, fontWeight: 600, fontStyle: 'italic', position: 'sticky', left: 0, background: th.bg }}>
+        Open — {og.jobTitle}
+        <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400, fontStyle: 'normal' }}>{Math.round(totalHours * 10) / 10}h unfilled</div>
+      </td>
+      {dayDates.map((_, dayOffset) => {
+        const shift = (og.shifts || []).find(sh => sh.dayOffset === dayOffset);
+        return (
+          <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
+            {shift && (
+              <div style={{ background: '#94a3b81a', border: '1px dashed #94a3b8aa', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.muted }}>
+                {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+              </div>
+            )}
+          </td>
+        );
+      })}
+    </tr>
+  );
+})}
+```
+
+(Dashed border + muted gray, distinct from the solid-orange assigned-employee shift styling directly above it — a manager should be able to tell "this row has no one assigned" at a glance. Same `.find()`-picks-first limitation as the per-employee rows above — a second open shift for the same job on the same day would be hidden, matching this grid's existing, already-reviewed-and-accepted behavior for double-booked employees.)
+
+- [ ] **Step 4: Pass the new prop at both call sites**
+
+`ScheduleBuilder`'s view-mode render (search `{cards && <WeeklyScheduleGrid weekStartISO={weekStart} cards={cards.filter`):
+```jsx
+{cards && <WeeklyScheduleGrid weekStartISO={weekStart} cards={cards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} />}
+```
+
+`ScheduleBuilder`'s build-mode final-review render (search `<WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter`):
+```jsx
+<WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} />
+```
+
+- [ ] **Step 5: Rebuild**
+
+```bash
+npm run build
+```
+
+- [ ] **Step 6: Verify against real data**
+
+No browser tool in this environment (established pattern). Verify with the exact real data that surfaced this request: run `scheduleGroupOpenShiftsByJob` against a real `schedulingShifts` read for Bustleton (`legalEntityId: "193884"`, `startDate: "2026-08-23"`, `endDate: "2026-08-30"`) and confirm it produces a "Store Managers" group and (if present) a "Crew Member" group, each with real shift times matching what's visible in the real Paycor screenshot the user shared (e.g., Monday 8/24 "Store Managers" open shift ~04:45 AM–03:00 PM Eastern). Confirm the 14 real open-shift records are fully accounted for across the returned groups (no silent drops). Confirm a normal assigned-employee shift (`employeeId` a real GUID, `employeeName` a real name) is correctly excluded from `scheduleGroupOpenShiftsByJob`'s output (the `if (s.employeeId !== SENTINEL && s.employeeName) return;` guard).
+
+- [ ] **Step 7: Bump version, commit**
+
+```bash
+git add app.jsx app.js
+git commit -m "Show Paycor Open Shifts (unassigned coverage) in the weekly grid"
+```
+
+---
+
 ## Task 10: Second real-world end-to-end test
 
 **Files:** none (validation only, no code changes)
