@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.29";
+const APP_VERSION = "v20.30";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32492,7 +32492,7 @@ const SCHEDULE_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // Paycor's own native Schedules view (confirmed via screenshot during
 // design) but styled with this app's own theme instead of Paycor's colors.
 // Pure rendering only — no edit state lives here even in 'build' mode.
-function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
+function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups, onEmployeeClick }) {
   const weekStart = new Date(weekStartISO + 'T00:00:00Z');
   const dayDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
@@ -32526,7 +32526,11 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
             return (
               <tr key={card.employeeId} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
                 <td style={{ padding: '0.5rem', color: th.text, fontWeight: 600, position: 'sticky', left: 0, background: th.bg }}>
-                  {card.employeeName}
+                  {onEmployeeClick ? (
+                    <button onClick={() => onEmployeeClick(card.employeeId)} style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: th.text, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}>
+                      {card.employeeName}
+                    </button>
+                  ) : card.employeeName}
                   <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400 }}>{Math.round(totalHours * 10) / 10}h</div>
                 </td>
                 {dayDates.map((_, dayOffset) => {
@@ -32894,6 +32898,7 @@ function ScheduleBuilder({ store, th, mode }) {
   const [openShiftGroups, setOpenShiftGroups] = useState([]);
   const [submitResult, setSubmitResult] = useState(null); // null | { running, results: [{employeeId, employeeName, status, detail}] }
   const [showBuildPreview, setShowBuildPreview] = useState(false);
+  const [reopenEmployeeId, setReopenEmployeeId] = useState(null);
 
   const load = async () => {
     if (!weekStart) return;
@@ -33011,6 +33016,15 @@ function ScheduleBuilder({ store, th, mode }) {
   const handleReassign = (fromEmployeeId, shift, toEmployeeId) => {
     setCards(prev => addShiftToEmployee(removeShiftFromEmployee(prev, fromEmployeeId, shift), toEmployeeId, shift));
     setApprovedCards(prev => addShiftToEmployee(removeShiftFromEmployee(prev, fromEmployeeId, shift), toEmployeeId, shift));
+  };
+
+  // Task 7: tap-name-to-edit at mobile Final Review. Looked up by
+  // employeeId (not array index) since approvedCards can be reordered by
+  // handleReassign above.
+  const reopenCard = reopenEmployeeId ? approvedCards.find(c => c.employeeId === reopenEmployeeId) : null;
+  const handleReopenSave = (updatedShifts) => {
+    setApprovedCards(prev => prev.map(c => c.employeeId === reopenEmployeeId ? { ...c, shifts: updatedShifts } : c));
+    setReopenEmployeeId(null);
   };
 
   // cardsOverride lets the desktop "Send to Paycor" button pass the
@@ -33208,7 +33222,17 @@ function ScheduleBuilder({ store, th, mode }) {
         <>
           <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
           <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, margin: '1rem 0 0.6rem' }}>Final review</div>
-          <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} />
+          {reopenCard ? (
+            <EmployeeScheduleCard
+              card={reopenCard} th={th} startInEdit
+              onApprove={() => setReopenEmployeeId(null)}
+              onSave={handleReopenSave}
+              otherEmployees={approvedCards.filter(c => c.employeeId !== reopenCard.employeeId).map(c => ({ employeeId: c.employeeId, employeeName: c.employeeName, shifts: c.shifts || [] }))}
+              onReassign={(shift, toEmployeeId) => handleReassign(reopenCard.employeeId, shift, toEmployeeId)}
+            />
+          ) : (
+            <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} onEmployeeClick={setReopenEmployeeId} />
+          )}
           <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
             <button onClick={async () => {
               const text = scheduleBuildShareText(weekStart, approvedCards);
