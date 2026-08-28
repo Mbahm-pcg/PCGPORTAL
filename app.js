@@ -21238,7 +21238,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.23";
+  var APP_VERSION = "v20.24";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25451,7 +25451,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!byJob[jobName]) byJob[jobName] = [];
       byJob[jobName].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET) });
     });
-    return Object.entries(byJob).map(([jobTitle, shifts]) => ({ jobTitle, shifts: shifts.filter((s) => s.dayOffset >= 0 && s.dayOffset <= 6) }));
+    return Object.entries(byJob).map(([jobTitle, shifts]) => ({ jobTitle, shifts: shifts.filter((s) => s.dayOffset >= 0 && s.dayOffset <= 6) })).filter((g) => g.shifts.length > 0);
   }
   function scheduleDefaultJobGroupForEmployee(jobTitle, employees, shiftsByEmployee) {
     const sameTitle = (employees || []).find((e) => e.positionData?.jobTitle === jobTitle && shiftsByEmployee[e.id]?.length);

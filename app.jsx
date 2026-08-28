@@ -26140,7 +26140,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.23";
+const APP_VERSION = "v20.24";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32379,7 +32379,12 @@ function scheduleGroupOpenShiftsByJob(shiftRecords, weekStartISO) {
     if (!byJob[jobName]) byJob[jobName] = [];
     byJob[jobName].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET) });
   });
-  return Object.entries(byJob).map(([jobTitle, shifts]) => ({ jobTitle, shifts: shifts.filter(s => s.dayOffset >= 0 && s.dayOffset <= 6) }));
+  // A job's open shifts can ALL land outside the 0-6 window (e.g. the only
+  // one that week was the spurious pre-startDate record) — drop the group
+  // entirely rather than rendering an empty "Open — {job} / 0h unfilled" row.
+  return Object.entries(byJob)
+    .map(([jobTitle, shifts]) => ({ jobTitle, shifts: shifts.filter(s => s.dayOffset >= 0 && s.dayOffset <= 6) }))
+    .filter(g => g.shifts.length > 0);
 }
 
 // A new employee (no shifts last week) has no schedulingJobId/scheduleGroupId/
