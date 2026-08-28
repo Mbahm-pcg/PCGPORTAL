@@ -25704,8 +25704,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setApprovedCards((prev) => [...prev, { ...currentCard, shifts: updatedShifts }]);
       setCardIndex((i) => i + 1);
     };
-    const handleSendToPaycor = async () => {
-      const cardsToSend = approvedCards.filter((c) => (c.shifts || []).length > 0);
+    const handleSendToPaycor = async (cardsOverride) => {
+      const cardsToSend = (cardsOverride || approvedCards).filter((c) => (c.shifts || []).length > 0);
       if (cardsToSend.length === 0) {
         setSubmitResult({ running: false, results: [] });
         return;
@@ -25784,10 +25784,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           await navigator.clipboard.writeText(text);
           alert("Copied to clipboard");
         }
-      }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
-        setApprovedCards(cards.filter((c) => (c.shifts || []).length > 0));
-        handleSendToPaycor();
-      }, disabled: submitResult?.running || allSent, style: { ...btn(th, { background: "#FF671F" }), opacity: submitResult?.running || allSent ? 0.6 : 1 } }, submitResult?.running ? "Sending\u2026" : allSent ? "Sent" : "Send to Paycor")), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail))));
+      }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleSendToPaycor(cards), disabled: submitResult?.running || allSent, style: { ...btn(th, { background: "#FF671F" }), opacity: submitResult?.running || allSent ? 0.6 : 1 } }, submitResult?.running ? "Sending\u2026" : allSent ? "Sent" : "Send to Paycor")), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail))));
     })(), cards && !isDesktop && !allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, "Employee ", cardIndex + 1, " of ", cards.length), /* @__PURE__ */ React.createElement(EmployeeScheduleCard, { card: currentCard, th, onApprove: handleApprove, onSave: handleSave })), cards && !isDesktop && allCardsDone && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, margin: "1rem 0 0.6rem" } }, "Final review"), /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: approvedCards.filter((c) => (c.shifts || []).length > 0), th, openShiftGroups }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: async () => {
       const text = scheduleBuildShareText(weekStart, approvedCards);
       if (navigator.share) {
@@ -25801,7 +25798,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
     }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy"), (() => {
       const allSent = submitResult && !submitResult.running && submitResult.results.length > 0 && submitResult.results.every((r) => r.status === "ok");
-      return /* @__PURE__ */ React.createElement("button", { onClick: handleSendToPaycor, disabled: submitResult?.running || allSent, style: { ...btn(th, { background: "#FF671F" }), opacity: submitResult?.running || allSent ? 0.6 : 1 } }, submitResult?.running ? "Sending\u2026" : allSent ? "Sent" : "Send to Paycor");
+      return /* @__PURE__ */ React.createElement("button", { onClick: () => handleSendToPaycor(), disabled: submitResult?.running || allSent, style: { ...btn(th, { background: "#FF671F" }), opacity: submitResult?.running || allSent ? 0.6 : 1 } }, submitResult?.running ? "Sending\u2026" : allSent ? "Sent" : "Send to Paycor");
     })()), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {

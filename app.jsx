@@ -32886,8 +32886,18 @@ function ScheduleBuilder({ store, th, mode }) {
     setCardIndex(i => i + 1);
   };
 
-  const handleSendToPaycor = async () => {
-    const cardsToSend = approvedCards.filter(c => (c.shifts || []).length > 0);
+  // cardsOverride lets the desktop "Send to Paycor" button pass the
+  // just-computed list directly, instead of round-tripping through
+  // approvedCards state: setApprovedCards(...) followed synchronously by
+  // handleSendToPaycor() would read the PRE-update `approvedCards` closure
+  // (React doesn't apply the state update before the rest of the handler
+  // runs), which on desktop starts empty and is never populated any other
+  // way — every first click silently no-op'd (cardsToSend.length === 0,
+  // early return, no visible error). Mobile call sites omit the argument
+  // and keep using approvedCards, which IS populated by that point (the
+  // card-stack walk sets it before reaching the "Final review" screen).
+  const handleSendToPaycor = async (cardsOverride) => {
+    const cardsToSend = (cardsOverride || approvedCards).filter(c => (c.shifts || []).length > 0);
     if (cardsToSend.length === 0) { setSubmitResult({ running: false, results: [] }); return; }
     setSubmitResult({ running: true, results: [] });
 
@@ -33018,7 +33028,7 @@ function ScheduleBuilder({ store, th, mode }) {
               }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>
                 {typeof navigator !== 'undefined' && navigator.share ? 'Share' : 'Copy'}
               </button>
-              <button onClick={() => { setApprovedCards(cards.filter(c => (c.shifts || []).length > 0)); handleSendToPaycor(); }} disabled={submitResult?.running || allSent} style={{ ...btn(th, { background: '#FF671F' }), opacity: (submitResult?.running || allSent) ? 0.6 : 1 }}>
+              <button onClick={() => handleSendToPaycor(cards)} disabled={submitResult?.running || allSent} style={{ ...btn(th, { background: '#FF671F' }), opacity: (submitResult?.running || allSent) ? 0.6 : 1 }}>
                 {submitResult?.running ? 'Sending…' : allSent ? 'Sent' : 'Send to Paycor'}
               </button>
             </div>
@@ -33070,7 +33080,7 @@ function ScheduleBuilder({ store, th, mode }) {
             {(() => {
               const allSent = submitResult && !submitResult.running && submitResult.results.length > 0 && submitResult.results.every(r => r.status === 'ok');
               return (
-                <button onClick={handleSendToPaycor} disabled={submitResult?.running || allSent} style={{ ...btn(th, { background: '#FF671F' }), opacity: (submitResult?.running || allSent) ? 0.6 : 1 }}>
+                <button onClick={() => handleSendToPaycor()} disabled={submitResult?.running || allSent} style={{ ...btn(th, { background: '#FF671F' }), opacity: (submitResult?.running || allSent) ? 0.6 : 1 }}>
                   {submitResult?.running ? 'Sending…' : allSent ? 'Sent' : 'Send to Paycor'}
                 </button>
               );
